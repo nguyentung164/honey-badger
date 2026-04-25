@@ -1,0 +1,1009 @@
+import { ipcMain, shell } from 'electron'
+import l from 'electron-log'
+import { IPC } from 'main/constants'
+import { getLocalPrMergeConflicts } from '../git/prMergeConflicts'
+import { getGitInstance } from '../git/utils'
+import { getRemotes as gitGetRemotes } from '../git/remote'
+import {
+  getGithubToken,
+  githubClient,
+  createPullRequestIssueComment,
+  createPullRequestReviewApproval,
+  fetchGithubRestRateLimit,
+  githubDeleteRemoteBranch,
+  githubListRefCommitMessages,
+  markPullRequestReadyForReview,
+  markPullRequestAsDraft,
+  closePullRequest,
+  updatePullRequestBranch,
+  listPullRequestFiles,
+  listPullRequestConversation,
+  githubRemoteBranchesExistenceMap,
+  hasGithubToken,
+  parseRemoteUrl,
+  removeGithubToken,
+  resetGithubClient,
+  setGithubToken,
+  testGithubToken,
+} from '../git-hosting'
+import type { PullRequestSummary } from '../git-hosting/types'
+import { applyPullRequestToCheckpoints, onPrMerged } from '../pr-automation/engine'
+import { getSourceFoldersByProject } from '../task/mysqlTaskStore'
+import {
+  deleteAutomation,
+  deleteCheckpointTemplate,
+  deletePrRepo,
+  deleteTrackedBranch,
+  getPrRepoById,
+  listAutomations,
+  listCheckpointTemplates,
+  listPrRepos,
+  listTrackedBranches,
+  reorderCheckpointTemplates,
+  seedDefaultCheckpointTemplates,
+  setAutomationActive,
+  upsertAutomation,
+  upsertCheckpointTemplate,
+  upsertPrRepo,
+  upsertTrackedBranch,
+  updateTrackedBranchStatusNote,
+} from '../task/mysqlPrTrackingStore'
+import { detectVersionControl } from '../utils/versionControlDetector'
+
+function errResp(err: unknown) {
+  const msg = err instanceof Error ? err.message : String(err)
+  l.error('PR IPC error:', msg)
+  return { status: 'error' as const, message: msg }
+}
+
+async function runInBatches<T>(items: T[], batchSize: number, worker: (item: T) => Promise<void>): Promise<void> {
+  for (let i = 0; i < items.length; i += batchSize) {
+    await Promise.all(items.slice(i, i + batchSize).map(worker))
+  }
+}
+
+export function registerPrIpcHandlers(): void {
+  l.info('Registering PR Manager IPC Handlers...')
+
+  // ========== Token ==========
+  ipcMain.handle(IPC.PR.TOKEN_SET, async (_e, token: string) => {
+    const res = setGithubToken(token)
+    if (res.success) {
+      resetGithubClient()
+      const test = await testGithubToken()
+      return { status: test.ok ? 'success' : 'error', login: test.login, message: test.error }
+    }
+    return { status: 'error', message: res.error }
+  })
+
+  ipcMain.handle(IPC.PR.TOKEN_CHECK, async () => {
+    if (!hasGithubToken()) return { status: 'error', message: 'No token configured' }
+    const test = await testGithubToken()
+    return { status: test.ok ? 'success' : 'error', login: test.login, message: test.error }
+  })
+
+  ipcMain.handle(IPC.PR.TOKEN_REMOVE, async () => {
+    removeGithubToken()
+    resetGithubClient()
+    return { status: 'success' }
+  })
+
+  ipcMain.handle(IPC.PR.RATE_LIMIT_GET, async () => {
+    try {
+      if (!getGithubToken()) {
+        return { status: 'error' as const, message: 'GitHub token ch\u01b0a c\u1ea5u h\u00ecnh.' }
+      }
+      const data = await fetchGithubRestRateLimit()
+      return { status: 'success' as const, data }
+    } catch (err) {
+      return errResp(err)
+    }
+  })
+
+  // ========== Repos ==========
+  ipcMain.handle(IPC.PR.REPO_LIST, async (_e, projectId: string) => {
+    try {
+      const list = await listPrRepos(projectId)
+      return { status: 'success', data: list }
+    } catch (err) {
+      return errResp(err)
+    }
+  })
+
+  ipcMain.handle(
+    IPC.PR.REPO_UPSERT,
+    async (
+      _e,
+      input: {
+        id?: string
+        projectId: string
+        name: string
+        localPath?: string | null
+        remoteUrl: string
+        defaultBaseBranch?: string | null
+      }
+    ) => {
+      try {
+        const parsed = parseRemoteUrl(input.remoteUrl)
+        if (!parsed) {
+          return { status: 'error', message: 'Remote URL kh\u00f4ng h\u1ee3p l\u1ec7 (ch\u1ec9 h\u1ed7 tr\u1ee3 GitHub).' }
+        }
+        const row = await upsertPrRepo({
+          id: input.id,
+          projectId: input.projectId,
+          name: input.name,
+          localPath: input.localPath ?? null,
+          remoteUrl: input.remoteUrl,
+          hosting: 'github',
+          owner: parsed.owner,
+          repo: parsed.repo,
+          defaultBaseBranch: input.defaultBaseBranch ?? 'stage',
+        })
+        return { status: 'success', data: row }
+      } catch (err) {
+        return errResp(err)
+      }
+    }
+  )
+
+  ipcMain.handle(IPC.PR.REPO_REMOVE, async (_e, id: string) => {
+    try {
+      await deletePrRepo(id)
+      return { status: 'success' }
+    } catch (err) {
+      return errResp(err)
+    }
+  })
+
+  ipcMain.handle(IPC.PR.REPO_AUTODETECT, async (_e, userId: string, projectId: string) => {
+    try {
+      const folders = await getSourceFoldersByProject(userId, projectId)
+      const added: Array<{ name: string; owner: string; repo: string; path: string }> = []
+      const skipped: Array<{ path: string; reason: string }> = []
+      for (const folder of folders) {
+        const det = await detectVersionControl(folder.path)
+        if (det.type !== 'git' || !det.isValid) {
+          skipped.push({ path: folder.path, reason: 'Not a git repository' })
+          continue
+        }
+        const remotes = await gitGetRemotes(folder.path)
+        const list = (remotes.data ?? []) as Array<{ name: string; refs: { fetch?: string; push?: string } }>
+        const origin = list.find(r => r.name === 'origin') ?? list[0]
+        const url = origin?.refs?.fetch || origin?.refs?.push
+        if (!url) {
+          skipped.push({ path: folder.path, reason: 'No remote URL' })
+          continue
+        }
+        const parsed = parseRemoteUrl(url)
+        if (!parsed) {
+          skipped.push({ path: folder.path, reason: 'Not a GitHub remote' })
+          continue
+        }
+        await upsertPrRepo({
+          projectId,
+          name: folder.name,
+          localPath: folder.path,
+          remoteUrl: url,
+          hosting: 'github',
+          owner: parsed.owner,
+          repo: parsed.repo,
+          defaultBaseBranch: 'stage',
+        })
+        added.push({ name: folder.name, owner: parsed.owner, repo: parsed.repo, path: folder.path })
+      }
+      return { status: 'success', data: { added, skipped } }
+    } catch (err) {
+      return errResp(err)
+    }
+  })
+
+  // ========== Templates ==========
+  ipcMain.handle(IPC.PR.TEMPLATE_LIST, async (_e, projectId: string) => {
+    try {
+      const list = await listCheckpointTemplates(projectId)
+      return { status: 'success', data: list }
+    } catch (err) {
+      return errResp(err)
+    }
+  })
+
+  ipcMain.handle(
+    IPC.PR.TEMPLATE_UPSERT,
+    async (
+      _e,
+      input: {
+        id?: string
+        projectId: string
+        code: string
+        label: string
+        targetBranch?: string | null
+        sortOrder?: number
+        isActive?: boolean
+      }
+    ) => {
+      try {
+        const row = await upsertCheckpointTemplate(input)
+        return { status: 'success', data: row }
+      } catch (err) {
+        return errResp(err)
+      }
+    }
+  )
+
+  ipcMain.handle(IPC.PR.TEMPLATE_DELETE, async (_e, id: string) => {
+    try {
+      await deleteCheckpointTemplate(id)
+      return { status: 'success' }
+    } catch (err) {
+      return errResp(err)
+    }
+  })
+
+  ipcMain.handle(IPC.PR.TEMPLATE_REORDER, async (_e, projectId: string, orderedIds: string[]) => {
+    try {
+      await reorderCheckpointTemplates(projectId, orderedIds)
+      return { status: 'success' }
+    } catch (err) {
+      return errResp(err)
+    }
+  })
+
+  ipcMain.handle(IPC.PR.TEMPLATE_SEED_DEFAULT, async (_e, projectId: string) => {
+    try {
+      await seedDefaultCheckpointTemplates(projectId)
+      const list = await listCheckpointTemplates(projectId)
+      return { status: 'success', data: list }
+    } catch (err) {
+      return errResp(err)
+    }
+  })
+
+  // ========== Tracked Branches ==========
+  ipcMain.handle(IPC.PR.TRACKED_LIST, async (_e, projectId: string) => {
+    try {
+      const list = await listTrackedBranches(projectId)
+      return { status: 'success', data: list }
+    } catch (err) {
+      return errResp(err)
+    }
+  })
+
+  ipcMain.handle(
+    IPC.PR.TRACKED_UPSERT,
+    async (
+      _e,
+      input: {
+        id?: string
+        projectId: string
+        repoId: string
+        branchName: string
+        assigneeUserId?: string | null
+        note?: string | null
+      }
+    ) => {
+      try {
+        const row = await upsertTrackedBranch(input)
+        return { status: 'success', data: row }
+      } catch (err) {
+        return errResp(err)
+      }
+    }
+  )
+
+  ipcMain.handle(
+    IPC.PR.TRACKED_UPDATE_STATUS_NOTE,
+    async (
+      _e,
+      id: string,
+      patch: { note?: string | null; assigneeUserId?: string | null }
+    ) => {
+      try {
+        await updateTrackedBranchStatusNote(id, patch)
+        return { status: 'success' }
+      } catch (err) {
+        return errResp(err)
+      }
+    }
+  )
+
+  ipcMain.handle(IPC.PR.TRACKED_DELETE, async (_e, id: string) => {
+    try {
+      await deleteTrackedBranch(id)
+      return { status: 'success' }
+    } catch (err) {
+      return errResp(err)
+    }
+  })
+
+  // ========== Sync PRs from GitHub (open + closed/merged) ==========
+  ipcMain.handle(IPC.PR.TRACKED_SYNC_FROM_GITHUB, async (e, projectId: string) => {
+    try {
+      if (!getGithubToken()) {
+        return { status: 'error', message: 'GitHub token ch\u01b0a c\u1ea5u h\u00ecnh.' }
+      }
+      const repos = await listPrRepos(projectId)
+      const templates = await listCheckpointTemplates(projectId)
+      const trackedRows = await listTrackedBranches(projectId)
+      const perPage = 100
+      const maxPages = 5
+      const branchUpsertConcurrency = 8
+      const openPrDetailConcurrency = 6
+      const prApplyConcurrency = 4
+      let branchesSynced = 0
+      let synced = 0
+      const errors: string[] = []
+      const targetBranches = new Set(
+        templates
+          .map(t => t.targetBranch?.trim().toLowerCase())
+          .filter((v): v is string => Boolean(v))
+      )
+      const trackedBranchNamesByRepo = new Map<string, Set<string>>()
+      for (const row of trackedRows) {
+        const names = trackedBranchNamesByRepo.get(row.repoId) ?? new Set<string>()
+        names.add(row.branchName.trim().toLowerCase())
+        trackedBranchNamesByRepo.set(row.repoId, names)
+      }
+      const sendProgress = (done: number) => {
+        e.sender.send(IPC.PR.EVENT_TRACKED_SYNC_PROGRESS, {
+          projectId,
+          done,
+          total: repos.length,
+          percent: repos.length === 0 ? 100 : Math.round((done / repos.length) * 100),
+        })
+      }
+
+      const pairKey = (head: string, base: string) => `${head.trim().toLowerCase()}\0${base.trim().toLowerCase()}`
+
+      // Tu\u1ea7n t\u1ef1 t\u1eebng repo (tr\u00e1nh b\u1ea3n song song nhi\u1ec1u listPRs/getPR + ph\u00e2n trang \u2192 rate limit GitHub).
+      sendProgress(0)
+      for (let repoIndex = 0; repoIndex < repos.length; repoIndex++) {
+        const repo = repos[repoIndex]
+        try {
+          const existingBranchNames = trackedBranchNamesByRepo.get(repo.id) ?? new Set<string>()
+          trackedBranchNamesByRepo.set(repo.id, existingBranchNames)
+          const skippedBranchNames = new Set(targetBranches)
+          if (repo.defaultBaseBranch?.trim()) skippedBranchNames.add(repo.defaultBaseBranch.trim().toLowerCase())
+
+          const remoteBranchesPromise = githubClient.listBranches(repo.owner, repo.repo)
+          const bestPullRequestsPromise = (async () => {
+            const best = new Map<string, PullRequestSummary>()
+            for (let page = 1; page <= maxPages; page++) {
+              const batch = await githubClient.listPRs({
+                owner: repo.owner,
+                repo: repo.repo,
+                state: 'all',
+                perPage,
+                page,
+              })
+              for (const pr of batch) {
+                const k = pairKey(pr.head, pr.base)
+                if (!best.has(k)) best.set(k, pr)
+              }
+              if (batch.length < perPage) break
+            }
+            return best
+          })()
+
+          const [remoteBranches, best] = await Promise.all([remoteBranchesPromise, bestPullRequestsPromise])
+          const newRemoteBranches = remoteBranches
+            .map(branchName => branchName.trim())
+            .filter(branchName => {
+              const normalizedKey = branchName.toLowerCase()
+              return branchName && !skippedBranchNames.has(normalizedKey) && !existingBranchNames.has(normalizedKey)
+            })
+
+          await runInBatches(newRemoteBranches, branchUpsertConcurrency, async branchName => {
+            const normalizedKey = branchName.toLowerCase()
+            if (existingBranchNames.has(normalizedKey)) return
+            await upsertTrackedBranch({
+              projectId,
+              repoId: repo.id,
+              branchName,
+            })
+            existingBranchNames.add(normalizedKey)
+            branchesSynced++
+          })
+
+          const openEntries = [...best.entries()].filter(([, p]) => p.state === 'open')
+          const CONC = openPrDetailConcurrency
+          for (let i = 0; i < openEntries.length; i += CONC) {
+            const slice = openEntries.slice(i, i + CONC)
+            await Promise.all(
+              slice.map(async ([key, base]) => {
+                try {
+                  const detailed = await githubClient.getPR(repo.owner, repo.repo, base.number)
+                  best.set(key, detailed)
+                } catch {
+                  // getPR l\u1ed7i \u2192 gi\u1eef d\u1eef li\u1ec7u list
+                }
+              })
+            )
+          }
+
+          await runInBatches([...best.values()], prApplyConcurrency, async pr => {
+            try {
+              await applyPullRequestToCheckpoints({ projectId, repoId: repo.id, pr })
+              synced++
+            } catch {
+              // thi\u1ebfu template checkpoint \u2014 b\u1ecf qua
+            }
+          })
+        } catch (err: any) {
+          errors.push(`${repo.owner}/${repo.repo}: ${err?.message || err}`)
+        }
+        sendProgress(repoIndex + 1)
+      }
+      return { status: 'success', data: { synced, branchesSynced, errors } }
+    } catch (err) {
+      return errResp(err)
+    }
+  })
+
+  // ========== PR Operations ==========
+  ipcMain.handle(
+    IPC.PR.PR_CREATE,
+    async (
+      _e,
+      input: {
+        projectId: string
+        repoId: string
+        owner: string
+        repo: string
+        title: string
+        body?: string
+        head: string
+        base: string
+        draft?: boolean
+        openInBrowser?: boolean
+        assigneeUserId?: string | null
+      }
+    ) => {
+      try {
+        if (!getGithubToken()) {
+          return { status: 'error', message: 'GitHub token ch\u01b0a c\u1ea5u h\u00ecnh.' }
+        }
+        const pr = await githubClient.createPR({
+          owner: input.owner,
+          repo: input.repo,
+          title: input.title,
+          body: input.body,
+          head: input.head,
+          base: input.base,
+          draft: input.draft,
+        })
+        // PR \u0111\u00e3 t\u1ea1o th\u00e0nh c\u00f4ng \u2014 tracking kh\u00f4ng \u0111\u01b0\u1ee3c l\u00e0m fail c\u1ea3 request
+        let trackingError: string | undefined
+        try {
+          await upsertTrackedBranch({
+            projectId: input.projectId,
+            repoId: input.repoId,
+            branchName: input.head,
+            assigneeUserId: input.assigneeUserId ?? null,
+          })
+          await applyPullRequestToCheckpoints({ projectId: input.projectId, repoId: input.repoId, pr })
+        } catch (err) {
+          trackingError = err instanceof Error ? err.message : String(err)
+          l.warn('PR tracking upsert failed after successful create:', trackingError)
+        }
+        if (input.openInBrowser) {
+          shell.openExternal(pr.htmlUrl).catch(() => {})
+        }
+        return { status: 'success' as const, data: pr, trackingError }
+      } catch (err) {
+        return errResp(err)
+      }
+    }
+  )
+
+  ipcMain.handle(
+    IPC.PR.PR_MERGE,
+    async (
+      _e,
+      input: {
+        projectId: string
+        repoId: string
+        owner: string
+        repo: string
+        number: number
+        method: 'squash' | 'merge' | 'rebase'
+        commitTitle?: string
+        commitMessage?: string
+      }
+    ) => {
+      try {
+        if (!getGithubToken()) {
+          return { status: 'error', message: 'GitHub token ch\u01b0a c\u1ea5u h\u00ecnh.' }
+        }
+        const merged = await githubClient.mergePR({
+          owner: input.owner,
+          repo: input.repo,
+          number: input.number,
+          method: input.method,
+          commitTitle: input.commitTitle,
+          commitMessage: input.commitMessage,
+        })
+        if (merged.merged) {
+          try {
+            const pr = await githubClient.getPR(input.owner, input.repo, input.number)
+            await onPrMerged({
+              projectId: input.projectId,
+              repoId: input.repoId,
+              prNumber: input.number,
+              sourceBranch: pr.head,
+              targetBranch: pr.base,
+              prTitle: pr.title,
+              prUrl: pr.htmlUrl,
+              github: { draft: pr.draft, state: pr.state, merged: pr.merged },
+              prAuthor: pr.author ?? null,
+              mergedAt: pr.mergedAt ?? new Date().toISOString(),
+              mergedBy: pr.mergedBy ?? null,
+            })
+          } catch (err) {
+            l.warn('Post-merge automation error:', err)
+          }
+        }
+        return { status: 'success', data: merged }
+      } catch (err) {
+        return errResp(err)
+      }
+    }
+  )
+
+  ipcMain.handle(
+    IPC.PR.PR_LIST,
+    async (
+      _e,
+      input: { owner: string; repo: string; state?: 'open' | 'closed' | 'all'; base?: string; head?: string }
+    ) => {
+      try {
+        const list = await githubClient.listPRs({
+          owner: input.owner,
+          repo: input.repo,
+          state: input.state,
+          base: input.base,
+          head: input.head,
+        })
+        return { status: 'success', data: list }
+      } catch (err) {
+        return errResp(err)
+      }
+    }
+  )
+
+  ipcMain.handle(
+    IPC.PR.PR_GET,
+    async (_e, input: { owner: string; repo: string; number: number }) => {
+      try {
+        const pr = await githubClient.getPR(input.owner, input.repo, input.number)
+        return { status: 'success', data: pr }
+      } catch (err) {
+        return errResp(err)
+      }
+    }
+  )
+
+  ipcMain.handle(
+    IPC.PR.PR_GET_COMMITS,
+    async (_e, input: { owner: string; repo: string; number: number }) => {
+      try {
+        const list = await githubClient.getPRCommits(input.owner, input.repo, input.number)
+        return { status: 'success', data: list }
+      } catch (err) {
+        return errResp(err)
+      }
+    }
+  )
+
+  ipcMain.handle(
+    IPC.PR.PR_LOCAL_MERGE_CONFLICTS,
+    async (_e, input: { repoId: string; prNumber: number; base: string; headSha: string }) => {
+      try {
+        const prRepo = await getPrRepoById(input.repoId)
+        const cwd = prRepo?.localPath?.trim()
+        if (!cwd) {
+          return {
+            status: 'unavailable' as const,
+            reason: 'noLocalPath' as const,
+            message: 'Kho ch\u01b0a c\u00f3 \u0111\u01b0\u1eddng d\u1eabn c\u1ee5c b\u1ed9.',
+          }
+        }
+        const b = (input.base || '').trim()
+        const h = (input.headSha || '').trim()
+        if (!b || !h) {
+          return { status: 'unavailable' as const, reason: 'missing' as const, message: 'Thi\u1ebfu base ho\u1eb7c head SHA.' }
+        }
+        const data = await getLocalPrMergeConflicts(cwd, input.prNumber, b, h)
+        return { status: 'success' as const, data }
+      } catch (err) {
+        return { status: 'error' as const, message: (err as Error).message }
+      }
+    }
+  )
+
+  ipcMain.handle(
+    IPC.PR.PR_FILES_LIST,
+    async (_e, input: { owner: string; repo: string; number: number }) => {
+      try {
+        if (!getGithubToken()) {
+          return { status: 'error' as const, message: 'GitHub token ch\u01b0a c\u1ea5u h\u00ecnh.' }
+        }
+        const data = await listPullRequestFiles(input.owner, input.repo, input.number)
+        return { status: 'success' as const, data }
+      } catch (err) {
+        return errResp(err)
+      }
+    }
+  )
+
+  ipcMain.handle(
+    IPC.PR.PR_ISSUE_COMMENTS_LIST,
+    async (_e, input: { owner: string; repo: string; number: number }) => {
+      try {
+        if (!getGithubToken()) {
+          return { status: 'error' as const, message: 'GitHub token ch\u01b0a c\u1ea5u h\u00ecnh.' }
+        }
+        const data = await listPullRequestConversation(input.owner, input.repo, input.number)
+        return { status: 'success' as const, data }
+      } catch (err) {
+        return errResp(err)
+      }
+    }
+  )
+
+  ipcMain.handle(
+    IPC.PR.PR_ISSUE_COMMENT_CREATE,
+    async (_e, input: { owner: string; repo: string; number: number; body: string }) => {
+      try {
+        if (!getGithubToken()) {
+          return { status: 'error' as const, message: 'GitHub token ch\u01b0a c\u1ea5u h\u00ecnh.' }
+        }
+        const b = (input.body ?? '').trim()
+        if (!b) {
+          return { status: 'error' as const, message: 'N\u1ed9i dung b\u00ecnh lu\u1eadn tr\u1ed1ng.' }
+        }
+        const data = await createPullRequestIssueComment(input.owner, input.repo, input.number, b)
+        return { status: 'success' as const, data }
+      } catch (err) {
+        return errResp(err)
+      }
+    }
+  )
+
+  ipcMain.handle(
+    IPC.PR.PR_REVIEW_APPROVE,
+    async (_e, input: { owner: string; repo: string; number: number; headSha: string; body?: string }) => {
+      try {
+        if (!getGithubToken()) {
+          return { status: 'error' as const, message: 'GitHub token ch\u01b0a c\u1ea5u h\u00ecnh.' }
+        }
+        const data = await createPullRequestReviewApproval(
+          input.owner,
+          input.repo,
+          input.number,
+          input.headSha,
+          input.body
+        )
+        return { status: 'success' as const, data }
+      } catch (err) {
+        return errResp(err)
+      }
+    }
+  )
+
+  ipcMain.handle(
+    IPC.PR.PR_MARK_READY,
+    async (_e, input: { owner: string; repo: string; number: number }) => {
+      try {
+        if (!getGithubToken()) {
+          return { status: 'error' as const, message: 'GitHub token ch\u01b0a c\u1ea5u h\u00ecnh.' }
+        }
+        const data = await markPullRequestReadyForReview(input.owner, input.repo, input.number)
+        return { status: 'success' as const, data }
+      } catch (err) {
+        return errResp(err)
+      }
+    }
+  )
+
+  ipcMain.handle(
+    IPC.PR.PR_MARK_DRAFT,
+    async (_e, input: { owner: string; repo: string; number: number }) => {
+      try {
+        if (!getGithubToken()) {
+          return { status: 'error' as const, message: 'GitHub token ch\u01b0a c\u1ea5u h\u00ecnh.' }
+        }
+        const data = await markPullRequestAsDraft(input.owner, input.repo, input.number)
+        return { status: 'success' as const, data }
+      } catch (err) {
+        return errResp(err)
+      }
+    }
+  )
+
+  ipcMain.handle(
+    IPC.PR.PR_CLOSE,
+    async (_e, input: { owner: string; repo: string; number: number }) => {
+      try {
+        if (!getGithubToken()) {
+          return { status: 'error' as const, message: 'GitHub token ch\u01b0a c\u1ea5u h\u00ecnh.' }
+        }
+        const data = await closePullRequest(input.owner, input.repo, input.number)
+        return { status: 'success' as const, data }
+      } catch (err) {
+        return errResp(err)
+      }
+    }
+  )
+
+  ipcMain.handle(
+    IPC.PR.PR_UPDATE_BRANCH,
+    async (_e, input: { owner: string; repo: string; number: number; expectedHeadSha?: string | null }) => {
+      try {
+        if (!getGithubToken()) {
+          return { status: 'error' as const, message: 'GitHub token ch\u01b0a c\u1ea5u h\u00ecnh.' }
+        }
+        const data = await updatePullRequestBranch(
+          input.owner,
+          input.repo,
+          input.number,
+          input.expectedHeadSha ?? undefined
+        )
+        return { status: 'success' as const, data }
+      } catch (err) {
+        return errResp(err)
+      }
+    }
+  )
+
+  ipcMain.handle(
+    IPC.PR.BRANCH_LIST_REMOTE,
+    async (_e, input: { owner: string; repo: string }) => {
+      try {
+        const list = await githubClient.listBranches(input.owner, input.repo)
+        return { status: 'success', data: list }
+      } catch (err) {
+        return errResp(err)
+      }
+    }
+  )
+
+  ipcMain.handle(
+    IPC.PR.GITHUB_REMOTE_BRANCHES_EXIST,
+    async (_e, items: { id: string; owner: string; repo: string; branch: string }[]) => {
+      try {
+        if (!getGithubToken()) {
+          return { status: 'error' as const, message: 'GitHub token ch\u01b0a c\u1ea5u h\u00ecnh.' }
+        }
+        if (!Array.isArray(items) || items.length === 0) {
+          return { status: 'success' as const, data: {} as Record<string, boolean> }
+        }
+        const out = await githubRemoteBranchesExistenceMap(items)
+        return { status: 'success' as const, data: out }
+      } catch (err) {
+        return errResp(err)
+      }
+    }
+  )
+
+  ipcMain.handle(
+    IPC.PR.GITHUB_DELETE_REMOTE_BRANCH,
+    async (_e, input: { owner: string; repo: string; branch: string; repoId: string }) => {
+      try {
+        if (!getGithubToken()) {
+          return { status: 'error' as const, message: 'GitHub token ch\u01b0a c\u1ea5u h\u00ecnh.' }
+        }
+        const prRepo = await getPrRepoById(input.repoId)
+        await githubDeleteRemoteBranch(input.owner, input.repo, input.branch, {
+          defaultBaseBranch: prRepo?.defaultBaseBranch ?? null,
+        })
+        return { status: 'success' as const }
+      } catch (err) {
+        return errResp(err)
+      }
+    }
+  )
+
+  ipcMain.handle(
+    IPC.PR.REF_COMMIT_MESSAGES,
+    async (_e, input: { owner: string; repo: string; ref: string; maxCommits?: number }) => {
+      try {
+        if (!getGithubToken()) {
+          return { status: 'error' as const, message: 'GitHub token ch\u01b0a c\u1ea5u h\u00ecnh.' }
+        }
+        const list = await githubListRefCommitMessages(
+          input.owner,
+          input.repo,
+          input.ref,
+          input.maxCommits ?? 500
+        )
+        return { status: 'success' as const, data: list }
+      } catch (err) {
+        return errResp(err)
+      }
+    }
+  )
+
+  ipcMain.handle(
+    IPC.PR.BRANCH_LAST_COMMIT_MESSAGE,
+    async (_e, input: { owner: string; repo: string; branch: string }) => {
+      try {
+        const msg = await githubClient.getLatestCommitMessage(input.owner, input.repo, input.branch)
+        return { status: 'success', data: msg }
+      } catch (err) {
+        return errResp(err)
+      }
+    }
+  )
+
+  ipcMain.handle(
+    IPC.PR.LOCAL_LAST_COMMIT_MESSAGE,
+    async (_e, input: { cwd: string; branch?: string }) => {
+      try {
+        const git = await getGitInstance(input.cwd)
+        if (!git) return { status: 'error', message: 'Not a git repository' }
+        const log = await git.log({ maxCount: 1, ...(input.branch ? { from: input.branch } : {}) } as any)
+        const latest = log.latest
+        return { status: 'success', data: latest?.message ?? null }
+      } catch (err) {
+        return errResp(err)
+      }
+    }
+  )
+
+  // ========== Branch log + destructive ops (reset --hard / push --force) ==========
+  ipcMain.handle(
+    IPC.PR.BRANCH_COMMITS,
+    async (_e, input: { owner: string; repo: string; branch: string; perPage?: number }) => {
+      try {
+        if (!getGithubToken()) {
+          return { status: 'error' as const, message: 'GitHub token chưa cấu hình.' }
+        }
+        const list = await githubClient.listBranchCommits(
+          input.owner,
+          input.repo,
+          input.branch,
+          input.perPage ?? 50
+        )
+        return { status: 'success' as const, data: list }
+      } catch (err) {
+        return errResp(err)
+      }
+    }
+  )
+
+  /**
+   * Auto: fetch --all --prune → checkout <branch> (tạo local tracking nếu chưa có)
+   *   → reset --hard <sha>.
+   * Yêu cầu pr_repos.local_path phải tồn tại.
+   */
+  ipcMain.handle(
+    IPC.PR.BRANCH_RESET_HARD,
+    async (_e, input: { repoId: string; branch: string; sha: string }) => {
+      try {
+        const branch = input.branch?.trim()
+        const sha = input.sha?.trim()
+        if (!branch || !sha) return { status: 'error', message: 'Thiếu branch hoặc sha.' }
+        const prRepo = await getPrRepoById(input.repoId)
+        const cwd = prRepo?.localPath?.trim()
+        if (!cwd) {
+          return {
+            status: 'error',
+            message: 'Repo này chưa có đường dẫn local. Vào tab Repos để cấu hình local path.',
+          }
+        }
+        const git = await getGitInstance(cwd)
+        if (!git) return { status: 'error', message: 'Không khởi tạo được git ở local path.' }
+        l.info(`PR branch reset-hard: ${cwd} branch=${branch} sha=${sha}`)
+        try {
+          await git.raw(['fetch', '--all', '--prune'])
+        } catch (e) {
+          l.warn('fetch all failed, tiếp tục:', (e as Error)?.message)
+        }
+        try {
+          await git.raw(['checkout', branch])
+        } catch {
+          await git.raw(['checkout', '-B', branch, `origin/${branch}`])
+        }
+        await git.raw(['reset', '--hard', sha])
+        return { status: 'success' as const, message: `Đã reset --hard ${sha.slice(0, 7)} trên nhánh ${branch}.` }
+      } catch (err) {
+        return errResp(err)
+      }
+    }
+  )
+
+  /**
+   * Auto: fetch + checkout <branch> → git push --force origin <branch>.
+   */
+  ipcMain.handle(
+    IPC.PR.BRANCH_FORCE_PUSH,
+    async (_e, input: { repoId: string; branch: string }) => {
+      try {
+        const branch = input.branch?.trim()
+        if (!branch) return { status: 'error', message: 'Thiếu branch.' }
+        const prRepo = await getPrRepoById(input.repoId)
+        const cwd = prRepo?.localPath?.trim()
+        if (!cwd) {
+          return {
+            status: 'error',
+            message: 'Repo này chưa có đường dẫn local. Vào tab Repos để cấu hình local path.',
+          }
+        }
+        const git = await getGitInstance(cwd)
+        if (!git) return { status: 'error', message: 'Không khởi tạo được git ở local path.' }
+        l.info(`PR branch force-push: ${cwd} branch=${branch}`)
+        try {
+          await git.raw(['fetch', 'origin', branch])
+        } catch (e) {
+          l.warn('fetch origin branch failed, tiếp tục:', (e as Error)?.message)
+        }
+        try {
+          await git.raw(['checkout', branch])
+        } catch {
+          await git.raw(['checkout', '-B', branch, `origin/${branch}`])
+        }
+        await git.raw(['push', '--force', 'origin', branch])
+        return { status: 'success' as const, message: `Đã push --force ${branch} lên origin.` }
+      } catch (err) {
+        return errResp(err)
+      }
+    }
+  )
+
+  // ========== Automations ==========
+  ipcMain.handle(IPC.PR.AUTOMATION_LIST, async (_e, repoId?: string) => {
+    try {
+      const list = await listAutomations(repoId)
+      return { status: 'success', data: list }
+    } catch (err) {
+      return errResp(err)
+    }
+  })
+
+  ipcMain.handle(
+    IPC.PR.AUTOMATION_UPSERT,
+    async (
+      _e,
+      input: {
+        id?: string
+        repoId: string
+        name?: string | null
+        triggerEvent: string
+        sourcePattern?: string | null
+        targetBranch?: string | null
+        action: string
+        nextTarget?: string | null
+        prTitleTemplate?: string | null
+        prBodyTemplate?: string | null
+        isActive?: boolean
+      }
+    ) => {
+      try {
+        const row = await upsertAutomation(input)
+        return { status: 'success', data: row }
+      } catch (err) {
+        return errResp(err)
+      }
+    }
+  )
+
+  ipcMain.handle(IPC.PR.AUTOMATION_DELETE, async (_e, id: string) => {
+    try {
+      await deleteAutomation(id)
+      return { status: 'success' }
+    } catch (err) {
+      return errResp(err)
+    }
+  })
+
+  ipcMain.handle(IPC.PR.AUTOMATION_TOGGLE, async (_e, id: string, isActive: boolean) => {
+    try {
+      await setAutomationActive(id, isActive)
+      return { status: 'success' }
+    } catch (err) {
+      return errResp(err)
+    }
+  })
+
+  l.info('PR Manager IPC Handlers registered')
+}

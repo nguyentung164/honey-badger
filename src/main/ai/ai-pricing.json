@@ -1,0 +1,36 @@
+{
+  "meta": {
+    "updated": "2026-03-27",
+    "notes": "USD per 1M tokens. Đồng bộ từ trang pricing chính thức từng nhà cung cấp; có thể copy file này vào userData/ai-pricing.json để ghi đè."
+  },
+  "openai": {
+    "gpt-5.4": {
+      "inputPer1M": 2.5,
+      "outputPer1M": 15,
+      "cachedInputPer1M": 0.25
+    },
+    "gpt-5": {
+      "inputPer1M": 1.25,
+      "outputPer1M": 10,
+      "cachedInputPer1M": 0.125
+    },
+    "gpt-4o": {
+      "inputPer1M": 2.5,
+      "outputPer1M": 10,
+      "cachedInputPer1M": 1.25
+    },
+    "gpt-4o-mini": {
+      "inputPer1M": 0.15,
+      "outputPer1M": 0.6,
+      "cachedInputPer1M": 0.075
+    }
+  },
+  "claude": {
+    "claude-sonnet-4-6": { "inputPer1M": 3, "outputPer1M": 15 },
+    "claude-sonnet-4-20250514": { "inputPer1M": 3, "outputPer1M": 15 }
+  },
+  "google": {
+    "gemini-3-flash-preview": { "inputPer1M": 0.075, "outputPer1M": 0.3 },
+    "gemini-2.5-flash-preview-05-20": { "inputPer1M": 0.15, "outputPer1M": 0.6 }
+  }
+}
