@@ -1,8 +1,27 @@
 import { TASK_AUTH_STORAGE_KEY } from '@/stores/useTaskAuthStore'
 
-export type MainShellView = 'vcs' | 'tasks'
+export type MainShellView = 'vcs' | 'tasks' | 'prManager'
 
 export const MAIN_SHELL_VIEW_KEY = 'main-shell-view'
+
+/** PR Manager đang tách cửa sổ riêng (ẩn tab trên title bar). */
+export const MAIN_PR_MANAGER_DETACHED_KEY = 'main-pr-manager-detached'
+
+export function readPersistedPrManagerDetached(): boolean {
+  try {
+    return localStorage.getItem(MAIN_PR_MANAGER_DETACHED_KEY) === '1'
+  } catch {
+    return false
+  }
+}
+
+export function writePersistedPrManagerDetached(detached: boolean): void {
+  try {
+    localStorage.setItem(MAIN_PR_MANAGER_DETACHED_KEY, detached ? '1' : '0')
+  } catch {
+    /* ignore */
+  }
+}
 
 export function isTaskShellRole(role: string | undefined): boolean {
   return role === 'pl' || role === 'pm' || role === 'admin'
@@ -16,7 +35,7 @@ export function canViewTaskChartTab(role: string | undefined): boolean {
 export function readStoredShellView(): MainShellView | null {
   try {
     const v = localStorage.getItem(MAIN_SHELL_VIEW_KEY)
-    if (v === 'vcs' || v === 'tasks') return v
+    if (v === 'vcs' || v === 'tasks' || v === 'prManager') return v
   } catch {
     /* ignore */
   }

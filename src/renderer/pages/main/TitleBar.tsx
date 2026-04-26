@@ -2,14 +2,14 @@
 import { format } from 'date-fns'
 import {
   Archive,
+  ArrowDown,
+  ArrowDownUp,
+  ArrowUp,
   Award,
   BarChart3,
   Bell,
   CalendarDays,
   CheckSquare,
-  ArrowDown,
-  ArrowDownUp,
-  ArrowUp,
   ChevronDown,
   ChevronRight,
   CircleArrowDown,
@@ -35,6 +35,7 @@ import {
   Sparkles,
   Square,
   SquareArrowDown,
+  SquareArrowOutDownLeft,
   Terminal,
   Turtle,
   Undo2,
@@ -113,6 +114,8 @@ interface TitleBarProps {
   shellView?: MainShellView
   onShellViewChange?: (view: MainShellView) => void
   enableShellSwitcher?: boolean
+  prManagerDetached?: boolean
+  onPrManagerDock?: () => void
   onRequestLogin?: () => void
   onRequestChangePassword?: () => void
   hideUndoCommit?: boolean
@@ -122,9 +125,12 @@ interface TitleBarProps {
   hideVcsToolbar?: boolean
   taskToolbarHostRef?: RefCallback<HTMLDivElement>
   taskToolbarActionsHostRef?: RefCallback<HTMLDivElement>
+  prManagerToolbarHostRef?: RefCallback<HTMLDivElement>
 }
 
-const TITLE_BAR_CLOCK_BOX = 'rounded-sm bg-muted! px-1.5 py-0 items-center justify-center text-[12px] font-medium text-foreground'
+/** Cùng chiều cao với khung tab (ToggleGroup `h-[25px]`) bên cạnh. */
+const TITLE_BAR_CLOCK_BOX =
+  'rounded-md bg-muted! px-2 py-0 h-[25px] min-h-[25px] items-center justify-center text-[12px] font-medium text-foreground'
 
 /** 0 = chỉ VN, 1 = chỉ JP, 2 = cả hai — click xoay vòng */
 type TitleBarClockDisplayMode = 0 | 1 | 2
@@ -203,6 +209,8 @@ export const TitleBar = ({
   shellView = 'vcs',
   onShellViewChange,
   enableShellSwitcher = false,
+  prManagerDetached = false,
+  onPrManagerDock,
   onRequestLogin,
   onRequestChangePassword,
   hideUndoCommit: _hideUndoCommit = false,
@@ -212,6 +220,7 @@ export const TitleBar = ({
   hideVcsToolbar = false,
   taskToolbarHostRef,
   taskToolbarActionsHostRef,
+  prManagerToolbarHostRef,
 }: TitleBarProps) => {
   const navigate = useNavigate()
   const { t } = useTranslation()
@@ -270,13 +279,7 @@ export const TitleBar = ({
   const isMultiRepoWorkspace = versionControlSystem === 'git' && !!multiRepoEnabled
   /** Multi-repo workspace: chỉ dùng repo đang chọn trên tab; không fallback `sourceFolder` khi chưa chọn Project (tránh dùng repo single cũ). */
   const gitContextPath =
-    versionControlSystem !== 'git'
-      ? undefined
-      : isMultiRepoWorkspace
-        ? isMultiRepo && activeRepoPathProp
-          ? activeRepoPathProp
-          : undefined
-        : (sourceFolder ?? undefined)
+    versionControlSystem !== 'git' ? undefined : isMultiRepoWorkspace ? (isMultiRepo && activeRepoPathProp ? activeRepoPathProp : undefined) : (sourceFolder ?? undefined)
   const gitContextPathTrimmed = (gitContextPath ?? '').trim()
   /** Có thư mục Git cwd hợp lệ — ẩn branch/sync/stash khi multi-repo chưa chọn project hoặc chưa có repo. */
   const showGitRepoChrome = versionControlSystem === 'git' && !!gitContextPathTrimmed
@@ -652,13 +655,7 @@ export const TitleBar = ({
         setSourceFolders(folders)
 
         const cfgSync = useConfigurationStore.getState()
-        if (
-          cfgSync.versionControlSystem === 'git' &&
-          !!cfgSync.multiRepoEnabled &&
-          user &&
-          !isGuest &&
-          !selectedProjectId?.trim()
-        ) {
+        if (cfgSync.versionControlSystem === 'git' && cfgSync.multiRepoEnabled && user && !isGuest && !selectedProjectId?.trim()) {
           // Multi-repo: chưa chọn Project — không gắn currentFolder / VCS Git với sourceFolder single cũ
           setFolderVCSTypes({})
           setCurrentFolder('')
@@ -870,80 +867,76 @@ export const TitleBar = ({
           const cfgAfterChange = useConfigurationStore.getState()
           const projectIdAfterChange = useSelectedProjectStore.getState().selectedProjectId
           const skipFolderSyncForMultiAwaiting =
-            cfgAfterChange.versionControlSystem === 'git' &&
-            !!cfgAfterChange.multiRepoEnabled &&
-            user &&
-            !isGuest &&
-            !projectIdAfterChange?.trim()
+            cfgAfterChange.versionControlSystem === 'git' && !!cfgAfterChange.multiRepoEnabled && user && !isGuest && !projectIdAfterChange?.trim()
 
           if (skipFolderSyncForMultiAwaiting) {
             setCurrentFolder('')
           } else {
-          // Tìm folder name tương ứng với sourceFolder path (chuẩn hóa path để so sánh)
-          const folder = sourceFolder ? folders.find(f => normalizePathForCompare(f.path) === normalizePathForCompare(sourceFolder)) : undefined
+            // Tìm folder name tương ứng với sourceFolder path (chuẩn hóa path để so sánh)
+            const folder = sourceFolder ? folders.find(f => normalizePathForCompare(f.path) === normalizePathForCompare(sourceFolder)) : undefined
 
-          if (folder) {
-            setCurrentFolder(folder.name)
-            localStorage.setItem('current-source-folder', folder.name)
-            logger.info(`Updated current folder to: ${folder.name}`)
+            if (folder) {
+              setCurrentFolder(folder.name)
+              localStorage.setItem('current-source-folder', folder.name)
+              logger.info(`Updated current folder to: ${folder.name}`)
 
-            const vcsType = vcsTypes[folder.name]
-            if (vcsType && vcsType !== 'none') {
-              logger.info(`Checking VCS updates after configuration change: ${folder.name} (${vcsType})`)
-              checkVCSUpdates(vcsType)
-            }
-          } else if (sourceFolder && sourceFolder.trim() !== '') {
-            // sourceFolder có giá trị (vd user vừa chọn trong Settings) nhưng không có trong list từ API
-            // → Không ghi đè config, chỉ thêm vào list để hiển thị và sync currentFolder
-            const displayName = sourceFolder.split(/[/\\]/).filter(Boolean).pop() || sourceFolder
-            const virtualEntry = { name: displayName, path: sourceFolder }
-            const mergedFolders = folders.some(f => normalizePathForCompare(f.path) === normalizePathForCompare(sourceFolder)) ? folders : [...folders, virtualEntry]
-            setSourceFolders(mergedFolders)
-            setCurrentFolder(virtualEntry.name)
-            localStorage.setItem('current-source-folder', virtualEntry.name)
-            try {
-              const detectResult = await window.api.system.detect_version_control(sourceFolder)
-              if (detectResult.status === 'success' && detectResult.data?.isValid && detectResult.data?.type !== 'none') {
-                setFolderVCSTypes(prev => ({ ...prev, [virtualEntry.name]: detectResult.data?.type as 'git' | 'svn' }))
-                checkVCSUpdates(detectResult.data?.type as 'git' | 'svn')
+              const vcsType = vcsTypes[folder.name]
+              if (vcsType && vcsType !== 'none') {
+                logger.info(`Checking VCS updates after configuration change: ${folder.name} (${vcsType})`)
+                checkVCSUpdates(vcsType)
               }
-            } catch {
-              // ignore
+            } else if (sourceFolder && sourceFolder.trim() !== '') {
+              // sourceFolder có giá trị (vd user vừa chọn trong Settings) nhưng không có trong list từ API
+              // → Không ghi đè config, chỉ thêm vào list để hiển thị và sync currentFolder
+              const displayName = sourceFolder.split(/[/\\]/).filter(Boolean).pop() || sourceFolder
+              const virtualEntry = { name: displayName, path: sourceFolder }
+              const mergedFolders = folders.some(f => normalizePathForCompare(f.path) === normalizePathForCompare(sourceFolder)) ? folders : [...folders, virtualEntry]
+              setSourceFolders(mergedFolders)
+              setCurrentFolder(virtualEntry.name)
+              localStorage.setItem('current-source-folder', virtualEntry.name)
+              try {
+                const detectResult = await window.api.system.detect_version_control(sourceFolder)
+                if (detectResult.status === 'success' && detectResult.data?.isValid && detectResult.data?.type !== 'none') {
+                  setFolderVCSTypes(prev => ({ ...prev, [virtualEntry.name]: detectResult.data?.type as 'git' | 'svn' }))
+                  checkVCSUpdates(detectResult.data?.type as 'git' | 'svn')
+                }
+              } catch {
+                // ignore
+              }
+            } else if (folders.length > 0) {
+              // sourceFolder rỗng hoặc thực sự invalid (folder bị xóa) → fallback và lưu
+              const savedFolder = localStorage.getItem('current-source-folder')
+              const fallbackFolder = (savedFolder ? folders.find(f => f.name === savedFolder) : null) ?? folders[0]
+              setCurrentFolder(fallbackFolder.name)
+              localStorage.setItem('current-source-folder', fallbackFolder.name)
+              setFieldConfiguration('sourceFolder', fallbackFolder.path)
+              await saveConfigurationConfig()
+              logger.warning(`sourceFolder không tìm thấy trong list, đã fallback sang: ${fallbackFolder.name}`)
+              const vcsType = vcsTypes[fallbackFolder.name]
+              if (vcsType && vcsType !== 'none') {
+                checkVCSUpdates(vcsType)
+              }
             }
-          } else if (folders.length > 0) {
-            // sourceFolder rỗng hoặc thực sự invalid (folder bị xóa) → fallback và lưu
-            const savedFolder = localStorage.getItem('current-source-folder')
-            const fallbackFolder = (savedFolder ? folders.find(f => f.name === savedFolder) : null) ?? folders[0]
-            setCurrentFolder(fallbackFolder.name)
-            localStorage.setItem('current-source-folder', fallbackFolder.name)
-            setFieldConfiguration('sourceFolder', fallbackFolder.path)
-            await saveConfigurationConfig()
-            logger.warning(`sourceFolder không tìm thấy trong list, đã fallback sang: ${fallbackFolder.name}`)
-            const vcsType = vcsTypes[fallbackFolder.name]
-            if (vcsType && vcsType !== 'none') {
-              checkVCSUpdates(vcsType)
-            }
-          }
 
-          // Đồng bộ Project theo sourceFolder chỉ khi Project không phải "All": nếu folder thuộc project nào thì chọn project đó.
-          // Khi Project đang là "All" thì không lấy project của sourceFolder — giữ nguyên "All".
-          const currentPath = useConfigurationStore.getState().sourceFolder
-          if (!user || isGuest) {
-            useSelectedProjectStore.getState().setSelectedProjectId(null)
-          } else if (selectedProjectIdRef.current !== null && currentPath && currentPath.trim() !== '') {
-            try {
-              const res = await window.api.task.getProjectIdByUserAndPath(currentPath)
-              if (res.status === 'success' && res.data) {
-                useSelectedProjectStore.getState().setSelectedProjectId(res.data)
-              } else {
+            // Đồng bộ Project theo sourceFolder chỉ khi Project không phải "All": nếu folder thuộc project nào thì chọn project đó.
+            // Khi Project đang là "All" thì không lấy project của sourceFolder — giữ nguyên "All".
+            const currentPath = useConfigurationStore.getState().sourceFolder
+            if (!user || isGuest) {
+              useSelectedProjectStore.getState().setSelectedProjectId(null)
+            } else if (selectedProjectIdRef.current !== null && currentPath && currentPath.trim() !== '') {
+              try {
+                const res = await window.api.task.getProjectIdByUserAndPath(currentPath)
+                if (res.status === 'success' && res.data) {
+                  useSelectedProjectStore.getState().setSelectedProjectId(res.data)
+                } else {
+                  useSelectedProjectStore.getState().setSelectedProjectId(null)
+                }
+              } catch {
                 useSelectedProjectStore.getState().setSelectedProjectId(null)
               }
-            } catch {
+            } else if (selectedProjectIdRef.current !== null && (!currentPath || currentPath.trim() === '')) {
               useSelectedProjectStore.getState().setSelectedProjectId(null)
             }
-          } else if (selectedProjectIdRef.current !== null && (!currentPath || currentPath.trim() === '')) {
-            useSelectedProjectStore.getState().setSelectedProjectId(null)
-          }
           }
         } catch (error) {
           logger.error('Error reloading source folders:', error)
@@ -2169,8 +2162,8 @@ export const TitleBar = ({
       >
         {/* Left: logo + Workspace|Tasks (sát logo) + icon chỉ khi Workspace */}
         <div className="flex items-center h-full shrink-0 min-w-0 gap-0.5">
-          <div className="w-15 h-6 flex justify-center pt-1.5 pl-1 shrink-0">
-            <img src="logo.png" alt="icon" draggable="false" className="w-10 h-3.5 dark:brightness-130" />
+          <div className="w-10 h-6 flex justify-center pt-1.5 pl-1 shrink-0">
+            <img src="logo.png" alt="icon" draggable="false" className="w-3.5 h-3.5 dark:brightness-130" />
           </div>
           <div className="flex shrink-0 items-center justify-center" style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties}>
             <Tooltip>
@@ -2222,22 +2215,14 @@ export const TitleBar = ({
                   </time>
                 </button>
               </TooltipTrigger>
-              <TooltipContent
-                side="bottom"
-                sideOffset={6}
-                className="max-w-[min(320px,92vw)] bg-popover p-2 text-popover-foreground shadow-md"
-              >
+              <TooltipContent side="bottom" sideOffset={6} className="max-w-[min(320px,92vw)] bg-popover p-2 text-popover-foreground shadow-md">
                 <div className="flex flex-col gap-1">
                   <div className="flex items-center gap-2.5">
-                    <Badge
-                      variant="secondary"
-                      className="shrink-0 rounded-md px-1! py-0! text-[12px] font-semibold uppercase tracking-wide tabular-nums shadow-none"
-                    >
+                    <Badge variant="secondary" className="shrink-0 rounded-md px-1! py-0! text-[12px] font-semibold uppercase tracking-wide tabular-nums shadow-none">
                       <TitleBarClockFlagVn size={16} />
                       ICT
                     </Badge>
                     <p className="min-w-0 flex-1 text-[12px] text-foreground tabular-nums flex items-center gap-1">
-
                       {new Intl.DateTimeFormat('vi-VN', {
                         timeZone: 'Asia/Ho_Chi_Minh',
                         dateStyle: 'long',
@@ -2246,15 +2231,11 @@ export const TitleBar = ({
                     </p>
                   </div>
                   <div className="flex items-center gap-2.5">
-                    <Badge
-                      variant="secondary"
-                      className="shrink-0 rounded-md px-1! py-0! text-[12px] font-semibold uppercase tracking-wide tabular-nums shadow-none"
-                    >
+                    <Badge variant="secondary" className="shrink-0 rounded-md px-1! py-0! text-[12px] font-semibold uppercase tracking-wide tabular-nums shadow-none">
                       <TitleBarClockFlagJp size={16} />
                       JST
                     </Badge>
                     <p className="min-w-0 flex-1 text-[12px] text-foreground tabular-nums flex items-center gap-1">
-
                       {new Intl.DateTimeFormat('ja-JP', {
                         timeZone: 'Asia/Tokyo',
                         dateStyle: 'long',
@@ -2272,22 +2253,29 @@ export const TitleBar = ({
                 type="single"
                 value={shellView}
                 onValueChange={v => {
-                  if (v === 'vcs' || v === 'tasks') onShellViewChange(v)
+                  if (v === 'vcs' || v === 'tasks' || v === 'prManager') onShellViewChange(v)
                 }}
                 variant="default"
                 size="sm"
                 spacing={0}
-                className={cn('h-[25px] shrink-0 rounded-lg border-0 shadow-none p-0.5 gap-1', 'bg-muted/50 dark:bg-muted/40 transition-colors duration-200 ease-out')}
+                className={cn(
+                  'h-[25px] shrink-0 rounded-md border-0 shadow-none p-0.5 gap-0.5',
+                  'bg-muted/90 text-muted-foreground dark:bg-muted/45 dark:text-muted-foreground',
+                  'transition-[background-color,color] duration-200 ease-out'
+                )}
               >
                 <ToggleGroupItem
                   value="vcs"
                   aria-label={t('mainShell.workspace')}
                   className={cn(
                     'group h-[21px] px-2 sm:px-2.5 py-0 text-xs gap-1 !rounded-md !border-0 !shadow-none',
-                    'transition-[background-color,color,transform,opacity] duration-200 ease-out motion-reduce:transition-none',
+                    'transition-[color,transform,opacity,font-weight,text-decoration-thickness] duration-200 ease-out motion-reduce:transition-none',
                     'active:scale-[0.98] motion-reduce:active:scale-100',
-                    'bg-transparent text-muted-foreground hover:bg-muted/80 hover:text-foreground',
-                    'data-[state=on]:bg-primary data-[state=on]:text-primary-foreground data-[state=on]:hover:bg-primary/90 data-[state=on]:hover:text-primary-foreground'
+                    'bg-transparent text-muted-foreground hover:bg-muted/60 hover:text-foreground',
+                    'data-[state=on]:bg-transparent data-[state=on]:hover:bg-transparent data-[state=on]:font-bold data-[state=on]:hover:font-bold',
+                    'data-[state=on]:text-emerald-600 data-[state=on]:hover:text-emerald-700 dark:data-[state=on]:text-emerald-400 dark:data-[state=on]:hover:text-emerald-300',
+                    'data-[state=on]:underline data-[state=on]:decoration-emerald-600 data-[state=on]:decoration-2 data-[state=on]:underline-offset-[5px]',
+                    'dark:data-[state=on]:decoration-emerald-400'
                   )}
                 >
                   <Folder className="h-3.5 w-3.5 shrink-0 transition-transform duration-200 ease-out group-data-[state=on]:scale-105 motion-reduce:group-data-[state=on]:scale-100" />
@@ -2298,10 +2286,13 @@ export const TitleBar = ({
                   aria-label={t('mainShell.tasks')}
                   className={cn(
                     'group h-[21px] px-2 sm:px-2.5 py-0 text-xs gap-1 !rounded-md !border-0 !shadow-none',
-                    'transition-[background-color,color,transform,opacity] duration-200 ease-out motion-reduce:transition-none',
+                    'transition-[color,transform,opacity,font-weight,text-decoration-thickness] duration-200 ease-out motion-reduce:transition-none',
                     'active:scale-[0.98] motion-reduce:active:scale-100',
-                    'bg-transparent text-muted-foreground hover:bg-muted/80 hover:text-foreground',
-                    'data-[state=on]:bg-primary data-[state=on]:text-primary-foreground data-[state=on]:hover:bg-primary/90 data-[state=on]:hover:text-primary-foreground'
+                    'bg-transparent text-muted-foreground hover:bg-muted/60 hover:text-foreground',
+                    'data-[state=on]:bg-transparent data-[state=on]:hover:bg-transparent data-[state=on]:font-bold data-[state=on]:hover:font-bold',
+                    'data-[state=on]:text-emerald-600 data-[state=on]:hover:text-emerald-700 dark:data-[state=on]:text-emerald-400 dark:data-[state=on]:hover:text-emerald-300',
+                    'data-[state=on]:underline data-[state=on]:decoration-emerald-600 data-[state=on]:decoration-2 data-[state=on]:underline-offset-[5px]',
+                    'dark:data-[state=on]:decoration-emerald-400'
                   )}
                 >
                   <CheckSquare
@@ -2311,27 +2302,40 @@ export const TitleBar = ({
                   />
                   <span className="hidden sm:inline max-w-[7rem] truncate">{t('mainShell.tasks')}</span>
                 </ToggleGroupItem>
+                {!prManagerDetached && (
+                  <ToggleGroupItem
+                    value="prManager"
+                    aria-label={t('mainShell.prManager')}
+                    className={cn(
+                      'group h-[21px] px-2 sm:px-2.5 py-0 text-xs gap-1 !rounded-md !border-0 !shadow-none',
+                      'transition-[color,transform,opacity,font-weight,text-decoration-thickness] duration-200 ease-out motion-reduce:transition-none',
+                      'active:scale-[0.98] motion-reduce:active:scale-100',
+                      'bg-transparent text-muted-foreground hover:bg-muted/60 hover:text-foreground',
+                      'data-[state=on]:bg-transparent data-[state=on]:hover:bg-transparent data-[state=on]:font-bold data-[state=on]:hover:font-bold',
+                      'data-[state=on]:text-emerald-600 data-[state=on]:hover:text-emerald-700 dark:data-[state=on]:text-emerald-400 dark:data-[state=on]:hover:text-emerald-300',
+                      'data-[state=on]:underline data-[state=on]:decoration-emerald-600 data-[state=on]:decoration-2 data-[state=on]:underline-offset-[5px]',
+                      'dark:data-[state=on]:decoration-emerald-400'
+                    )}
+                  >
+                    <GitPullRequest
+                      strokeWidth={1.25}
+                      absoluteStrokeWidth
+                      className="h-3.5 w-3.5 shrink-0 transition-transform duration-200 ease-out group-data-[state=on]:scale-105 motion-reduce:group-data-[state=on]:scale-100"
+                    />
+                    <span className="hidden sm:inline max-w-[7rem] truncate">{t('mainShell.prManager')}</span>
+                  </ToggleGroupItem>
+                )}
               </ToggleGroup>
             )}
-            {user && !isGuest && (!enableShellSwitcher || shellView === 'vcs') && (
-              <>
-                <Separator orientation="vertical" className="h-4 w-px bg-muted mx-0.5 shrink-0" />
-                <Tooltip>
-                  <TooltipTrigger asChild>
-                    <Button
-                      id="pr-manager-button"
-                      type="button"
-                      variant="link"
-                      size="sm"
-                      onClick={() => window.api.prManager.openWindow()}
-                      className="shadow-none focus-visible:ring-0 focus-visible:ring-offset-0 transition-colors rounded-sm h-[25px] w-[25px] text-emerald-600 dark:text-emerald-400 hover:bg-emerald-50 dark:hover:bg-emerald-900/30 hover:text-emerald-700 dark:hover:text-emerald-300"
-                    >
-                      <GitPullRequest strokeWidth={1.25} absoluteStrokeWidth size={15} className="h-4 w-4" />
-                    </Button>
-                  </TooltipTrigger>
-                  <TooltipContent>{t('prManager.shell.appTitle')}</TooltipContent>
-                </Tooltip>
-              </>
+            {enableShellSwitcher && prManagerDetached && onPrManagerDock && (
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button type="button" variant="ghost" size="icon" className="h-[25px] w-[25px] shrink-0 rounded-sm" onClick={onPrManagerDock}>
+                    <SquareArrowOutDownLeft strokeWidth={1.25} absoluteStrokeWidth className="h-4 w-4" />
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent side="bottom">{t('mainShell.prManagerDockTooltip')}</TooltipContent>
+              </Tooltip>
             )}
             {enableShellSwitcher && shellView === 'vcs' && user && !isGuest && (
               <>
@@ -2447,10 +2451,22 @@ export const TitleBar = ({
                         variant="link"
                         size="sm"
                         onClick={checkForUpdates}
-                        className="shadow-none focus-visible:ring-0 focus-visible:ring-offset-0 hover:bg-muted transition-colors rounded-sm h-[25px] w-[25px] relative"
+                        className="shadow-none focus-visible:ring-0 focus-visible:ring-offset-0 transition-colors rounded-sm h-[25px] w-[25px] relative no-underline hover:no-underline hover:bg-muted"
                       >
-                        <CircleArrowDown strokeWidth={1.25} absoluteStrokeWidth size={15} className="h-4 w-4" />
-                        {status === 'downloaded' && <span className="absolute top-0 right-0 h-2 w-2 rounded-full bg-red-500" />}
+                        <svg width={0} height={0} className="absolute pointer-events-none" aria-hidden>
+                          <defs>
+                            <linearGradient id="titlebar-app-update-stroke-grad" x1="0%" y1="0%" x2="100%" y2="100%" gradientUnits="objectBoundingBox">
+                              <animateTransform attributeName="gradientTransform" type="rotate" from="0 0.5 0.5" to="360 0.5 0.5" dur="5s" repeatCount="indefinite" />
+                              <stop offset="0%" stopColor="#ef4444" />
+                              <stop offset="50%" stopColor="#f97316" />
+                              <stop offset="100%" stopColor="#facc15" />
+                            </linearGradient>
+                          </defs>
+                        </svg>
+                        <span className="titlebar-update-icon-anim">
+                          <CircleArrowDown strokeWidth={1.25} absoluteStrokeWidth size={15} className="h-4 w-4" stroke="url(#titlebar-app-update-stroke-grad)" />
+                        </span>
+                        {status === 'downloaded' && <span className="absolute top-0 right-0 h-2 w-2 rounded-full bg-red-500 ring-2 ring-background" />}
                       </Button>
                     </TooltipTrigger>
                     <TooltipContent>{status === 'downloaded' ? t('title.checkForUpdate1', { 0: newAppVersion }) : t('title.checkForUpdate')}</TooltipContent>
@@ -2503,31 +2519,38 @@ export const TitleBar = ({
           </div>
         </div>
 
-        {/* Task toolbar (portal target) — giữa trái và phải khi tab Tasks */}
+        {/* Download Progress — sát trái (sau logo / shell), trước vùng giữa flex-1 */}
+        {status === 'downloading' && (
+          <div className="flex shrink-0 items-center gap-2 px-2 py-1 bg-muted rounded text-xs" style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties}>
+            <CircleArrowDown className="h-3 w-3 animate-pulse shrink-0" />
+            <Progress value={downloadProgress} className="w-10 h-1.5 shrink-0" />
+            <span className="text-[10px] tabular-nums shrink-0">{downloadProgress.toFixed(1)}%</span>
+            <span className="text-[10px] tabular-nums shrink-0">{downloadSpeed} KB/s</span>
+            <span className="text-[10px] tabular-nums shrink-0">ETA: {downloadEta}</span>
+            <span className="text-[10px] opacity-75 tabular-nums shrink-0">
+              {downloadedMB}/{totalMB}MB
+            </span>
+          </div>
+        )}
+
+        {/* Task toolbar / PR Manager top bar (portal) — giữa trái và phải */}
         {enableShellSwitcher && shellView === 'tasks' && taskToolbarHostRef ? (
           <div
             ref={taskToolbarHostRef}
             className="flex-1 min-w-0 flex items-center h-full overflow-x-auto overflow-y-hidden gap-2 px-1"
             style={{ WebkitAppRegion: 'drag' } as React.CSSProperties}
           />
+        ) : enableShellSwitcher && shellView === 'prManager' && !prManagerDetached && prManagerToolbarHostRef ? (
+          <div
+            ref={prManagerToolbarHostRef}
+            className="flex min-w-0 flex-1 basis-0 w-full items-center h-full overflow-x-auto overflow-y-hidden gap-0 px-0"
+            style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties}
+          />
         ) : (
           <div className="flex-1 min-w-0 shrink" aria-hidden style={{ WebkitAppRegion: 'drag' } as React.CSSProperties} />
         )}
 
-        {/* Download Progress - Inline */}
-        {status === 'downloading' && (
-          <div className="flex items-center gap-2 px-2 py-1 bg-muted rounded text-xs" style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties}>
-            <CircleArrowDown className="h-3 w-3 animate-pulse" />
-            <Progress value={downloadProgress} className="w-16 h-1.5" />
-            <span className="text-[10px]">{downloadProgress.toFixed(1)}%</span>
-            <span className="text-[10px]">{downloadSpeed} KB/s</span>
-            <span className="text-[10px]">ETA: {downloadEta}</span>
-            <span className="text-[10px] opacity-75">
-              {downloadedMB}/{totalMB}MB
-            </span>
-          </div>
-        )}
-        <div className="flex shrink-0 gap-1 items-center" style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties}>
+        <div className="flex shrink-0 gap-1 items-center h-full" style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties}>
           {showVcsChrome && (
             <div className="flex gap-1 items-center justify-center h-full" style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties}>
               {/* Terminal Button - single-repo: current folder; multi-repo: repo của tab active */}
@@ -2762,17 +2785,9 @@ export const TitleBar = ({
 
                               const isCurrent = currentBranch === branch
                               return (
-                                <DropdownMenuItem
-                                  key={branch}
-                                  onClick={() => setTimeout(() => switchBranch(branch), 0)}
-                                  className={isCurrent ? 'bg-muted/60' : ''}
-                                >
+                                <DropdownMenuItem key={branch} onClick={() => setTimeout(() => switchBranch(branch), 0)} className={isCurrent ? 'bg-muted/60' : ''}>
                                   <GitBranch className={`h-3 w-3 mr-2 shrink-0 ${isCurrent ? 'text-green-600 dark:text-green-400' : ''}`} />
-                                  <span
-                                    className={`flex-1 truncate ${isCurrent ? 'font-medium text-green-600 dark:text-green-400' : ''}`}
-                                  >
-                                    {branch}
-                                  </span>
+                                  <span className={`flex-1 truncate ${isCurrent ? 'font-medium text-green-600 dark:text-green-400' : ''}`}>{branch}</span>
                                   <div className="ml-2 flex shrink-0 items-center gap-1">
                                     {ahead > 0 && <span className="flex items-center text-[10px] text-green-600 dark:text-green-400">↑{ahead}</span>}
                                     {behind > 0 && <span className="flex items-center text-[10px] text-red-600 dark:text-red-400">↓{behind}</span>}
@@ -3114,9 +3129,7 @@ export const TitleBar = ({
                     {user?.role === 'admin' && (
                       <>
                         <DropdownMenuGroup>
-                          <DropdownMenuLabel className="text-xs font-semibold text-muted-foreground">
-                            {t('title.userMenu.demo')}
-                          </DropdownMenuLabel>
+                          <DropdownMenuLabel className="text-xs font-semibold text-muted-foreground">{t('title.userMenu.demo')}</DropdownMenuLabel>
                           <DropdownMenuSub>
                             <DropdownMenuSubTrigger>
                               <Award className="h-4 w-4 text-orange-500" />
@@ -3153,9 +3166,7 @@ export const TitleBar = ({
                       </>
                     )}
                     <DropdownMenuGroup>
-                      <DropdownMenuLabel className="text-xs font-semibold text-muted-foreground">
-                        {t('title.userMenu.personal')}
-                      </DropdownMenuLabel>
+                      <DropdownMenuLabel className="text-xs font-semibold text-muted-foreground">{t('title.userMenu.personal')}</DropdownMenuLabel>
                       <DropdownMenuItem onClick={() => setShowProfile(true)}>
                         <UserCircle className="h-4 w-4 text-blue-500" />
                         {t('achievement.myProfile')}
@@ -3181,9 +3192,7 @@ export const TitleBar = ({
                       <>
                         <DropdownMenuSeparator />
                         <DropdownMenuGroup>
-                          <DropdownMenuLabel className="text-xs font-semibold text-muted-foreground">
-                            {t('title.userMenu.teamAndRanking')}
-                          </DropdownMenuLabel>
+                          <DropdownMenuLabel className="text-xs font-semibold text-muted-foreground">{t('title.userMenu.teamAndRanking')}</DropdownMenuLabel>
                           <DropdownMenuItem onClick={() => window.api.teamProgress.openWindow()}>
                             <Users className="h-4 w-4 text-violet-500" />
                             {t('teamProgress.openMenu')}
@@ -3197,9 +3206,7 @@ export const TitleBar = ({
                     )}
                     <DropdownMenuSeparator />
                     <DropdownMenuGroup>
-                      <DropdownMenuLabel className="text-xs font-semibold text-muted-foreground">
-                        {t('title.userMenu.settings')}
-                      </DropdownMenuLabel>
+                      <DropdownMenuLabel className="text-xs font-semibold text-muted-foreground">{t('title.userMenu.settings')}</DropdownMenuLabel>
                       {!hideVcsToolbar && user?.role === 'admin' && (
                         <DropdownMenuItem onClick={() => openMasterWindow()} disabled={isLoading}>
                           <Database className="h-4 w-4 text-slate-600 dark:text-slate-400" />
@@ -3213,9 +3220,7 @@ export const TitleBar = ({
                     </DropdownMenuGroup>
                     <DropdownMenuSeparator />
                     <DropdownMenuGroup>
-                      <DropdownMenuLabel className="text-xs font-semibold text-muted-foreground">
-                        {t('title.userMenu.account')}
-                      </DropdownMenuLabel>
+                      <DropdownMenuLabel className="text-xs font-semibold text-muted-foreground">{t('title.userMenu.account')}</DropdownMenuLabel>
                       <DropdownMenuItem onClick={() => onRequestChangePassword?.()}>
                         <KeyRound className="h-4 w-4 text-amber-500" />
                         {t('taskManagement.changePassword')}

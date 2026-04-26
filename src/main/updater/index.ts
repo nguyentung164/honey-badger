@@ -10,8 +10,7 @@ import { updateAppStatus } from '../windows/overlayStateManager'
 const currentVersion = app.getVersion()
 l.transports.file.level = 'info'
 autoUpdater.logger = l
-// Chỉ bật forceDevUpdateConfig khi đã package; dev không có dev-app-update.yml sẽ gây ENOENT
-autoUpdater.forceDevUpdateConfig = app.isPackaged
+autoUpdater.forceDevUpdateConfig = true
 autoUpdater.autoDownload = true
 autoUpdater.fullChangelog = true
 autoUpdater.requestHeaders = {

@@ -1,4 +1,16 @@
-import { contextBridge, ipcRenderer } from 'electron'
+import path from 'node:path'
+import { pathToFileURL } from 'node:url'
+import { app, contextBridge, ipcRenderer } from 'electron'
+
+/**
+ * `app` đôi khi không gắn đúng trong preload (bundler / phiên bản Electron),
+ * trong khi `app.isPackaged` vẫn cần để phân biệt dev URL vs `file://` bản cài.
+ */
+function getElectronAppIsPackaged(): boolean {
+  if (app != null && typeof app.isPackaged === 'boolean') return app.isPackaged
+  if (typeof __filename === 'string' && __filename.includes('app.asar')) return true
+  return false
+}
 import { AI_FEATURE_SPOTBUGS_CHAT, IPC, PROMPT } from 'main/constants'
 import type { CommitActivityRepo } from 'main/ipc/dashboard'
 import type { Configuration, MailServerConfig, SupportFeedback, SVNResponse } from 'main/types/types'
@@ -14,6 +26,12 @@ declare global {
       electron: {
         send: (channel: string, data?: any) => void
       }
+
+      /** Ảnh/tài nguyên trong `src/resources/public` (bản cài: `resources/public` qua file://). */
+      resources: {
+        publicAssetUrl: (pathFromPublicRoot: string) => string
+      }
+
       appLogs: {
         read: () => Promise<Array<{ path: string; lines: string[] }>>
       }
@@ -856,6 +874,8 @@ declare global {
       }
       prManager: {
         openWindow: () => void
+        closeWindow: () => void
+        requestDock: () => void
       }
     }
   }
@@ -865,6 +885,16 @@ declare global {
 contextBridge.exposeInMainWorld('api', {
   electron: {
     send: (channel: string, data?: any) => ipcRenderer.send(channel, data),
+  },
+
+  resources: {
+    publicAssetUrl: (pathFromPublicRoot: string) => {
+      const normalized = pathFromPublicRoot.replace(/^[/\\]+/, '')
+      if (!getElectronAppIsPackaged()) {
+        return `/${normalized}`
+      }
+      return pathToFileURL(path.join(process.resourcesPath, 'public', normalized)).href
+    },
   },
 
   appLogs: {
@@ -1574,6 +1604,8 @@ contextBridge.exposeInMainWorld('api', {
 
   prManager: {
     openWindow: () => ipcRenderer.send(IPC.WINDOW.PR_MANAGER),
+    closeWindow: () => ipcRenderer.send(IPC.WINDOW.PR_MANAGER_CLOSE),
+    requestDock: () => ipcRenderer.send(IPC.WINDOW.PR_MANAGER_DOCK_REQUEST),
   },
 
   on: (channel: string, listener: (event: any, ...args: any[]) => void) => {

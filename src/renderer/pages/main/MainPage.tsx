@@ -3,7 +3,16 @@ import { Bug, CheckCircle, CircleAlert, HelpCircle, SendHorizontal, SlidersHoriz
 import { IPC } from 'main/constants'
 import { lazy, memo, Suspense, useCallback, useEffect, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { getInitialShellViewFromStorage, isTaskShellRole, MAIN_SHELL_VIEW_KEY, type MainShellView, readStoredShellView } from 'shared/mainShellView'
+import { PR_MANAGER_RENDERER_CHANNELS } from 'shared/constants'
+import {
+  getInitialShellViewFromStorage,
+  isTaskShellRole,
+  MAIN_SHELL_VIEW_KEY,
+  type MainShellView,
+  readPersistedPrManagerDetached,
+  readStoredShellView,
+  writePersistedPrManagerDetached,
+} from 'shared/mainShellView'
 import { ChangePasswordDialog } from '@/components/dialogs/auth/ChangePasswordDialog'
 import { LoginDialog } from '@/components/dialogs/auth/LoginDialog'
 import { VcsOperationLogDialog } from '@/components/dialogs/vcs/VcsOperationLogDialog'
@@ -24,6 +33,7 @@ import toast from '@/components/ui-elements/Toast'
 import { cn } from '@/lib/utils'
 import { validateCommitMessage } from '@/lib/validateCommitMessage'
 import { GitStagingTable } from '@/pages/main/GitStagingTable'
+import { PrManagerToolbarPortalContext } from '@/pages/main/PrManagerToolbarPortalContext'
 import { type FileData, SvnFileTable } from '@/pages/main/SvnFileTable'
 import { TaskToolbarPortalContext } from '@/pages/main/TaskToolbarPortalContext'
 import { TitleBar } from '@/pages/main/TitleBar'
@@ -53,6 +63,16 @@ const IsolatedTextarea = memo(function IsolatedTextarea({
 const MAIN_PANEL_SIZES_KEY = 'main-panel-sizes-config'
 
 const TaskManagement = lazy(() => import('@/pages/taskmanagement/TaskManagement').then(m => ({ default: m.TaskManagement })))
+
+const PrManager = lazy(() => import('@/pages/prmanager/PrManager').then(m => ({ default: m.PrManager })))
+
+function getInitialMainPageShellView(): MainShellView {
+  if (readPersistedPrManagerDetached()) {
+    const v = getInitialShellViewFromStorage()
+    if (v === 'prManager') return 'vcs'
+  }
+  return getInitialShellViewFromStorage()
+}
 
 let _initialGitLoadDone = false
 
@@ -418,7 +438,8 @@ export function MainPage() {
   const [commitSignOff, setCommitSignOff] = useState(false)
   const [showLoginDialog, setShowLoginDialog] = useState(false)
   const [showChangePasswordDialog, setShowChangePasswordDialog] = useState(false)
-  const [shellView, setShellView] = useState<MainShellView>(() => getInitialShellViewFromStorage())
+  const [shellView, setShellView] = useState<MainShellView>(() => getInitialMainPageShellView())
+  const [prManagerDetached, setPrManagerDetached] = useState<boolean>(() => readPersistedPrManagerDetached())
 
   const persistShellView = useCallback((v: MainShellView) => {
     setShellView(v)
@@ -429,13 +450,23 @@ export function MainPage() {
     }
   }, [])
 
+  const persistPrManagerDetached = useCallback((detached: boolean) => {
+    setPrManagerDetached(detached)
+    writePersistedPrManagerDetached(detached)
+  }, [])
+
   useEffect(() => {
     if (!user || isGuest) {
       setShellView('vcs')
+      setPrManagerDetached(false)
+      writePersistedPrManagerDetached(false)
       return
     }
     const stored = readStoredShellView()
-    const next = stored ?? (isTaskShellRole(user.role) ? 'tasks' : 'vcs')
+    let next = stored ?? (isTaskShellRole(user.role) ? 'tasks' : 'vcs')
+    if (readPersistedPrManagerDetached() && next === 'prManager') {
+      next = 'vcs'
+    }
     setShellView(next)
     if (stored === null && isTaskShellRole(user.role)) {
       try {
@@ -446,8 +477,36 @@ export function MainPage() {
     }
   }, [user, isGuest])
 
+  const handlePrManagerDetach = useCallback(() => {
+    persistPrManagerDetached(true)
+    persistShellView('vcs')
+    window.api.prManager.openWindow()
+  }, [persistPrManagerDetached, persistShellView])
+
+  const handlePrManagerDockFromTitleBar = useCallback(() => {
+    window.api.prManager.requestDock()
+  }, [])
+
+  useEffect(() => {
+    const onDocked = () => {
+      persistPrManagerDetached(false)
+      persistShellView('prManager')
+    }
+    const onWindowClosed = () => {
+      persistPrManagerDetached(false)
+      persistShellView('prManager')
+    }
+    window.api.on(PR_MANAGER_RENDERER_CHANNELS.DOCKED_TO_MAIN, onDocked)
+    window.api.on(PR_MANAGER_RENDERER_CHANNELS.WINDOW_CLOSED, onWindowClosed)
+    return () => {
+      window.api.removeListener(PR_MANAGER_RENDERER_CHANNELS.DOCKED_TO_MAIN, onDocked)
+      window.api.removeListener(PR_MANAGER_RENDERER_CHANNELS.WINDOW_CLOSED, onWindowClosed)
+    }
+  }, [persistPrManagerDetached, persistShellView])
+
   const enableShellSwitcher = Boolean(user && !isGuest)
   const showEmbeddedTasks = enableShellSwitcher && shellView === 'tasks'
+  const showEmbeddedPrManager = enableShellSwitcher && shellView === 'prManager' && !prManagerDetached
   const [taskToolbarHostEl, setTaskToolbarHostEl] = useState<HTMLDivElement | null>(null)
   const taskToolbarHostRef = useCallback((node: HTMLDivElement | null) => {
     setTaskToolbarHostEl(node)
@@ -455,6 +514,10 @@ export function MainPage() {
   const [taskToolbarActionsEl, setTaskToolbarActionsEl] = useState<HTMLDivElement | null>(null)
   const taskToolbarActionsHostRef = useCallback((node: HTMLDivElement | null) => {
     setTaskToolbarActionsEl(node)
+  }, [])
+  const [prManagerToolbarHostEl, setPrManagerToolbarHostEl] = useState<HTMLDivElement | null>(null)
+  const prManagerToolbarHostRef = useCallback((node: HTMLDivElement | null) => {
+    setPrManagerToolbarHostEl(node)
   }, [])
 
   const [showCommitResultDialog, setShowCommitResultDialog] = useState(false)
@@ -1027,13 +1090,16 @@ export function MainPage() {
           shellView={shellView}
           onShellViewChange={persistShellView}
           enableShellSwitcher={enableShellSwitcher}
+          prManagerDetached={prManagerDetached}
+          onPrManagerDock={handlePrManagerDockFromTitleBar}
           onRequestLogin={() => setShowLoginDialog(true)}
           onRequestChangePassword={() => setShowChangePasswordDialog(true)}
           taskToolbarHostRef={taskToolbarHostRef}
           taskToolbarActionsHostRef={taskToolbarActionsHostRef}
+          prManagerToolbarHostRef={prManagerToolbarHostRef}
         />
         {/* Content */}
-        <div className={cn('flex-1 flex flex-col min-h-0', showEmbeddedTasks ? 'p-0 overflow-hidden' : 'p-4')}>
+        <div className={cn('flex-1 flex flex-col min-h-0', showEmbeddedTasks || showEmbeddedPrManager ? 'p-0 overflow-hidden' : 'p-4')}>
           {enableShellSwitcher && showEmbeddedTasks ? (
             <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
               <Suspense
@@ -1046,6 +1112,20 @@ export function MainPage() {
                 <TaskToolbarPortalContext.Provider value={{ center: taskToolbarHostEl, actions: taskToolbarActionsEl }}>
                   <TaskManagement embedded />
                 </TaskToolbarPortalContext.Provider>
+              </Suspense>
+            </div>
+          ) : enableShellSwitcher && showEmbeddedPrManager ? (
+            <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
+              <Suspense
+                fallback={
+                  <div className="flex min-h-0 flex-1 items-center justify-center">
+                    <GlowLoader className="w-10 h-10" />
+                  </div>
+                }
+              >
+                <PrManagerToolbarPortalContext.Provider value={{ host: prManagerToolbarHostEl }}>
+                  <PrManager embedded onDetachToWindow={handlePrManagerDetach} />
+                </PrManagerToolbarPortalContext.Provider>
               </Suspense>
             </div>
           ) : (

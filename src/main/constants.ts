@@ -23,6 +23,8 @@ export const IPC = {
     TEAM_PROGRESS: 'window:team-progress',
     REPORT_MANAGER: 'window:report-manager',
     PR_MANAGER: 'window:pr-manager',
+    PR_MANAGER_CLOSE: 'window:pr-manager-close',
+    PR_MANAGER_DOCK_REQUEST: 'window:pr-manager-dock-request',
   },
   CONFIG_UPDATED: 'config-updated',
   FILES_CHANGED: 'files-changed',

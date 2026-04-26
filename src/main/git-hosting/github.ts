@@ -457,12 +457,21 @@ export const githubClient: IHostingClient = {
     }
   },
 
-  async getPR(owner: string, repo: string, number: number): Promise<PullRequestSummary> {
+  async getPR(
+    owner: string,
+    repo: string,
+    number: number,
+    options?: { includeReviewSubmissions?: boolean }
+  ): Promise<PullRequestSummary> {
+    const wantReviews = options?.includeReviewSubmissions !== false
     try {
       return await withGithubRateLimitRetry(
         async () => {
           const octokit = getClient()
           const { data: prData } = await octokit.pulls.get({ owner, repo, pull_number: number })
+          if (!wantReviews) {
+            return mapPrFields(prData, { reviewSubmissions: null })
+          }
           const raw = (await octokit.paginate(octokit.pulls.listReviews, {
             owner,
             repo,

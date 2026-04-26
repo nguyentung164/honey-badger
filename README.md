@@ -11,7 +11,7 @@
 [![Git SCM](https://img.shields.io/badge/Git-SCM-F05032?logo=git&logoColor=white)](https://git-scm.com/)
 [![OpenAI](https://img.shields.io/badge/OpenAI-412991?logo=openai&logoColor=white)](https://openai.com/)
 
-Ứng dụng desktop quản lý SVN & Git cho Windows. Tải tại [Releases](https://github.com/systemexe-research-and-development/honey-badger/releases).
+Ứng dụng desktop quản lý SVN & Git cho Windows. Tải tại [Releases](https://github.com/nguyentung164/honey-badger/releases).
 
 ## Tính năng
 
@@ -118,4 +118,4 @@ MIT – xem [LICENSE](LICENSE).
 
 ## Tác giả
 
-Nguyễn Quang Tùng – quang-tung@system-exe.com.vn
+Nguyễn Quang Tùng – nguyentung164@gmail.com

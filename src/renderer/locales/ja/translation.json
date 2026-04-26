@@ -47,7 +47,10 @@
   },
   "mainShell": {
     "workspace": "ワークスペース",
-    "tasks": "タスク"
+    "tasks": "タスク",
+    "prManager": "PR Manager",
+    "prManagerDetachTooltip": "PR Manager を別ウィンドウで開く",
+    "prManagerDockTooltip": "PR Manager をメインウィンドウに戻す"
   },
   "contextMenu": {
     "revealInExplorer": "エクスプローラーで表示",

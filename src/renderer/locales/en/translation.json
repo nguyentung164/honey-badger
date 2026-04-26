@@ -47,7 +47,10 @@
   },
   "mainShell": {
     "workspace": "Workspace",
-    "tasks": "Tasks"
+    "tasks": "Tasks",
+    "prManager": "PR Manager",
+    "prManagerDetachTooltip": "Open PR Manager in a separate window",
+    "prManagerDockTooltip": "Dock PR Manager in the main window"
   },
   "contextMenu": {
     "revealInExplorer": "Reveal in File Explorer",

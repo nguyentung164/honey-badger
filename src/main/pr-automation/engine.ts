@@ -6,6 +6,7 @@ import { IPC } from '../constants'
 import { githubClient } from '../git-hosting/github'
 import configurationStore from '../store/ConfigurationStore'
 import type { PullRequestSummary } from '../git-hosting/types'
+import type { PrCheckpointTemplate } from '../task/mysqlPrTrackingStore'
 import {
   getPrRepoById,
   getTrackedBranchById,
@@ -133,13 +134,12 @@ function normBranch(b: string): string {
   return b.trim().toLowerCase()
 }
 
-/** T\u00ecm template code kh\u1edbp v\u1edbi target branch \u2014 \u01b0u ti\u00ean code 'pr_<target>' hay 'merge_<target>'. */
-async function findMergedTemplateId(
-  projectId: string,
+/** T\u00ecm template theo target + mode (d\u00f9ng cho sync h\u00e0ng lo\u1ea1t v\u1edbi cache). */
+function findMergedTemplateIdFromList(
+  templates: PrCheckpointTemplate[],
   targetBranch: string,
   mode: 'merge' | 'pr'
-): Promise<string | null> {
-  const templates = await listCheckpointTemplates(projectId)
+): string | null {
   const nb = normBranch(targetBranch)
   const preferredCode = `${mode}_${nb}`
   const byCode = templates.find(t => t.code.toLowerCase() === preferredCode)
@@ -151,6 +151,16 @@ async function findMergedTemplateId(
       t.code.toLowerCase().startsWith(mode)
   )
   return byTarget?.id ?? null
+}
+
+/** T\u00ecm template code kh\u1edbp v\u1edbi target branch \u2014 \u01b0u ti\u00ean code 'pr_<target>' hay 'merge_<target>'. */
+async function findMergedTemplateId(
+  projectId: string,
+  targetBranch: string,
+  mode: 'merge' | 'pr'
+): Promise<string | null> {
+  const templates = await listCheckpointTemplates(projectId)
+  return findMergedTemplateIdFromList(templates, targetBranch, mode)
 }
 
 /**
@@ -323,19 +333,25 @@ export async function applyPullRequestToCheckpoints(args: {
   projectId: string
   repoId: string
   pr: PullRequestSummary
+  /** Sync h\u00e0ng lo\u1ea1t: tr\u00e1nh g\u1ecdi listCheckpointTemplates m\u1ed7i PR. */
+  templatesCache?: PrCheckpointTemplate[]
 }): Promise<void> {
   const branchName = args.pr.head
   if (!branchName) return
+
+  const target = args.pr.base
+  if (!target) return
+
+  const templates = args.templatesCache ?? (await listCheckpointTemplates(args.projectId))
+  const prTplId = findMergedTemplateIdFromList(templates, target, 'pr')
+  const mergeTplId = args.pr.merged ? findMergedTemplateIdFromList(templates, target, 'merge') : null
+  if (!prTplId && !mergeTplId) return
 
   const tracked = await upsertTrackedBranch({
     projectId: args.projectId,
     repoId: args.repoId,
     branchName,
   })
-  const target = args.pr.base
-  if (!target) return
-
-  const prTplId = await findMergedTemplateId(args.projectId, target, 'pr')
   if (prTplId) {
     await upsertBranchCheckpoint({
       trackedBranchId: tracked.id,
@@ -362,23 +378,20 @@ export async function applyPullRequestToCheckpoints(args: {
     })
   }
 
-  if (args.pr.merged && args.pr.mergedAt) {
-    const mergeTplId = await findMergedTemplateId(args.projectId, target, 'merge')
-    if (mergeTplId) {
-      await upsertBranchCheckpoint({
-        trackedBranchId: tracked.id,
-        templateId: mergeTplId,
-        isDone: true,
-        prNumber: args.pr.number,
-        prUrl: args.pr.htmlUrl,
-        mergedAt: args.pr.mergedAt,
-        mergedBy: args.pr.mergedBy ?? null,
-      })
-      broadcast(IPC.PR.EVENT_CHECKPOINT_UPDATED, {
-        trackedBranchId: tracked.id,
-        templateId: mergeTplId,
-      })
-    }
+  if (args.pr.merged && args.pr.mergedAt && mergeTplId) {
+    await upsertBranchCheckpoint({
+      trackedBranchId: tracked.id,
+      templateId: mergeTplId,
+      isDone: true,
+      prNumber: args.pr.number,
+      prUrl: args.pr.htmlUrl,
+      mergedAt: args.pr.mergedAt,
+      mergedBy: args.pr.mergedBy ?? null,
+    })
+    broadcast(IPC.PR.EVENT_CHECKPOINT_UPDATED, {
+      trackedBranchId: tracked.id,
+      templateId: mergeTplId,
+    })
   }
 }
 

@@ -326,9 +326,11 @@ export function registerPrIpcHandlers(): void {
       const trackedRows = await listTrackedBranches(projectId)
       const perPage = 100
       const maxPages = 5
+      /** S\u1ed1 repo x\u1eed l\u00fd song song (c\u00e2n b\u1eb1ng t\u1ed1c \u0111\u1ed9 / rate limit GitHub). */
+      const repoSyncConcurrency = 3
       const branchUpsertConcurrency = 8
-      const openPrDetailConcurrency = 6
-      const prApplyConcurrency = 4
+      const openPrDetailConcurrency = 8
+      const prApplyConcurrency = 8
       let branchesSynced = 0
       let synced = 0
       const errors: string[] = []
@@ -354,10 +356,9 @@ export function registerPrIpcHandlers(): void {
 
       const pairKey = (head: string, base: string) => `${head.trim().toLowerCase()}\0${base.trim().toLowerCase()}`
 
-      // Tu\u1ea7n t\u1ef1 t\u1eebng repo (tr\u00e1nh b\u1ea3n song song nhi\u1ec1u listPRs/getPR + ph\u00e2n trang \u2192 rate limit GitHub).
+      let reposDone = 0
       sendProgress(0)
-      for (let repoIndex = 0; repoIndex < repos.length; repoIndex++) {
-        const repo = repos[repoIndex]
+      await runInBatches(repos, Math.max(1, repoSyncConcurrency), async repo => {
         try {
           const existingBranchNames = trackedBranchNamesByRepo.get(repo.id) ?? new Set<string>()
           trackedBranchNamesByRepo.set(repo.id, existingBranchNames)
@@ -367,19 +368,31 @@ export function registerPrIpcHandlers(): void {
           const remoteBranchesPromise = githubClient.listBranches(repo.owner, repo.repo)
           const bestPullRequestsPromise = (async () => {
             const best = new Map<string, PullRequestSummary>()
-            for (let page = 1; page <= maxPages; page++) {
-              const batch = await githubClient.listPRs({
-                owner: repo.owner,
-                repo: repo.repo,
-                state: 'all',
-                perPage,
-                page,
-              })
+            const pages = await Promise.all(
+              Array.from({ length: maxPages }, (_, i) =>
+                githubClient
+                  .listPRs({
+                    owner: repo.owner,
+                    repo: repo.repo,
+                    state: 'all',
+                    perPage,
+                    page: i + 1,
+                  })
+                  .catch((): PullRequestSummary[] => [])
+              )
+            )
+            for (const batch of pages) {
               for (const pr of batch) {
                 const k = pairKey(pr.head, pr.base)
-                if (!best.has(k)) best.set(k, pr)
+                const ex = best.get(k)
+                if (!ex) {
+                  best.set(k, pr)
+                } else {
+                  const tNew = new Date(pr.updatedAt).getTime()
+                  const tOld = new Date(ex.updatedAt).getTime()
+                  if (tNew > tOld) best.set(k, pr)
+                }
               }
-              if (batch.length < perPage) break
             }
             return best
           })()
@@ -409,9 +422,11 @@ export function registerPrIpcHandlers(): void {
           for (let i = 0; i < openEntries.length; i += CONC) {
             const slice = openEntries.slice(i, i + CONC)
             await Promise.all(
-              slice.map(async ([key, base]) => {
+              slice.map(async ([key, basePr]) => {
                 try {
-                  const detailed = await githubClient.getPR(repo.owner, repo.repo, base.number)
+                  const detailed = await githubClient.getPR(repo.owner, repo.repo, basePr.number, {
+                    includeReviewSubmissions: false,
+                  })
                   best.set(key, detailed)
                 } catch {
                   // getPR l\u1ed7i \u2192 gi\u1eef d\u1eef li\u1ec7u list
@@ -422,7 +437,7 @@ export function registerPrIpcHandlers(): void {
 
           await runInBatches([...best.values()], prApplyConcurrency, async pr => {
             try {
-              await applyPullRequestToCheckpoints({ projectId, repoId: repo.id, pr })
+              await applyPullRequestToCheckpoints({ projectId, repoId: repo.id, pr, templatesCache: templates })
               synced++
             } catch {
               // thi\u1ebfu template checkpoint \u2014 b\u1ecf qua
@@ -430,9 +445,11 @@ export function registerPrIpcHandlers(): void {
           })
         } catch (err: any) {
           errors.push(`${repo.owner}/${repo.repo}: ${err?.message || err}`)
+        } finally {
+          reposDone += 1
+          sendProgress(reposDone)
         }
-        sendProgress(repoIndex + 1)
-      }
+      })
       return { status: 'success', data: { synced, branchesSynced, errors } }
     } catch (err) {
       return errResp(err)

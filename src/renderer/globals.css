@@ -1449,6 +1449,27 @@ html[data-font-size="large"] {
   --text-sm: 0.8rem;
   --spacing: 0.24rem;
   --container-md: 80vw;
+  /* Radix Accordion/Collapsible — khớp class trong components/ui/accordion.tsx */
+  --animate-accordion-down: accordion-down 0.2s ease-out;
+  --animate-accordion-up: accordion-up 0.2s ease-out;
+}
+
+@keyframes accordion-down {
+  from {
+    height: 0;
+  }
+  to {
+    height: var(--radix-collapsible-content-height);
+  }
+}
+
+@keyframes accordion-up {
+  from {
+    height: var(--radix-collapsible-content-height);
+  }
+  to {
+    height: 0;
+  }
 }
 
 /* Tắt box-shadow/ring mặc định khi focus vào input, textarea, select, checkbox, radio, switch */
@@ -1636,6 +1657,33 @@ html[data-font-size="large"] {
     }
     100% {
       background-position: 100% 50%;
+    }
+  }
+
+  @keyframes titlebar-update-icon-sheen {
+    0%,
+    100% {
+      opacity: 1;
+      transform: scale(1);
+    }
+    50% {
+      opacity: 0.9;
+      transform: scale(1.08);
+    }
+  }
+
+  .titlebar-update-icon-anim {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    transform-origin: center center;
+    animation: titlebar-update-icon-sheen 2.4s ease-in-out infinite;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .titlebar-update-icon-anim {
+      animation: none;
+      transform: none;
     }
   }
 

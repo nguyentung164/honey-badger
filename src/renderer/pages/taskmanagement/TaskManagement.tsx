@@ -58,6 +58,12 @@ import i18n from '@/lib/i18n'
 import { cn, getContrastingColor, hexToRgba } from '@/lib/utils'
 import { useAppearanceStoreSelect } from '@/stores/useAppearanceStore'
 import { useTaskToolbarPortalTarget } from '@/pages/main/TaskToolbarPortalContext'
+import {
+  PR_MANAGER_ACCENT_OUTLINE_BTN,
+  PR_MANAGER_ACCENT_OUTLINE_BTN_COMPACT,
+  PR_MANAGER_ACCENT_OUTLINE_SURFACE,
+  PR_MANAGER_ACCENT_TITLEBAR_SURFACE,
+} from '@/pages/prmanager/prManagerButtonStyles'
 import { useTaskAuthStore } from '@/stores/useTaskAuthStore'
 import type { ChartTask } from './chartDataUtils'
 import { TaskTableRow, type TaskTableRowTask } from './TaskTableRow'
@@ -1145,13 +1151,13 @@ export function TaskManagement({ embedded = false }: { embedded?: boolean }) {
         ? createPortal(
             activeTab === 'tasks' ? (
               <div
-                className="flex items-center gap-1.5 shrink-0 h-full"
+                className="flex items-center gap-1 shrink-0 h-full"
                 style={{ WebkitAppRegion: 'no-drag' } as CSSProperties}
               >
                 <Button
                   variant="outline"
                   size="sm"
-                  className="h-6 px-2 text-xs shrink-0 border-0 bg-emerald-50 text-emerald-700 shadow-sm hover:bg-emerald-100 hover:text-emerald-800 dark:bg-emerald-950/45 dark:text-emerald-300 dark:hover:bg-emerald-900/50 dark:hover:text-emerald-200"
+                  className={cn(PR_MANAGER_ACCENT_OUTLINE_BTN_COMPACT, PR_MANAGER_ACCENT_TITLEBAR_SURFACE)}
                   onClick={() => {
                     if (projects.length === 0) {
                       toast.error(t('taskManagement.createProjectFirst'))
@@ -1162,17 +1168,17 @@ export function TaskManagement({ embedded = false }: { embedded?: boolean }) {
                   }}
                   disabled={!taskApiOk || isLoading || isImporting}
                 >
-                  <Plus className="h-3.5 w-3.5 mr-1" />
+                  <Plus className="h-3 w-3 shrink-0" />
                   {t('taskManagement.createTask')}
                 </Button>
                 <Button
                   variant="outline"
                   size="sm"
-                  className="h-6 px-2 text-xs shrink-0 border-0 bg-emerald-50 text-emerald-700 shadow-sm hover:bg-emerald-100 hover:text-emerald-800 dark:bg-emerald-950/45 dark:text-emerald-300 dark:hover:bg-emerald-900/50 dark:hover:text-emerald-200"
+                  className={cn(PR_MANAGER_ACCENT_OUTLINE_BTN_COMPACT, PR_MANAGER_ACCENT_TITLEBAR_SURFACE)}
                   onClick={handleImportCsv}
                   disabled={!taskApiOk || isLoading || isImporting}
                 >
-                  <FileDown className="h-3.5 w-3.5 mr-1" />
+                  <FileDown className="h-3 w-3 shrink-0" />
                   {t('taskManagement.importFromCsv')}
                 </Button>
               </div>
@@ -1194,8 +1200,8 @@ export function TaskManagement({ embedded = false }: { embedded?: boolean }) {
           }
         >
           <div className="flex items-center h-full gap-2">
-            <div className="w-15 h-6 flex justify-center pt-1.5 pl-1">
-              <img src="logo.png" alt="icon" draggable="false" className="w-10 h-3.5 dark:brightness-130" />
+            <div className="w-10 h-6 flex justify-center pt-1.5 pl-1 shrink-0">
+              <img src="logo.png" alt="icon" draggable="false" className="w-3.5 h-3.5 dark:brightness-130" />
             </div>
             <TabsList className="h-6! p-0.5 rounded-md shrink-0" style={{ WebkitAppRegion: 'no-drag' } as CSSProperties}>
               <TabsTrigger value="tasks" disabled={isImporting} className="h-5 px-2 text-xs data-[state=active]:shadow-none">
@@ -1241,7 +1247,7 @@ export function TaskManagement({ embedded = false }: { embedded?: boolean }) {
                 <Button
                   variant="outline"
                   size="sm"
-                  className="h-6 px-2 text-xs border-0 bg-emerald-50 text-emerald-700 shadow-sm hover:bg-emerald-100 hover:text-emerald-800 dark:bg-emerald-950/45 dark:text-emerald-300 dark:hover:bg-emerald-900/50 dark:hover:text-emerald-200"
+                  className={cn(PR_MANAGER_ACCENT_OUTLINE_BTN, PR_MANAGER_ACCENT_OUTLINE_SURFACE, 'shrink-0 px-2 text-xs')}
                   onClick={() => {
                     if (projects.length === 0) {
                       toast.error(t('taskManagement.createProjectFirst'))
@@ -1252,17 +1258,17 @@ export function TaskManagement({ embedded = false }: { embedded?: boolean }) {
                   }}
                   disabled={!taskApiOk || isLoading || isImporting}
                 >
-                  <Plus className="h-3.5 w-3.5 mr-1" />
+                  <Plus className="h-3.5 w-3.5 shrink-0" />
                   {t('taskManagement.createTask')}
                 </Button>
                 <Button
                   variant="outline"
                   size="sm"
-                  className="h-6 px-2 text-xs border-0 bg-emerald-50 text-emerald-700 shadow-sm hover:bg-emerald-100 hover:text-emerald-800 dark:bg-emerald-950/45 dark:text-emerald-300 dark:hover:bg-emerald-900/50 dark:hover:text-emerald-200"
+                  className={cn(PR_MANAGER_ACCENT_OUTLINE_BTN, PR_MANAGER_ACCENT_OUTLINE_SURFACE, 'shrink-0 px-2 text-xs')}
                   onClick={handleImportCsv}
                   disabled={!taskApiOk || isLoading || isImporting}
                 >
-                  <FileDown className="h-3.5 w-3.5 mr-1" />
+                  <FileDown className="h-3.5 w-3.5 shrink-0" />
                   {t('taskManagement.importFromCsv')}
                 </Button>
               </>
@@ -1729,7 +1735,7 @@ export function TaskManagement({ embedded = false }: { embedded?: boolean }) {
                 <div className="flex flex-col items-center justify-center flex-1 text-muted-foreground">
                   <p>{t('taskManagement.noTasks')}</p>
                   <Button
-                    variant="default"
+                    variant="outline"
                     size="sm"
                     onClick={() => {
                       if (projects.length === 0) {
@@ -1739,9 +1745,9 @@ export function TaskManagement({ embedded = false }: { embedded?: boolean }) {
                       setEditingTaskInDialog(null)
                       setShowTaskDialog(true)
                     }}
-                    className="mt-2 bg-emerald-600 text-white hover:bg-emerald-700 dark:bg-emerald-600 dark:hover:bg-emerald-500 border-transparent shadow-sm"
+                    className={cn('mt-2', PR_MANAGER_ACCENT_OUTLINE_BTN, PR_MANAGER_ACCENT_OUTLINE_SURFACE)}
                   >
-                    <Plus className="mr-2 h-4 w-4" />
+                    <Plus className="h-3.5 w-3.5" />
                     {t('taskManagement.createTask')}
                   </Button>
                 </div>

@@ -46,17 +46,17 @@ export function InfoDialog({ open, onOpenChange }: InfoDialogProps) {
             <tbody>
               <tr className="h-[25px]">
                 <td className="font-semibold">{t('dialog.aboutDialog.developer')}:</td>
-                <td>Nguyễn Quang Tùng</td>
+                <td>Tung Nguyen</td>
               </tr>
               <tr className="h-[25px]">
                 <td className="font-semibold">{t('dialog.aboutDialog.email')}:</td>
-                <td>quang-tung@system-exe.com.vn</td>
+                <td>nguyentung164@gmail.com</td>
               </tr>
               <tr className="h-[25px]">
                 <td className="font-semibold">{t('dialog.aboutDialog.sourceCode')}:</td>
                 <td>
-                  <a href="https://github.com/systemexe-research-and-development/honey-badger" className="text-blue-600 hover:underline" target="_blank" rel="noreferrer">
-                    https://github.com/systemexe-research-and-development/honey-badger
+                  <a href="https://github.com/nguyentung164/honey-badger" className="text-blue-600 hover:underline" target="_blank" rel="noreferrer">
+                    https://github.com/nguyentung164/honey-badger
                   </a>
                 </td>
               </tr>

@@ -47,7 +47,10 @@
   },
   "mainShell": {
     "workspace": "Làm việc",
-    "tasks": "Task"
+    "tasks": "Task",
+    "prManager": "PR Manager",
+    "prManagerDetachTooltip": "Mở PR Manager trong cửa sổ riêng",
+    "prManagerDockTooltip": "Gộp PR Manager vào cửa sổ chính"
   },
   "contextMenu": {
     "revealInExplorer": "Mở trong File Explorer",

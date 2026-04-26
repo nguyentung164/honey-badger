@@ -3,13 +3,14 @@ import { format } from 'node:url'
 import { BrowserWindow, ipcMain } from 'electron'
 import l from 'electron-log'
 import { IPC } from 'main/constants'
+import { getMainWindowRef } from 'main/mainWindowRef'
+import { closeSingletonWindow, focusSingletonWindow, registerSingletonWindow } from 'main/utils/singletonWindow'
+import { getWindowBackgroundColor } from 'main/utils/windowBackground'
+import { ENVIRONMENT, PR_MANAGER_RENDERER_CHANNELS } from 'shared/constants'
 import { getCommitDiff } from '../git/diff'
 import { onSpotBugs } from '../task/achievementService'
 import { getTokenFromStore, verifyToken } from '../task/auth'
-import { getWindowBackgroundColor } from 'main/utils/windowBackground'
-import { ENVIRONMENT } from 'shared/constants'
 import { parseSpotBugsResult, runSpotBugs } from '../utils/spotbugs'
-import { focusSingletonWindow, registerSingletonWindow } from 'main/utils/singletonWindow'
 
 const pendingDiffDataByWindowId = new Map<number, Record<string, unknown>>()
 const pendingConflictDataByWindowId = new Map<number, { path?: string; versionControlSystem?: 'git' | 'svn' }>()
@@ -934,6 +935,18 @@ export function registerWindowIpcHandlers() {
     })
   })
 
+  ipcMain.on(IPC.WINDOW.PR_MANAGER_CLOSE, () => {
+    closeSingletonWindow('pr-manager')
+  })
+
+  ipcMain.on(IPC.WINDOW.PR_MANAGER_DOCK_REQUEST, () => {
+    closeSingletonWindow('pr-manager')
+    const main = getMainWindowRef()
+    if (main && !main.isDestroyed()) {
+      main.webContents.send(PR_MANAGER_RENDERER_CHANNELS.DOCKED_TO_MAIN)
+    }
+  })
+
   ipcMain.on(IPC.WINDOW.PR_MANAGER, () => {
     if (focusSingletonWindow('pr-manager')) return
 
@@ -956,6 +969,13 @@ export function registerWindowIpcHandlers() {
       },
     })
     registerSingletonWindow('pr-manager', window)
+
+    window.once('closed', () => {
+      const main = getMainWindowRef()
+      if (main && !main.isDestroyed()) {
+        main.webContents.send(PR_MANAGER_RENDERER_CHANNELS.WINDOW_CLOSED)
+      }
+    })
 
     const url = ENVIRONMENT.IS_DEV
       ? 'http://localhost:4927/#/pr-manager'

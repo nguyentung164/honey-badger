@@ -384,7 +384,11 @@ function getDynamicIcon(iconName: string, size: number, color: string) {
 /** `img:` + đường dẫn trong `src/resources/public` (vd. `/achievements/x.png`). */
 function achievementIconToImageSrc(icon: string): string | null {
   if (!icon.startsWith('img:')) return null
-  return icon.slice(4)
+  const webPath = icon.slice(4)
+  if (typeof window !== 'undefined' && window.api?.resources?.publicAssetUrl) {
+    return window.api.resources.publicAssetUrl(webPath)
+  }
+  return webPath
 }
 
 function BadgeGraphic({

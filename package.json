@@ -2,12 +2,12 @@
   "displayName": "Honey Badger",
   "name": "honey-badger",
   "description": "Honey Badger",
-  "version": "1.2.3",
+  "version": "1.0.1",
   "main": "./node_modules/.dev/main/index.js",
   "resources": "src/resources",
   "author": {
-    "name": "Nguyen Quang Tung",
-    "email": "quang-tung@system-exe.com.vn"
+    "name": "Tung Nguyen",
+    "email": "nguyentung164@gmail.com"
   },
   "license": "MIT",
   "packageManager": "pnpm@10.29.2",

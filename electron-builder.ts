@@ -20,7 +20,7 @@ export default {
   publish: [
     {
       provider: 'github',
-      owner: 'systemexe-research-and-development',
+      owner: 'nguyentung164',
       repo: 'honey-badger',
       releaseType: 'release',
     },

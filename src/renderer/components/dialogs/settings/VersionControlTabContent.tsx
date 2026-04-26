@@ -22,8 +22,9 @@ import { useTranslation } from 'react-i18next'
 import { GitCloneDialog } from '@/components/dialogs/git/GitCloneDialog'
 import { GitInitDialog } from '@/components/dialogs/git/GitInitDialog'
 import { UnlinkedFoldersDialog } from '@/components/dialogs/vcs/UnlinkedFoldersDialog'
+import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from '@/components/ui/accordion'
 import { Button } from '@/components/ui/button'
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
+import { Card, CardContent } from '@/components/ui/card'
 import { Combobox } from '@/components/ui/combobox'
 import { Label } from '@/components/ui/label'
 import { Switch } from '@/components/ui/switch'
@@ -218,32 +219,35 @@ export const VersionControlTabContent = memo(function VersionControlTabContent({
     }
   }, [sourceFolder, sourceFolderList])
 
+  const sectionTriggerClass = 'hover:no-underline py-3 px-1 sm:px-2 items-center [&>svg:last-child]:self-center'
+  const showGitHooksAccordionItem =
+    versionControlSystem === 'git' && (effectiveMultiRepo ? !!draftProjectId?.trim() : !!sourceFolder?.trim())
+
   return (
     <>
       <div className="space-y-4">
-        <Card className="gap-2 py-4 rounded-md">
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2">
-              <Folder className="w-5 h-5" />
-              {t('settings.versioncontrol.sourceFolderAndWorkspace', 'Source Folder & workspace')}
-              {!(
-                versionControlSystem === 'git' &&
-                multiRepoEnabled &&
-                !draftProjectId?.trim()
-              ) && (
-                <VersionControlInfo
-                  sourceFolder={versionControlInfoFolder}
-                  versionControlSystem={versionControlSystem}
-                  onVersionControlChange={type => onSetConfigDeferred('versionControlSystem', type)}
-                  onSave={() => onSave(true)}
-                  deferDetection={isVersionControlTabDirty}
-                  badgeOnly
-                  onBadgeClick={() => setShowVersionControlInfoDialog(true)}
-                />
-              )}
-            </CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-4">
+        <Card className="gap-0 overflow-hidden rounded-md py-0">
+          <CardContent className="p-0">
+            <Accordion type="single" collapsible defaultValue="workspace" className="w-full px-3 sm:px-4">
+              <AccordionItem value="workspace">
+                <AccordionTrigger className={sectionTriggerClass}>
+                  <span className="flex min-w-0 flex-1 flex-wrap items-center gap-x-2 gap-y-1 text-left text-base font-semibold">
+                    <Folder className="size-5 shrink-0" />
+                    <span className="min-w-0 shrink">{t('settings.versioncontrol.sourceFolderAndWorkspace', 'Source Folder & workspace')}</span>
+                    {!(versionControlSystem === 'git' && multiRepoEnabled && !draftProjectId?.trim()) && (
+                      <VersionControlInfo
+                        sourceFolder={versionControlInfoFolder}
+                        versionControlSystem={versionControlSystem}
+                        onVersionControlChange={type => onSetConfigDeferred('versionControlSystem', type)}
+                        onSave={() => onSave(true)}
+                        deferDetection={isVersionControlTabDirty}
+                        badgeOnly
+                        onBadgeClick={() => setShowVersionControlInfoDialog(true)}
+                      />
+                    )}
+                  </span>
+                </AccordionTrigger>
+                <AccordionContent className="space-y-4 px-1 pb-4 pt-0 sm:px-2">
             {versionControlSystem === 'git' && isLoggedIn && (
               <div className="flex items-center justify-between rounded-lg border bg-muted/20 px-3 py-2">
                 <Label htmlFor="multi-repo-workspace" className="flex items-center gap-2 cursor-pointer font-medium text-sm">
@@ -371,76 +375,79 @@ export const VersionControlTabContent = memo(function VersionControlTabContent({
               </Label>
               <Switch id="auto-refresh" checked={autoRefreshEnabled} onCheckedChange={checked => onSetConfigDeferred('autoRefreshEnabled', checked)} />
             </div>
-          </CardContent>
-        </Card>
+                </AccordionContent>
+              </AccordionItem>
 
-        {versionControlSystem === 'git' && (effectiveMultiRepo ? !!draftProjectId?.trim() : !!sourceFolder?.trim()) && (
-          <Card className="gap-2 py-4 rounded-md">
-            <CardHeader className="space-y-2">
-              <CardTitle className="flex items-center gap-2">
-                <GitBranch className="w-5 h-5" />
-                {t('settings.versioncontrol.gitSection')}
-                {isVersionControlTabDirty && (
-                  <span className="h-4.5 text-sm font-normal text-amber-600 dark:text-amber-500 ml-1">
-                    {t('settings.versioncontrol.saveBeforeGitOps', 'Lưu thay đổi trước khi sử dụng các thao tác Git (tránh thao tác nhầm folder).')}
-                  </span>
-                )}
-              </CardTitle>
-            </CardHeader>
-            <CardContent className="space-y-4">
-              <div className={`rounded-lg border p-3 ${isVersionControlTabDirty ? 'opacity-60 pointer-events-none' : ''}`}>
-                <GitHooksSection
-                  embedded
-                  selectedProjectId={effectiveMultiRepo ? draftProjectId : null}
-                  selectedSourceFolder={!effectiveMultiRepo ? sourceFolder ?? null : null}
-                />
-              </div>
-            </CardContent>
-          </Card>
-        )}
-
-        <Card className={`gap-2 py-4 rounded-md ${isVersionControlTabDirty ? 'opacity-60 pointer-events-none' : ''}`}>
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2">
-              <User className="w-5 h-5" />
-              {t('settings.vcsUsers.title', 'VCS Users & Credentials')}
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="flex flex-wrap items-center gap-2">
-              {versionControlSystem === 'svn' ? (
-                <Tooltip>
-                  <TooltipTrigger asChild>
-                    <Button variant={buttonVariant} size="sm" className="gap-1.5" onClick={() => setVcsSvnCredsDialogOpen(true)} disabled={isVersionControlTabDirty}>
-                      <User className="h-4 w-4" />
-                      {t('settings.vcsUsers.svnCredentials', 'SVN Credentials')}
-                    </Button>
-                  </TooltipTrigger>
-                  <TooltipContent>{isVersionControlTabDirty ? t('settings.versioncontrol.saveBeforeUse', 'Lưu thay đổi trước') : t('settings.vcsUsers.svnCredentials', 'SVN Credentials')}</TooltipContent>
-                </Tooltip>
-              ) : (
-                <>
-                  <Tooltip>
-                    <TooltipTrigger asChild>
-                      <Button variant={buttonVariant} size="sm" className="gap-1.5" onClick={() => setVcsGitConfigDialogOpen(true)} disabled={isVersionControlTabDirty}>
-                        <Settings className="h-4 w-4" />
-                        {t('settings.vcsUsers.gitConfig', 'Git Configuration')}
-                      </Button>
-                    </TooltipTrigger>
-                    <TooltipContent>{isVersionControlTabDirty ? t('settings.versioncontrol.saveBeforeUse', 'Lưu thay đổi trước') : t('settings.vcsUsers.gitConfig', 'Git Configuration')}</TooltipContent>
-                  </Tooltip>
-                  <Tooltip>
-                    <TooltipTrigger asChild>
-                      <Button variant={buttonVariant} size="sm" className="gap-1.5" onClick={() => setVcsGitCredsDialogOpen(true)} disabled={isVersionControlTabDirty}>
-                        <Key className="h-4 w-4" />
-                        {t('settings.vcsUsers.gitStoredCredentials', 'Git Stored Credentials')}
-                      </Button>
-                    </TooltipTrigger>
-                    <TooltipContent>{isVersionControlTabDirty ? t('settings.versioncontrol.saveBeforeUse', 'Lưu thay đổi trước') : t('settings.vcsUsers.gitStoredCredentials', 'Git Stored Credentials')}</TooltipContent>
-                  </Tooltip>
-                </>
+              {showGitHooksAccordionItem && (
+                <AccordionItem value="git-hooks">
+                  <AccordionTrigger className={sectionTriggerClass}>
+                    <span className="flex items-center gap-2 text-base font-semibold">
+                      <GitBranch className="size-5 shrink-0" />
+                      {t('settings.versioncontrol.gitSection')}
+                    </span>
+                  </AccordionTrigger>
+                  <AccordionContent className="space-y-3 px-1 pb-4 pt-0 sm:px-2">
+                    {isVersionControlTabDirty && (
+                      <span className="block text-sm font-normal text-amber-600 dark:text-amber-500">
+                        {t('settings.versioncontrol.saveBeforeGitOps', 'Lưu thay đổi trước khi sử dụng các thao tác Git (tránh thao tác nhầm folder).')}
+                      </span>
+                    )}
+                    <div className={`rounded-lg border p-3 ${isVersionControlTabDirty ? 'pointer-events-none opacity-60' : ''}`}>
+                      <GitHooksSection
+                        embedded
+                        selectedProjectId={effectiveMultiRepo ? draftProjectId : null}
+                        selectedSourceFolder={!effectiveMultiRepo ? sourceFolder ?? null : null}
+                      />
+                    </div>
+                  </AccordionContent>
+                </AccordionItem>
               )}
-            </div>
+
+              <AccordionItem value="vcs-users">
+                <AccordionTrigger className={sectionTriggerClass}>
+                  <span className="flex items-center gap-2 text-base font-semibold">
+                    <User className="size-5 shrink-0" />
+                    {t('settings.vcsUsers.title', 'VCS Users & Credentials')}
+                  </span>
+                </AccordionTrigger>
+                <AccordionContent className="px-1 pb-4 pt-0 sm:px-2">
+                  <div className={`flex flex-wrap items-center gap-2 ${isVersionControlTabDirty ? 'pointer-events-none opacity-60' : ''}`}>
+                    {versionControlSystem === 'svn' ? (
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <Button variant={buttonVariant} size="sm" className="gap-1.5" onClick={() => setVcsSvnCredsDialogOpen(true)} disabled={isVersionControlTabDirty}>
+                            <User className="h-4 w-4" />
+                            {t('settings.vcsUsers.svnCredentials', 'SVN Credentials')}
+                          </Button>
+                        </TooltipTrigger>
+                        <TooltipContent>{isVersionControlTabDirty ? t('settings.versioncontrol.saveBeforeUse', 'Lưu thay đổi trước') : t('settings.vcsUsers.svnCredentials', 'SVN Credentials')}</TooltipContent>
+                      </Tooltip>
+                    ) : (
+                      <>
+                        <Tooltip>
+                          <TooltipTrigger asChild>
+                            <Button variant={buttonVariant} size="sm" className="gap-1.5" onClick={() => setVcsGitConfigDialogOpen(true)} disabled={isVersionControlTabDirty}>
+                              <Settings className="h-4 w-4" />
+                              {t('settings.vcsUsers.gitConfig', 'Git Configuration')}
+                            </Button>
+                          </TooltipTrigger>
+                          <TooltipContent>{isVersionControlTabDirty ? t('settings.versioncontrol.saveBeforeUse', 'Lưu thay đổi trước') : t('settings.vcsUsers.gitConfig', 'Git Configuration')}</TooltipContent>
+                        </Tooltip>
+                        <Tooltip>
+                          <TooltipTrigger asChild>
+                            <Button variant={buttonVariant} size="sm" className="gap-1.5" onClick={() => setVcsGitCredsDialogOpen(true)} disabled={isVersionControlTabDirty}>
+                              <Key className="h-4 w-4" />
+                              {t('settings.vcsUsers.gitStoredCredentials', 'Git Stored Credentials')}
+                            </Button>
+                          </TooltipTrigger>
+                          <TooltipContent>{isVersionControlTabDirty ? t('settings.versioncontrol.saveBeforeUse', 'Lưu thay đổi trước') : t('settings.vcsUsers.gitStoredCredentials', 'Git Stored Credentials')}</TooltipContent>
+                        </Tooltip>
+                      </>
+                    )}
+                  </div>
+                </AccordionContent>
+              </AccordionItem>
+            </Accordion>
           </CardContent>
         </Card>
       </div>

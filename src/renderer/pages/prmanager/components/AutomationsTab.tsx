@@ -1,6 +1,6 @@
 'use client'
 
-import { Loader2, Plus, Trash2, Zap } from 'lucide-react'
+import { Loader2, Pencil, Plus, Trash2, Zap } from 'lucide-react'
 import { useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import {
@@ -166,7 +166,7 @@ export function AutomationsTab({ automations, repos, onRefresh }: Props) {
               <TableHead>{t('prManager.automations.colTrigger')}</TableHead>
               <TableHead>{t('prManager.automations.colSource')}</TableHead>
               <TableHead>{t('prManager.automations.colTargetNext')}</TableHead>
-              <TableHead className="w-[120px]">{t('prManager.automations.colActions')}</TableHead>
+              <TableHead className="w-20 max-w-20">{t('prManager.automations.colActions')}</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
@@ -193,10 +193,17 @@ export function AutomationsTab({ automations, repos, onRefresh }: Props) {
                       <span className="mx-1 text-muted-foreground">→</span>
                       <span className="font-mono">{a.nextTarget ?? '?'}</span>
                     </TableCell>
-                    <TableCell>
-                      <div className="flex items-center gap-1">
-                        <Button variant="ghost" size="sm" onClick={() => openEdit(a)} className="h-7 text-xs">
-                          {t('prManager.automations.edit')}
+                    <TableCell className="w-20 max-w-20 px-1">
+                      <div className="flex items-center justify-center gap-0.5">
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="icon"
+                          onClick={() => openEdit(a)}
+                          className="h-7 w-7"
+                          aria-label={t('prManager.automations.edit')}
+                        >
+                          <Pencil className="h-3.5 w-3.5" />
                         </Button>
                         <Button variant="ghost" size="icon" onClick={() => setDeleteId(a.id)} className="h-7 w-7 text-destructive">
                           <Trash2 className="h-3.5 w-3.5" />
@@ -231,14 +238,14 @@ export function AutomationsTab({ automations, repos, onRefresh }: Props) {
             </div>
 
             <div className="grid grid-cols-2 gap-3">
-              <div className="space-y-1">
+              <div className="min-w-0 space-y-1">
                 <Label className="text-xs">{t('prManager.automations.nameOptional')}</Label>
                 <Input value={name} onChange={e => setName(e.target.value)} placeholder={t('prManager.automations.namePh')} />
               </div>
-              <div className="space-y-1">
+              <div className="min-w-0 space-y-1">
                 <Label className="text-xs">{t('prManager.automations.trigger')}</Label>
                 <Select value={triggerEvent} onValueChange={v => setTriggerEvent(v as 'pr_merged')}>
-                  <SelectTrigger>
+                  <SelectTrigger className="w-full">
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
@@ -260,10 +267,10 @@ export function AutomationsTab({ automations, repos, onRefresh }: Props) {
             </div>
 
             <div className="grid grid-cols-2 gap-3">
-              <div className="space-y-1">
+              <div className="min-w-0 space-y-1">
                 <Label className="text-xs">{t('prManager.automations.action')}</Label>
                 <Select value={action} onValueChange={v => setAction(v as 'create_pr')}>
-                  <SelectTrigger>
+                  <SelectTrigger className="w-full">
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
@@ -271,7 +278,7 @@ export function AutomationsTab({ automations, repos, onRefresh }: Props) {
                   </SelectContent>
                 </Select>
               </div>
-              <div className="space-y-1">
+              <div className="min-w-0 space-y-1">
                 <Label className="text-xs">{t('prManager.automations.nextTarget')}</Label>
                 <Input value={nextTarget} onChange={e => setNextTarget(e.target.value)} placeholder={t('prManager.automations.nextPh')} />
               </div>

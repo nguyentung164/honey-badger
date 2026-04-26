@@ -57,7 +57,7 @@ import { cn } from '@/lib/utils'
 import type { PrBranchCheckpoint, PrCheckpointTemplate, PrRepo, TrackedBranchRow } from '../hooks/usePrData'
 import type { PrGhStatusKind } from '../prGhStatus'
 import { PR_GH_STATUS_IDS, PR_GH_STATUS_TEXT_CLASS } from '../prGhStatus'
-import { PR_MANAGER_ACCENT_OUTLINE_BTN, PR_MANAGER_ACCENT_TEXT } from '../prManagerButtonStyles'
+import { PR_MANAGER_ACCENT_OUTLINE_BTN, PR_MANAGER_ACCENT_OUTLINE_SURFACE, PR_MANAGER_ACCENT_TEXT } from '../prManagerButtonStyles'
 import { CreatePrDialog } from './CreatePrDialog'
 import { MergePrDialog } from './MergePrDialog'
 import { PrBulkActionsDialog } from './PrBulkActionsDialog'
@@ -865,10 +865,7 @@ export function PrBoard({ projectId, repos, templates, tracked, loading, onRefre
               setCreatePrInitial(null)
               setCreatePrOpen(true)
             }}
-            className={cn(
-              PR_MANAGER_ACCENT_OUTLINE_BTN,
-              'border-emerald-500/50 bg-emerald-500/22 hover:bg-emerald-500/32 dark:border-emerald-400/40 dark:bg-emerald-500/18 dark:hover:bg-emerald-500/28'
-            )}
+            className={cn(PR_MANAGER_ACCENT_OUTLINE_BTN, PR_MANAGER_ACCENT_OUTLINE_SURFACE)}
             disabled={repos.length === 0}
           >
             <GitPullRequestCreate className="h-3.5 w-3.5" /> {t('prManager.board.createPr')}

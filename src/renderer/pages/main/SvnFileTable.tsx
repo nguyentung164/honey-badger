@@ -1095,6 +1095,12 @@ export const SvnFileTable = forwardRef(({ targetPath, onLoadingChange }: SvnFile
       <div className="flex flex-col border rounded-md h-full overflow-hidden">
         <div className="flex items-center gap-2 px-2 py-1.5 border-b bg-muted/30 shrink-0">
           <Input placeholder={t('placeholder.search')} value={globalFilter ?? ''} onChange={e => setGlobalFilter(e.target.value)} className="h-7 max-w-[200px] text-sm" />
+          <span className="shrink-0 text-sm text-muted-foreground whitespace-nowrap">
+            {t('message.rowSelected', {
+              0: table.getFilteredSelectedRowModel().rows.length,
+              1: table.getFilteredRowModel().rows.length,
+            })}
+          </span>
           <div className="flex-1" />
           <div className="flex items-center gap-2">
             {(
@@ -1412,14 +1418,6 @@ export const SvnFileTable = forwardRef(({ targetPath, onLoadingChange }: SvnFile
               </TableBody>
             </table>
           )}
-        </div>
-      </div>
-      <div className="absolute flex items-center justify-end space-x-2 pt-[22px] px-4 right-4">
-        <div className="flex-1 text-sm text-muted-foreground">
-          {t('message.rowSelected', {
-            0: table.getFilteredSelectedRowModel().rows.length,
-            1: table.getFilteredRowModel().rows.length,
-          })}
         </div>
       </div>
       {confirmDialogProps && (

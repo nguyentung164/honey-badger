@@ -18,7 +18,6 @@ import {
   GitMerge,
   GitMergeConflict,
   Info,
-  Loader2,
   MessageCircle,
   MessageSquare,
   RefreshCw,
@@ -49,6 +48,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Textarea } from '@/components/ui/textarea'
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
+import { GlowLoader } from '@/components/ui-elements/GlowLoader'
 import toast from '@/components/ui-elements/Toast'
 import { getDateFnsLocale } from '@/lib/dateUtils'
 import { cn } from '@/lib/utils'
@@ -876,7 +876,7 @@ export function PrDetailDialog({ open, onOpenChange, projectId, prRepo, prNumber
                 <div className="flex min-w-0 max-w-full shrink-0 flex-wrap items-center justify-end gap-y-1 pl-1">
                   <div className="flex items-center gap-0.5">
                     <HeaderIconBtn label={t('prManager.detail.reloadPr')} onRequest={() => setConfirm('reload')} disabled={loading}>
-                      {loading ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <RefreshCw className="h-3.5 w-3.5" />}
+                      {loading ? <GlowLoader className="h-3.5 w-3.5" /> : <RefreshCw className="h-3.5 w-3.5" />}
                     </HeaderIconBtn>
                   </div>
                   {showHeaderBranchGroup ? (
@@ -890,7 +890,7 @@ export function PrDetailDialog({ open, onOpenChange, projectId, prRepo, prNumber
                             onRequest={() => setCommitForcePushOpen(true)}
                             className="text-rose-600 hover:bg-rose-500/10 hover:text-rose-700 dark:text-rose-400 dark:hover:text-rose-300"
                           >
-                            {commitBusySha === '__push__' ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Upload className="h-3.5 w-3.5" />}
+                            {commitBusySha === '__push__' ? <GlowLoader className="h-3.5 w-3.5" /> : <Upload className="h-3.5 w-3.5" />}
                           </HeaderIconBtn>
                         ) : null}
                         {canMarkDraft ? (
@@ -900,7 +900,7 @@ export function PrDetailDialog({ open, onOpenChange, projectId, prRepo, prNumber
                             onRequest={() => void doMarkDraft()}
                             className="text-amber-600 hover:bg-amber-500/10 hover:text-amber-800 dark:text-amber-400/95 dark:hover:bg-amber-500/15 dark:hover:text-amber-300"
                           >
-                            {markingDraft ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <CircleDashed className="h-3.5 w-3.5" />}
+                            {markingDraft ? <GlowLoader className="h-3.5 w-3.5" /> : <CircleDashed className="h-3.5 w-3.5" />}
                           </HeaderIconBtn>
                         ) : null}
                         {pr.draft && pr.state === 'open' ? (
@@ -910,7 +910,7 @@ export function PrDetailDialog({ open, onOpenChange, projectId, prRepo, prNumber
                             onRequest={() => void doMarkReady()}
                             className="text-sky-600 hover:bg-sky-500/10 hover:text-sky-800 dark:text-sky-400 dark:hover:bg-sky-500/15 dark:hover:text-sky-300"
                           >
-                            {markingReady ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Send className="h-3.5 w-3.5" />}
+                            {markingReady ? <GlowLoader className="h-3.5 w-3.5" /> : <Send className="h-3.5 w-3.5" />}
                           </HeaderIconBtn>
                         ) : null}
                         {isPrBranchBehind ? (
@@ -920,7 +920,7 @@ export function PrDetailDialog({ open, onOpenChange, projectId, prRepo, prNumber
                             onRequest={() => void doUpdateBranch()}
                             className="text-violet-600 hover:bg-violet-500/10 hover:text-violet-800 dark:text-violet-400 dark:hover:bg-violet-500/15 dark:hover:text-violet-300"
                           >
-                            {updatingBranch ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <ArrowDownToLine className="h-3.5 w-3.5" />}
+                            {updatingBranch ? <GlowLoader className="h-3.5 w-3.5" /> : <ArrowDownToLine className="h-3.5 w-3.5" />}
                           </HeaderIconBtn>
                         ) : null}
                       </div>
@@ -929,7 +929,7 @@ export function PrDetailDialog({ open, onOpenChange, projectId, prRepo, prNumber
                   <HeaderToolbarSep />
                   <div className="flex items-center gap-0.5">
                     <HeaderIconBtn label={t('prManager.detail.approveLabel')} onRequest={() => setConfirm('approve')} disabled={!canApprove || approving}>
-                      {approving ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <BadgeCheck className="text-emerald-600 h-3.5 w-3.5" />}
+                      {approving ? <GlowLoader className="h-3.5 w-3.5" /> : <BadgeCheck className="text-emerald-600 h-3.5 w-3.5" />}
                     </HeaderIconBtn>
                     <Button
                       type="button"
@@ -966,7 +966,7 @@ export function PrDetailDialog({ open, onOpenChange, projectId, prRepo, prNumber
                     <p className="mb-1.5 leading-relaxed">{t('prManager.detail.mergeConflictFileListApiNote')}</p>
                     {localMergeConflict.loading ? (
                       <div className="flex items-center gap-2 text-muted-foreground">
-                        <Loader2 className="h-3.5 w-3.5 shrink-0 animate-spin" />
+                        <GlowLoader className="h-3.5 w-3.5 shrink-0" />
                         <span>{t('prManager.detail.mergeConflictFileListLoading')}</span>
                       </div>
                     ) : null}
@@ -1003,7 +1003,7 @@ export function PrDetailDialog({ open, onOpenChange, projectId, prRepo, prNumber
             ) : null}
             {loading && !pr ? (
               <div className="flex items-center justify-center py-20 text-muted-foreground">
-                <Loader2 className="h-8 w-8 animate-spin" />
+                <GlowLoader className="h-8 w-8" />
               </div>
             ) : pr ? (
               <Tabs
@@ -1200,7 +1200,7 @@ export function PrDetailDialog({ open, onOpenChange, projectId, prRepo, prNumber
                       />
                       <div className="mt-2 flex justify-end">
                         <Button type="button" size="default" className="text-sm" onClick={() => setConfirm('comment')} disabled={sending || !commentDraft.trim()}>
-                          {sending ? <Loader2 className="h-4 w-4 animate-spin" /> : t('prManager.detail.postComment')}
+                          {sending ? <GlowLoader className="h-4 w-4" /> : t('prManager.detail.postComment')}
                         </Button>
                       </div>
                     </section>
@@ -1285,7 +1285,7 @@ export function PrDetailDialog({ open, onOpenChange, projectId, prRepo, prNumber
                                             disabled={!canLocalBranchOps || commitBusySha !== null}
                                             onClick={() => setCommitResetTarget({ sha: c.sha, shortSha, message: subject })}
                                           >
-                                            {isBusy ? <Loader2 className="h-4 w-4 animate-spin" /> : <RotateCcw className="h-4 w-4" />}
+                                            {isBusy ? <GlowLoader className="h-4 w-4" /> : <RotateCcw className="h-4 w-4" />}
                                           </Button>
                                         </TooltipTrigger>
                                         <TooltipContent>{t('prManager.detail.resetTooltip', { sha: shortSha })}</TooltipContent>

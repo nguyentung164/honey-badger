@@ -3,8 +3,9 @@
 import { Bell, FileCode, Folder, FolderOpen, LayoutGrid, Link2, Loader2, Monitor, Pencil, Plus, Save, Square, Trash2, Volume2, Webhook } from 'lucide-react'
 import { memo, useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
+import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from '@/components/ui/accordion'
 import { Button } from '@/components/ui/button'
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
+import { Card, CardContent } from '@/components/ui/card'
 import { Combobox } from '@/components/ui/combobox'
 import { Label } from '@/components/ui/label'
 import { Switch } from '@/components/ui/switch'
@@ -106,17 +107,22 @@ export const ConfigurationTabContent = memo(function ConfigurationTabContent({
     return () => window.removeEventListener(NOTIFICATION_SOUND_EVENT, handler as EventListener)
   }, [])
 
+  const sectionTriggerClass = 'hover:no-underline py-3 px-1 sm:px-2 items-center [&>svg:last-child]:self-center'
+
   return (
     <>
       <div className="space-y-4">
-        <Card id="settings-svn-config-card" className="gap-2 py-4 rounded-md">
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2">
-              <Folder className="w-5 h-5" />
-              {t('settings.configuration.svnConfig') || 'Cấu hình SVN'}
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
+        <Card className="gap-0 overflow-hidden rounded-md py-0">
+          <CardContent className="p-0">
+            <Accordion type="single" collapsible defaultValue="svn" className="w-full px-3 sm:px-4">
+              <AccordionItem id="settings-svn-config-card" value="svn">
+                <AccordionTrigger className={sectionTriggerClass}>
+                  <span className="flex items-center gap-2 text-base font-semibold">
+                    <Folder className="size-5 shrink-0" />
+                    {t('settings.configuration.svnConfig') || 'Cấu hình SVN'}
+                  </span>
+                </AccordionTrigger>
+                <AccordionContent className="px-1 pb-4 pt-0 sm:px-2">
             <div id="settings-svn-folder" className="space-y-3">
               <Label className="flex items-center gap-2">
                 <Folder className="w-4 h-4" /> {t('settings.configuration.svnFolder')}
@@ -141,17 +147,17 @@ export const ConfigurationTabContent = memo(function ConfigurationTabContent({
                 </Button>
               </div>
             </div>
-          </CardContent>
-        </Card>
+                </AccordionContent>
+              </AccordionItem>
 
-        <Card id="settings-notification-config-card" className="gap-2 py-4 rounded-md">
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2">
-              <Bell className="w-5 h-5" />
-              {t('settings.configuration.notificationConfig') || 'Cấu hình thông báo'}
-            </CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-4">
+              <AccordionItem id="settings-notification-config-card" value="notification">
+                <AccordionTrigger className={sectionTriggerClass}>
+                  <span className="flex items-center gap-2 text-base font-semibold">
+                    <Bell className="size-5 shrink-0" />
+                    {t('settings.configuration.notificationConfig') || 'Cấu hình thông báo'}
+                  </span>
+                </AccordionTrigger>
+                <AccordionContent className="space-y-4 px-1 pb-4 pt-0 sm:px-2">
             <div id="settings-webhook-ms" className="space-y-3">
               <div className="flex items-center justify-between">
                 <Label className="mr-2 flex items-center gap-2">
@@ -312,17 +318,17 @@ export const ConfigurationTabContent = memo(function ConfigurationTabContent({
               </Label>
               <Switch id="play-notification-sound" checked={playNotificationSound} onCheckedChange={checked => onSetConfigDeferred('playNotificationSound', checked)} />
             </div>
-          </CardContent>
-        </Card>
+                </AccordionContent>
+              </AccordionItem>
 
-        <Card id="settings-window-config-card" className="gap-2 py-4 rounded-md">
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2">
-              <Monitor className="w-5 h-5" />
-              {t('settings.configuration.windowConfig') || 'Cửa sổ & Ứng dụng'}
-            </CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-4">
+              <AccordionItem id="settings-window-config-card" value="window">
+                <AccordionTrigger className={sectionTriggerClass}>
+                  <span className="flex items-center gap-2 text-base font-semibold">
+                    <Monitor className="size-5 shrink-0" />
+                    {t('settings.configuration.windowConfig') || 'Cửa sổ & Ứng dụng'}
+                  </span>
+                </AccordionTrigger>
+                <AccordionContent className="space-y-4 px-1 pb-4 pt-0 sm:px-2">
             <div id="settings-start-on-login" className="flex items-center justify-between space-x-2 py-1">
               <Label htmlFor="start-on-login" className="flex items-center gap-2 cursor-pointer">
                 <LayoutGrid className="w-4 h-4" /> {t('settings.configuration.startOnLogin')}
@@ -409,6 +415,9 @@ export const ConfigurationTabContent = memo(function ConfigurationTabContent({
                 />
               )}
             </div>
+                </AccordionContent>
+              </AccordionItem>
+            </Accordion>
           </CardContent>
         </Card>
       </div>

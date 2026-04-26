@@ -23,3 +23,14 @@ export function registerSingletonWindow(key: string, win: BrowserWindow): void {
     if (singletonWindows.get(key) === win) singletonWindows.delete(key)
   })
 }
+
+/** Đóng singleton nếu còn sống (map được gỡ trong listener `closed` đã đăng ký). */
+export function closeSingletonWindow(key: string): boolean {
+  const win = singletonWindows.get(key)
+  if (!win || win.isDestroyed()) {
+    if (win?.isDestroyed()) singletonWindows.delete(key)
+    return false
+  }
+  win.close()
+  return true
+}

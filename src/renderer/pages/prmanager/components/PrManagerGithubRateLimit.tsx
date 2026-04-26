@@ -25,7 +25,7 @@ function rateColorClass(remaining: number, limit: number): string {
 }
 
 const badgeClass =
-  'flex max-w-[160px] cursor-default items-center gap-1 rounded border border-border/60 bg-muted/50 px-1.5 py-0.5 text-[10px] tabular-nums leading-none shadow-sm'
+  'flex max-w-[180px] cursor-default items-center gap-1.5 rounded border border-border/60 bg-muted/50 px-2 py-1 text-xs tabular-nums leading-tight shadow-sm'
 
 type Props = { tokenStatus: TokenSt }
 
@@ -93,7 +93,7 @@ export function PrManagerGithubRateLimit({ tokenStatus }: Props) {
       <Tooltip>
         <TooltipTrigger asChild>
           <div className={cn(badgeClass, 'text-muted-foreground')}>
-            <Gauge className="h-3 w-3 shrink-0 opacity-60" />
+            <Gauge className="h-3.5 w-3.5 shrink-0 opacity-60" />
             <span>…</span>
           </div>
         </TooltipTrigger>
@@ -109,7 +109,7 @@ export function PrManagerGithubRateLimit({ tokenStatus }: Props) {
       <Tooltip>
         <TooltipTrigger asChild>
           <div className={cn(badgeClass, 'text-muted-foreground')}>
-            <Gauge className="h-3 w-3 shrink-0 opacity-50" />
+            <Gauge className="h-3.5 w-3.5 shrink-0 opacity-50" />
             <span>API: —</span>
           </div>
         </TooltipTrigger>
@@ -126,7 +126,7 @@ export function PrManagerGithubRateLimit({ tokenStatus }: Props) {
     <Tooltip>
       <TooltipTrigger asChild>
         <div className={cn(badgeClass, 'shrink-0', core && rateColorClass(core.remaining, core.limit))}>
-          <Gauge className="h-3 w-3 shrink-0 opacity-80" />
+          <Gauge className="h-3.5 w-3.5 shrink-0 opacity-80" />
           {loading && !data ? (
             <span className="text-muted-foreground">…</span>
           ) : core ? (
