@@ -110,8 +110,6 @@ export function PrBulkActionsDialog({
         if (x.eligible) titles[x.id] = x.suggestedTitle
       }
       setCreateTitles(titles)
-      setResults({})
-      setCurrentId(null)
       return
     }
     if (kind === 'deleteRemoteBranch') {
@@ -119,9 +117,13 @@ export function PrBulkActionsDialog({
     } else {
       setEnabledIds(new Set(prTargets.filter(x => x.eligible).map(x => x.id)))
     }
+  }, [open, kind, prTargets, deleteTargets, createTargets])
+
+  useEffect(() => {
+    if (!open) return
     setResults({})
     setCurrentId(null)
-  }, [open, kind, prTargets, deleteTargets, createTargets])
+  }, [open, kind, createTemplateId, createBaseOverride])
 
   const titleKey = useMemo(() => `prManager.bulk.title.${kind}` as const, [kind])
 
