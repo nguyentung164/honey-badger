@@ -9,7 +9,6 @@ import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from '
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group'
-import { ScrollArea } from '@/components/ui/scroll-area'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 import toast from '@/components/ui-elements/Toast'
 import { cn } from '@/lib/utils'
@@ -328,7 +327,7 @@ export function PrBulkActionsDialog({
 
   return (
     <Dialog open={open} onOpenChange={v => !running && onOpenChange(v)}>
-      <DialogContent className="font-sans flex max-h-[min(90dvh,720px)] max-w-3xl flex-col gap-0 overflow-hidden p-0 sm:max-w-3xl">
+      <DialogContent className="font-sans flex max-h-[min(90dvh,720px)] min-h-0 w-full max-w-3xl flex-col gap-0 overflow-hidden p-0 sm:max-w-3xl">
         <DialogHeader className="shrink-0 border-b px-4 py-3 pr-12 text-left">
           <DialogTitle className="text-base">{t(titleKey)}</DialogTitle>
           <p className="text-sm text-muted-foreground">
@@ -345,9 +344,9 @@ export function PrBulkActionsDialog({
           ) : null}
         </DialogHeader>
 
-        <div className="min-h-0 flex-1 overflow-hidden px-4 py-3">
+        <div className="flex min-h-0 flex-1 flex-col gap-3 overflow-hidden px-4 py-3">
           {kind === 'createPr' ? (
-            <div className="mb-3 grid gap-3 sm:grid-cols-2">
+            <div className="shrink-0 grid gap-3 sm:grid-cols-2">
               <div className="space-y-1.5">
                 <Label className="text-xs">{t('prManager.bulk.createTemplate')}</Label>
                 <select
@@ -389,7 +388,7 @@ export function PrBulkActionsDialog({
           ) : null}
 
           {kind === 'merge' ? (
-            <div className="mb-3 space-y-2">
+            <div className="shrink-0 space-y-2">
               <Label className="text-xs">{t('prManager.bulk.mergeMethod')}</Label>
               <RadioGroup value={mergeMethod} onValueChange={v => setMergeMethod(v as MergeMethod)} className="flex flex-wrap gap-3">
                 {(['squash', 'merge', 'rebase'] as const).map(m => (
@@ -404,7 +403,7 @@ export function PrBulkActionsDialog({
             </div>
           ) : null}
 
-          <ScrollArea className="h-[min(52vh,420px)] rounded-md border">
+          <div className="max-h-[min(52dvh,420px)] w-full overflow-y-auto overflow-x-hidden overscroll-y-contain rounded-md border">
             <Table>
               <TableHeader>
                 <TableRow>
@@ -416,98 +415,98 @@ export function PrBulkActionsDialog({
               <TableBody>
                 {kind === 'deleteRemoteBranch'
                   ? deleteTargets.map(item => (
-                      <TableRow key={item.id} className={cn(!item.eligible && 'opacity-60')}>
-                        <TableCell className="px-2">
-                          <Checkbox checked={enabledIds.has(item.id)} disabled={!item.eligible || running} onCheckedChange={() => toggleId(item.id, item.eligible)} />
-                        </TableCell>
-                        <TableCell className="max-w-[1px] p-2 text-xs">
-                          <div className="truncate font-mono" title={`${item.owner}/${item.repo}@${item.branch}`}>
-                            {item.owner}/{item.repo}
-                          </div>
-                          <div className="truncate text-muted-foreground">{item.branch}</div>
-                          {!item.eligible && item.skipReasonKey ? <div className="mt-0.5 text-[10px] text-amber-800 dark:text-amber-200">{t(item.skipReasonKey)}</div> : null}
-                        </TableCell>
-                        <TableCell className="p-2 text-xs">
-                          {running && currentId === item.id ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
-                          {results[item.id] ? (
-                            results[item.id].ok ? (
-                              <CheckCircle2 className="h-4 w-4 text-emerald-600" />
-                            ) : (
-                              <span className="text-[10px] text-rose-600" title={results[item.id].message}>
-                                {t('prManager.bulk.error')}
-                              </span>
-                            )
-                          ) : null}
-                        </TableCell>
-                      </TableRow>
-                    ))
+                    <TableRow key={item.id} className={cn(!item.eligible && 'opacity-60')}>
+                      <TableCell className="px-2">
+                        <Checkbox checked={enabledIds.has(item.id)} disabled={!item.eligible || running} onCheckedChange={() => toggleId(item.id, item.eligible)} />
+                      </TableCell>
+                      <TableCell className="max-w-[1px] p-2 text-xs">
+                        <div className="truncate font-mono" title={`${item.owner}/${item.repo}@${item.branch}`}>
+                          {item.owner}/{item.repo}
+                        </div>
+                        <div className="truncate text-muted-foreground">{item.branch}</div>
+                        {!item.eligible && item.skipReasonKey ? <div className="mt-0.5 text-[10px] text-amber-800 dark:text-amber-200">{t(item.skipReasonKey)}</div> : null}
+                      </TableCell>
+                      <TableCell className="p-2 text-xs">
+                        {running && currentId === item.id ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
+                        {results[item.id] ? (
+                          results[item.id].ok ? (
+                            <CheckCircle2 className="h-4 w-4 text-emerald-600" />
+                          ) : (
+                            <span className="text-[10px] text-rose-600" title={results[item.id].message}>
+                              {t('prManager.bulk.error')}
+                            </span>
+                          )
+                        ) : null}
+                      </TableCell>
+                    </TableRow>
+                  ))
                   : null}
 
                 {kind === 'createPr'
                   ? createTargets.map(item => (
-                      <TableRow key={item.id} className={cn(!item.eligible && 'opacity-60')}>
-                        <TableCell className="px-2">
-                          <Checkbox checked={enabledIds.has(item.id)} disabled={!item.eligible || running} onCheckedChange={() => toggleId(item.id, item.eligible)} />
-                        </TableCell>
-                        <TableCell className="max-w-[1px] p-2 text-xs">
-                          <div className="truncate">
-                            {item.owner}/{item.repo} · {item.head} → {item.base}
-                          </div>
-                          <Input
-                            value={createTitles[item.id] ?? ''}
-                            onChange={e => setCreateTitles(prev => ({ ...prev, [item.id]: e.target.value }))}
-                            disabled={!item.eligible || running}
-                            className="mt-1 h-8 text-xs"
-                            placeholder={item.suggestedTitle}
-                          />
-                          {!item.eligible && item.skipReasonKey ? <div className="mt-0.5 text-[10px] text-amber-800 dark:text-amber-200">{t(item.skipReasonKey)}</div> : null}
-                        </TableCell>
-                        <TableCell className="p-2 text-xs">
-                          {running && currentId === item.id ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
-                          {results[item.id] ? (
-                            results[item.id].ok ? (
-                              <CheckCircle2 className="h-4 w-4 text-emerald-600" />
-                            ) : (
-                              <span className="text-[10px] text-rose-600" title={results[item.id].message}>
-                                {t('prManager.bulk.error')}
-                              </span>
-                            )
-                          ) : null}
-                        </TableCell>
-                      </TableRow>
-                    ))
+                    <TableRow key={item.id} className={cn(!item.eligible && 'opacity-60')}>
+                      <TableCell className="px-2">
+                        <Checkbox checked={enabledIds.has(item.id)} disabled={!item.eligible || running} onCheckedChange={() => toggleId(item.id, item.eligible)} />
+                      </TableCell>
+                      <TableCell className="max-w-[1px] p-2 text-xs">
+                        <div className="truncate">
+                          {item.owner}/{item.repo} · {item.head} → {item.base}
+                        </div>
+                        <Input
+                          value={createTitles[item.id] ?? ''}
+                          onChange={e => setCreateTitles(prev => ({ ...prev, [item.id]: e.target.value }))}
+                          disabled={!item.eligible || running}
+                          className="mt-1 h-8 text-xs"
+                          placeholder={item.suggestedTitle}
+                        />
+                        {!item.eligible && item.skipReasonKey ? <div className="mt-0.5 text-[10px] text-amber-800 dark:text-amber-200">{t(item.skipReasonKey)}</div> : null}
+                      </TableCell>
+                      <TableCell className="p-2 text-xs">
+                        {running && currentId === item.id ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
+                        {results[item.id] ? (
+                          results[item.id].ok ? (
+                            <CheckCircle2 className="h-4 w-4 text-emerald-600" />
+                          ) : (
+                            <span className="text-[10px] text-rose-600" title={results[item.id].message}>
+                              {t('prManager.bulk.error')}
+                            </span>
+                          )
+                        ) : null}
+                      </TableCell>
+                    </TableRow>
+                  ))
                   : null}
 
                 {kind !== 'deleteRemoteBranch' && kind !== 'createPr'
                   ? prTargets.map(item => (
-                      <TableRow key={item.id} className={cn(!item.eligible && 'opacity-60')}>
-                        <TableCell className="px-2">
-                          <Checkbox checked={enabledIds.has(item.id)} disabled={!item.eligible || running} onCheckedChange={() => toggleId(item.id, item.eligible)} />
-                        </TableCell>
-                        <TableCell className="max-w-[1px] p-2 text-xs">
-                          <div className="truncate">
-                            #{item.prNumber} · {item.templateLabel}
-                          </div>
-                          <div className="truncate text-muted-foreground">
-                            {item.owner}/{item.repo} · {item.headBranch}
-                            {item.baseBranch ? ` → ${item.baseBranch}` : ''}
-                          </div>
-                          {!item.eligible && item.skipReasonKey ? <div className="mt-0.5 text-[10px] text-amber-800 dark:text-amber-200">{t(item.skipReasonKey)}</div> : null}
-                        </TableCell>
-                        <TableCell className="p-2 text-xs">
-                          {running && currentId === item.id ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
-                          {results[item.id] ? (
-                            results[item.id].ok ? (
-                              <CheckCircle2 className="h-4 w-4 text-emerald-600" />
-                            ) : (
-                              <span className="text-[10px] text-rose-600" title={results[item.id].message}>
-                                {t('prManager.bulk.error')}
-                              </span>
-                            )
-                          ) : null}
-                        </TableCell>
-                      </TableRow>
-                    ))
+                    <TableRow key={item.id} className={cn(!item.eligible && 'opacity-60')}>
+                      <TableCell className="px-2">
+                        <Checkbox checked={enabledIds.has(item.id)} disabled={!item.eligible || running} onCheckedChange={() => toggleId(item.id, item.eligible)} />
+                      </TableCell>
+                      <TableCell className="max-w-[1px] p-2 text-xs">
+                        <div className="truncate">
+                          #{item.prNumber} · {item.templateLabel}
+                        </div>
+                        <div className="truncate text-muted-foreground">
+                          {item.owner}/{item.repo} · {item.headBranch}
+                          {item.baseBranch ? ` → ${item.baseBranch}` : ''}
+                        </div>
+                        {!item.eligible && item.skipReasonKey ? <div className="mt-0.5 text-[10px] text-amber-800 dark:text-amber-200">{t(item.skipReasonKey)}</div> : null}
+                      </TableCell>
+                      <TableCell className="p-2 text-xs">
+                        {running && currentId === item.id ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
+                        {results[item.id] ? (
+                          results[item.id].ok ? (
+                            <CheckCircle2 className="h-4 w-4 text-emerald-600" />
+                          ) : (
+                            <span className="text-[10px] text-rose-600" title={results[item.id].message}>
+                              {t('prManager.bulk.error')}
+                            </span>
+                          )
+                        ) : null}
+                      </TableCell>
+                    </TableRow>
+                  ))
                   : null}
 
                 {kind === 'deleteRemoteBranch' && deleteTargets.length === 0 ? (
@@ -533,7 +532,7 @@ export function PrBulkActionsDialog({
                 ) : null}
               </TableBody>
             </Table>
-          </ScrollArea>
+          </div>
         </div>
 
         <DialogFooter className="shrink-0 border-t px-4 py-3">

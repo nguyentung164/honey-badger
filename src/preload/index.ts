@@ -682,6 +682,7 @@ declare global {
           targetBranch?: string | null
           sortOrder?: number
           isActive?: boolean
+          headerGroupId?: number | null
         }) => Promise<{ status: string; data?: any; message?: string }>
         templateDelete: (id: string) => Promise<{ status: string; message?: string }>
         templateReorder: (projectId: string, orderedIds: string[]) => Promise<{ status: string; message?: string }>
@@ -1455,6 +1456,7 @@ contextBridge.exposeInMainWorld('api', {
       targetBranch?: string | null
       sortOrder?: number
       isActive?: boolean
+      headerGroupId?: number | null
     }) => ipcRenderer.invoke(IPC.PR.TEMPLATE_UPSERT, toStructuredCloneable(input)),
     templateDelete: (id: string) => ipcRenderer.invoke(IPC.PR.TEMPLATE_DELETE, id),
     templateReorder: (projectId: string, orderedIds: string[]) => ipcRenderer.invoke(IPC.PR.TEMPLATE_REORDER, projectId, orderedIds),

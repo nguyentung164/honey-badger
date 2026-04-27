@@ -1,7 +1,6 @@
 'use client'
 
 import {
-  GitBranchPlus,
   GitPullRequest,
   LayoutDashboard,
   ListOrdered,
@@ -11,7 +10,6 @@ import {
   Square,
   SquareArrowOutDownLeft,
   SquareArrowOutUpRight,
-  Workflow,
   X,
 } from 'lucide-react'
 import type { CSSProperties } from 'react'
@@ -23,7 +21,7 @@ import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip
 import { cn } from '@/lib/utils'
 import { PrManagerGithubRateLimit } from './components/PrManagerGithubRateLimit'
 
-type Tab = 'board' | 'repos' | 'templates' | 'automations'
+type Tab = 'board' | 'settings'
 
 type TokenStatus = { ok: boolean; login?: string; message?: string } | null
 
@@ -127,14 +125,8 @@ export function PrManagerTopBar({
                 <TabsTrigger value="board" className={cn('gap-0.5', triggerClass)}>
                   <LayoutDashboard className={iconClass} /> {t('prManager.shell.tabBoard')}
                 </TabsTrigger>
-                <TabsTrigger value="repos" className={cn('gap-0.5', triggerClass)}>
-                  <GitBranchPlus className={iconClass} /> {t('prManager.shell.tabRepos')}
-                </TabsTrigger>
-                <TabsTrigger value="templates" className={cn('gap-0.5', triggerClass)}>
-                  <Settings className={iconClass} /> {t('prManager.shell.tabCheckpoints')}
-                </TabsTrigger>
-                <TabsTrigger value="automations" className={cn('gap-0.5', triggerClass)}>
-                  <Workflow className={iconClass} /> {t('prManager.shell.tabAutomations')}
+                <TabsTrigger value="settings" className={cn('gap-0.5', triggerClass)}>
+                  <Settings className={iconClass} /> {t('prManager.shell.tabSettings')}
                 </TabsTrigger>
               </TabsList>
             </Tabs>

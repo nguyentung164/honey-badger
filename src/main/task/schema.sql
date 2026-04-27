@@ -674,6 +674,7 @@ CREATE TABLE IF NOT EXISTS pr_checkpoint_templates (
   target_branch VARCHAR(200),
   sort_order INT DEFAULT 0,
   is_active BOOLEAN DEFAULT TRUE,
+  header_group_id TINYINT UNSIGNED NULL COMMENT '0-9 column header group on PR board; NULL = default',
   created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
   UNIQUE KEY uk_pr_tpl_code (project_id, code),
   INDEX idx_pr_tpl_project (project_id)

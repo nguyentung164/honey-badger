@@ -4,8 +4,25 @@ import type * as React from 'react'
 
 import { cn } from '@/lib/utils'
 
-function Accordion({ ...props }: React.ComponentProps<typeof AccordionPrimitive.Root>) {
-  return <AccordionPrimitive.Root data-slot="accordion" {...props} />
+/** Màu (và cảm giác) chữ tiêu đề từng mục — sửa một chỗ, áp dụng mọi AccordionTrigger */
+const accordionHeaderText = 'text-foreground'
+
+const framedAccordion =
+  'w-full overflow-hidden rounded-lg bg-card px-3 text-card-foreground sm:px-4'
+
+function Accordion({
+  className,
+  variant = 'default',
+  ...props
+}: React.ComponentProps<typeof AccordionPrimitive.Root> & { variant?: 'default' | 'framed' }) {
+  return (
+    <AccordionPrimitive.Root
+      data-slot="accordion"
+      data-variant={variant}
+      className={cn(variant === 'framed' && framedAccordion, className)}
+      {...props}
+    />
+  )
 }
 
 function AccordionItem({ className, ...props }: React.ComponentProps<typeof AccordionPrimitive.Item>) {
@@ -19,6 +36,7 @@ function AccordionTrigger({ className, children, ...props }: React.ComponentProp
         data-slot="accordion-trigger"
         className={cn(
           'focus-visible:border-ring focus-visible:ring-ring/50 flex flex-1 items-start justify-between gap-4 rounded-md py-4 text-left text-sm font-medium transition-all outline-none hover:underline focus-visible:ring-[3px] disabled:pointer-events-none disabled:opacity-50 [&[data-state=open]>svg]:rotate-180',
+          accordionHeaderText,
           className
         )}
         {...props}

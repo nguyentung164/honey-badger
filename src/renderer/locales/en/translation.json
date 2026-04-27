@@ -3093,6 +3093,7 @@
     "shell": {
       "appTitle": "PR Manager",
       "tabBoard": "Board",
+      "tabSettings": "Settings",
       "tabRepos": "Repos",
       "tabCheckpoints": "Checkpoints",
       "tabAutomations": "Automations",
@@ -3293,7 +3294,14 @@
       "colCode": "Code",
       "colLabel": "Label",
       "colTarget": "Target branch",
-      "colActive": "Active"
+      "colActive": "Active",
+      "colHeaderGroup": "Header color",
+      "headerGroupColumnHelp": "Background of this column’s header on the PR Branches table. Use the same swatch for checkpoints that belong to one flow (e.g. PR stage + merge stage).",
+      "headerGroupOpenButton": "Choose header color for PR board column",
+      "headerGroupPopoverHint": "Pick one color for related checkpoints (same group on the board).",
+      "headerGroupDefaultShort": "Default",
+      "headerGroupNoneTitle": "Default header (muted)",
+      "headerGroupSwatchTitle": "Group color {{n}} of 10"
     },
     "automations": {
       "toastSelectRepo": "Select a repository.",
@@ -3354,9 +3362,11 @@
       "syncFromGithubHelp": "Sync PRs from GitHub (open + merged/closed, up to 500 PRs per repo)",
       "syncing": "Syncing…",
       "createPr": "Create PR",
+      "tableBordersSwitch": "Table borders",
+      "tableBordersHelp": "Show vertical and horizontal borders on the branch table. Saved on this device.",
       "filterPrs": "Filter PRs (GitHub)",
-      "onlyRemote": "Only branches that exist on remote",
-      "onlyNoPr": "Branches with no PR yet",
+      "onlyRemote": "On remote",
+      "onlyNoPr": "No PR",
       "onlyNoPrTitle": "Adds branches with no PR that still exist on the remote; kind filters add matching PR rows. No-PR branches are listed first in each repo.",
       "emptyNoRepos": "No repositories registered. Open the Repos tab to add or auto-detect from source folders.",
       "emptyNoTemplates": "No checkpoint template. Open the Checkpoints tab to create the default template.",

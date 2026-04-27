@@ -219,6 +219,7 @@ export function registerPrIpcHandlers(): void {
         targetBranch?: string | null
         sortOrder?: number
         isActive?: boolean
+        headerGroupId?: number | null
       }
     ) => {
       try {

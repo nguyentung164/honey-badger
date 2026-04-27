@@ -3,6 +3,7 @@ import { getPool, hasDbConfig } from './db'
 
 let legacyPmPlProjectsColumnsMigrationDone = false
 let prCheckpointGithubColumnsMigrationDone = false
+let prCheckpointTemplateHeaderGroupMigrationDone = false
 
 /**
  * Gỡ cột legacy `project_manager` / `project_leader` khỏi `projects` nếu còn tồn tại.
@@ -106,4 +107,31 @@ export async function migratePrCheckpointGithubColumns(): Promise<void> {
     return
   }
   prCheckpointGithubColumnsMigrationDone = true
+}
+
+/** Cột nhóm màu header cột checkpoint trên PR Board (0-9, NULL = mặc định). */
+export async function migratePrCheckpointTemplateHeaderGroup(): Promise<void> {
+  if (prCheckpointTemplateHeaderGroupMigrationDone || !hasDbConfig()) return
+  const p = getPool()
+
+  const checkCol = async (): Promise<boolean> => {
+    const [rows] = await p.execute(
+      `SELECT 1 FROM information_schema.COLUMNS
+       WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'pr_checkpoint_templates' AND COLUMN_NAME = 'header_group_id'
+       LIMIT 1`
+    )
+    return Array.isArray(rows) && rows.length > 0
+  }
+
+  try {
+    if (!(await checkCol())) {
+      await p.execute(
+        "ALTER TABLE pr_checkpoint_templates ADD COLUMN header_group_id TINYINT UNSIGNED NULL COMMENT '0-9 board column header group; NULL = default' AFTER is_active"
+      )
+    }
+  } catch (e) {
+    l.error('[task-db] migratePrCheckpointTemplateHeaderGroup failed', e)
+    return
+  }
+  prCheckpointTemplateHeaderGroupMigrationDone = true
 }

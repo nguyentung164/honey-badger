@@ -281,6 +281,29 @@ export function resolveBulkCreatePrTargets(
   return out
 }
 
+/** Số dòng có ít nhất một cột pr_* đủ điều kiện tạo PR bulk (ví dụ stage đã PR, main chưa). */
+export function countRowsEligibleForBulkCreateOnAnyPrTemplate(
+  rows: TrackedBranchRow[],
+  activeTemplates: PrCheckpointTemplate[],
+  repos: PrRepo[],
+  remoteExistMap: Record<string, boolean> | null,
+  onlyExistingOnRemote: boolean
+): number {
+  const prTpls = activePrTemplates(activeTemplates)
+  if (prTpls.length === 0) return 0
+  let n = 0
+  for (const row of rows) {
+    for (const tpl of prTpls) {
+      const targets = resolveBulkCreatePrTargets([row], tpl, null, repos, remoteExistMap, onlyExistingOnRemote)
+      if (targets[0]?.eligible) {
+        n++
+        break
+      }
+    }
+  }
+  return n
+}
+
 export function activePrTemplates(activeTemplates: PrCheckpointTemplate[]): PrCheckpointTemplate[] {
   return activeTemplates.filter(t => t.code.toLowerCase().startsWith('pr_'))
 }

@@ -10,15 +10,13 @@ import toast from '@/components/ui-elements/Toast'
 import { cn } from '@/lib/utils'
 import { usePrManagerToolbarPortalTarget } from '@/pages/main/PrManagerToolbarPortalContext'
 import { useTaskAuthStore } from '@/stores/useTaskAuthStore'
-import { AutomationsTab } from './components/AutomationsTab'
-import { CheckpointTemplatesTab } from './components/CheckpointTemplatesTab'
 import { GitHubTokenDialog } from './components/GitHubTokenDialog'
 import { PrBoard } from './components/PrBoard'
-import { RepoRegistryTab } from './components/RepoRegistryTab'
+import { PrManagerSettingsPanel } from './components/PrManagerSettingsPanel'
 import { usePrData } from './hooks/usePrData'
 import { PrManagerTopBar } from './PrManagerTopBar'
 
-type Tab = 'board' | 'repos' | 'templates' | 'automations'
+type Tab = 'board' | 'settings'
 
 export type PrManagerProps = {
   embedded?: boolean
@@ -111,14 +109,15 @@ export function PrManager({ embedded = false, onDetachToWindow }: PrManagerProps
             <TabsContent value="board" className="min-h-0 flex-1 overflow-hidden data-[state=inactive]:hidden data-[state=active]:flex data-[state=active]:flex-col">
               <PrBoard projectId={projectId} repos={repos} templates={templates} tracked={tracked} loading={loading} onRefresh={refresh} githubTokenOk={Boolean(tokenStatus?.ok)} />
             </TabsContent>
-            <TabsContent value="repos" className="min-h-0 flex-1 overflow-auto data-[state=inactive]:hidden">
-              <RepoRegistryTab projectId={projectId} userId={user?.id ?? null} repos={repos} onRefresh={refresh} />
-            </TabsContent>
-            <TabsContent value="templates" className="min-h-0 flex-1 overflow-auto data-[state=inactive]:hidden">
-              <CheckpointTemplatesTab projectId={projectId} templates={templates} onRefresh={refresh} />
-            </TabsContent>
-            <TabsContent value="automations" className="min-h-0 flex-1 overflow-auto data-[state=inactive]:hidden">
-              <AutomationsTab automations={automations} repos={repos} onRefresh={refresh} />
+            <TabsContent value="settings" className="min-h-0 flex-1 overflow-hidden data-[state=inactive]:hidden data-[state=active]:flex data-[state=active]:flex-col">
+              <PrManagerSettingsPanel
+                projectId={projectId}
+                userId={user?.id ?? null}
+                repos={repos}
+                templates={templates}
+                automations={automations}
+                onRefresh={refresh}
+              />
             </TabsContent>
           </Tabs>
         )}

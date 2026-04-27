@@ -23,6 +23,8 @@ export interface PrCheckpointTemplate {
   targetBranch: string | null
   sortOrder: number
   isActive: boolean
+  /** 0-9 = màu nhóm header cột trên PR Board; null = nền mặc định. */
+  headerGroupId: number | null
   createdAt: string
 }
 
@@ -111,6 +113,15 @@ function mapRepo(r: any): PrRepo {
   }
 }
 
+function normalizeHeaderGroupId(v: unknown): number | null {
+  if (v === null || v === undefined) return null
+  const n = typeof v === 'number' ? v : Number(v)
+  if (!Number.isFinite(n)) return null
+  const i = Math.floor(n)
+  if (i < 0 || i > 9) return null
+  return i
+}
+
 function mapTemplate(r: any): PrCheckpointTemplate {
   return {
     id: r.id,
@@ -120,6 +131,7 @@ function mapTemplate(r: any): PrCheckpointTemplate {
     targetBranch: r.target_branch ?? null,
     sortOrder: r.sort_order ?? 0,
     isActive: !!r.is_active,
+    headerGroupId: normalizeHeaderGroupId(r.header_group_id),
     createdAt: r.created_at,
   }
 }
@@ -286,6 +298,8 @@ export async function upsertCheckpointTemplate(input: {
   targetBranch?: string | null
   sortOrder?: number
   isActive?: boolean
+  /** Truyền `null` để xóa màu nhóm; bỏ qua field này để giữ giá trị DB khi cập nhật. */
+  headerGroupId?: number | null
 }): Promise<PrCheckpointTemplate> {
   const existing = await query<any[]>(
     'SELECT id FROM pr_checkpoint_templates WHERE project_id = ? AND code = ? LIMIT 1',
@@ -293,17 +307,31 @@ export async function upsertCheckpointTemplate(input: {
   )
   if (existing?.[0]) {
     const id = existing[0].id
-    await query(
-      `UPDATE pr_checkpoint_templates SET label=?, target_branch=?, sort_order=?, is_active=? WHERE id=?`,
-      [input.label, input.targetBranch ?? null, input.sortOrder ?? 0, input.isActive ?? true, id]
-    )
+    if (input.headerGroupId !== undefined) {
+      await query(
+        `UPDATE pr_checkpoint_templates SET label=?, target_branch=?, sort_order=?, is_active=?, header_group_id=? WHERE id=?`,
+        [
+          input.label,
+          input.targetBranch ?? null,
+          input.sortOrder ?? 0,
+          input.isActive ?? true,
+          normalizeHeaderGroupId(input.headerGroupId),
+          id,
+        ]
+      )
+    } else {
+      await query(
+        `UPDATE pr_checkpoint_templates SET label=?, target_branch=?, sort_order=?, is_active=? WHERE id=?`,
+        [input.label, input.targetBranch ?? null, input.sortOrder ?? 0, input.isActive ?? true, id]
+      )
+    }
     const row = (await query<any[]>('SELECT * FROM pr_checkpoint_templates WHERE id=?', [id]))?.[0]
     return mapTemplate(row)
   }
   const id = input.id ?? randomUuidV7()
   await query(
-    `INSERT INTO pr_checkpoint_templates (id, project_id, code, label, target_branch, sort_order, is_active)
-     VALUES (?, ?, ?, ?, ?, ?, ?)`,
+    `INSERT INTO pr_checkpoint_templates (id, project_id, code, label, target_branch, sort_order, is_active, header_group_id)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
     [
       id,
       input.projectId,
@@ -312,6 +340,7 @@ export async function upsertCheckpointTemplate(input: {
       input.targetBranch ?? null,
       input.sortOrder ?? 0,
       input.isActive ?? true,
+      normalizeHeaderGroupId(input.headerGroupId ?? null),
     ]
   )
   const row = (await query<any[]>('SELECT * FROM pr_checkpoint_templates WHERE id=?', [id]))?.[0]

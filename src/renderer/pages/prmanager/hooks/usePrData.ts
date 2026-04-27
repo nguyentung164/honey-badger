@@ -21,6 +21,8 @@ export interface PrCheckpointTemplate {
   targetBranch: string | null
   sortOrder: number
   isActive: boolean
+  /** 0-9: nhóm màu header cột PR Board; null = mặc định. */
+  headerGroupId: number | null
 }
 
 export interface PrBranchCheckpoint {

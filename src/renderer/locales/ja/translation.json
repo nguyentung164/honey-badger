@@ -3092,6 +3092,7 @@
     "shell": {
       "appTitle": "PR Manager",
       "tabBoard": "ボード",
+      "tabSettings": "設定",
       "tabRepos": "リポジトリ",
       "tabCheckpoints": "チェックポイント",
       "tabAutomations": "自動化",
@@ -3292,7 +3293,14 @@
       "colCode": "コード",
       "colLabel": "ラベル",
       "colTarget": "ターゲットブランチ",
-      "colActive": "有効"
+      "colActive": "有効",
+      "colHeaderGroup": "ヘッダー色",
+      "headerGroupColumnHelp": "PR Branches タブの表でこの列のヘッダー背景。同じ流れのチェックポイント（例: PR stage と merge stage）には同じ色を選びます。",
+      "headerGroupOpenButton": "PRボード列のヘッダー色を選ぶ",
+      "headerGroupPopoverHint": "関連チェックポイントは同じ色でグループ表示します。",
+      "headerGroupDefaultShort": "デフォルト",
+      "headerGroupNoneTitle": "デフォルトのヘッダー（ミュート）",
+      "headerGroupSwatchTitle": "グループ色 {{n}} / 10"
     },
     "automations": {
       "toastSelectRepo": "リポジトリを選んでください。",
@@ -3353,9 +3361,11 @@
       "syncFromGithubHelp": "GitHubでPRを同期（オープン+マージ/クローズ、リポジトリあたり最大500件）",
       "syncing": "同期中…",
       "createPr": "PRを作成",
+      "tableBordersSwitch": "表の枠線",
+      "tableBordersHelp": "ブランチ表に縦横の枠線を表示します。この端末に保存されます。",
       "filterPrs": "PRをフィルター (GitHub)",
-      "onlyRemote": "リモートに存在するブランチのみ",
-      "onlyNoPr": "PR未作成のブランチのみ",
+      "onlyRemote": "リモートのみ",
+      "onlyNoPr": "PRなし",
       "onlyNoPrTitle": "PR未作成でリモートにまだ存在するブランチを追加。種別フィルタは該当PR行を加えます。各リポで未PRのブランチを先頭に。",
       "emptyNoRepos": "リポジトリが未登録です。Repos タブで追加またはソースから自動検出してください。",
       "emptyNoTemplates": "チェックポイントテンプレートがありません。Checkpoints タブでデフォルトを作成してください。",

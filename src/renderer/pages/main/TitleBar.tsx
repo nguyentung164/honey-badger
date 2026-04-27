@@ -3098,7 +3098,7 @@ export const TitleBar = ({
                         'font-medium text-xs shrink-0 flex items-center gap-1.5 h-6 px-2! py-0 -mx-1 rounded-md transition-colors',
                         isAdmin
                           ? 'border-0 shadow-none bg-red-100 dark:bg-red-900/50 hover:bg-red-200 dark:hover:bg-red-900/70'
-                          : cn(rankCfg.bgColor, rankCfg.pillHoverBg, rankGlowClass)
+                          : cn(rankCfg.bgColor, rankCfg.pillHoverBg)
                       )}
                     >
                       <Avatar className={cn('h-4 w-4 shrink-0', isAdmin ? 'ring-red-400 dark:ring-red-500' : rankCfg.ringColor)}>
@@ -3113,8 +3113,16 @@ export const TitleBar = ({
                             .slice(0, 2)}
                         </AvatarFallback>
                       </Avatar>
-                      {isAdmin ? <span className="text-[11px]">🛡️</span> : <RankBadge rank={currentRank} size="xs" />}
-                      <span className={cn('truncate max-w-[120px]', rankTextClass)}>{user.name}</span>
+                      {isAdmin ? <span className="text-[11px]">🛡️</span> : <RankBadge rank={currentRank} size="xs" noGlow />}
+                      <span
+                        className={cn(
+                          'truncate max-w-[120px] inline-block rounded-sm',
+                          rankTextClass,
+                          !isAdmin && rankGlowClass
+                        )}
+                      >
+                        {user.name}
+                      </span>
                       {pinnedBadges.slice(0, 3).map(b => (
                         <span
                           key={b.achievement_code}

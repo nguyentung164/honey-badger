@@ -48,21 +48,30 @@ import { Checkbox } from '@/components/ui/checkbox'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
+import { Switch } from '@/components/ui/switch'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import { GlowLoader } from '@/components/ui-elements/GlowLoader'
 import toast from '@/components/ui-elements/Toast'
 import { getDateFnsLocale } from '@/lib/dateUtils'
 import { cn } from '@/lib/utils'
+import { checkpointTableHeadGroupClass } from '../checkpointHeaderGroup'
 import type { PrBranchCheckpoint, PrCheckpointTemplate, PrRepo, TrackedBranchRow } from '../hooks/usePrData'
 import type { PrGhStatusKind } from '../prGhStatus'
 import { PR_GH_STATUS_IDS, PR_GH_STATUS_TEXT_CLASS } from '../prGhStatus'
-import { PR_MANAGER_ACCENT_OUTLINE_BTN, PR_MANAGER_ACCENT_OUTLINE_SURFACE, PR_MANAGER_ACCENT_TEXT } from '../prManagerButtonStyles'
+import { PR_MANAGER_ACCENT_OUTLINE_BTN, PR_MANAGER_ACCENT_OUTLINE_SURFACE } from '../prManagerButtonStyles'
 import { CreatePrDialog } from './CreatePrDialog'
 import { MergePrDialog } from './MergePrDialog'
 import { PrBulkActionsDialog } from './PrBulkActionsDialog'
 import { PrDetailDialog } from './PrDetailDialog'
-import { activePrTemplates, type BulkActionKind, resolveBulkCreatePrTargets, resolveBulkDeleteBranchTargets, resolveBulkPrTargets } from './prBoardBulkResolve'
+import {
+  activePrTemplates,
+  type BulkActionKind,
+  countRowsEligibleForBulkCreateOnAnyPrTemplate,
+  resolveBulkCreatePrTargets,
+  resolveBulkDeleteBranchTargets,
+  resolveBulkPrTargets,
+} from './prBoardBulkResolve'
 
 type BulkToolbarConfirm = BulkActionKind | 'clearSelection'
 
@@ -145,6 +154,18 @@ function rowHasAnyPrNumber(row: TrackedBranchRow, activeTemplates: PrCheckpointT
   return false
 }
 
+/** pr_* đầu đã có PR nhưng còn pr_* sau chưa có (chỉ còn Create PR ở cột sau). `orderedPrTemplates` = activePrTemplates. */
+function rowNeedsOnlyLaterPrCreate(row: TrackedBranchRow, orderedPrTemplates: PrCheckpointTemplate[]): boolean {
+  if (orderedPrTemplates.length < 2) return false
+  const firstCp = row.checkpoints.find(c => c.templateId === orderedPrTemplates[0].id) ?? null
+  if (!firstCp?.prNumber) return false
+  for (let i = 1; i < orderedPrTemplates.length; i++) {
+    const cp = row.checkpoints.find(c => c.templateId === orderedPrTemplates[i].id) ?? null
+    if (!cp?.prNumber) return true
+  }
+  return false
+}
+
 function rowMatchesPrGhFilters(row: TrackedBranchRow, activeTemplates: PrCheckpointTemplate[], prGhFilters: Set<PrGhFilterId>): boolean {
   const allGhOn = PR_GH_FILTER_IDS.every(id => prGhFilters.has(id))
   if (allGhOn) return true
@@ -167,6 +188,11 @@ const CELL_TXT = 'text-xs leading-tight'
 /** Giới hạn rộng cột chữ dài (Branch, PR động, …). */
 const COL_BRANCH = 'min-w-0 max-w-[200px] overflow-hidden'
 const COL_PR_CHECKPOINT = 'min-w-0 max-w-[180px] overflow-hidden'
+/** Viền dọc giữa các cột (cùng style `border-r` cột Repo); cột checkbox cuối không dùng. */
+const COL_DIVIDER_R = 'border-r border-r-border/60'
+/** Viền ngang từng ô (dùng khi bật lưới viền bảng). */
+const COL_DIVIDER_B = 'border-b border-b-border/60'
+const PR_BOARD_TABLE_BORDERS_LS = 'pr-manager.prBoard.tableBordersV1'
 
 function openUrlInDefaultBrowser(url: string): void {
   void window.api.system.open_external_url(url)
@@ -219,9 +245,9 @@ function getMergeableUi(mergeable: string | null | undefined, t: TFunction): Mer
   }
   if (s === 'behind') {
     return {
-      prText: 'text-sky-800 dark:text-sky-200',
-      prIcon: 'text-sky-600 dark:text-sky-400',
-      mergeCell: 'bg-sky-500/20 text-sky-950 dark:text-sky-50',
+      prText: 'text-indigo-800 dark:text-indigo-200',
+      prIcon: 'text-indigo-600 dark:text-indigo-400',
+      mergeCell: 'bg-indigo-500/20 text-indigo-950 dark:text-indigo-50',
       shortLabel: t('prManager.mergeableUi.behind'),
       subLabel: t('prManager.mergeableUi.behindSub'),
       blockMerge: true,
@@ -266,7 +292,7 @@ function getMergeableUi(mergeable: string | null | undefined, t: TFunction): Mer
   }
 }
 
-/** Cột pr_*: nền trung tính nếu PR mở (màu trạng thái mergeable chỉ ở chữ). */
+/** Cột pr_*: nền theo trạng thái PR; open + ready to merge = emerald (cùng họ với ô Merge). */
 function ghPrSurfaceClasses(cp: PrBranchCheckpoint): string {
   if (cp.ghPrMerged === true) {
     return 'bg-violet-500/15 text-violet-800 dark:text-violet-200'
@@ -285,9 +311,15 @@ function ghPrSurfaceClasses(cp: PrBranchCheckpoint): string {
     return 'bg-rose-500/20'
   }
   if (ms === 'behind') {
-    return 'bg-sky-500/20'
+    return 'bg-indigo-500/20'
   }
-  return 'bg-muted/20'
+  if (ms === 'unstable') {
+    return 'bg-yellow-500/15'
+  }
+  if (ms === 'unknown') {
+    return 'bg-slate-500/12'
+  }
+  return 'bg-emerald-500/22 dark:bg-emerald-500/16'
 }
 
 function ghPrContentTextClass(cp: PrBranchCheckpoint, t: TFunction): string {
@@ -306,33 +338,33 @@ function PrStatusIcon({ cp, className = 'h-3 w-3 shrink-0' }: PrStatusIconProps)
   return <I className={cn(className, ui.prIcon)} />
 }
 
-/** Nền cả hàng (mọi ô) + viền trái nhấn mạnh trên cột Repo. */
+/** Nền nhóm repo: wash màu rất nhạt (alpha thấp) + viền trái mờ — light/dark đều dịu, không lấn ô PR. */
 const REPO_GROUP_VISUAL: ReadonlyArray<{
   row: string
   accent: string
 }> = [
   {
-    row: 'bg-slate-100/95 dark:bg-slate-900/55',
-    accent: 'border-l-[3px] border-l-sky-500/80',
+    row: 'bg-slate-500/[0.035] dark:bg-slate-400/[0.06]',
+    accent: 'border-l-[3px] border-l-sky-500/25 dark:border-l-sky-400/20',
   },
   {
-    row: 'bg-emerald-50/80 dark:bg-emerald-950/25',
-    accent: 'border-l-[3px] border-l-emerald-500/70',
+    row: 'bg-emerald-500/[0.04] dark:bg-emerald-400/[0.07]',
+    accent: 'border-l-[3px] border-l-emerald-500/25 dark:border-l-emerald-400/20',
   },
   {
-    row: 'bg-violet-100/60 dark:bg-violet-950/35',
-    accent: 'border-l-[3px] border-l-violet-500/65',
+    row: 'bg-violet-500/[0.04] dark:bg-violet-400/[0.07]',
+    accent: 'border-l-[3px] border-l-violet-500/25 dark:border-l-violet-400/20',
   },
   {
-    row: 'bg-amber-100/50 dark:bg-amber-950/25',
-    accent: 'border-l-[3px] border-l-amber-500/60',
+    row: 'bg-amber-500/[0.04] dark:bg-amber-400/[0.07]',
+    accent: 'border-l-[3px] border-l-amber-500/25 dark:border-l-amber-400/20',
   },
 ]
 
-/** Hover dòng: lớp inset không thay thế nền nhóm repo (ô Repo rowSpan dùng hover theo cả nhóm branch). */
+/** Hover dòng: lớp inset rất nhẹ trên nền nhóm repo. */
 const REPO_GROUP_ROW_HOVER_TRANSITION = 'transition-[box-shadow] duration-150'
 const REPO_GROUP_ROW_HOVER_SHADOW =
-  'shadow-[inset_0_0_0_9999px_rgb(0_0_0_/_0.055)] dark:shadow-[inset_0_0_0_9999px_rgb(255_255_255_/_0.07)]'
+  'shadow-[inset_0_0_0_9999px_rgb(0_0_0_/_0.03)] dark:shadow-[inset_0_0_0_9999px_rgb(255_255_255_/_0.025)]'
 
 export function PrBoard({ projectId, repos, templates, tracked, loading, onRefresh, githubTokenOk = false }: Props) {
   const { t } = useTranslation()
@@ -362,6 +394,26 @@ export function PrBoard({ projectId, repos, templates, tracked, loading, onRefre
   const [bulkToolbarConfirm, setBulkToolbarConfirm] = useState<BulkToolbarConfirm | null>(null)
   const bulkToolbarConfirmRef = useRef<BulkToolbarConfirm | null>(null)
   bulkToolbarConfirmRef.current = bulkToolbarConfirm
+
+  const [showTableBorders, setShowTableBorders] = useState<boolean>(() => {
+    try {
+      if (typeof window === 'undefined') return true
+      const v = window.localStorage.getItem(PR_BOARD_TABLE_BORDERS_LS)
+      if (v === null) return true
+      return v === '1'
+    } catch {
+      return true
+    }
+  })
+
+  const persistTableBorders = (on: boolean) => {
+    setShowTableBorders(on)
+    try {
+      window.localStorage.setItem(PR_BOARD_TABLE_BORDERS_LS, on ? '1' : '0')
+    } catch {
+      /* ignore */
+    }
+  }
 
   const activeTemplates = useMemo(() => templates.filter(t => t.isActive).sort((a, b) => a.sortOrder - b.sortOrder), [templates])
   const prGhFilterKey = useMemo(() => [...prGhFilters].sort().join(','), [prGhFilters])
@@ -584,12 +636,13 @@ export function PrBoard({ projectId, repos, templates, tracked, loading, onRefre
   const bulkElig = useMemo(() => {
     const rows = selectedRowsFull
     if (!githubTokenOk || rows.length === 0) {
-      return { merge: 0, close: 0, draft: 0, ready: 0, updateBranch: 0, deleteBranch: 0, create: 0 }
+      return { merge: 0, close: 0, draft: 0, ready: 0, updateBranch: 0, deleteBranch: 0, create: 0, createFirstStage: 0 }
     }
     const countPr = (k: 'merge' | 'close' | 'draft' | 'ready' | 'updateBranch') => resolveBulkPrTargets(k, rows, activeTemplates, repos).filter(x => x.eligible).length
     const deleteN = resolveBulkDeleteBranchTargets(rows, repos, activeTemplates, remoteExistMap, onlyExistingOnRemote).filter(x => x.eligible).length
-    const createN =
+    const createFirstStageN =
       defaultPrTemplate != null ? resolveBulkCreatePrTargets(rows, defaultPrTemplate, null, repos, remoteExistMap, onlyExistingOnRemote).filter(x => x.eligible).length : 0
+    const createAnyStageN = countRowsEligibleForBulkCreateOnAnyPrTemplate(rows, activeTemplates, repos, remoteExistMap, onlyExistingOnRemote)
     return {
       merge: countPr('merge'),
       close: countPr('close'),
@@ -597,9 +650,22 @@ export function PrBoard({ projectId, repos, templates, tracked, loading, onRefre
       ready: countPr('ready'),
       updateBranch: countPr('updateBranch'),
       deleteBranch: deleteN,
-      create: createN,
+      create: createAnyStageN,
+      createFirstStage: createFirstStageN,
     }
   }, [selectedRowsFull, githubTokenOk, activeTemplates, repos, remoteExistMap, onlyExistingOnRemote, defaultPrTemplate])
+
+  const orderedPrCheckpointTemplates = useMemo(() => activePrTemplates(activeTemplates), [activeTemplates])
+
+  /** Chọn lẫn nhánh “chỉ cần PR cột sau” với nhánh vẫn thiếu PR cột đầu → tắt bulk Create (tránh nhầm). */
+  const bulkCreateMixedLaterStage = useMemo(() => {
+    if (orderedPrCheckpointTemplates.length < 2 || selectedRowsFull.length === 0) return false
+    const hasLaterStageGapRow = selectedRowsFull.some(r => rowNeedsOnlyLaterPrCreate(r, orderedPrCheckpointTemplates))
+    if (!hasLaterStageGapRow) return false
+    return bulkElig.createFirstStage > 0 && bulkElig.createFirstStage < selectedRowsFull.length
+  }, [orderedPrCheckpointTemplates, selectedRowsFull, bulkElig.createFirstStage])
+
+  const bulkCreatePrToolbarEnabled = githubTokenOk && selectedRowsFull.length > 0 && orderedPrCheckpointTemplates.length > 0 && bulkElig.create > 0 && !bulkCreateMixedLaterStage
 
   const pageRowIds = useMemo(() => pagedFlatRows.map(r => r.id), [pagedFlatRows])
   const allPageSelected = pageRowIds.length > 0 && pageRowIds.every(id => selectedRowIds.has(id))
@@ -725,139 +791,7 @@ export function PrBoard({ projectId, repos, templates, tracked, loading, onRefre
           <CloudDownload className={cn('h-3.5 w-3.5', syncing && 'animate-pulse')} />
           {syncing ? `${syncProgress}%` : t('prManager.board.syncFromGithub')}
         </Button>
-        <div className="ml-auto flex flex-wrap items-center justify-end gap-1.5 sm:gap-2">
-          {selectedRowIds.size > 0 ? (
-            <span className="mr-0.5 text-xs tabular-nums text-muted-foreground">{t('prManager.bulk.nSelected', { count: selectedRowIds.size })}</span>
-          ) : null}
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <Button
-                type="button"
-                size="icon"
-                variant="outline"
-                className="h-8 w-8"
-                disabled={!githubTokenOk || bulkElig.create === 0}
-                onClick={() => setBulkToolbarConfirm('createPr')}
-              >
-                <CopyPlus className="h-3.5 w-3.5" />
-              </Button>
-            </TooltipTrigger>
-            <TooltipContent side="bottom" className="max-w-xs text-xs">
-              {t('prManager.bulk.tt.createPr')}
-            </TooltipContent>
-          </Tooltip>
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <Button
-                type="button"
-                size="icon"
-                variant="outline"
-                className="h-8 w-8"
-                disabled={!githubTokenOk || bulkElig.merge === 0}
-                onClick={() => setBulkToolbarConfirm('merge')}
-              >
-                <GitMerge className="h-3.5 w-3.5" />
-              </Button>
-            </TooltipTrigger>
-            <TooltipContent side="bottom" className="max-w-xs text-xs">
-              {t('prManager.bulk.tt.merge')}
-            </TooltipContent>
-          </Tooltip>
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <Button
-                type="button"
-                size="icon"
-                variant="outline"
-                className="h-8 w-8"
-                disabled={!githubTokenOk || bulkElig.close === 0}
-                onClick={() => setBulkToolbarConfirm('close')}
-              >
-                <GitPullRequestClosed className="h-3.5 w-3.5" />
-              </Button>
-            </TooltipTrigger>
-            <TooltipContent side="bottom" className="max-w-xs text-xs">
-              {t('prManager.bulk.tt.close')}
-            </TooltipContent>
-          </Tooltip>
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <Button
-                type="button"
-                size="icon"
-                variant="outline"
-                className="h-8 w-8"
-                disabled={!githubTokenOk || bulkElig.draft === 0}
-                onClick={() => setBulkToolbarConfirm('draft')}
-              >
-                <CircleDashed className="h-3.5 w-3.5" />
-              </Button>
-            </TooltipTrigger>
-            <TooltipContent side="bottom" className="max-w-xs text-xs">
-              {t('prManager.bulk.tt.draft')}
-            </TooltipContent>
-          </Tooltip>
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <Button
-                type="button"
-                size="icon"
-                variant="outline"
-                className="h-8 w-8"
-                disabled={!githubTokenOk || bulkElig.ready === 0}
-                onClick={() => setBulkToolbarConfirm('ready')}
-              >
-                <Send className="h-3.5 w-3.5" />
-              </Button>
-            </TooltipTrigger>
-            <TooltipContent side="bottom" className="max-w-xs text-xs">
-              {t('prManager.bulk.tt.ready')}
-            </TooltipContent>
-          </Tooltip>
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <Button
-                type="button"
-                size="icon"
-                variant="outline"
-                className="h-8 w-8"
-                disabled={!githubTokenOk || bulkElig.updateBranch === 0}
-                onClick={() => setBulkToolbarConfirm('updateBranch')}
-              >
-                <ArrowDownToLine className="h-3.5 w-3.5" />
-              </Button>
-            </TooltipTrigger>
-            <TooltipContent side="bottom" className="max-w-xs text-xs">
-              {t('prManager.bulk.tt.updateBranch')}
-            </TooltipContent>
-          </Tooltip>
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <Button
-                type="button"
-                size="icon"
-                variant="outline"
-                className="h-8 w-8 text-rose-700 hover:bg-rose-500/10 dark:text-rose-400"
-                disabled={!githubTokenOk || bulkElig.deleteBranch === 0}
-                onClick={() => setBulkToolbarConfirm('deleteRemoteBranch')}
-              >
-                <Trash2 className="h-3.5 w-3.5" />
-              </Button>
-            </TooltipTrigger>
-            <TooltipContent side="bottom" className="max-w-xs text-xs">
-              {t('prManager.bulk.tt.deleteRemoteBranch')}
-            </TooltipContent>
-          </Tooltip>
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <Button type="button" size="icon" variant="ghost" className="h-8 w-8" disabled={selectedRowIds.size === 0} onClick={() => setBulkToolbarConfirm('clearSelection')}>
-                <X className="h-3.5 w-3.5" />
-              </Button>
-            </TooltipTrigger>
-            <TooltipContent side="bottom" className="max-w-xs text-xs">
-              {t('prManager.bulk.tt.clearSelection')}
-            </TooltipContent>
-          </Tooltip>
+        <div className="ml-auto">
           <Button
             size="sm"
             variant="outline"
@@ -874,63 +808,192 @@ export function PrBoard({ projectId, repos, templates, tracked, loading, onRefre
       </div>
 
       {repos.length > 0 && activeTemplates.length > 0 && (
-        <div className="flex flex-wrap items-center gap-x-4 gap-y-2 rounded-md border border-dashed bg-muted/30 px-3 py-2">
-          <span className="text-xs font-medium text-muted-foreground">{t('prManager.board.filterPrs')}</span>
-          {PR_GH_FILTER_IDS.map(id => (
-            <div key={id} className="flex items-center gap-1.5">
+        <div className="flex flex-wrap items-stretch gap-2 sm:gap-3">
+          <div className="flex min-w-0 min-h-8 flex-1 flex-wrap items-center gap-x-4 gap-y-2 rounded-md border border-dashed bg-muted/30 px-3 py-2">
+            <span className="text-xs font-medium text-muted-foreground">{t('prManager.board.filterPrs')}</span>
+            {PR_GH_FILTER_IDS.map(id => (
+              <div key={id} className="flex items-center gap-1.5">
+                <Checkbox
+                  id={`pr-gh-filter-${id}`}
+                  checked={prGhFilters.has(id)}
+                  className={PR_GH_FILTER_STYLE[id].checkbox}
+                  onCheckedChange={v => {
+                    setPrGhFilters(prev => {
+                      const n = new Set(prev)
+                      if (v === true) n.add(id)
+                      else n.delete(id)
+                      return n
+                    })
+                  }}
+                />
+                <Label htmlFor={`pr-gh-filter-${id}`} className={cn('cursor-pointer text-xs font-medium leading-none tabular-nums', PR_GH_FILTER_STYLE[id].label)}>
+                  {t(`prManager.ghStatus.${id}`)} ({prGhFilterCounts[id]})
+                </Label>
+              </div>
+            ))}
+            <div className="h-3 w-px bg-border" aria-hidden />
+            <div className="flex items-center gap-1.5">
               <Checkbox
-                id={`pr-gh-filter-${id}`}
-                checked={prGhFilters.has(id)}
-                className={PR_GH_FILTER_STYLE[id].checkbox}
+                id="pr-filter-remote-exists"
+                checked={onlyExistingOnRemote}
+                className="data-[state=checked]:border-cyan-600 data-[state=checked]:bg-cyan-600 data-[state=checked]:text-white dark:data-[state=checked]:border-cyan-500"
                 onCheckedChange={v => {
-                  setPrGhFilters(prev => {
-                    const n = new Set(prev)
-                    if (v === true) n.add(id)
-                    else n.delete(id)
-                    return n
-                  })
+                  if (v === true) setOnlyExistingOnRemote(true)
+                  else setOnlyExistingOnRemote(false)
                 }}
               />
-              <Label htmlFor={`pr-gh-filter-${id}`} className={cn('cursor-pointer text-xs font-medium leading-none tabular-nums', PR_GH_FILTER_STYLE[id].label)}>
-                {t(`prManager.ghStatus.${id}`)} ({prGhFilterCounts[id]})
+              <Label htmlFor="pr-filter-remote-exists" className="flex cursor-pointer items-center gap-1.5 text-xs font-medium leading-none text-cyan-800 dark:text-cyan-200">
+                {remoteExistLoading && onlyExistingOnRemote ? <Loader2 className="h-3 w-3 shrink-0 animate-spin" /> : null}
+                {t('prManager.board.onlyRemote')}
               </Label>
             </div>
-          ))}
-          <div className="h-3 w-px bg-border" aria-hidden />
-          <div className="flex items-center gap-1.5">
-            <Checkbox
-              id="pr-filter-remote-exists"
-              checked={onlyExistingOnRemote}
-              className="data-[state=checked]:border-cyan-600 data-[state=checked]:bg-cyan-600 data-[state=checked]:text-white dark:data-[state=checked]:border-cyan-500"
-              onCheckedChange={v => {
-                if (v === true) setOnlyExistingOnRemote(true)
-                else setOnlyExistingOnRemote(false)
-              }}
-            />
-            <Label htmlFor="pr-filter-remote-exists" className="flex cursor-pointer items-center gap-1.5 text-xs font-medium leading-none text-cyan-800 dark:text-cyan-200">
-              {remoteExistLoading && onlyExistingOnRemote ? <Loader2 className="h-3 w-3 shrink-0 animate-spin" /> : null}
-              {t('prManager.board.onlyRemote')}
-            </Label>
+            <div className="h-3 w-px bg-border" aria-hidden />
+            <div className="flex items-center gap-1.5">
+              <Checkbox
+                id="pr-filter-without-pr"
+                checked={onlyBranchesWithoutPr}
+                className="data-[state=checked]:border-amber-600 data-[state=checked]:bg-amber-600 data-[state=checked]:text-white dark:data-[state=checked]:border-amber-500"
+                onCheckedChange={v => {
+                  if (v === true) setOnlyBranchesWithoutPr(true)
+                  else setOnlyBranchesWithoutPr(false)
+                }}
+              />
+              <Label
+                htmlFor="pr-filter-without-pr"
+                title={t('prManager.board.onlyNoPrTitle')}
+                className="flex cursor-pointer items-center gap-1.5 text-xs font-medium leading-none text-amber-900 tabular-nums dark:text-amber-200"
+              >
+                {remoteExistLoading && onlyBranchesWithoutPr && !onlyExistingOnRemote ? <Loader2 className="h-3 w-3 shrink-0 animate-spin" /> : null}
+                {t('prManager.board.onlyNoPr')} ({remoteExistMap == null && remoteExistLoading ? '—' : branchesWithoutPrCount})
+              </Label>
+            </div>
           </div>
-          <div className="h-3 w-px bg-border" aria-hidden />
-          <div className="flex items-center gap-1.5">
-            <Checkbox
-              id="pr-filter-without-pr"
-              checked={onlyBranchesWithoutPr}
-              className="data-[state=checked]:border-amber-600 data-[state=checked]:bg-amber-600 data-[state=checked]:text-white dark:data-[state=checked]:border-amber-500"
-              onCheckedChange={v => {
-                if (v === true) setOnlyBranchesWithoutPr(true)
-                else setOnlyBranchesWithoutPr(false)
-              }}
-            />
-            <Label
-              htmlFor="pr-filter-without-pr"
-              title={t('prManager.board.onlyNoPrTitle')}
-              className="flex cursor-pointer items-center gap-1.5 text-xs font-medium leading-none text-amber-900 tabular-nums dark:text-amber-200"
-            >
-              {remoteExistLoading && onlyBranchesWithoutPr && !onlyExistingOnRemote ? <Loader2 className="h-3 w-3 shrink-0 animate-spin" /> : null}
-              {t('prManager.board.onlyNoPr')} ({remoteExistMap == null && remoteExistLoading ? '—' : branchesWithoutPrCount})
-            </Label>
+          <div className="ml-auto flex min-h-8 shrink-0 flex-wrap items-center justify-end gap-1.5 rounded-md border border-dashed bg-muted/30 px-2 py-2 sm:gap-2 sm:px-3">
+            {selectedRowIds.size > 0 ? (
+              <span className="mr-0.5 text-xs tabular-nums text-muted-foreground">{t('prManager.bulk.nSelected', { count: selectedRowIds.size })}</span>
+            ) : null}
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button type="button" size="icon" variant="outline" className="h-8 w-8" disabled={!bulkCreatePrToolbarEnabled} onClick={() => setBulkToolbarConfirm('createPr')}>
+                  <CopyPlus className="h-3.5 w-3.5" />
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent side="bottom" className="max-w-xs text-xs">
+                {t('prManager.bulk.tt.createPr')}
+              </TooltipContent>
+            </Tooltip>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button
+                  type="button"
+                  size="icon"
+                  variant="outline"
+                  className="h-8 w-8"
+                  disabled={!githubTokenOk || bulkElig.merge === 0}
+                  onClick={() => setBulkToolbarConfirm('merge')}
+                >
+                  <GitMerge className="h-3.5 w-3.5" />
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent side="bottom" className="max-w-xs text-xs">
+                {t('prManager.bulk.tt.merge')}
+              </TooltipContent>
+            </Tooltip>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button
+                  type="button"
+                  size="icon"
+                  variant="outline"
+                  className="h-8 w-8"
+                  disabled={!githubTokenOk || bulkElig.close === 0}
+                  onClick={() => setBulkToolbarConfirm('close')}
+                >
+                  <GitPullRequestClosed className="h-3.5 w-3.5" />
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent side="bottom" className="max-w-xs text-xs">
+                {t('prManager.bulk.tt.close')}
+              </TooltipContent>
+            </Tooltip>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button
+                  type="button"
+                  size="icon"
+                  variant="outline"
+                  className="h-8 w-8"
+                  disabled={!githubTokenOk || bulkElig.draft === 0}
+                  onClick={() => setBulkToolbarConfirm('draft')}
+                >
+                  <CircleDashed className="h-3.5 w-3.5" />
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent side="bottom" className="max-w-xs text-xs">
+                {t('prManager.bulk.tt.draft')}
+              </TooltipContent>
+            </Tooltip>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button
+                  type="button"
+                  size="icon"
+                  variant="outline"
+                  className="h-8 w-8"
+                  disabled={!githubTokenOk || bulkElig.ready === 0}
+                  onClick={() => setBulkToolbarConfirm('ready')}
+                >
+                  <Send className="h-3.5 w-3.5" />
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent side="bottom" className="max-w-xs text-xs">
+                {t('prManager.bulk.tt.ready')}
+              </TooltipContent>
+            </Tooltip>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button
+                  type="button"
+                  size="icon"
+                  variant="outline"
+                  className="h-8 w-8"
+                  disabled={!githubTokenOk || bulkElig.updateBranch === 0}
+                  onClick={() => setBulkToolbarConfirm('updateBranch')}
+                >
+                  <ArrowDownToLine className="h-3.5 w-3.5" />
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent side="bottom" className="max-w-xs text-xs">
+                {t('prManager.bulk.tt.updateBranch')}
+              </TooltipContent>
+            </Tooltip>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button
+                  type="button"
+                  size="icon"
+                  variant="outline"
+                  className="h-8 w-8 text-rose-700 hover:bg-rose-500/10 dark:text-rose-400"
+                  disabled={!githubTokenOk || bulkElig.deleteBranch === 0}
+                  onClick={() => setBulkToolbarConfirm('deleteRemoteBranch')}
+                >
+                  <Trash2 className="h-3.5 w-3.5" />
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent side="bottom" className="max-w-xs text-xs">
+                {t('prManager.bulk.tt.deleteRemoteBranch')}
+              </TooltipContent>
+            </Tooltip>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button type="button" size="icon" variant="ghost" className="h-8 w-8" disabled={selectedRowIds.size === 0} onClick={() => setBulkToolbarConfirm('clearSelection')}>
+                  <X className="h-3.5 w-3.5" />
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent side="bottom" className="max-w-xs text-xs">
+                {t('prManager.bulk.tt.clearSelection')}
+              </TooltipContent>
+            </Tooltip>
           </div>
         </div>
       )}
@@ -950,24 +1013,40 @@ export function PrBoard({ projectId, repos, templates, tracked, loading, onRefre
             <Table>
               <TableHeader className="border-b-2 border-b-border shadow-sm">
                 <TableRow className="hover:bg-transparent">
-                  <TableHead className="sticky top-0 z-20 w-0 min-w-[200px] max-w-[min(900px,96vw)] whitespace-normal bg-muted/95 text-left align-top backdrop-blur-sm">
+                  <TableHead
+                    className={cn(
+                      'sticky top-0 z-20 w-0 min-w-[200px] max-w-[min(900px,96vw)] whitespace-normal bg-muted/95 text-left align-top backdrop-blur-sm',
+                      showTableBorders && COL_DIVIDER_R,
+                      showTableBorders && COL_DIVIDER_B
+                    )}
+                  >
                     {t('prManager.board.colRepo')}
                   </TableHead>
-                  <TableHead className={cn(COL_BRANCH, 'sticky top-0 z-20 bg-muted/95 backdrop-blur-sm')}>
+                  <TableHead className={cn(COL_BRANCH, 'sticky top-0 z-20 bg-muted/95 backdrop-blur-sm', showTableBorders && COL_DIVIDER_R, showTableBorders && COL_DIVIDER_B)}>
                     <span className="block truncate">{t('prManager.board.colBranch')}</span>
                   </TableHead>
                   {activeTemplates.map(tpl => (
                     <TableHead
                       key={tpl.id}
-                      className={cn('sticky top-0 z-20 min-w-[72px] whitespace-normal bg-muted/95 px-1.5 text-center align-top backdrop-blur-sm', COL_PR_CHECKPOINT)}
+                      className={cn(
+                        'sticky top-0 z-20 min-w-[72px] whitespace-normal px-1.5 text-center align-top backdrop-blur-sm',
+                        checkpointTableHeadGroupClass(tpl.headerGroupId),
+                        COL_PR_CHECKPOINT,
+                        showTableBorders && COL_DIVIDER_R,
+                        showTableBorders && COL_DIVIDER_B
+                      )}
                     >
                       <span className="block w-full truncate text-xs font-medium" title={tpl.label}>
                         {tpl.label}
                       </span>
                     </TableHead>
                   ))}
-                  {SHOW_NOTE_COLUMN && <TableHead className="sticky top-0 z-20 min-w-[180px] bg-muted/95 backdrop-blur-sm">{t('prManager.board.colNote')}</TableHead>}
-                  <TableHead className="sticky top-0 z-20 w-10 bg-muted/95 px-1 text-center backdrop-blur-sm">
+                  {SHOW_NOTE_COLUMN && (
+                    <TableHead className={cn('sticky top-0 z-20 min-w-[180px] bg-muted/95 backdrop-blur-sm', showTableBorders && COL_DIVIDER_R, showTableBorders && COL_DIVIDER_B)}>
+                      {t('prManager.board.colNote')}
+                    </TableHead>
+                  )}
+                  <TableHead className={cn('sticky top-0 z-20 w-10 bg-muted/95 px-1 text-center backdrop-blur-sm', showTableBorders && COL_DIVIDER_B)}>
                     <Checkbox
                       checked={allPageSelected ? true : somePageSelected ? 'indeterminate' : false}
                       onCheckedChange={() => toggleSelectAllPage()}
@@ -980,8 +1059,11 @@ export function PrBoard({ projectId, repos, templates, tracked, loading, onRefre
               </TableHeader>
               <TableBody className="[&>tr:nth-child(odd)]:bg-transparent [&>tr:nth-child(even)]:bg-transparent [&>tr:hover]:bg-transparent">
                 {filteredRows.length === 0 && (
-                  <TableRow>
-                    <TableCell colSpan={3 + activeTemplates.length + (SHOW_NOTE_COLUMN ? 1 : 0)} className="py-8 text-center text-sm text-muted-foreground">
+                  <TableRow className={showTableBorders ? 'border-b-0' : undefined}>
+                    <TableCell
+                      colSpan={3 + activeTemplates.length + (SHOW_NOTE_COLUMN ? 1 : 0)}
+                      className={cn('py-8 text-center text-sm text-muted-foreground', showTableBorders && COL_DIVIDER_B)}
+                    >
                       {existenceCheckPending && searchRows.length > 0
                         ? t('prManager.board.emptyFilterChecking')
                         : onlyExistingOnRemote && !existenceCheckPending && searchRows.length > 0 && remoteFilteredRows.length === 0
@@ -1009,7 +1091,7 @@ export function PrBoard({ projectId, repos, templates, tracked, loading, onRefre
                       <TableRow
                         key={row.id}
                         data-row-id={row.id}
-                        className={cn('align-top border-b border-b-border/60', vis.row)}
+                        className={cn('align-top', showTableBorders ? 'border-b-0' : 'border-b border-b-border/60', vis.row)}
                         onMouseEnter={() => setPrBoardHoveredRowId(row.id)}
                         onMouseLeave={e => {
                           const rel = e.relatedTarget as HTMLElement | null
@@ -1028,7 +1110,9 @@ export function PrBoard({ projectId, repos, templates, tracked, loading, onRefre
                           <TableCell
                             rowSpan={rows.length}
                             className={cn(
-                              'w-0 min-w-[200px] max-w-[min(900px,96vw)] whitespace-normal border-r border-r-border/60 align-top font-medium',
+                              'w-0 min-w-[200px] max-w-[min(900px,96vw)] whitespace-normal align-top font-medium',
+                              showTableBorders && COL_DIVIDER_R,
+                              showTableBorders && COL_DIVIDER_B,
                               vis.row,
                               vis.accent,
                               repoCellHover
@@ -1058,7 +1142,7 @@ export function PrBoard({ projectId, repos, templates, tracked, loading, onRefre
                             </div>
                           </TableCell>
                         )}
-                        <TableCell className={cn(COL_BRANCH, 'text-xs align-top', vis.row, rowHoverCell)}>
+                        <TableCell className={cn(COL_BRANCH, showTableBorders && COL_DIVIDER_R, showTableBorders && COL_DIVIDER_B, 'text-xs align-top', vis.row, rowHoverCell)}>
                           <button
                             type="button"
                             className="block w-full min-w-0 truncate rounded-sm text-left text-xs font-inherit text-foreground hover:underline hover:underline-offset-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
@@ -1073,7 +1157,17 @@ export function PrBoard({ projectId, repos, templates, tracked, loading, onRefre
                           const isMergeKind = tpl.code.toLowerCase().startsWith('merge_')
                           const companionPrCp = isMergeKind ? findCompanionPrCheckpoint(row, tpl) : null
                           return (
-                            <TableCell key={tpl.id} className={cn(COL_PR_CHECKPOINT, 'p-1 text-center align-middle !whitespace-normal', vis.row, rowHoverCell)}>
+                            <TableCell
+                              key={tpl.id}
+                              className={cn(
+                                COL_PR_CHECKPOINT,
+                                showTableBorders && COL_DIVIDER_R,
+                                showTableBorders && COL_DIVIDER_B,
+                                'p-1 text-center align-middle !whitespace-normal',
+                                vis.row,
+                                rowHoverCell
+                              )}
+                            >
                               <CheckpointCell
                                 tpl={tpl}
                                 cp={cp}
@@ -1095,7 +1189,7 @@ export function PrBoard({ projectId, repos, templates, tracked, loading, onRefre
                           )
                         })}
                         {SHOW_NOTE_COLUMN && (
-                          <TableCell className={cn(vis.row, rowHoverCell)}>
+                          <TableCell className={cn(showTableBorders && COL_DIVIDER_R, showTableBorders && COL_DIVIDER_B, vis.row, rowHoverCell)}>
                             <Input
                               value={noteDraft[row.id] ?? row.note ?? ''}
                               onChange={e => setNoteDraft(prev => ({ ...prev, [row.id]: e.target.value }))}
@@ -1105,7 +1199,7 @@ export function PrBoard({ projectId, repos, templates, tracked, loading, onRefre
                             />
                           </TableCell>
                         )}
-                        <TableCell className={cn('w-10 p-1 text-center align-middle', vis.row, rowHoverCell)} onClick={e => e.stopPropagation()}>
+                        <TableCell className={cn('w-10 p-1 text-center align-middle', showTableBorders && COL_DIVIDER_B, vis.row, rowHoverCell)} onClick={e => e.stopPropagation()}>
                           <Checkbox
                             checked={selectedRowIds.has(row.id)}
                             onCheckedChange={() => {
@@ -1133,10 +1227,10 @@ export function PrBoard({ projectId, repos, templates, tracked, loading, onRefre
                 {totalRowCount === 0
                   ? t('prManager.board.zeroRows')
                   : t('prManager.board.showRows', {
-                      from: (safePage - 1) * pageSize + 1,
-                      to: Math.min(safePage * pageSize, totalRowCount),
-                      total: totalRowCount,
-                    })}
+                    from: (safePage - 1) * pageSize + 1,
+                    to: Math.min(safePage * pageSize, totalRowCount),
+                    total: totalRowCount,
+                  })}
               </div>
               <div className="flex flex-wrap items-center gap-2 sm:gap-3">
                 <div className="flex items-center gap-1.5">
@@ -1208,6 +1302,18 @@ export function PrBoard({ projectId, repos, templates, tracked, loading, onRefre
                   >
                     <ChevronsRight className="h-4 w-4" />
                   </Button>
+                </div>
+                <div className="flex items-center gap-2 border-l border-border/60 pl-3 sm:pl-4">
+                  <Label htmlFor="pr-board-table-borders" className="cursor-pointer whitespace-nowrap text-xs text-muted-foreground" title={t('prManager.board.tableBordersHelp')}>
+                    {t('prManager.board.tableBordersSwitch')}
+                  </Label>
+                  <Switch
+                    id="pr-board-table-borders"
+                    size="sm"
+                    checked={showTableBorders}
+                    onCheckedChange={v => persistTableBorders(v === true)}
+                    title={t('prManager.board.tableBordersHelp')}
+                  />
                 </div>
               </div>
             </div>
@@ -1409,9 +1515,9 @@ function CheckpointCell({
             onClick={
               canOpen
                 ? () => {
-                    if (blockN == null) return
-                    onOpenPrInApp?.(blockN)
-                  }
+                  if (blockN == null) return
+                  onOpenPrInApp?.(blockN)
+                }
                 : undefined
             }
             title={mergeUi.mergeTitle ? `${mergeUi.mergeTitle} ${t('prManager.mergeableUi.openInAppHint')}` : t('prManager.mergeableUi.openInAppHint')}
@@ -1429,13 +1535,17 @@ function CheckpointCell({
     if (canMerge) {
       return (
         <div className="flex w-full min-w-0 items-stretch gap-0.5">
-          <div className={cn('flex min-w-0 flex-1 items-center justify-center rounded-md bg-emerald-500/10', CELL_CTRL_H)}>
+          <div className={cn('flex min-w-0 flex-1 items-center justify-center rounded-md bg-emerald-500/22 dark:bg-emerald-500/16', CELL_CTRL_H)}>
             <Button
               type="button"
               variant="ghost"
               size="xs"
               onClick={onMerge}
-              className={cn('w-full text-emerald-800 shadow-none hover:bg-emerald-500/15 dark:text-emerald-200 dark:hover:bg-emerald-500/20', CELL_CTRL_H, CELL_TXT)}
+              className={cn(
+                'w-full rounded-md border-0 bg-transparent text-emerald-800 shadow-none hover:bg-emerald-500/32 dark:text-emerald-200 dark:hover:bg-emerald-500/26',
+                CELL_CTRL_H,
+                CELL_TXT
+              )}
             >
               <GitMerge className="h-3.5 w-3.5 shrink-0 text-emerald-700 dark:text-emerald-300" /> {t('prManager.board.merge')}
             </Button>
@@ -1469,14 +1579,8 @@ function CheckpointCell({
     }
     // Ch\u01b0a c\u00f3 PR c\u00f9ng target \u2192 hi\u1ec3n \u201cCh\u1edd PR\u201d
     return (
-      <div
-        className={cn(
-          'flex w-full items-center justify-center gap-1 rounded-md bg-sky-500/15 text-sky-800 dark:bg-sky-950/40 dark:text-sky-100',
-          CELL_CTRL_H,
-          CELL_TXT
-        )}
-      >
-        <Hourglass className="h-3.5 w-3.5 shrink-0 text-sky-600 dark:text-sky-400" /> {t('prManager.board.waitingForPr')}
+      <div className={cn('flex w-full items-center justify-center gap-1 rounded-md bg-zinc-500/10 text-zinc-800 dark:bg-zinc-900/45 dark:text-zinc-200', CELL_CTRL_H, CELL_TXT)}>
+        <Hourglass className="h-3.5 w-3.5 shrink-0 text-zinc-600 dark:text-zinc-400" /> {t('prManager.board.waitingForPr')}
       </div>
     )
   }
@@ -1544,9 +1648,9 @@ function CheckpointCell({
                   : cp.ghPrDraft === true
                     ? t('prManager.board.tooltipDraft')
                     : (() => {
-                        const u = getMergeableUi(cp.ghPrMergeableState, t)
-                        return u.blockMerge ? t('prManager.board.openBlocked', { label: u.shortLabel }) : t('prManager.board.openReady')
-                      })()}
+                      const u = getMergeableUi(cp.ghPrMergeableState, t)
+                      return u.blockMerge ? t('prManager.board.openBlocked', { label: u.shortLabel }) : t('prManager.board.openReady')
+                    })()}
             </div>
             <div className="leading-snug text-muted-foreground">{titleText}</div>
             {cp.ghPrUpdatedAt ? (
@@ -1613,13 +1717,12 @@ function CheckpointCell({
       size="xs"
       onClick={onCreatePR}
       className={cn(
-        'w-full rounded-md border-0 bg-emerald-500/22 shadow-none hover:bg-emerald-500/32 dark:bg-emerald-500/16 dark:hover:bg-emerald-500/26',
-        PR_MANAGER_ACCENT_TEXT,
+        'w-full rounded-md border-0 bg-zinc-500/10 text-zinc-800 shadow-none hover:bg-zinc-500/15 dark:bg-zinc-900/45 dark:text-zinc-200 dark:hover:bg-zinc-800',
         CELL_CTRL_H,
         CELL_TXT
       )}
     >
-      <GitPullRequestCreate className="h-3.5 w-3.5 shrink-0" /> {t('prManager.board.createPrCell')}
+      <GitPullRequestCreate className="h-3.5 w-3.5 shrink-0 text-zinc-600 dark:text-zinc-400" /> {t('prManager.board.createPrCell')}
     </Button>
   )
 }

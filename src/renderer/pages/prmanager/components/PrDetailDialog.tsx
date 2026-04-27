@@ -54,6 +54,7 @@ import { getDateFnsLocale } from '@/lib/dateUtils'
 import { cn } from '@/lib/utils'
 import type { PrRepo } from '../hooks/usePrData'
 import { PR_GH_STATUS_BADGE_CLASS, prSummaryToGhStatusKind } from '../prGhStatus'
+import { githubMergeableBlocksMerge } from './prBoardBulkResolve'
 import { MergePrDialog } from './MergePrDialog'
 
 type PrSummary = {
@@ -746,8 +747,12 @@ export function PrDetailDialog({ open, onOpenChange, projectId, prRepo, prNumber
     }
   }
 
-  const canMergeUi = pr && pr.state === 'open' && !pr.merged && !pr.draft
-  const canApprove = Boolean(canMergeUi && pr?.headSha)
+  /** Cùng tiêu chí PrBoard / bulk: dirty, conflict, blocked, behind, unstable, unknown → không bật Merge. */
+  const mergeBlockedByMergeable = Boolean(pr && githubMergeableBlocksMerge(pr.mergeableState))
+  const canMergeUi = Boolean(
+    pr && pr.state === 'open' && !pr.merged && !pr.draft && !mergeBlockedByMergeable
+  )
+  const canApprove = Boolean(pr && pr.state === 'open' && !pr.merged && !pr.draft && pr.headSha)
   const isPrBranchBehind =
     pr &&
     pr.state === 'open' &&
@@ -938,7 +943,7 @@ export function PrDetailDialog({ open, onOpenChange, projectId, prRepo, prNumber
                       className="mr-2 h-8 gap-1 border-emerald-600 px-2.5 text-sm text-emerald-700 hover:border-emerald-600 hover:bg-emerald-500/10 hover:text-emerald-800 dark:border-emerald-500 dark:text-emerald-400 dark:hover:border-emerald-400 dark:hover:bg-emerald-500/15 dark:hover:text-emerald-300"
                       onClick={() => setConfirm('merge')}
                       disabled={!canMergeUi || !prRepo}
-                      title={t('prManager.detail.mergeOnGithub')}
+                      title={mergeBlockedByMergeable ? t('prManager.bulk.skip.mergeBlocked') : t('prManager.detail.mergeOnGithub')}
                     >
                       <GitMerge className="h-3.5 w-3.5" />
                       {t('prManager.detail.merge')}

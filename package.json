@@ -2,7 +2,7 @@
   "displayName": "Honey Badger",
   "name": "honey-badger",
   "description": "Honey Badger",
-  "version": "1.0.1",
+  "version": "1.0.2",
   "main": "./node_modules/.dev/main/index.js",
   "resources": "src/resources",
   "author": {

@@ -3088,6 +3088,7 @@
     "shell": {
       "appTitle": "PR Manager",
       "tabBoard": "Bảng",
+      "tabSettings": "Cài đặt",
       "tabRepos": "Kho",
       "tabCheckpoints": "Mốc",
       "tabAutomations": "Tự động",
@@ -3288,7 +3289,14 @@
       "colCode": "Code",
       "colLabel": "Label",
       "colTarget": "Target branch",
-      "colActive": "Active"
+      "colActive": "Active",
+      "colHeaderGroup": "Màu cột",
+      "headerGroupColumnHelp": "Nền header cột trên bảng tab PR Branches. Chọn cùng một ô màu cho các checkpoint cùng một luồng (ví dụ PR stage + merge stage).",
+      "headerGroupOpenButton": "Chọn màu header cột trên bảng PR",
+      "headerGroupPopoverHint": "Chọn một màu cho các checkpoint cùng nhóm trên bảng.",
+      "headerGroupDefaultShort": "Mặc định",
+      "headerGroupNoneTitle": "Header mặc định (xám)",
+      "headerGroupSwatchTitle": "Màu nhóm {{n}}/10"
     },
     "automations": {
       "toastSelectRepo": "Chọn repo.",
@@ -3349,9 +3357,11 @@
       "syncFromGithubHelp": "Đồng bộ PR từ GitHub (mở + đã gộp/đóng, tối đa 500 PR mỗi kho)",
       "syncing": "Đang đồng bộ…",
       "createPr": "Tạo PR",
+      "tableBordersSwitch": "Viền bảng",
+      "tableBordersHelp": "Bật viền dọc và ngang trên bảng nhánh. Lưu trên máy này.",
       "filterPrs": "Lọc PR (GitHub)",
-      "onlyRemote": "Chỉ nhánh còn tồn tại trên remote",
-      "onlyNoPr": "Chỉ nhánh chưa tạo PR",
+      "onlyRemote": "Trên remote",
+      "onlyNoPr": "Chưa có PR",
       "onlyNoPrTitle": "Bổ sung nhánh chưa có PR (chỉ nhánh còn tồn tại trên remote); bộ lọc kind thêm dòng theo trạng thái PR. Nhánh chưa PR xếp trên cùng mỗi kho.",
       "emptyNoRepos": "Chưa đăng ký kho nào. Mở tab Repos để thêm hoặc tự phát từ thư mục nguồn.",
       "emptyNoTemplates": "Chưa có mẫu checkpoint. Mở tab Checkpoints để tạo bộ mặc định.",
