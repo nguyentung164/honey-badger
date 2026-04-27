@@ -334,6 +334,45 @@ export async function pull(
   }
 }
 
+/**
+ * Chỉ cập nhật **một** nhánh local `branch` từ `remote` bằng refspec `fetch remote branch:branch` (FF).
+ * Chạy trong `cwd` duy nhất — không ảnh hưởng repo khác; không dùng `fetch --all` hay `pull` mặc định.
+ * Không checkout — cập nhật ref local, HEAD/worktree giữ nguyên nếu đang ở nhánh khác.
+ */
+export async function fetchUpdateLocalBranch(
+  remote: string = 'origin',
+  branch: string,
+  cwdOverride?: string
+): Promise<GitPushPullResponse> {
+  try {
+    const cwd = cwdOverride ?? configurationStore.store.sourceFolder
+    if (!cwd) {
+      return { status: 'error', message: 'Source folder not configured' }
+    }
+    const git = await getGitInstance(cwd)
+    if (!git) {
+      return { status: 'error', message: 'Not a git repository or error initializing git' }
+    }
+    const b = branch.trim()
+    if (!b) {
+      return { status: 'error', message: 'Branch name required' }
+    }
+    l.info(`fetchUpdateLocalBranch: ${remote} ${b}:${b} (cwd: ${cwd})`)
+    await git.raw(['fetch', remote, `${b}:${b}`])
+    updateGitCommitStatus(false)
+    return {
+      status: 'success',
+      message: `Updated local branch ${b} from ${remote}`,
+    }
+  } catch (error) {
+    l.error('Error in fetchUpdateLocalBranch:', error)
+    return {
+      status: 'error',
+      message: `Error updating branch: ${formatGitError(error)}`,
+    }
+  }
+}
+
 export interface FetchOptions {
   prune?: boolean
   all?: boolean

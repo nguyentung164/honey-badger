@@ -1,7 +1,7 @@
 'use client'
 
-import { GitBranch, ListOrdered, Loader2, RefreshCw } from 'lucide-react'
-import { useCallback, useEffect, useMemo, useRef, useState, type MouseEvent } from 'react'
+import { Download, GitBranch, ListOrdered, Loader2, RefreshCw, Upload } from 'lucide-react'
+import { type MouseEvent, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { GitConflictPanel } from '@/components/conflict/GitConflictPanel'
 import {
@@ -136,12 +136,13 @@ export function GitCherryPickBranchesDialog({ open, onOpenChange, onComplete }: 
   const sourceFolder = selectedRepo?.path
 
   const [branches, setBranches] = useState<{ local?: { all?: string[] }; remote?: { all?: string[] }; current?: string } | null>(null)
-  const [currentBranch, setCurrentBranch] = useState('')
   const [targetBranch, setTargetBranch] = useState<string | null>(null)
   const [sourceBranch, setSourceBranch] = useState<string | null>(null)
   const [branchesLoading, setBranchesLoading] = useState(false)
-  /** UI: nút nào đang quay khi fetch / reload log. */
-  const [refreshSide, setRefreshSide] = useState<'repo' | 'left' | 'right' | null>(null)
+  /** UI: nút nào đang chạy (fetch / reload log / pull / push trên cột target). */
+  const [refreshSide, setRefreshSide] = useState<'repo' | 'left' | 'leftPull' | 'leftPush' | 'right' | null>(null)
+  /** Sau cherry-pick thành công: hiện thêm nút push lên origin cho nhánh target. */
+  const [showTargetPush, setShowTargetPush] = useState(false)
   const refreshRemoteInFlight = useRef(false)
 
   const [leftLog, setLeftLog] = useState<LogRow[]>([])
@@ -159,6 +160,8 @@ export function GitCherryPickBranchesDialog({ open, onOpenChange, onComplete }: 
   const loadMoreLeftInFlight = useRef(false)
   const loadMoreRightInFlight = useRef(false)
   const clearBranchSelectionOnNextLoadRef = useRef(false)
+  /** Bật “tạo nhánh mới” → lần loadBranches kế: chọn main/master làm base nếu có. */
+  const defaultMainOnNextBranchLoadRef = useRef(false)
   /** Lần cuối effect phải đã “thấy” bộ (target, source, full) — dùng để không refetch phải khi chỉ đổi target. */
   const prevRightSeenRef = useRef<{ target: string; source: string; full: boolean } | null>(null)
 
@@ -170,6 +173,7 @@ export function GitCherryPickBranchesDialog({ open, onOpenChange, onComplete }: 
   const [showConflictPanel, setShowConflictPanel] = useState(false)
   const [createNewBranch, setCreateNewBranch] = useState(false)
   const [newBranchName, setNewBranchName] = useState('')
+  const [addingBranch, setAddingBranch] = useState(false)
 
   const queueRef = useRef<string[]>([])
   const pickedNewHashesRef = useRef<string[]>([])
@@ -189,7 +193,6 @@ export function GitCherryPickBranchesDialog({ open, onOpenChange, onComplete }: 
       if (brRes.status === 'success' && brRes.data) {
         setBranches(brRes.data)
         const cur = brRes.data.current || (stRes.status === 'success' && stRes.data?.current ? stRes.data.current : '') || ''
-        setCurrentBranch(cur)
         const targetOpts = buildLocalBranchOptions(brRes.data)
         const sourceOpts = buildBranchOptions(brRes.data)
         if (clearBranchSelectionOnNextLoadRef.current) {
@@ -199,8 +202,21 @@ export function GitCherryPickBranchesDialog({ open, onOpenChange, onComplete }: 
           return
         }
         if (targetOpts.length > 0) {
-          // Target chỉ cho phép local branch để tránh detached HEAD (checkout origin/main -> commit không nằm trên branch).
-          setTargetBranch(prev => (prev && targetOpts.some(o => o.value === prev) ? prev : cur || targetOpts[0].value))
+          if (defaultMainOnNextBranchLoadRef.current) {
+            defaultMainOnNextBranchLoadRef.current = false
+            const want =
+              (targetOpts.some(o => o.value === 'main') && 'main') ||
+              (targetOpts.some(o => o.value === 'master') && 'master') ||
+              null
+            if (want) {
+              setTargetBranch(want)
+            } else {
+              setTargetBranch(prev => (prev && targetOpts.some(o => o.value === prev) ? prev : cur || targetOpts[0].value))
+            }
+          } else {
+            // Target chỉ cho phép local branch để tránh detached HEAD (checkout origin/main -> commit không nằm trên branch).
+            setTargetBranch(prev => (prev && targetOpts.some(o => o.value === prev) ? prev : cur || targetOpts[0].value))
+          }
         } else {
           setTargetBranch(null)
         }
@@ -454,6 +470,85 @@ export function GitCherryPickBranchesDialog({ open, onOpenChange, onComplete }: 
     }
   }, [sourceFolder, branchesLoading, targetBranch, sourceBranch, loadRightLog])
 
+  /**
+   * Chỉ cập nhật **nhánh đích** trong **repo đang chọn** (một repo).
+   * - Đang checkout **khác** nhánh đích: `git fetch origin b:b` (không checkout).
+   * - Đang checkout **đúng** nhánh đích: **không dùng** fetch refspec (Git chặn: "refusing to fetch into branch ... checked out");
+   *   dùng `git pull origin b` để tích hợp vào worktree/HEAD.
+   * Working tree bẩn khi đang ở nhánh đích: chặn.
+   */
+  const handlePullTarget = useCallback(async () => {
+    if (!sourceFolder || !targetBranch?.trim() || branchesLoading || refreshRemoteInFlight.current) return
+    refreshRemoteInFlight.current = true
+    setRefreshSide('leftPull')
+    try {
+      const st = await window.api.git.status({ cwd: sourceFolder })
+      if (st.status !== 'success' || !st.data) {
+        toast.error(t('git.cherryPickBranches.statusError'))
+        return
+      }
+      const b = targetBranch.trim()
+      const cur = st.data.current?.trim() ?? ''
+      if (cur === b && isWorkingTreeDirty(st.data)) {
+        toast.error(t('git.cherryPickBranches.dirtyTree'))
+        return
+      }
+      const pr =
+        cur === b
+          ? await window.api.git.pull('origin', b, undefined, sourceFolder)
+          : await window.api.git.fetch_update_local_branch('origin', b, sourceFolder)
+      if (pr.status !== 'success') {
+        toast.error(pr.message || t('git.cherryPickBranches.pullError'))
+        return
+      }
+      await loadBranches()
+      await loadLeftLog()
+      if (b && sourceBranch?.trim() && b !== sourceBranch) {
+        await loadRightLog()
+      }
+      window.dispatchEvent(new CustomEvent('git-branch-changed'))
+      toast.success(t('git.cherryPickBranches.pullSuccess', { branch: b }))
+    } catch (e) {
+      logger.error(e)
+      toast.error(t('git.cherryPickBranches.pullError'))
+    } finally {
+      refreshRemoteInFlight.current = false
+      setRefreshSide(null)
+    }
+  }, [sourceFolder, targetBranch, sourceBranch, branchesLoading, t, loadBranches, loadLeftLog, loadRightLog])
+
+  const handlePushTarget = useCallback(async () => {
+    if (!sourceFolder || !targetBranch?.trim() || refreshRemoteInFlight.current) return
+    refreshRemoteInFlight.current = true
+    setRefreshSide('leftPush')
+    try {
+      const st = await window.api.git.status({ cwd: sourceFolder })
+      if (st.status !== 'success' || !st.data) {
+        toast.error(t('git.cherryPickBranches.statusError'))
+        return
+      }
+      if (isWorkingTreeDirty(st.data)) {
+        toast.error(t('git.cherryPickBranches.dirtyTree'))
+        return
+      }
+      const b = targetBranch.trim()
+      const pu = await window.api.git.push('origin', b, undefined, sourceFolder, false)
+      if (pu.status !== 'success') {
+        toast.error(pu.message || t('git.cherryPickBranches.pushError'))
+        return
+      }
+      setShowTargetPush(false)
+      window.dispatchEvent(new CustomEvent('git-branch-changed'))
+      toast.success(t('git.cherryPickBranches.pushSuccess', { branch: b }))
+    } catch (e) {
+      logger.error(e)
+      toast.error(t('git.cherryPickBranches.pushError'))
+    } finally {
+      refreshRemoteInFlight.current = false
+      setRefreshSide(null)
+    }
+  }, [sourceFolder, targetBranch, t])
+
   const handleLeftScroll = useCallback(() => {
     const el = leftScrollRef.current
     if (!el || logLoadingLeft || loadingMoreLeft || !hasMoreLeft) return
@@ -491,7 +586,6 @@ export function GitCherryPickBranchesDialog({ open, onOpenChange, onComplete }: 
       setTargetBranch(null)
       setSourceBranch(null)
       setBranches(null)
-      setCurrentBranch('')
       setLeftLog([])
       setRightLog([])
       setRightFullLog(false)
@@ -508,6 +602,7 @@ export function GitCherryPickBranchesDialog({ open, onOpenChange, onComplete }: 
       queueRef.current = []
       pickedNewHashesRef.current = []
       prevRightSeenRef.current = null
+      setShowTargetPush(false)
     },
     [repos, selectedRepo, running]
   )
@@ -517,7 +612,6 @@ export function GitCherryPickBranchesDialog({ open, onOpenChange, onComplete }: 
     if (!open) return
     setSelectedRepo(null)
     setBranches(null)
-    setCurrentBranch('')
     setTargetBranch(null)
     setSourceBranch(null)
     setLeftLog([])
@@ -529,6 +623,9 @@ export function GitCherryPickBranchesDialog({ open, onOpenChange, onComplete }: 
     setHighlightLeft(new Set())
     setCreateNewBranch(false)
     setNewBranchName('')
+    setAddingBranch(false)
+    setShowTargetPush(false)
+    defaultMainOnNextBranchLoadRef.current = false
     prevRightSeenRef.current = null
     clearBranchSelectionOnNextLoadRef.current = false
     queueRef.current = []
@@ -616,6 +713,7 @@ export function GitCherryPickBranchesDialog({ open, onOpenChange, onComplete }: 
       setConfirmOpen(false)
       setCreateNewBranch(false)
       setNewBranchName('')
+      setAddingBranch(false)
     }
   }, [open])
 
@@ -674,6 +772,7 @@ export function GitCherryPickBranchesDialog({ open, onOpenChange, onComplete }: 
       window.dispatchEvent(new CustomEvent('git-branch-changed'))
       toast.success(t('git.cherryPickBranches.success'))
       onComplete?.()
+      setShowTargetPush(true)
       return true
     } catch (e) {
       logger.error(e)
@@ -715,6 +814,45 @@ export function GitCherryPickBranchesDialog({ open, onOpenChange, onComplete }: 
     if (name.startsWith('/') || name.endsWith('/')) return false
     if (name.endsWith('.lock')) return false
     return true
+  }
+
+  const handleAddNewBranch = async () => {
+    if (!sourceFolder || !createNewBranch) return
+    const name = newBranchName.trim()
+    if (!isValidBranchName(name)) {
+      toast.warning(t('git.cherryPickBranches.invalidBranchName'))
+      return
+    }
+    const base = targetBranch?.trim() ?? ''
+    if (!base) {
+      toast.warning(t('git.cherryPickBranches.selectBaseBranch'))
+      return
+    }
+    setAddingBranch(true)
+    try {
+      const fetchRes = await window.api.git.fetch('origin', { prune: true }, sourceFolder)
+      if (fetchRes.status !== 'success') {
+        toast.error(fetchRes.message || t('git.cherryPickBranches.refreshFetchError'))
+        return
+      }
+      const cr = await window.api.git.create_branch(name, base, sourceFolder)
+      if (cr.status !== 'success') {
+        toast.error(cr.message || t('git.cherryPickBranches.newBranchError'))
+        return
+      }
+      setCreateNewBranch(false)
+      setNewBranchName('')
+      setTargetBranch(name)
+      await loadBranches()
+      void loadLeftLogRef.current()
+      window.dispatchEvent(new CustomEvent('git-branch-changed'))
+      toast.success(t('git.cherryPickBranches.addBranchSuccess', { branch: name }))
+    } catch (e) {
+      logger.error(e)
+      toast.error(t('git.cherryPickBranches.newBranchError'))
+    } finally {
+      setAddingBranch(false)
+    }
   }
 
   const handleCherryPickClick = () => {
@@ -761,6 +899,7 @@ export function GitCherryPickBranchesDialog({ open, onOpenChange, onComplete }: 
     }
 
     setRunning(true)
+    setShowTargetPush(false)
     pickedNewHashesRef.current = []
     setHighlightLeft(new Set())
 
@@ -804,6 +943,7 @@ export function GitCherryPickBranchesDialog({ open, onOpenChange, onComplete }: 
   const newBranchNameTrimmed = newBranchName.trim()
   const canRun =
     !running &&
+    !addingBranch &&
     !branchesLoading &&
     !reposLoading &&
     !!sourceFolder &&
@@ -842,6 +982,59 @@ export function GitCherryPickBranchesDialog({ open, onOpenChange, onComplete }: 
     </div>
   )
 
+  const renderTargetActionButtons = () => (
+    <div className="flex shrink-0 items-center gap-0.5">
+      <Button
+        type="button"
+        variant="outline"
+        size="icon"
+        className="h-9 w-9"
+        disabled={!sourceFolder || branchesLoading || !!refreshSide || !targetBranch?.trim() || running || addingBranch}
+        title={t('git.cherryPickBranches.pullTargetTooltip')}
+        aria-label={t('git.cherryPickBranches.pullTargetTooltip')}
+        onClick={() => void handlePullTarget()}
+        aria-busy={refreshSide === 'leftPull'}
+      >
+        {refreshSide === 'leftPull' ? (
+          <Loader2 className="h-4 w-4 animate-spin" aria-hidden />
+        ) : (
+          <Download className="h-4 w-4" aria-hidden />
+        )}
+      </Button>
+      <Button
+        type="button"
+        variant="outline"
+        size="icon"
+        className="h-9 w-9"
+        disabled={!sourceFolder || branchesLoading || !!refreshSide || !targetBranch?.trim() || running || addingBranch}
+        title={t('git.cherryPickBranches.reloadTargetLogTooltip')}
+        aria-label={t('git.cherryPickBranches.reloadTargetLogTooltip')}
+        onClick={() => void reloadTargetCommits()}
+      >
+        <RefreshCw className={cn('h-4 w-4', refreshSide === 'left' && 'animate-spin')} />
+      </Button>
+      {showTargetPush && (
+        <Button
+          type="button"
+          variant="outline"
+          size="icon"
+          className="h-9 w-9"
+          disabled={!sourceFolder || branchesLoading || !!refreshSide || !targetBranch?.trim() || running || addingBranch}
+          title={t('git.cherryPickBranches.pushTargetTooltip')}
+          aria-label={t('git.cherryPickBranches.pushTargetTooltip')}
+          onClick={() => void handlePushTarget()}
+          aria-busy={refreshSide === 'leftPush'}
+        >
+          {refreshSide === 'leftPush' ? (
+            <Loader2 className="h-4 w-4 animate-spin" aria-hidden />
+          ) : (
+            <Upload className="h-4 w-4" aria-hidden />
+          )}
+        </Button>
+      )}
+    </div>
+  )
+
   return (
     <>
       <Dialog open={open} onOpenChange={onOpenChange}>
@@ -873,19 +1066,40 @@ export function GitCherryPickBranchesDialog({ open, onOpenChange, onComplete }: 
                   </div>
                 ) : null}
 
-                <div className="grid shrink-0 grid-cols-1 gap-3 md:grid-cols-2">
-                  <div className="space-y-2">
-                    <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1">
+                <div className="grid shrink-0 grid-cols-1 items-start gap-3 md:grid-cols-2">
+                  <div className="flex min-h-0 flex-col gap-2">
+                    <div className="flex min-h-9 flex-wrap items-center justify-between gap-x-3 gap-y-1">
                       <Label className="shrink-0 text-sm font-medium">{t('git.cherryPickBranches.targetBranch')}</Label>
                       <div className="flex items-center gap-2">
                         <Switch
                           id="create-new-branch"
                           checked={createNewBranch}
                           onCheckedChange={v => {
-                            setCreateNewBranch(v)
-                            if (!v) setNewBranchName('')
+                            if (!v) {
+                              setNewBranchName('')
+                              setCreateNewBranch(false)
+                              defaultMainOnNextBranchLoadRef.current = false
+                              return
+                            }
+                            setCreateNewBranch(true)
+                            setNewBranchName('')
+                            defaultMainOnNextBranchLoadRef.current = true
+                            setRefreshSide('left')
+                            void (async () => {
+                              try {
+                                const fr = await window.api.git.fetch('origin', { prune: true }, sourceFolder)
+                                if (fr.status !== 'success') {
+                                  toast.error(fr.message || t('git.cherryPickBranches.refreshFetchError'))
+                                }
+                              } catch (e) {
+                                logger.error(e)
+                                toast.error(t('git.cherryPickBranches.refreshFetchError'))
+                              }
+                              await loadBranches()
+                              setRefreshSide(null)
+                            })()
                           }}
-                          disabled={!sourceFolder || running}
+                          disabled={!sourceFolder || running || addingBranch}
                         />
                         <Label htmlFor="create-new-branch" className="cursor-pointer text-sm font-normal">
                           {t('git.cherryPickBranches.createNewBranch')}
@@ -893,43 +1107,54 @@ export function GitCherryPickBranchesDialog({ open, onOpenChange, onComplete }: 
                       </div>
                     </div>
                     {createNewBranch ? (
-                      <>
-                        <p className="text-xs text-muted-foreground">{t('git.cherryPickBranches.baseBranchHint')}</p>
-                        <div className="flex gap-2">
-                          <Combobox
-                            className="min-w-0 flex-1"
-                            value={targetBranch ?? ''}
-                            onValueChange={setTargetBranch}
-                            disabled={branchesLoading || !!refreshSide || running || !sourceFolder}
-                            options={targetBranchOptions}
-                            placeholder={t('git.cherryPickBranches.branchPlaceholder')}
-                          />
-                          <Button
-                            type="button"
-                            variant="outline"
-                            size="icon"
-                            className="shrink-0"
-                            disabled={!sourceFolder || branchesLoading || !!refreshSide || !targetBranch?.trim()}
-                            title={t('git.cherryPickBranches.refreshFetchTooltip')}
-                            aria-label={t('git.cherryPickBranches.refreshFetchTooltip')}
-                            onClick={() => void reloadTargetCommits()}
-                          >
-                            <RefreshCw className={cn('h-4 w-4', refreshSide === 'left' && 'animate-spin')} />
-                          </Button>
-                        </div>
-                        <div className="flex items-center gap-2">
-                          <GitBranch className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+                      <div className="flex min-w-0 flex-nowrap items-center gap-2 overflow-x-auto pb-0.5 [scrollbar-width:thin]">
+                        <Combobox
+                          className="min-w-0 flex-1"
+                          value={targetBranch ?? ''}
+                          onValueChange={setTargetBranch}
+                          disabled={branchesLoading || !!refreshSide || running || !sourceFolder || addingBranch}
+                          options={targetBranchOptions}
+                          placeholder={t('git.cherryPickBranches.branchPlaceholder')}
+                        />
+                        {renderTargetActionButtons()}
+                        <div className="flex min-w-0 flex-1 items-center gap-1.5">
+                          <GitBranch className="h-3.5 w-3.5 shrink-0 text-muted-foreground" aria-hidden />
                           <Input
-                            className="h-8 text-sm"
+                            className="h-9 min-w-0 flex-1 text-sm"
                             placeholder={t('git.cherryPickBranches.newBranchNamePlaceholder')}
                             value={newBranchName}
                             onChange={e => setNewBranchName(e.target.value)}
-                            disabled={running}
+                            disabled={running || addingBranch}
+                            onKeyDown={e => {
+                              if (e.key === 'Enter') {
+                                e.preventDefault()
+                                void handleAddNewBranch()
+                              }
+                            }}
                           />
                         </div>
-                      </>
+                        <Button
+                          type="button"
+                          variant="secondary"
+                          size="sm"
+                          className="h-9 shrink-0"
+                          disabled={
+                            !sourceFolder ||
+                            running ||
+                            addingBranch ||
+                            branchesLoading ||
+                            !!refreshSide ||
+                            !newBranchName.trim() ||
+                            !isValidBranchName(newBranchName.trim()) ||
+                            !targetBranch?.trim()
+                          }
+                          onClick={() => void handleAddNewBranch()}
+                        >
+                          {addingBranch ? <Loader2 className="h-4 w-4 animate-spin" /> : t('git.cherryPickBranches.addBranch')}
+                        </Button>
+                      </div>
                     ) : (
-                      <div className="flex gap-2">
+                      <div className="flex min-w-0 gap-2">
                         <Combobox
                           className="min-w-0 flex-1"
                           value={targetBranch ?? ''}
@@ -938,26 +1163,18 @@ export function GitCherryPickBranchesDialog({ open, onOpenChange, onComplete }: 
                           options={targetBranchOptions}
                           placeholder={t('git.cherryPickBranches.branchPlaceholder')}
                         />
-                        <Button
-                          type="button"
-                          variant="outline"
-                          size="icon"
-                          className="shrink-0"
-                          disabled={!sourceFolder || branchesLoading || !!refreshSide || !targetBranch?.trim()}
-                          title={t('git.cherryPickBranches.refreshFetchTooltip')}
-                          aria-label={t('git.cherryPickBranches.refreshFetchTooltip')}
-                          onClick={() => void reloadTargetCommits()}
-                        >
-                          <RefreshCw className={cn('h-4 w-4', refreshSide === 'left' && 'animate-spin')} />
-                        </Button>
+                        {renderTargetActionButtons()}
                       </div>
                     )}
-                    <p className="text-xs text-muted-foreground">
-                      {t('git.cherryPickBranches.targetHint', { branch: currentBranch || '—' })}
-                    </p>
                   </div>
-                  <div className="space-y-2">
-                    <Label>{t('git.cherryPickBranches.sourceBranch')}</Label>
+                  <div className="flex min-h-0 flex-col gap-2">
+                    <div className="flex min-h-9 flex-wrap items-center justify-between gap-x-3 gap-y-1">
+                      <Label className="shrink-0 text-sm font-medium">{t('git.cherryPickBranches.sourceBranch')}</Label>
+                      <div className="invisible flex items-center gap-2 pointer-events-none" aria-hidden>
+                        <div className="h-5 w-9" />
+                        <span className="whitespace-nowrap text-sm">.</span>
+                      </div>
+                    </div>
                     <div className="flex gap-2">
                       <Combobox
                         className="min-w-0 flex-1"
@@ -971,7 +1188,7 @@ export function GitCherryPickBranchesDialog({ open, onOpenChange, onComplete }: 
                         type="button"
                         variant="outline"
                         size="icon"
-                        className="shrink-0"
+                        className="h-9 w-9 shrink-0"
                         disabled={
                           !sourceFolder ||
                           branchesLoading ||
@@ -1118,7 +1335,7 @@ export function GitCherryPickBranchesDialog({ open, onOpenChange, onComplete }: 
           </div>
 
           <DialogFooter className="shrink-0 sm:justify-end">
-            <Button type="button" variant="default" disabled={!canRun} onClick={handleCherryPickClick}>
+            <Button type="button" variant="default" disabled={!canRun || addingBranch} onClick={handleCherryPickClick}>
               {running ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : <ListOrdered className="h-4 w-4 mr-2" />}
               {createNewBranch && newBranchNameTrimmed
                 ? t('git.cherryPickBranches.actionNewBranch', { branch: newBranchNameTrimmed })

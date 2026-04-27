@@ -53,6 +53,7 @@ import toast from '@/components/ui-elements/Toast'
 import { getDateFnsLocale } from '@/lib/dateUtils'
 import { cn } from '@/lib/utils'
 import type { PrRepo } from '../hooks/usePrData'
+import { usePrOperationLog } from '../PrOperationLogContext'
 import { PR_GH_STATUS_BADGE_CLASS, prSummaryToGhStatusKind } from '../prGhStatus'
 import { githubMergeableBlocksMerge } from './prBoardBulkResolve'
 import { MergePrDialog } from './MergePrDialog'
@@ -397,6 +398,7 @@ function HeaderMetaSep() {
 
 export function PrDetailDialog({ open, onOpenChange, projectId, prRepo, prNumber, onAfterChange }: Props) {
   const { t, i18n } = useTranslation()
+  const opLog = usePrOperationLog()
   const dateLoc = getDateFnsLocale(i18n.language) as Locale
   const [loading, setLoading] = useState(false)
   const [pr, setPr] = useState<PrSummary | null>(null)
@@ -588,6 +590,8 @@ export function PrDetailDialog({ open, onOpenChange, projectId, prRepo, prNumber
     if (!prRepo || prNumber == null) return
     const b = commentDraft.trim()
     if (!b) return
+    if (!opLog.startOperation('prManager.operationLog.titleComment')) return
+    opLog.appendLine(t('prManager.operationLog.postComment', { number: prNumber }))
     setSending(true)
     try {
       const res = await window.api.pr.prIssueCommentCreate({
@@ -609,10 +613,16 @@ export function PrDetailDialog({ open, onOpenChange, projectId, prRepo, prNumber
         setCommentDraft('')
         setComments(prev => [...prev, issueToConversationEntry(newComment)])
         onAfterChange?.()
+        opLog.appendLine(t('prManager.operationLog.lineOk'))
+        opLog.finishSuccess()
         toast.success(t('prManager.detail.commentPosted'))
       } else {
-        toast.error(res.message || t('prManager.detail.postFail'))
+        const msg = res.message || t('prManager.detail.postFail')
+        opLog.finishError(msg)
+        toast.error(msg)
       }
+    } catch (e) {
+      opLog.finishError(e instanceof Error ? e.message : t('prManager.bulk.toast.unexpected'))
     } finally {
       setSending(false)
     }
@@ -623,6 +633,8 @@ export function PrDetailDialog({ open, onOpenChange, projectId, prRepo, prNumber
       toast.error(t('prManager.detail.noHeadSha'))
       return
     }
+    if (!opLog.startOperation('prManager.operationLog.titleApprove')) return
+    opLog.appendLine(t('prManager.operationLog.postApprove', { number: prNumber }))
     setApproving(true)
     try {
       const res = await window.api.pr.prReviewApprove({
@@ -632,12 +644,18 @@ export function PrDetailDialog({ open, onOpenChange, projectId, prRepo, prNumber
         headSha: pr.headSha,
       })
       if (res.status === 'success') {
+        opLog.appendLine(t('prManager.operationLog.lineOk'))
+        opLog.finishSuccess()
         toast.success(t('prManager.detail.approved'))
         onAfterChange?.()
         await load()
       } else {
-        toast.error(res.message || t('prManager.detail.approveFail'))
+        const msg = res.message || t('prManager.detail.approveFail')
+        opLog.finishError(msg)
+        toast.error(msg)
       }
+    } catch (e) {
+      opLog.finishError(e instanceof Error ? e.message : t('prManager.bulk.toast.unexpected'))
     } finally {
       setApproving(false)
     }
@@ -645,16 +663,24 @@ export function PrDetailDialog({ open, onOpenChange, projectId, prRepo, prNumber
 
   const doMarkReady = async () => {
     if (!prRepo || prNumber == null || !pr?.draft) return
+    if (!opLog.startOperation('prManager.operationLog.titleMarkReady')) return
+    opLog.appendLine(t('prManager.operationLog.lineMarkReady', { owner: prRepo.owner, repo: prRepo.repo, n: prNumber }))
     setMarkingReady(true)
     try {
       const res = await window.api.pr.prMarkReady({ owner: prRepo.owner, repo: prRepo.repo, number: prNumber })
       if (res.status === 'success') {
+        opLog.appendLine(t('prManager.operationLog.lineOk'))
+        opLog.finishSuccess()
         toast.success(t('prManager.detail.markReady'))
         onAfterChange?.()
         await load()
       } else {
-        toast.error(res.message || t('prManager.detail.stateFail'))
+        const msg = res.message || t('prManager.detail.stateFail')
+        opLog.finishError(msg)
+        toast.error(msg)
       }
+    } catch (e) {
+      opLog.finishError(e instanceof Error ? e.message : t('prManager.bulk.toast.unexpected'))
     } finally {
       setMarkingReady(false)
     }
@@ -662,16 +688,24 @@ export function PrDetailDialog({ open, onOpenChange, projectId, prRepo, prNumber
 
   const doMarkDraft = async () => {
     if (!prRepo || prNumber == null || !pr || pr.draft || pr.state !== 'open' || pr.merged) return
+    if (!opLog.startOperation('prManager.operationLog.titleMarkDraft')) return
+    opLog.appendLine(t('prManager.operationLog.lineMarkDraft', { owner: prRepo.owner, repo: prRepo.repo, n: prNumber }))
     setMarkingDraft(true)
     try {
       const res = await window.api.pr.prMarkDraft({ owner: prRepo.owner, repo: prRepo.repo, number: prNumber })
       if (res.status === 'success') {
+        opLog.appendLine(t('prManager.operationLog.lineOk'))
+        opLog.finishSuccess()
         toast.success(t('prManager.detail.markDraft'))
         onAfterChange?.()
         await load()
       } else {
-        toast.error(res.message || t('prManager.detail.stateFail'))
+        const msg = res.message || t('prManager.detail.stateFail')
+        opLog.finishError(msg)
+        toast.error(msg)
       }
+    } catch (e) {
+      opLog.finishError(e instanceof Error ? e.message : t('prManager.bulk.toast.unexpected'))
     } finally {
       setMarkingDraft(false)
     }
@@ -690,6 +724,8 @@ export function PrDetailDialog({ open, onOpenChange, projectId, prRepo, prNumber
     ) {
       return
     }
+    if (!opLog.startOperation('prManager.operationLog.titleUpdateBranch')) return
+    opLog.appendLine(t('prManager.operationLog.postUpdateBranch', { number: prNumber }))
     setUpdatingBranch(true)
     try {
       const res = await window.api.pr.prUpdateBranch({
@@ -699,12 +735,18 @@ export function PrDetailDialog({ open, onOpenChange, projectId, prRepo, prNumber
         expectedHeadSha: pr?.headSha ?? null,
       })
       if (res.status === 'success') {
+        opLog.appendLine(t('prManager.operationLog.lineOk'))
+        opLog.finishSuccess()
         toast.success(t('prManager.detail.updateBranch'))
         onAfterChange?.()
         await load()
       } else {
-        toast.error(res.message || t('prManager.detail.branchUpdateFail'))
+        const msg = res.message || t('prManager.detail.branchUpdateFail')
+        opLog.finishError(msg)
+        toast.error(msg)
       }
+    } catch (e) {
+      opLog.finishError(e instanceof Error ? e.message : t('prManager.bulk.toast.unexpected'))
     } finally {
       setUpdatingBranch(false)
     }
@@ -712,18 +754,28 @@ export function PrDetailDialog({ open, onOpenChange, projectId, prRepo, prNumber
 
   const doCommitResetHard = async () => {
     if (!commitResetTarget || !prRepo || !headBranch) return
+    if (!opLog.startOperation('prManager.operationLog.titleReset')) return
+    opLog.appendLine(
+      t('prManager.operationLog.postReset', { shortSha: commitResetTarget.shortSha, branch: headBranch })
+    )
     setCommitBusySha(commitResetTarget.sha)
     try {
       const res = await window.api.pr.branchResetHard({ repoId: prRepo.id, branch: headBranch, sha: commitResetTarget.sha })
       if (res.status === 'success') {
+        opLog.appendLine(t('prManager.operationLog.lineOk'))
+        opLog.finishSuccess()
         toast.success(res.message || t('prManager.detail.resetOk', { sha: commitResetTarget.shortSha }))
         setCommitResetTarget(null)
         onAfterChange?.()
         await load()
       } else {
-        toast.error(res.message || t('prManager.detail.resetFail'))
+        const msg = res.message || t('prManager.detail.resetFail')
+        opLog.finishError(msg)
+        toast.error(msg)
         setCommitResetTarget(null)
       }
+    } catch (e) {
+      opLog.finishError(e instanceof Error ? e.message : t('prManager.bulk.toast.unexpected'))
     } finally {
       setCommitBusySha(null)
     }
@@ -731,16 +783,24 @@ export function PrDetailDialog({ open, onOpenChange, projectId, prRepo, prNumber
 
   const doCommitForcePush = async () => {
     if (!prRepo || !headBranch) return
+    if (!opLog.startOperation('prManager.operationLog.titleForcePush')) return
+    opLog.appendLine(t('prManager.operationLog.postForcePush', { branch: headBranch }))
     setCommitBusySha('__push__')
     try {
       const res = await window.api.pr.branchForcePush({ repoId: prRepo.id, branch: headBranch })
       if (res.status === 'success') {
+        opLog.appendLine(t('prManager.operationLog.lineOk'))
+        opLog.finishSuccess()
         toast.success(res.message || t('prManager.detail.forcePushOk'))
         onAfterChange?.()
         await load()
       } else {
-        toast.error(res.message || t('prManager.detail.forcePushFail'))
+        const msg = res.message || t('prManager.detail.forcePushFail')
+        opLog.finishError(msg)
+        toast.error(msg)
       }
+    } catch (e) {
+      opLog.finishError(e instanceof Error ? e.message : t('prManager.bulk.toast.unexpected'))
     } finally {
       setCommitBusySha(null)
       setCommitForcePushOpen(false)

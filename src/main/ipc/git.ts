@@ -27,6 +27,7 @@ import {
   discardFiles as gitDiscardFiles,
   enableHook as gitEnableHook,
   fetch as gitFetch,
+  fetchUpdateLocalBranch as gitFetchUpdateLocalBranch,
   getBranches as gitGetBranches,
   getCommitFiles as gitGetCommitFiles,
   getGitConflictStatus as gitGetConflictStatus,
@@ -181,6 +182,8 @@ export function registerGitIpcHandlers() {
   })
 
   ipcMain.handle(IPC.GIT.FETCH, async (event, remote: string, options?: { prune?: boolean; all?: boolean }, cwd?: string) => await gitFetch(remote, options, event.sender, cwd))
+
+  ipcMain.handle(IPC.GIT.FETCH_UPDATE_LOCAL_BRANCH, async (_event, remote: string, branch: string, cwd?: string) => await gitFetchUpdateLocalBranch(remote, branch, cwd))
 
   ipcMain.handle(IPC.GIT.GET_REMOTES, async (_event, cwd?: string) => await gitGetRemotes(cwd))
 

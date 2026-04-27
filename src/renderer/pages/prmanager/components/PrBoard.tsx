@@ -72,6 +72,7 @@ import {
   resolveBulkDeleteBranchTargets,
   resolveBulkPrTargets,
 } from './prBoardBulkResolve'
+import { usePrOperationLog } from '../PrOperationLogContext'
 
 type BulkToolbarConfirm = BulkActionKind | 'clearSelection'
 
@@ -368,6 +369,10 @@ const REPO_GROUP_ROW_HOVER_SHADOW =
 
 export function PrBoard({ projectId, repos, templates, tracked, loading, onRefresh, githubTokenOk = false }: Props) {
   const { t } = useTranslation()
+  const opLog = usePrOperationLog()
+  const syncLogActiveRef = useRef(false)
+  const lastSyncLogAtRef = useRef(0)
+  const lastLoggedPercentRef = useRef(-1)
   const [prBoardHoveredRowId, setPrBoardHoveredRowId] = useState<string | null>(null)
   const [search, setSearch] = useState('')
   const [createPrOpen, setCreatePrOpen] = useState(false)
@@ -725,32 +730,69 @@ export function PrBoard({ projectId, repos, templates, tracked, loading, onRefre
   }
 
   const handleSyncFromGithub = async () => {
+    if (!opLog.startOperation('prManager.operationLog.titleSyncGithub')) return
+    syncLogActiveRef.current = true
+    lastSyncLogAtRef.current = 0
+    lastLoggedPercentRef.current = -1
     setSyncProgress(0)
     setSyncing(true)
+    opLog.appendLine(t('prManager.operationLog.syncStart'))
     try {
       const res = await window.api.pr.trackedSyncFromGithub(projectId)
       if (res.status === 'success' && res.data) {
         const { synced, branchesSynced = 0, errors } = res.data
+        opLog.appendLine(
+          t('prManager.operationLog.syncSummary', {
+            prs: synced,
+            branches: branchesSynced,
+          })
+        )
         if (synced > 0 || branchesSynced > 0) {
           toast.success(t('prManager.board.syncOkDetailed', { prs: synced, branches: branchesSynced }))
         } else {
           toast.success(t('prManager.board.syncNone'))
         }
-        if (errors.length > 0) toast.error(t('prManager.board.syncSomeFailed', { list: errors.join('; ') }))
+        if (errors.length > 0) {
+          const errText = errors.join('; ')
+          opLog.appendLine(t('prManager.operationLog.syncSomeErrors', { errors: errText }))
+          toast.error(t('prManager.board.syncSomeFailed', { list: errText }))
+        }
         onRefresh()
+        opLog.finishSuccess()
       } else {
-        toast.error(res.message || t('prManager.board.syncFail'))
+        const msg = res.message || t('prManager.board.syncFail')
+        toast.error(msg)
+        opLog.finishError(msg)
       }
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e)
+      opLog.finishError(msg)
+      toast.error(msg)
     } finally {
+      syncLogActiveRef.current = false
       setSyncing(false)
       setSyncProgress(0)
     }
   }
 
+  const opLogRef = useRef(opLog)
+  opLogRef.current = opLog
+  const tRef = useRef(t)
+  tRef.current = t
+
   useEffect(() => {
     const off = window.api.pr.onTrackedSyncProgress(payload => {
       if (payload.projectId !== projectId) return
-      setSyncProgress(Math.max(0, Math.min(100, payload.percent)))
+      const pct = Math.max(0, Math.min(100, payload.percent))
+      setSyncProgress(pct)
+      if (!syncLogActiveRef.current) return
+      const now = Date.now()
+      if (now - lastSyncLogAtRef.current < 350 && Math.abs(pct - lastLoggedPercentRef.current) < 8) return
+      lastSyncLogAtRef.current = now
+      lastLoggedPercentRef.current = pct
+      opLogRef.current.appendLine(
+        tRef.current('prManager.operationLog.syncProgress', { done: payload.done, total: payload.total, percent: pct })
+      )
     })
     return off
   }, [projectId])

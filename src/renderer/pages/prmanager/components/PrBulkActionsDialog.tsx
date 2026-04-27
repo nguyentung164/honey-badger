@@ -13,6 +13,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@
 import toast from '@/components/ui-elements/Toast'
 import { cn } from '@/lib/utils'
 import type { PrCheckpointTemplate, PrRepo, TrackedBranchRow } from '../hooks/usePrData'
+import { usePrOperationLog } from '../PrOperationLogContext'
 import { buildIssueStylePrTitle, pickIssueKeyAndVersion } from '../utils/buildIssuePrTitle'
 import {
   activePrTemplates,
@@ -61,6 +62,7 @@ export function PrBulkActionsDialog({
   onAfterBatch,
 }: Props) {
   const { t } = useTranslation()
+  const opLog = usePrOperationLog()
   const [mergeMethod, setMergeMethod] = useState<MergeMethod>('squash')
   const [enabledIds, setEnabledIds] = useState<Set<string>>(() => new Set())
   const [running, setRunning] = useState(false)
@@ -144,13 +146,18 @@ export function PrBulkActionsDialog({
 
   const runBatch = async () => {
     if (!githubTokenOk || running) return
+    const actionLabel = t(`prManager.bulk.title.${kind}`)
+    if (!opLog.startOperation('prManager.operationLog.bulkTitle', { action: actionLabel, count: eligibleCount })) return
     setRunning(true)
     setResults({})
+    const lineOk = () => opLog.appendLine(t('prManager.operationLog.lineOk'))
+    const lineErr = (message: string) => opLog.appendLine(t('prManager.operationLog.lineError', { message: message || '—' }))
     try {
       if (kind === 'merge') {
         const list = prTargets.filter(x => x.eligible && enabledIds.has(x.id))
         for (const item of list) {
           setCurrentId(item.id)
+          opLog.appendLine(t('prManager.operationLog.lineMerge', { owner: item.owner, repo: item.repo, n: item.prNumber, method: mergeMethod }))
           const commitTitle = (item.ghTitle?.trim() || `PR #${item.prNumber}`).slice(0, 256)
           const res = await window.api.pr.prMerge({
             projectId,
@@ -164,11 +171,14 @@ export function PrBulkActionsDialog({
           })
           if (res.status === 'success' && res.data?.merged) {
             setResults(prev => ({ ...prev, [item.id]: { ok: true } }))
+            lineOk()
           } else {
+            const msg = res.message || res.data?.message || t('prManager.bulk.toast.mergeFail')
             setResults(prev => ({
               ...prev,
-              [item.id]: { ok: false, message: res.message || res.data?.message || t('prManager.bulk.toast.mergeFail') },
+              [item.id]: { ok: false, message: msg },
             }))
+            lineErr(msg)
           }
           await sleep(200)
         }
@@ -176,11 +186,14 @@ export function PrBulkActionsDialog({
         const list = prTargets.filter(x => x.eligible && enabledIds.has(x.id))
         for (const item of list) {
           setCurrentId(item.id)
+          opLog.appendLine(t('prManager.operationLog.lineClose', { owner: item.owner, repo: item.repo, n: item.prNumber }))
           const res = await window.api.pr.prClose({ owner: item.owner, repo: item.repo, number: item.prNumber })
           if (res.status === 'success') {
             setResults(prev => ({ ...prev, [item.id]: { ok: true } }))
+            lineOk()
           } else {
             setResults(prev => ({ ...prev, [item.id]: { ok: false, message: res.message } }))
+            lineErr(res.message || '—')
           }
           await sleep(200)
         }
@@ -188,11 +201,14 @@ export function PrBulkActionsDialog({
         const list = prTargets.filter(x => x.eligible && enabledIds.has(x.id))
         for (const item of list) {
           setCurrentId(item.id)
+          opLog.appendLine(t('prManager.operationLog.lineMarkDraft', { owner: item.owner, repo: item.repo, n: item.prNumber }))
           const res = await window.api.pr.prMarkDraft({ owner: item.owner, repo: item.repo, number: item.prNumber })
           if (res.status === 'success') {
             setResults(prev => ({ ...prev, [item.id]: { ok: true } }))
+            lineOk()
           } else {
             setResults(prev => ({ ...prev, [item.id]: { ok: false, message: res.message } }))
+            lineErr(res.message || '—')
           }
           await sleep(200)
         }
@@ -200,11 +216,14 @@ export function PrBulkActionsDialog({
         const list = prTargets.filter(x => x.eligible && enabledIds.has(x.id))
         for (const item of list) {
           setCurrentId(item.id)
+          opLog.appendLine(t('prManager.operationLog.lineMarkReady', { owner: item.owner, repo: item.repo, n: item.prNumber }))
           const res = await window.api.pr.prMarkReady({ owner: item.owner, repo: item.repo, number: item.prNumber })
           if (res.status === 'success') {
             setResults(prev => ({ ...prev, [item.id]: { ok: true } }))
+            lineOk()
           } else {
             setResults(prev => ({ ...prev, [item.id]: { ok: false, message: res.message } }))
+            lineErr(res.message || '—')
           }
           await sleep(200)
         }
@@ -212,15 +231,20 @@ export function PrBulkActionsDialog({
         const list = prTargets.filter(x => x.eligible && enabledIds.has(x.id))
         for (const item of list) {
           setCurrentId(item.id)
+          opLog.appendLine(t('prManager.operationLog.linePrGet', { owner: item.owner, repo: item.repo, n: item.prNumber }))
           const g = await window.api.pr.prGet({ owner: item.owner, repo: item.repo, number: item.prNumber })
           if (g.status !== 'success' || !g.data?.headSha) {
+            const msg = g.message || t('prManager.bulk.toast.noHeadSha')
             setResults(prev => ({
               ...prev,
-              [item.id]: { ok: false, message: g.message || t('prManager.bulk.toast.noHeadSha') },
+              [item.id]: { ok: false, message: msg },
             }))
+            lineErr(msg)
             await sleep(200)
             continue
           }
+          lineOk()
+          opLog.appendLine(t('prManager.operationLog.lineUpdateBranch', { owner: item.owner, repo: item.repo, n: item.prNumber }))
           const res = await window.api.pr.prUpdateBranch({
             owner: item.owner,
             repo: item.repo,
@@ -229,8 +253,10 @@ export function PrBulkActionsDialog({
           })
           if (res.status === 'success') {
             setResults(prev => ({ ...prev, [item.id]: { ok: true } }))
+            lineOk()
           } else {
             setResults(prev => ({ ...prev, [item.id]: { ok: false, message: res.message } }))
+            lineErr(res.message || '—')
           }
           await sleep(200)
         }
@@ -238,6 +264,7 @@ export function PrBulkActionsDialog({
         const list = deleteTargets.filter(x => x.eligible && enabledIds.has(x.id))
         for (const item of list) {
           setCurrentId(item.id)
+          opLog.appendLine(t('prManager.operationLog.lineDeleteRemote', { owner: item.owner, repo: item.repo, branch: item.branch }))
           const res = await window.api.pr.githubDeleteRemoteBranch({
             owner: item.owner,
             repo: item.repo,
@@ -246,8 +273,10 @@ export function PrBulkActionsDialog({
           })
           if (res.status === 'success') {
             setResults(prev => ({ ...prev, [item.id]: { ok: true } }))
+            lineOk()
           } else {
             setResults(prev => ({ ...prev, [item.id]: { ok: false, message: res.message } }))
+            lineErr(res.message || '—')
           }
           await sleep(250)
         }
@@ -258,9 +287,14 @@ export function PrBulkActionsDialog({
           const title = (createTitles[item.id] ?? item.suggestedTitle).trim()
           if (!title) {
             setResults(prev => ({ ...prev, [item.id]: { ok: false, message: t('prManager.bulk.toast.emptyTitle') } }))
+            opLog.appendLine(
+              t('prManager.operationLog.lineCreatePr', { owner: item.owner, repo: item.repo, head: item.head, base: item.base })
+            )
+            lineErr(t('prManager.bulk.toast.emptyTitle'))
             await sleep(100)
             continue
           }
+          opLog.appendLine(t('prManager.operationLog.lineCreatePr', { owner: item.owner, repo: item.repo, head: item.head, base: item.base }))
           const res = await window.api.pr.prCreate({
             projectId,
             repoId: item.repoId,
@@ -275,8 +309,10 @@ export function PrBulkActionsDialog({
           })
           if (res.status === 'success') {
             setResults(prev => ({ ...prev, [item.id]: { ok: true } }))
+            lineOk()
           } else {
             setResults(prev => ({ ...prev, [item.id]: { ok: false, message: res.message } }))
+            lineErr(res.message || '—')
           }
           await sleep(200)
         }
@@ -284,8 +320,11 @@ export function PrBulkActionsDialog({
 
       onAfterBatch()
       toast.success(t('prManager.bulk.toast.doneToast'))
+      opLog.finishSuccess()
     } catch (e) {
-      toast.error(e instanceof Error ? e.message : t('prManager.bulk.toast.unexpected'))
+      const msg = e instanceof Error ? e.message : t('prManager.bulk.toast.unexpected')
+      opLog.finishError(msg)
+      toast.error(msg)
     } finally {
       setCurrentId(null)
       setRunning(false)
@@ -294,10 +333,13 @@ export function PrBulkActionsDialog({
 
   const handleSuggestAllTitles = async () => {
     if (!createTemplate || suggestingTitles) return
+    const list = createTargets.filter(x => x.eligible && enabledIds.has(x.id))
+    if (list.length === 0) return
+    if (!opLog.startOperation('prManager.operationLog.titleSuggestTitles')) return
     setSuggestingTitles(true)
     try {
-      const list = createTargets.filter(x => x.eligible && enabledIds.has(x.id))
       for (const item of list) {
+        opLog.appendLine(t('prManager.operationLog.suggestLine', { owner: item.owner, repo: item.repo, ref: item.head }))
         const res = await window.api.pr.refCommitMessages({
           owner: item.owner,
           repo: item.repo,
@@ -311,10 +353,18 @@ export function PrBulkActionsDialog({
               ...prev,
               [item.id]: buildIssueStylePrTitle(picked.key, picked.version, item.base),
             }))
+            opLog.appendLine(t('prManager.operationLog.lineOk'))
+          } else {
+            opLog.appendLine(t('prManager.operationLog.lineError', { message: t('prManager.createPr.toastPattern') }))
           }
+        } else {
+          opLog.appendLine(t('prManager.operationLog.lineError', { message: res.message || t('prManager.createPr.toastLoadHistory') }))
         }
         await sleep(120)
       }
+      opLog.finishSuccess()
+    } catch (e) {
+      opLog.finishError(e instanceof Error ? e.message : t('prManager.bulk.toast.unexpected'))
     } finally {
       setSuggestingTitles(false)
     }

@@ -12,6 +12,7 @@ import { Label } from '@/components/ui/label'
 import { Textarea } from '@/components/ui/textarea'
 import toast from '@/components/ui-elements/Toast'
 import type { PrRepo } from '../hooks/usePrData'
+import { usePrOperationLog } from '../PrOperationLogContext'
 import { buildIssueStylePrTitle, pickIssueKeyAndVersion } from '../utils/buildIssuePrTitle'
 
 type Props = {
@@ -27,6 +28,7 @@ type Props = {
 
 export function CreatePrDialog({ open, onOpenChange, projectId, repos, initialRepoId, initialHead, initialBase, onCreated }: Props) {
   const { t } = useTranslation()
+  const opLog = usePrOperationLog()
   /** Mở từ nút trong table (có đủ 3 giá trị ban đầu) → khoá repo / head / base. */
   const isFromTable = initialRepoId != null && initialHead != null && initialBase != null
   const [repoId, setRepoId] = useState<string>(initialRepoId ?? repos[0]?.id ?? '')
@@ -92,6 +94,8 @@ export function CreatePrDialog({ open, onOpenChange, projectId, repos, initialRe
       toast.error(t('prManager.createPr.toastSelectHeadBase'))
       return
     }
+    if (!opLog.startOperation('prManager.operationLog.generateTitle')) return
+    opLog.appendLine(t('prManager.operationLog.refCommit'))
     setGeneratingTitle(true)
     try {
       const res = await window.api.pr.refCommitMessages({
@@ -101,15 +105,20 @@ export function CreatePrDialog({ open, onOpenChange, projectId, repos, initialRe
         maxCommits: 500,
       })
       if (res.status !== 'success' || !res.data) {
-        toast.error(res.message || t('prManager.createPr.toastLoadHistory'))
+        const msg = res.message || t('prManager.createPr.toastLoadHistory')
+        opLog.finishError(msg)
+        toast.error(msg)
         return
       }
       const picked = pickIssueKeyAndVersion(res.data, h)
       if (!picked) {
+        opLog.finishError(t('prManager.createPr.toastPattern'))
         toast.error(t('prManager.createPr.toastPattern'))
         return
       }
       setTitle(buildIssueStylePrTitle(picked.key, picked.version, b))
+      opLog.appendLine(t('prManager.operationLog.lineOk'))
+      opLog.finishSuccess()
     } finally {
       setGeneratingTitle(false)
     }
@@ -125,6 +134,14 @@ export function CreatePrDialog({ open, onOpenChange, projectId, repos, initialRe
       toast.error(t('prManager.createPr.toastSame'))
       return
     }
+    if (!opLog.startOperation('prManager.operationLog.titleCreatePr')) return
+    opLog.appendLine(
+      t('prManager.operationLog.createSubmit', {
+        head: head.trim(),
+        base: base.trim(),
+        draft: String(draft),
+      })
+    )
     setSubmitting(true)
     try {
       const res = await window.api.pr.prCreate({
@@ -140,6 +157,11 @@ export function CreatePrDialog({ open, onOpenChange, projectId, repos, initialRe
         openInBrowser: openBrowser,
       })
       if (res.status === 'success') {
+        opLog.appendLine(t('prManager.operationLog.lineOk'))
+        if (res.trackingError) {
+          opLog.appendLine(t('prManager.operationLog.lineError', { message: res.trackingError }))
+        }
+        opLog.finishSuccess()
         toast.success(t('prManager.createPr.toastCreated', { number: res.data?.number ?? 0 }))
         if (res.trackingError) {
           toast.error(t('prManager.createPr.toastTracking', { message: res.trackingError }))
@@ -147,8 +169,12 @@ export function CreatePrDialog({ open, onOpenChange, projectId, repos, initialRe
         onCreated?.()
         onOpenChange(false)
       } else {
-        toast.error(res.message || t('prManager.createPr.toastFail'))
+        const msg = res.message || t('prManager.createPr.toastFail')
+        opLog.finishError(msg)
+        toast.error(msg)
       }
+    } catch (e) {
+      opLog.finishError(e instanceof Error ? e.message : t('prManager.bulk.toast.unexpected'))
     } finally {
       setSubmitting(false)
     }

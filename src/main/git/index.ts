@@ -36,7 +36,7 @@ export {
 } from './interactive-rebase'
 export { type GitLogOptions, getCommitFiles, getLogGraph, log } from './log'
 export { abortMerge, getMergeStatus, merge, readConflictWorkingContent, resolveConflict } from './merge'
-export { fetch, getRemotes, pull, push } from './push-pull'
+export { fetch, fetchUpdateLocalBranch, getRemotes, pull, push } from './push-pull'
 export { abortRebase, continueRebase, getRebaseStatus, rebase } from './rebase'
 export { addRemote, removeRemote, setRemoteUrl } from './remote'
 export { reset } from './reset'

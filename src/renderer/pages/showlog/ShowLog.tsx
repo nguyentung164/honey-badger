@@ -414,19 +414,16 @@ export function ShowLog() {
             }
           }
 
-          const sortedEntries = parsedEntries.sort((a: any, b: any) => {
-            if (useVcs === 'git') {
-              // For Git, sort by date (newest first)
-              return new Date(b.isoDate).getTime() - new Date(a.isoDate).getTime()
-            }
-            // For SVN, sort by revision number (highest first)
-            return parseInt(b.revision, 10) - parseInt(a.revision, 10)
-          })
+          // Git: giữ nguyên thứ tự từ backend (giống git log). SVN: sort theo số revision giảm dần.
+          const finalEntries =
+            useVcs === 'git'
+              ? parsedEntries
+              : [...parsedEntries].sort((a, b) => parseInt(b.revision, 10) - parseInt(a.revision, 10))
 
           // Set all state in one batch to avoid extra render cycle - UI shows data immediately
-          setAllLogData(sortedEntries)
-          setFilteredLogData(sortedEntries)
-          setDataForCurrentPage(sortedEntries.slice(0, pageSize))
+          setAllLogData(finalEntries)
+          setFilteredLogData(finalEntries)
+          setDataForCurrentPage(finalEntries.slice(0, pageSize))
 
           if (result.suggestedStartDate) {
             const suggestedDate = new Date(result.suggestedStartDate)
@@ -437,7 +434,7 @@ export function ShowLog() {
               }))
             }
           } else if (parsedEntries.length > 0 && !dateRange?.from) {
-            const earliestIsoDate = sortedEntries[0].isoDate
+            const earliestIsoDate = finalEntries[0].isoDate
             const earliestDate = new Date(earliestIsoDate)
             setDateRange(prevRange => ({
               from: earliestDate,

@@ -15,6 +15,7 @@ import { PrBoard } from './components/PrBoard'
 import { PrManagerSettingsPanel } from './components/PrManagerSettingsPanel'
 import { usePrData } from './hooks/usePrData'
 import { PrManagerTopBar } from './PrManagerTopBar'
+import { PrOperationLogProvider } from './PrOperationLogContext'
 
 type Tab = 'board' | 'settings'
 
@@ -97,35 +98,37 @@ export function PrManager({ embedded = false, onDetachToWindow }: PrManagerProps
   )
 
   return (
-    <div className={cn('flex w-full flex-col overflow-hidden bg-background', embedded ? 'h-full min-h-0' : 'h-screen')}>
-      {embedded && portal.host ? createPortal(topBar, portal.host) : null}
-      {!embedded ? topBar : null}
+    <PrOperationLogProvider>
+      <div className={cn('flex w-full flex-col overflow-hidden bg-background', embedded ? 'h-full min-h-0' : 'h-screen')}>
+        {embedded && portal.host ? createPortal(topBar, portal.host) : null}
+        {!embedded ? topBar : null}
 
-      <div className="relative flex min-h-0 flex-1 flex-col overflow-hidden p-3">
-        {!projectId ? (
-          <div className="flex flex-1 items-center justify-center text-sm text-muted-foreground">{t('prManager.shell.selectProjectHint')}</div>
-        ) : (
-          <Tabs value={activeTab} onValueChange={v => setActiveTab(v as Tab)} className="flex min-h-0 flex-1 flex-col">
-            <TabsContent value="board" className="min-h-0 flex-1 overflow-hidden data-[state=inactive]:hidden data-[state=active]:flex data-[state=active]:flex-col">
-              <PrBoard projectId={projectId} repos={repos} templates={templates} tracked={tracked} loading={loading} onRefresh={refresh} githubTokenOk={Boolean(tokenStatus?.ok)} />
-            </TabsContent>
-            <TabsContent value="settings" className="min-h-0 flex-1 overflow-hidden data-[state=inactive]:hidden data-[state=active]:flex data-[state=active]:flex-col">
-              <PrManagerSettingsPanel
-                projectId={projectId}
-                userId={user?.id ?? null}
-                repos={repos}
-                templates={templates}
-                automations={automations}
-                onRefresh={refresh}
-              />
-            </TabsContent>
-          </Tabs>
-        )}
-        <OverlayLoader isLoading={loading} />
+        <div className="relative flex min-h-0 flex-1 flex-col overflow-hidden p-3">
+          {!projectId ? (
+            <div className="flex flex-1 items-center justify-center text-sm text-muted-foreground">{t('prManager.shell.selectProjectHint')}</div>
+          ) : (
+            <Tabs value={activeTab} onValueChange={v => setActiveTab(v as Tab)} className="flex min-h-0 flex-1 flex-col">
+              <TabsContent value="board" className="min-h-0 flex-1 overflow-hidden data-[state=inactive]:hidden data-[state=active]:flex data-[state=active]:flex-col">
+                <PrBoard projectId={projectId} repos={repos} templates={templates} tracked={tracked} loading={loading} onRefresh={refresh} githubTokenOk={Boolean(tokenStatus?.ok)} />
+              </TabsContent>
+              <TabsContent value="settings" className="min-h-0 flex-1 overflow-hidden data-[state=inactive]:hidden data-[state=active]:flex data-[state=active]:flex-col">
+                <PrManagerSettingsPanel
+                  projectId={projectId}
+                  userId={user?.id ?? null}
+                  repos={repos}
+                  templates={templates}
+                  automations={automations}
+                  onRefresh={refresh}
+                />
+              </TabsContent>
+            </Tabs>
+          )}
+          <OverlayLoader isLoading={loading} />
+        </div>
+
+        <GitHubTokenDialog open={tokenDialogOpen} onOpenChange={setTokenDialogOpen} currentStatus={tokenStatus} onChanged={refreshToken} />
+        <GitCherryPickBranchesDialog open={cherryPickOpen} onOpenChange={setCherryPickOpen} selectedProjectId={projectId} onComplete={() => refresh()} />
       </div>
-
-      <GitHubTokenDialog open={tokenDialogOpen} onOpenChange={setTokenDialogOpen} currentStatus={tokenStatus} onChanged={refreshToken} />
-      <GitCherryPickBranchesDialog open={cherryPickOpen} onOpenChange={setCherryPickOpen} selectedProjectId={projectId} onComplete={() => refresh()} />
-    </div>
+    </PrOperationLogProvider>
   )
 }

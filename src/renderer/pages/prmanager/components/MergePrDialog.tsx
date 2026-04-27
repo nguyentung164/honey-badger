@@ -11,6 +11,7 @@ import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group'
 import { Textarea } from '@/components/ui/textarea'
 import toast from '@/components/ui-elements/Toast'
 import type { PrRepo } from '../hooks/usePrData'
+import { usePrOperationLog } from '../PrOperationLogContext'
 import { CommitMessagePicker } from './CommitMessagePicker'
 
 type Method = 'squash' | 'merge' | 'rebase'
@@ -26,6 +27,7 @@ type Props = {
 
 export function MergePrDialog({ open, onOpenChange, projectId, repo, prNumber, onMerged }: Props) {
   const { t } = useTranslation()
+  const opLog = usePrOperationLog()
   const [method, setMethod] = useState<Method>('squash')
   const [title, setTitle] = useState('')
   const [message, setMessage] = useState('')
@@ -50,6 +52,13 @@ export function MergePrDialog({ open, onOpenChange, projectId, repo, prNumber, o
       toast.error(t('prManager.mergePr.toastTitleRequired'))
       return
     }
+    if (!opLog.startOperation('prManager.operationLog.titleMergePr', { number: prNumber })) return
+    opLog.appendLine(
+      t('prManager.operationLog.mergeSubmit', {
+        number: prNumber,
+        method: t(`prManager.mergePr.method.${method}`),
+      })
+    )
     setSubmitting(true)
     try {
       const res = await window.api.pr.prMerge({
@@ -63,12 +72,18 @@ export function MergePrDialog({ open, onOpenChange, projectId, repo, prNumber, o
         commitMessage: message.trim(),
       })
       if (res.status === 'success' && res.data?.merged) {
+        opLog.appendLine(t('prManager.operationLog.lineOk'))
+        opLog.finishSuccess()
         toast.success(t('prManager.mergePr.toastMerged', { number: prNumber }))
         onMerged?.()
         onOpenChange(false)
       } else {
-        toast.error(res.message || res.data?.message || t('prManager.mergePr.toastMergeFailed'))
+        const msg = res.message || res.data?.message || t('prManager.mergePr.toastMergeFailed')
+        opLog.finishError(msg)
+        toast.error(msg)
       }
+    } catch (e) {
+      opLog.finishError(e instanceof Error ? e.message : t('prManager.bulk.toast.unexpected'))
     } finally {
       setSubmitting(false)
     }
