@@ -5,6 +5,7 @@ import type { TFunction } from 'i18next'
 import {
   AlertCircle,
   ArrowDownToLine,
+  BadgeCheck,
   Ban,
   CheckCircle2,
   ChevronLeft,
@@ -15,6 +16,7 @@ import {
   CloudDownload,
   CopyPlus,
   ExternalLink,
+  FileWarning,
   GitBranch,
   GitMerge,
   GitMergeConflict,
@@ -26,12 +28,14 @@ import {
   Loader2,
   type LucideIcon,
   RefreshCw,
+  RotateCcw,
   Search,
   Send,
   Trash2,
+  UserPlus,
   X,
 } from 'lucide-react'
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import {
   AlertDialog,
@@ -56,14 +60,18 @@ import toast from '@/components/ui-elements/Toast'
 import { getDateFnsLocale } from '@/lib/dateUtils'
 import { cn } from '@/lib/utils'
 import { checkpointTableHeadGroupClass } from '../checkpointHeaderGroup'
+import { collectOpenPrsForFileOverlap } from '../collectPrFileOverlapCandidates'
 import type { PrBranchCheckpoint, PrCheckpointTemplate, PrRepo, TrackedBranchRow } from '../hooks/usePrData'
+import { usePrOperationLog } from '../PrOperationLogContext'
 import type { PrGhStatusKind } from '../prGhStatus'
 import { PR_GH_STATUS_IDS, PR_GH_STATUS_TEXT_CLASS } from '../prGhStatus'
 import { PR_MANAGER_ACCENT_OUTLINE_BTN, PR_MANAGER_ACCENT_OUTLINE_SURFACE } from '../prManagerButtonStyles'
+import { PR_MANAGER_REPO_GROUP_VISUAL } from '../prManagerRepoGroupVisual'
 import { CreatePrDialog } from './CreatePrDialog'
 import { MergePrDialog } from './MergePrDialog'
 import { PrBulkActionsDialog } from './PrBulkActionsDialog'
 import { PrDetailDialog } from './PrDetailDialog'
+import { PrFileOverlapDialog } from './PrFileOverlapDialog'
 import {
   activePrTemplates,
   type BulkActionKind,
@@ -72,7 +80,6 @@ import {
   resolveBulkDeleteBranchTargets,
   resolveBulkPrTargets,
 } from './prBoardBulkResolve'
-import { usePrOperationLog } from '../PrOperationLogContext'
 
 type BulkToolbarConfirm = BulkActionKind | 'clearSelection'
 
@@ -82,7 +89,7 @@ type Props = {
   templates: PrCheckpointTemplate[]
   tracked: TrackedBranchRow[]
   loading: boolean
-  onRefresh: () => void
+  onRefresh: () => void | Promise<void>
   githubTokenOk?: boolean
 }
 
@@ -194,6 +201,134 @@ const COL_DIVIDER_R = 'border-r border-r-border/60'
 /** Viền ngang từng ô (dùng khi bật lưới viền bảng). */
 const COL_DIVIDER_B = 'border-b border-b-border/60'
 const PR_BOARD_TABLE_BORDERS_LS = 'pr-manager.prBoard.tableBordersV1'
+/** ISO hoặc epoch ms — lưu theo projectId trên máy này. */
+const PR_BOARD_LAST_GITHUB_SYNC_LS_PREFIX = 'pr-manager.prBoard.lastGithubSyncAt.v1:'
+
+function readLastGithubSyncMs(projectId: string): number | null {
+  try {
+    const raw = window.localStorage.getItem(PR_BOARD_LAST_GITHUB_SYNC_LS_PREFIX + projectId)
+    if (raw == null || raw === '') return null
+    const n = Number(raw)
+    if (!Number.isFinite(n) || n <= 0) return null
+    return n < 1e12 ? n * 1000 : n
+  } catch {
+    return null
+  }
+}
+
+function writeLastGithubSyncMs(projectId: string, ms: number): void {
+  try {
+    window.localStorage.setItem(PR_BOARD_LAST_GITHUB_SYNC_LS_PREFIX + projectId, String(ms))
+  } catch {
+    /* ignore */
+  }
+}
+
+const PR_BOARD_LAST_GITHUB_SYNC_WAS_AUTO_LS_PREFIX = 'pr-manager.prBoard.lastGithubSyncWasAuto.v1:'
+
+function readLastGithubSyncWasAuto(projectId: string): boolean {
+  try {
+    return window.localStorage.getItem(PR_BOARD_LAST_GITHUB_SYNC_WAS_AUTO_LS_PREFIX + projectId) === '1'
+  } catch {
+    return false
+  }
+}
+
+function writeLastGithubSyncWasAuto(projectId: string, wasAuto: boolean): void {
+  try {
+    window.localStorage.setItem(PR_BOARD_LAST_GITHUB_SYNC_WAS_AUTO_LS_PREFIX + projectId, wasAuto ? '1' : '0')
+  } catch {
+    /* ignore */
+  }
+}
+
+/** Bộ lọc bảng (GitHub + remote + no-PR) — theo projectId, giữ khi đóng app. */
+const PR_BOARD_FILTERS_V1_PREFIX = 'pr-manager.prBoard.filters.v1:'
+
+const DEFAULT_PR_GH_FILTER_LIST: readonly PrGhFilterId[] = ['open', 'draft']
+
+function defaultPrGhFilterSet(): Set<PrGhFilterId> {
+  return new Set(DEFAULT_PR_GH_FILTER_LIST)
+}
+
+function parsePrGhFiltersFromStorage(raw: unknown): Set<PrGhFilterId> {
+  const allowed = new Set<string>(PR_GH_FILTER_IDS)
+  if (!Array.isArray(raw)) return defaultPrGhFilterSet()
+  const s = new Set<PrGhFilterId>()
+  for (const x of raw) {
+    if (typeof x === 'string' && allowed.has(x)) s.add(x as PrGhFilterId)
+  }
+  if (s.size === 0) return defaultPrGhFilterSet()
+  return s
+}
+
+type PrBoardFiltersV1 = { gh: string[]; remote: boolean; noPr: boolean }
+
+function readPrBoardFilters(projectId: string): {
+  prGhFilters: Set<PrGhFilterId>
+  onlyExistingOnRemote: boolean
+  onlyBranchesWithoutPr: boolean
+} {
+  try {
+    const raw = window.localStorage.getItem(PR_BOARD_FILTERS_V1_PREFIX + projectId)
+    if (raw == null || raw === '') {
+      return { prGhFilters: defaultPrGhFilterSet(), onlyExistingOnRemote: true, onlyBranchesWithoutPr: true }
+    }
+    const p = JSON.parse(raw) as unknown
+    if (p == null || typeof p !== 'object' || Array.isArray(p)) {
+      return { prGhFilters: defaultPrGhFilterSet(), onlyExistingOnRemote: true, onlyBranchesWithoutPr: true }
+    }
+    const o = p as Record<string, unknown>
+    return {
+      prGhFilters: parsePrGhFiltersFromStorage(o.gh),
+      onlyExistingOnRemote: typeof o.remote === 'boolean' ? o.remote : true,
+      onlyBranchesWithoutPr: typeof o.noPr === 'boolean' ? o.noPr : true,
+    }
+  } catch {
+    return { prGhFilters: defaultPrGhFilterSet(), onlyExistingOnRemote: true, onlyBranchesWithoutPr: true }
+  }
+}
+
+function writePrBoardFilters(
+  projectId: string,
+  prGhFilters: Set<PrGhFilterId>,
+  onlyExistingOnRemote: boolean,
+  onlyBranchesWithoutPr: boolean
+): void {
+  try {
+    const gh = [...prGhFilters].filter(id => (PR_GH_FILTER_IDS as readonly string[]).includes(id)).sort() as PrGhFilterId[]
+    const payload: PrBoardFiltersV1 = { gh, remote: onlyExistingOnRemote, noPr: onlyBranchesWithoutPr }
+    window.localStorage.setItem(PR_BOARD_FILTERS_V1_PREFIX + projectId, JSON.stringify(payload))
+  } catch {
+    /* ignore */
+  }
+}
+
+const PR_BOARD_AUTO_SYNC_GITHUB_LS_PREFIX = 'pr-manager.prBoard.autoSyncGithub.v1:'
+
+function readAutoSyncGithub(projectId: string): boolean {
+  try {
+    return window.localStorage.getItem(PR_BOARD_AUTO_SYNC_GITHUB_LS_PREFIX + projectId) === '1'
+  } catch {
+    return false
+  }
+}
+
+function writeAutoSyncGithub(projectId: string, on: boolean): void {
+  try {
+    window.localStorage.setItem(PR_BOARD_AUTO_SYNC_GITHUB_LS_PREFIX + projectId, on ? '1' : '0')
+  } catch {
+    /* ignore */
+  }
+}
+
+/**
+ * Idle trước khi auto-sync: nên đủ lớn để không gọi lại `trackedSyncFromGithub` quá thường xuyên
+ * (mỗi lần sync tốn nhiều REST call / repo — gần giới hạn 5000 req/h của GitHub nếu sync liên tục).
+ */
+const PR_GITHUB_AUTO_SYNC_IDLE_MS = 30 * 60 * 1000
+/** Chu kỳ chỉ kiểm tra điều kiện (không gọi API nếu chưa đủ idle). */
+const PR_GITHUB_AUTO_SYNC_TICK_MS = 10 * 60 * 1000
 
 function openUrlInDefaultBrowser(url: string): void {
   void window.api.system.open_external_url(url)
@@ -320,7 +455,7 @@ function ghPrSurfaceClasses(cp: PrBranchCheckpoint): string {
   if (ms === 'unknown') {
     return 'bg-slate-500/12'
   }
-  return 'bg-emerald-500/22 dark:bg-emerald-500/16'
+  return 'bg-emerald-500/[0.06] dark:bg-emerald-500/[0.05]'
 }
 
 function ghPrContentTextClass(cp: PrBranchCheckpoint, t: TFunction): string {
@@ -339,36 +474,12 @@ function PrStatusIcon({ cp, className = 'h-3 w-3 shrink-0' }: PrStatusIconProps)
   return <I className={cn(className, ui.prIcon)} />
 }
 
-/** Nền nhóm repo: wash màu rất nhạt (alpha thấp) + viền trái mờ — light/dark đều dịu, không lấn ô PR. */
-const REPO_GROUP_VISUAL: ReadonlyArray<{
-  row: string
-  accent: string
-}> = [
-  {
-    row: 'bg-slate-500/[0.035] dark:bg-slate-400/[0.06]',
-    accent: 'border-l-[3px] border-l-sky-500/25 dark:border-l-sky-400/20',
-  },
-  {
-    row: 'bg-emerald-500/[0.04] dark:bg-emerald-400/[0.07]',
-    accent: 'border-l-[3px] border-l-emerald-500/25 dark:border-l-emerald-400/20',
-  },
-  {
-    row: 'bg-violet-500/[0.04] dark:bg-violet-400/[0.07]',
-    accent: 'border-l-[3px] border-l-violet-500/25 dark:border-l-violet-400/20',
-  },
-  {
-    row: 'bg-amber-500/[0.04] dark:bg-amber-400/[0.07]',
-    accent: 'border-l-[3px] border-l-amber-500/25 dark:border-l-amber-400/20',
-  },
-]
-
 /** Hover dòng: lớp inset rất nhẹ trên nền nhóm repo. */
 const REPO_GROUP_ROW_HOVER_TRANSITION = 'transition-[box-shadow] duration-150'
-const REPO_GROUP_ROW_HOVER_SHADOW =
-  'shadow-[inset_0_0_0_9999px_rgb(0_0_0_/_0.03)] dark:shadow-[inset_0_0_0_9999px_rgb(255_255_255_/_0.025)]'
+const REPO_GROUP_ROW_HOVER_SHADOW = 'shadow-[inset_0_0_0_9999px_rgb(0_0_0_/_0.03)] dark:shadow-[inset_0_0_0_9999px_rgb(255_255_255_/_0.025)]'
 
 export function PrBoard({ projectId, repos, templates, tracked, loading, onRefresh, githubTokenOk = false }: Props) {
-  const { t } = useTranslation()
+  const { t, i18n } = useTranslation()
   const opLog = usePrOperationLog()
   const syncLogActiveRef = useRef(false)
   const lastSyncLogAtRef = useRef(0)
@@ -382,9 +493,14 @@ export function PrBoard({ projectId, repos, templates, tracked, loading, onRefre
   const [prDetailOpen, setPrDetailOpen] = useState(false)
   const [prDetailRepo, setPrDetailRepo] = useState<PrRepo | null>(null)
   const [prDetailNumber, setPrDetailNumber] = useState<number | null>(null)
+  const [fileOverlapOpen, setFileOverlapOpen] = useState(false)
   const [noteDraft, setNoteDraft] = useState<Record<string, string>>({})
   const [syncing, setSyncing] = useState(false)
   const [syncProgress, setSyncProgress] = useState(0)
+  const [lastGithubSyncAt, setLastGithubSyncAt] = useState<number | null>(null)
+  const [lastGithubSyncWasAuto, setLastGithubSyncWasAuto] = useState(false)
+  const [autoSyncGithub, setAutoSyncGithub] = useState(false)
+  const lastUserActivityAtRef = useRef(Date.now())
   const [prGhFilters, setPrGhFilters] = useState<Set<PrGhFilterId>>(() => new Set<PrGhFilterId>(['open', 'draft']))
   const [page, setPage] = useState(1)
   const [pageSize, setPageSize] = useState<(typeof PAGE_SIZE_OPTIONS)[number]>(20)
@@ -420,7 +536,38 @@ export function PrBoard({ projectId, repos, templates, tracked, loading, onRefre
     }
   }
 
+  useEffect(() => {
+    setLastGithubSyncAt(readLastGithubSyncMs(projectId))
+    setLastGithubSyncWasAuto(readLastGithubSyncWasAuto(projectId))
+  }, [projectId])
+
+  useLayoutEffect(() => {
+    const r = readPrBoardFilters(projectId)
+    setPrGhFilters(r.prGhFilters)
+    setOnlyExistingOnRemote(r.onlyExistingOnRemote)
+    setOnlyBranchesWithoutPr(r.onlyBranchesWithoutPr)
+  }, [projectId])
+
+  useEffect(() => {
+    writePrBoardFilters(projectId, prGhFilters, onlyExistingOnRemote, onlyBranchesWithoutPr)
+  }, [projectId, prGhFilters, onlyExistingOnRemote, onlyBranchesWithoutPr])
+
+  useEffect(() => {
+    setAutoSyncGithub(readAutoSyncGithub(projectId))
+  }, [projectId])
+
+  useEffect(() => {
+    if (autoSyncGithub) lastUserActivityAtRef.current = Date.now()
+  }, [autoSyncGithub])
+
+  const lastGithubSyncLabel = useMemo(() => {
+    if (lastGithubSyncAt == null) return null
+    const loc = getDateFnsLocale(i18n.language)
+    return formatDistanceToNow(new Date(lastGithubSyncAt), { addSuffix: true, locale: loc })
+  }, [lastGithubSyncAt, i18n.language])
+
   const activeTemplates = useMemo(() => templates.filter(t => t.isActive).sort((a, b) => a.sortOrder - b.sortOrder), [templates])
+  const prOverlapCandidates = useMemo(() => collectOpenPrsForFileOverlap(tracked, activeTemplates), [tracked, activeTemplates])
   const prGhFilterKey = useMemo(() => [...prGhFilters].sort().join(','), [prGhFilters])
   const trackedExistenceKey = useMemo(
     () =>
@@ -641,9 +788,22 @@ export function PrBoard({ projectId, repos, templates, tracked, loading, onRefre
   const bulkElig = useMemo(() => {
     const rows = selectedRowsFull
     if (!githubTokenOk || rows.length === 0) {
-      return { merge: 0, close: 0, draft: 0, ready: 0, updateBranch: 0, deleteBranch: 0, create: 0, createFirstStage: 0 }
+      return {
+        merge: 0,
+        close: 0,
+        draft: 0,
+        ready: 0,
+        approve: 0,
+        reopen: 0,
+        requestReviewers: 0,
+        updateBranch: 0,
+        deleteBranch: 0,
+        create: 0,
+        createFirstStage: 0,
+      }
     }
-    const countPr = (k: 'merge' | 'close' | 'draft' | 'ready' | 'updateBranch') => resolveBulkPrTargets(k, rows, activeTemplates, repos).filter(x => x.eligible).length
+    const countPr = (k: 'merge' | 'close' | 'draft' | 'ready' | 'approve' | 'reopen' | 'requestReviewers' | 'updateBranch') =>
+      resolveBulkPrTargets(k, rows, activeTemplates, repos).filter(x => x.eligible).length
     const deleteN = resolveBulkDeleteBranchTargets(rows, repos, activeTemplates, remoteExistMap, onlyExistingOnRemote).filter(x => x.eligible).length
     const createFirstStageN =
       defaultPrTemplate != null ? resolveBulkCreatePrTargets(rows, defaultPrTemplate, null, repos, remoteExistMap, onlyExistingOnRemote).filter(x => x.eligible).length : 0
@@ -653,6 +813,9 @@ export function PrBoard({ projectId, repos, templates, tracked, loading, onRefre
       close: countPr('close'),
       draft: countPr('draft'),
       ready: countPr('ready'),
+      approve: countPr('approve'),
+      reopen: countPr('reopen'),
+      requestReviewers: countPr('requestReviewers'),
       updateBranch: countPr('updateBranch'),
       deleteBranch: deleteN,
       create: createAnyStageN,
@@ -729,51 +892,107 @@ export function PrBoard({ projectId, repos, templates, tracked, loading, onRefre
     } else toast.error(res.message || t('prManager.board.toastNote'))
   }
 
-  const handleSyncFromGithub = async () => {
-    if (!opLog.startOperation('prManager.operationLog.titleSyncGithub')) return
-    syncLogActiveRef.current = true
-    lastSyncLogAtRef.current = 0
-    lastLoggedPercentRef.current = -1
-    setSyncProgress(0)
-    setSyncing(true)
-    opLog.appendLine(t('prManager.operationLog.syncStart'))
-    try {
-      const res = await window.api.pr.trackedSyncFromGithub(projectId)
-      if (res.status === 'success' && res.data) {
-        const { synced, branchesSynced = 0, errors } = res.data
-        opLog.appendLine(
-          t('prManager.operationLog.syncSummary', {
-            prs: synced,
-            branches: branchesSynced,
-          })
-        )
-        if (synced > 0 || branchesSynced > 0) {
-          toast.success(t('prManager.board.syncOkDetailed', { prs: synced, branches: branchesSynced }))
-        } else {
-          toast.success(t('prManager.board.syncNone'))
-        }
-        if (errors.length > 0) {
-          const errText = errors.join('; ')
-          opLog.appendLine(t('prManager.operationLog.syncSomeErrors', { errors: errText }))
-          toast.error(t('prManager.board.syncSomeFailed', { list: errText }))
-        }
-        onRefresh()
-        opLog.finishSuccess()
-      } else {
-        const msg = res.message || t('prManager.board.syncFail')
-        toast.error(msg)
-        opLog.finishError(msg)
+  const bumpUserActivity = useCallback(() => {
+    lastUserActivityAtRef.current = Date.now()
+  }, [])
+
+  const handleSyncFromGithub = useCallback(
+    async (source: 'manual' | 'idle' = 'manual') => {
+      const isIdle = source === 'idle'
+      bumpUserActivity()
+
+      if (!isIdle) {
+        if (!opLog.startOperation('prManager.operationLog.titleSyncGithub')) return
       }
-    } catch (e) {
-      const msg = e instanceof Error ? e.message : String(e)
-      opLog.finishError(msg)
-      toast.error(msg)
-    } finally {
-      syncLogActiveRef.current = false
-      setSyncing(false)
+
+      syncLogActiveRef.current = !isIdle
+      lastSyncLogAtRef.current = 0
+      lastLoggedPercentRef.current = -1
       setSyncProgress(0)
+      setSyncing(true)
+      if (!isIdle) {
+        opLog.appendLine(t('prManager.operationLog.syncStart'))
+      }
+      try {
+        const res = await window.api.pr.trackedSyncFromGithub(projectId)
+        if (res.status === 'success' && res.data) {
+          const { synced, branchesSynced = 0, errors } = res.data
+          if (!isIdle) {
+            opLog.appendLine(
+              t('prManager.operationLog.syncSummary', {
+                prs: synced,
+                branches: branchesSynced,
+              })
+            )
+          }
+          if (!isIdle) {
+            if (synced > 0 || branchesSynced > 0) {
+              toast.success(t('prManager.board.syncOkDetailed', { prs: synced, branches: branchesSynced }))
+            } else {
+              toast.success(t('prManager.board.syncNone'))
+            }
+          }
+          if (errors.length > 0) {
+            const errText = errors.join('; ')
+            if (!isIdle) {
+              opLog.appendLine(t('prManager.operationLog.syncSomeErrors', { errors: errText }))
+            }
+            toast.error(t('prManager.board.syncSomeFailed', { list: errText }))
+          }
+          const syncAt = Date.now()
+          writeLastGithubSyncMs(projectId, syncAt)
+          writeLastGithubSyncWasAuto(projectId, isIdle)
+          setLastGithubSyncAt(syncAt)
+          setLastGithubSyncWasAuto(isIdle)
+          await Promise.resolve(onRefresh())
+          if (!isIdle) {
+            opLog.finishSuccess()
+          }
+        } else {
+          const msg = res.message || t('prManager.board.syncFail')
+          toast.error(msg)
+          if (!isIdle) {
+            opLog.finishError(msg)
+          }
+        }
+      } catch (e) {
+        const msg = e instanceof Error ? e.message : String(e)
+        if (!isIdle) {
+          opLog.finishError(msg)
+        }
+        toast.error(msg)
+      } finally {
+        syncLogActiveRef.current = false
+        setSyncing(false)
+        setSyncProgress(0)
+      }
+    },
+    [bumpUserActivity, onRefresh, opLog, projectId, t]
+  )
+
+  useEffect(() => {
+    if (!autoSyncGithub) return
+    const opts: AddEventListenerOptions = { capture: true, passive: true }
+    const events: Array<keyof DocumentEventMap> = ['pointerdown', 'keydown', 'wheel']
+    for (const ev of events) {
+      document.addEventListener(ev, bumpUserActivity as EventListener, opts)
     }
-  }
+    return () => {
+      for (const ev of events) {
+        document.removeEventListener(ev, bumpUserActivity as EventListener, opts)
+      }
+    }
+  }, [autoSyncGithub, bumpUserActivity])
+
+  useEffect(() => {
+    if (!autoSyncGithub) return
+    const id = window.setInterval(() => {
+      if (syncing || opLog.isBusy || repos.length === 0 || !githubTokenOk) return
+      if (Date.now() - lastUserActivityAtRef.current < PR_GITHUB_AUTO_SYNC_IDLE_MS) return
+      void handleSyncFromGithub('idle')
+    }, PR_GITHUB_AUTO_SYNC_TICK_MS)
+    return () => clearInterval(id)
+  }, [autoSyncGithub, githubTokenOk, handleSyncFromGithub, opLog.isBusy, repos.length, syncing])
 
   const opLogRef = useRef(opLog)
   opLogRef.current = opLog
@@ -790,9 +1009,7 @@ export function PrBoard({ projectId, repos, templates, tracked, loading, onRefre
       if (now - lastSyncLogAtRef.current < 350 && Math.abs(pct - lastLoggedPercentRef.current) < 8) return
       lastSyncLogAtRef.current = now
       lastLoggedPercentRef.current = pct
-      opLogRef.current.appendLine(
-        tRef.current('prManager.operationLog.syncProgress', { done: payload.done, total: payload.total, percent: pct })
-      )
+      opLogRef.current.appendLine(tRef.current('prManager.operationLog.syncProgress', { done: payload.done, total: payload.total, percent: pct }))
     })
     return off
   }, [projectId])
@@ -822,18 +1039,75 @@ export function PrBoard({ projectId, repos, templates, tracked, loading, onRefre
         <Button size="sm" variant="outline" onClick={onRefresh} className="h-8 gap-1">
           <RefreshCw className={cn('h-3.5 w-3.5', loading && 'animate-spin')} /> {t('prManager.board.refresh')}
         </Button>
-        <Button
-          size="sm"
-          variant="outline"
-          onClick={handleSyncFromGithub}
-          className="h-8 gap-1"
-          disabled={repos.length === 0 || syncing}
-          title={t('prManager.board.syncFromGithubHelp')}
-        >
-          <CloudDownload className={cn('h-3.5 w-3.5', syncing && 'animate-pulse')} />
-          {syncing ? `${syncProgress}%` : t('prManager.board.syncFromGithub')}
-        </Button>
-        <div className="ml-auto">
+        <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+          <Button
+            size="sm"
+            variant="outline"
+            onClick={() => void handleSyncFromGithub('manual')}
+            className="h-8 gap-1"
+            disabled={repos.length === 0 || syncing}
+            title={t('prManager.board.syncFromGithubHelp')}
+          >
+            <CloudDownload className={cn('h-3.5 w-3.5', syncing && 'animate-pulse')} />
+            {syncing ? `${syncProgress}%` : t('prManager.board.syncFromGithub')}
+          </Button>
+          {lastGithubSyncLabel != null && lastGithubSyncAt != null ? (
+            <span
+              className="text-xs text-muted-foreground tabular-nums"
+              title={
+                new Date(lastGithubSyncAt).toLocaleString(i18n.language, { dateStyle: 'medium', timeStyle: 'short' }) +
+                (lastGithubSyncWasAuto ? t('prManager.board.lastGithubSyncAutoSuffix') : '')
+              }
+            >
+              {t('prManager.board.lastGithubSync', {
+                time: lastGithubSyncLabel + (lastGithubSyncWasAuto ? t('prManager.board.lastGithubSyncAutoSuffix') : ''),
+              })}
+            </span>
+          ) : null}
+          <div className="flex items-center gap-1.5 border-l border-border/60 pl-2">
+            <Checkbox
+              id="pr-board-auto-sync-github"
+              checked={autoSyncGithub}
+              className="data-[state=checked]:border-violet-600 data-[state=checked]:bg-violet-600 data-[state=checked]:text-white dark:data-[state=checked]:border-violet-500 dark:data-[state=checked]:bg-violet-600"
+              onCheckedChange={v => {
+                const on = v === true
+                setAutoSyncGithub(on)
+                writeAutoSyncGithub(projectId, on)
+              }}
+              disabled={!githubTokenOk || repos.length === 0}
+            />
+            <Label
+              htmlFor="pr-board-auto-sync-github"
+              title={t('prManager.board.autoSyncGithubHelp')}
+              className={cn(
+                'cursor-pointer text-xs font-medium leading-none text-violet-900 dark:text-violet-200',
+                (!githubTokenOk || repos.length === 0) && 'cursor-not-allowed opacity-50'
+              )}
+            >
+              {t('prManager.board.autoSyncGithub')}
+            </Label>
+          </div>
+        </div>
+        <div className="ml-auto flex items-center gap-1.5">
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button
+                type="button"
+                size="sm"
+                variant="outline"
+                className="h-8 gap-1.5 px-2"
+                disabled={!githubTokenOk || repos.length === 0}
+                onClick={() => setFileOverlapOpen(true)}
+                aria-label={t('prManager.fileOverlap.ariaOpen')}
+              >
+                <FileWarning className="h-3.5 w-3.5 shrink-0 text-amber-600/85 dark:text-amber-400/90" />
+                <span className="max-w-[7rem] truncate text-xs font-medium sm:max-w-none">{t('prManager.fileOverlap.buttonLabel')}</span>
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent side="bottom" className="max-w-xs">
+              {t('prManager.fileOverlap.tooltip')}
+            </TooltipContent>
+          </Tooltip>
           <Button
             size="sm"
             variant="outline"
@@ -916,7 +1190,14 @@ export function PrBoard({ projectId, repos, templates, tracked, loading, onRefre
             ) : null}
             <Tooltip>
               <TooltipTrigger asChild>
-                <Button type="button" size="icon" variant="outline" className="h-8 w-8" disabled={!bulkCreatePrToolbarEnabled} onClick={() => setBulkToolbarConfirm('createPr')}>
+                <Button
+                  type="button"
+                  size="icon"
+                  variant="outline"
+                  className="h-8 w-8 text-sky-700 hover:bg-sky-500/10 dark:text-sky-400"
+                  disabled={!bulkCreatePrToolbarEnabled}
+                  onClick={() => setBulkToolbarConfirm('createPr')}
+                >
                   <CopyPlus className="h-3.5 w-3.5" />
                 </Button>
               </TooltipTrigger>
@@ -930,7 +1211,7 @@ export function PrBoard({ projectId, repos, templates, tracked, loading, onRefre
                   type="button"
                   size="icon"
                   variant="outline"
-                  className="h-8 w-8"
+                  className="h-8 w-8 text-violet-700 hover:bg-violet-500/10 dark:text-violet-400"
                   disabled={!githubTokenOk || bulkElig.merge === 0}
                   onClick={() => setBulkToolbarConfirm('merge')}
                 >
@@ -947,7 +1228,24 @@ export function PrBoard({ projectId, repos, templates, tracked, loading, onRefre
                   type="button"
                   size="icon"
                   variant="outline"
-                  className="h-8 w-8"
+                  className="h-8 w-8 text-teal-700 hover:bg-teal-500/10 dark:text-teal-400"
+                  disabled={!githubTokenOk || bulkElig.approve === 0}
+                  onClick={() => setBulkToolbarConfirm('approve')}
+                >
+                  <BadgeCheck className="h-3.5 w-3.5" />
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent side="bottom" className="max-w-xs text-xs">
+                {t('prManager.bulk.tt.approve')}
+              </TooltipContent>
+            </Tooltip>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button
+                  type="button"
+                  size="icon"
+                  variant="outline"
+                  className="h-8 w-8 text-rose-700 hover:bg-rose-500/10 dark:text-rose-400"
                   disabled={!githubTokenOk || bulkElig.close === 0}
                   onClick={() => setBulkToolbarConfirm('close')}
                 >
@@ -964,7 +1262,24 @@ export function PrBoard({ projectId, repos, templates, tracked, loading, onRefre
                   type="button"
                   size="icon"
                   variant="outline"
-                  className="h-8 w-8"
+                  className="h-8 w-8 text-orange-700 hover:bg-orange-500/10 dark:text-orange-400"
+                  disabled={!githubTokenOk || bulkElig.reopen === 0}
+                  onClick={() => setBulkToolbarConfirm('reopen')}
+                >
+                  <RotateCcw className="h-3.5 w-3.5" />
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent side="bottom" className="max-w-xs text-xs">
+                {t('prManager.bulk.tt.reopen')}
+              </TooltipContent>
+            </Tooltip>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button
+                  type="button"
+                  size="icon"
+                  variant="outline"
+                  className="h-8 w-8 text-slate-600 hover:bg-slate-500/10 dark:text-slate-400"
                   disabled={!githubTokenOk || bulkElig.draft === 0}
                   onClick={() => setBulkToolbarConfirm('draft')}
                 >
@@ -981,7 +1296,7 @@ export function PrBoard({ projectId, repos, templates, tracked, loading, onRefre
                   type="button"
                   size="icon"
                   variant="outline"
-                  className="h-8 w-8"
+                  className="h-8 w-8 text-emerald-700 hover:bg-emerald-500/10 dark:text-emerald-400"
                   disabled={!githubTokenOk || bulkElig.ready === 0}
                   onClick={() => setBulkToolbarConfirm('ready')}
                 >
@@ -998,7 +1313,24 @@ export function PrBoard({ projectId, repos, templates, tracked, loading, onRefre
                   type="button"
                   size="icon"
                   variant="outline"
-                  className="h-8 w-8"
+                  className="h-8 w-8 text-fuchsia-700 hover:bg-fuchsia-500/10 dark:text-fuchsia-400"
+                  disabled={!githubTokenOk || bulkElig.requestReviewers === 0}
+                  onClick={() => setBulkToolbarConfirm('requestReviewers')}
+                >
+                  <UserPlus className="h-3.5 w-3.5" />
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent side="bottom" className="max-w-xs text-xs">
+                {t('prManager.bulk.tt.requestReviewers')}
+              </TooltipContent>
+            </Tooltip>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button
+                  type="button"
+                  size="icon"
+                  variant="outline"
+                  className="h-8 w-8 text-indigo-700 hover:bg-indigo-500/10 dark:text-indigo-400"
                   disabled={!githubTokenOk || bulkElig.updateBranch === 0}
                   onClick={() => setBulkToolbarConfirm('updateBranch')}
                 >
@@ -1015,7 +1347,7 @@ export function PrBoard({ projectId, repos, templates, tracked, loading, onRefre
                   type="button"
                   size="icon"
                   variant="outline"
-                  className="h-8 w-8 text-rose-700 hover:bg-rose-500/10 dark:text-rose-400"
+                  className="h-8 w-8 text-red-700 hover:bg-red-500/10 dark:text-red-400"
                   disabled={!githubTokenOk || bulkElig.deleteBranch === 0}
                   onClick={() => setBulkToolbarConfirm('deleteRemoteBranch')}
                 >
@@ -1028,7 +1360,14 @@ export function PrBoard({ projectId, repos, templates, tracked, loading, onRefre
             </Tooltip>
             <Tooltip>
               <TooltipTrigger asChild>
-                <Button type="button" size="icon" variant="ghost" className="h-8 w-8" disabled={selectedRowIds.size === 0} onClick={() => setBulkToolbarConfirm('clearSelection')}>
+                <Button
+                  type="button"
+                  size="icon"
+                  variant="ghost"
+                  className="h-8 w-8 text-muted-foreground hover:text-foreground"
+                  disabled={selectedRowIds.size === 0}
+                  onClick={() => setBulkToolbarConfirm('clearSelection')}
+                >
                   <X className="h-3.5 w-3.5" />
                 </Button>
               </TooltipTrigger>
@@ -1051,7 +1390,7 @@ export function PrBoard({ projectId, repos, templates, tracked, loading, onRefre
               <GlowLoader className="h-10 w-10" />
             </div>
           ) : null}
-          <div className="min-h-0 flex-1 overflow-auto overscroll-contain">
+          <div className="min-h-0 flex-1 overflow-auto overscroll-contain" onScrollCapture={autoSyncGithub ? bumpUserActivity : undefined}>
             <Table>
               <TableHeader className="border-b-2 border-b-border shadow-sm">
                 <TableRow className="hover:bg-transparent">
@@ -1115,7 +1454,7 @@ export function PrBoard({ projectId, repos, templates, tracked, loading, onRefre
                   </TableRow>
                 )}
                 {pagedGroupedRows.map(([repoKey, rows], groupIndex) => {
-                  const vis = REPO_GROUP_VISUAL[groupIndex % REPO_GROUP_VISUAL.length]
+                  const vis = PR_MANAGER_REPO_GROUP_VISUAL[groupIndex % PR_MANAGER_REPO_GROUP_VISUAL.length]
                   const repoTotalBranches = repoBranchTotals.get(repoKey) ?? rows.length
                   const prByKind = repoPrKindCounts.get(repoKey) ?? {
                     open: 0,
@@ -1269,10 +1608,10 @@ export function PrBoard({ projectId, repos, templates, tracked, loading, onRefre
                 {totalRowCount === 0
                   ? t('prManager.board.zeroRows')
                   : t('prManager.board.showRows', {
-                    from: (safePage - 1) * pageSize + 1,
-                    to: Math.min(safePage * pageSize, totalRowCount),
-                    total: totalRowCount,
-                  })}
+                      from: (safePage - 1) * pageSize + 1,
+                      to: Math.min(safePage * pageSize, totalRowCount),
+                      total: totalRowCount,
+                    })}
               </div>
               <div className="flex flex-wrap items-center gap-2 sm:gap-3">
                 <div className="flex items-center gap-1.5">
@@ -1439,6 +1778,7 @@ export function PrBoard({ projectId, repos, templates, tracked, loading, onRefre
         prNumber={prDetailNumber}
         onAfterChange={onRefresh}
       />
+      <PrFileOverlapDialog open={fileOverlapOpen} onOpenChange={setFileOverlapOpen} candidates={prOverlapCandidates} githubTokenOk={githubTokenOk} />
     </div>
   )
 }
@@ -1557,9 +1897,9 @@ function CheckpointCell({
             onClick={
               canOpen
                 ? () => {
-                  if (blockN == null) return
-                  onOpenPrInApp?.(blockN)
-                }
+                    if (blockN == null) return
+                    onOpenPrInApp?.(blockN)
+                  }
                 : undefined
             }
             title={mergeUi.mergeTitle ? `${mergeUi.mergeTitle} ${t('prManager.mergeableUi.openInAppHint')}` : t('prManager.mergeableUi.openInAppHint')}
@@ -1577,14 +1917,14 @@ function CheckpointCell({
     if (canMerge) {
       return (
         <div className="flex w-full min-w-0 items-stretch gap-0.5">
-          <div className={cn('flex min-w-0 flex-1 items-center justify-center rounded-md bg-emerald-500/22 dark:bg-emerald-500/16', CELL_CTRL_H)}>
+          <div className={cn('flex min-w-0 flex-1 items-center justify-center rounded-md bg-emerald-500/[0.06] dark:bg-emerald-500/[0.05]', CELL_CTRL_H)}>
             <Button
               type="button"
               variant="ghost"
               size="xs"
               onClick={onMerge}
               className={cn(
-                'w-full rounded-md border-0 bg-transparent text-emerald-800 shadow-none hover:bg-emerald-500/32 dark:text-emerald-200 dark:hover:bg-emerald-500/26',
+                'w-full rounded-md border-0 bg-transparent text-emerald-800 shadow-none hover:bg-emerald-500/12 dark:text-emerald-200 dark:hover:bg-emerald-500/10',
                 CELL_CTRL_H,
                 CELL_TXT
               )}
@@ -1690,9 +2030,9 @@ function CheckpointCell({
                   : cp.ghPrDraft === true
                     ? t('prManager.board.tooltipDraft')
                     : (() => {
-                      const u = getMergeableUi(cp.ghPrMergeableState, t)
-                      return u.blockMerge ? t('prManager.board.openBlocked', { label: u.shortLabel }) : t('prManager.board.openReady')
-                    })()}
+                        const u = getMergeableUi(cp.ghPrMergeableState, t)
+                        return u.blockMerge ? t('prManager.board.openBlocked', { label: u.shortLabel }) : t('prManager.board.openReady')
+                      })()}
             </div>
             <div className="leading-snug text-muted-foreground">{titleText}</div>
             {cp.ghPrUpdatedAt ? (

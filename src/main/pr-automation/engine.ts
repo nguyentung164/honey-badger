@@ -11,6 +11,7 @@ import {
   getPrRepoById,
   getTrackedBranchById,
   listAutomationsForTrigger,
+  listCheckpointKeysForRepoPr,
   listCheckpointTemplates,
   upsertBranchCheckpoint,
   upsertTrackedBranch,
@@ -329,6 +330,40 @@ export async function onPrMerged(event: PrMergedEvent): Promise<AutomationResult
  * \u0110\u1ed3ng b\u1ed9 Board t\u1eeb m\u1ed9t PR tr\u00ean GitHub (open ho\u1eb7c \u0111\u00e3 merge/close):
  * ghi pr_* v\u00e0 n\u1ebfu merged th\u00ec ghi merge_*.
  */
+/**
+ * C\u1eadp nh\u1eadt m\u1ecdi checkpoint DB tr\u00f9ng owner/repo + s\u1ed1 PR theo b\u1ea3n t\u00f3m t\u1eaft GitHub; broadcast \u0111\u1ec3 board g\u1ecdi refreshTracked.
+ * D\u00f9ng sau draft/ready/close/update branch (trackedList kh\u00f4ng g\u1ecdi API GitHub).
+ */
+export async function syncPullRequestIntoTrackedCheckpoints(
+  owner: string,
+  repo: string,
+  pr: PullRequestSummary
+): Promise<void> {
+  const keys = await listCheckpointKeysForRepoPr(owner, repo, pr.number)
+  for (const k of keys) {
+    await upsertBranchCheckpoint({
+      trackedBranchId: k.trackedBranchId,
+      templateId: k.templateId,
+      ghPrDraft: pr.draft,
+      ghPrState: pr.state,
+      ghPrMerged: pr.merged,
+      ghPrAuthor: pr.author ?? null,
+      ghPrTitle: pr.title ?? null,
+      ghPrUpdatedAt: pr.updatedAt ?? null,
+      ghPrAdditions: pr.additions ?? null,
+      ghPrDeletions: pr.deletions ?? null,
+      ghPrChangedFiles: pr.changedFiles ?? null,
+      ghPrMergeableState: pr.mergeableState ?? null,
+      ghPrAssignees: pr.assignees ?? null,
+      ghPrLabels: pr.labels ?? null,
+    })
+    broadcast(IPC.PR.EVENT_CHECKPOINT_UPDATED, {
+      trackedBranchId: k.trackedBranchId,
+      templateId: k.templateId,
+    })
+  }
+}
+
 export async function applyPullRequestToCheckpoints(args: {
   projectId: string
   repoId: string

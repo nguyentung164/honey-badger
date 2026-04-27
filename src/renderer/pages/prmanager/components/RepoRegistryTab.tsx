@@ -21,7 +21,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@
 import toast from '@/components/ui-elements/Toast'
 import { cn } from '@/lib/utils'
 import type { PrRepo } from '../hooks/usePrData'
-import { PR_MANAGER_ACCENT_OUTLINE_BTN } from '../prManagerButtonStyles'
+import { PR_MANAGER_ACCENT_OUTLINE_BTN, PR_MANAGER_ACCENT_OUTLINE_SURFACE } from '../prManagerButtonStyles'
 
 type Props = {
   projectId: string
@@ -118,7 +118,7 @@ export function RepoRegistryTab({ projectId, userId, repos, onRefresh }: Props) 
           size="sm"
           variant="outline"
           onClick={() => setAddOpen(true)}
-          className={cn('ml-auto', PR_MANAGER_ACCENT_OUTLINE_BTN)}
+          className={cn('ml-auto', PR_MANAGER_ACCENT_OUTLINE_BTN, PR_MANAGER_ACCENT_OUTLINE_SURFACE)}
         >
           <Plus className="h-3.5 w-3.5" /> {t('prManager.repoRegistry.addRepo')}
         </Button>

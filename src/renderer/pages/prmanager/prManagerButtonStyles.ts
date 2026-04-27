@@ -2,13 +2,13 @@
 export const PR_MANAGER_ACCENT_TEXT =
   'text-emerald-600 hover:text-emerald-600 dark:text-emerald-400 dark:hover:text-emerald-400 [&_svg]:text-emerald-600 dark:[&_svg]:text-emerald-400'
 
-/** Viền + nền trong suốt emerald (dùng chung nút outline accent PR / Task). */
+/** Viền + nền trong suốt emerald (dùng chung nút outline accent PR / Task). Khớp độ nhạt với bulk “Suggest titles”. */
 export const PR_MANAGER_ACCENT_OUTLINE_SURFACE =
-  'border-emerald-500/50 bg-emerald-500/22 hover:bg-emerald-500/32 dark:border-emerald-400/40 dark:bg-emerald-500/18 dark:hover:bg-emerald-500/28'
+  'border-emerald-500/30 bg-emerald-500/[0.06] hover:bg-emerald-500/12 dark:border-emerald-400/22 dark:bg-emerald-500/[0.05] dark:hover:bg-emerald-500/10'
 
 /** Nền emerald trong title bar — không viền (tránh “double border” với bar). */
 export const PR_MANAGER_ACCENT_TITLEBAR_SURFACE =
-  'border-0 shadow-none bg-emerald-500/22 hover:bg-emerald-500/32 dark:bg-emerald-500/18 dark:hover:bg-emerald-500/28'
+  'border-0 shadow-none bg-emerald-500/[0.06] hover:bg-emerald-500/12 dark:bg-emerald-500/[0.05] dark:hover:bg-emerald-500/10'
 
 /** Cùng style với nút «Tạo PR» trên PrBoard (outline + emerald). */
 export const PR_MANAGER_ACCENT_OUTLINE_BTN = `h-8 gap-1 ${PR_MANAGER_ACCENT_TEXT}`

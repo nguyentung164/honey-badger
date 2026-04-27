@@ -55,6 +55,7 @@ import { cn } from '@/lib/utils'
 import type { PrRepo } from '../hooks/usePrData'
 import { usePrOperationLog } from '../PrOperationLogContext'
 import { PR_GH_STATUS_BADGE_CLASS, prSummaryToGhStatusKind } from '../prGhStatus'
+import { PR_MANAGER_ACCENT_OUTLINE_BTN, PR_MANAGER_ACCENT_OUTLINE_SURFACE } from '../prManagerButtonStyles'
 import { githubMergeableBlocksMerge } from './prBoardBulkResolve'
 import { MergePrDialog } from './MergePrDialog'
 
@@ -120,7 +121,7 @@ type Props = {
   projectId: string
   prRepo: PrRepo | null
   prNumber: number | null
-  onAfterChange?: () => void
+  onAfterChange?: () => void | Promise<void>
 }
 
 function openUrl(url: string): void {
@@ -612,10 +613,10 @@ export function PrDetailDialog({ open, onOpenChange, projectId, prRepo, prNumber
         }
         setCommentDraft('')
         setComments(prev => [...prev, issueToConversationEntry(newComment)])
-        onAfterChange?.()
         opLog.appendLine(t('prManager.operationLog.lineOk'))
         opLog.finishSuccess()
         toast.success(t('prManager.detail.commentPosted'))
+        await Promise.resolve(onAfterChange?.())
       } else {
         const msg = res.message || t('prManager.detail.postFail')
         opLog.finishError(msg)
@@ -647,8 +648,8 @@ export function PrDetailDialog({ open, onOpenChange, projectId, prRepo, prNumber
         opLog.appendLine(t('prManager.operationLog.lineOk'))
         opLog.finishSuccess()
         toast.success(t('prManager.detail.approved'))
-        onAfterChange?.()
         await load()
+        await Promise.resolve(onAfterChange?.())
       } else {
         const msg = res.message || t('prManager.detail.approveFail')
         opLog.finishError(msg)
@@ -672,8 +673,8 @@ export function PrDetailDialog({ open, onOpenChange, projectId, prRepo, prNumber
         opLog.appendLine(t('prManager.operationLog.lineOk'))
         opLog.finishSuccess()
         toast.success(t('prManager.detail.markReady'))
-        onAfterChange?.()
         await load()
+        await Promise.resolve(onAfterChange?.())
       } else {
         const msg = res.message || t('prManager.detail.stateFail')
         opLog.finishError(msg)
@@ -697,8 +698,8 @@ export function PrDetailDialog({ open, onOpenChange, projectId, prRepo, prNumber
         opLog.appendLine(t('prManager.operationLog.lineOk'))
         opLog.finishSuccess()
         toast.success(t('prManager.detail.markDraft'))
-        onAfterChange?.()
         await load()
+        await Promise.resolve(onAfterChange?.())
       } else {
         const msg = res.message || t('prManager.detail.stateFail')
         opLog.finishError(msg)
@@ -738,8 +739,8 @@ export function PrDetailDialog({ open, onOpenChange, projectId, prRepo, prNumber
         opLog.appendLine(t('prManager.operationLog.lineOk'))
         opLog.finishSuccess()
         toast.success(t('prManager.detail.updateBranch'))
-        onAfterChange?.()
         await load()
+        await Promise.resolve(onAfterChange?.())
       } else {
         const msg = res.message || t('prManager.detail.branchUpdateFail')
         opLog.finishError(msg)
@@ -766,8 +767,8 @@ export function PrDetailDialog({ open, onOpenChange, projectId, prRepo, prNumber
         opLog.finishSuccess()
         toast.success(res.message || t('prManager.detail.resetOk', { sha: commitResetTarget.shortSha }))
         setCommitResetTarget(null)
-        onAfterChange?.()
         await load()
+        await Promise.resolve(onAfterChange?.())
       } else {
         const msg = res.message || t('prManager.detail.resetFail')
         opLog.finishError(msg)
@@ -792,8 +793,8 @@ export function PrDetailDialog({ open, onOpenChange, projectId, prRepo, prNumber
         opLog.appendLine(t('prManager.operationLog.lineOk'))
         opLog.finishSuccess()
         toast.success(res.message || t('prManager.detail.forcePushOk'))
-        onAfterChange?.()
         await load()
+        await Promise.resolve(onAfterChange?.())
       } else {
         const msg = res.message || t('prManager.detail.forcePushFail')
         opLog.finishError(msg)
@@ -1000,7 +1001,7 @@ export function PrDetailDialog({ open, onOpenChange, projectId, prRepo, prNumber
                       type="button"
                       size="sm"
                       variant="outline"
-                      className="mr-2 h-8 gap-1 border-emerald-600 px-2.5 text-sm text-emerald-700 hover:border-emerald-600 hover:bg-emerald-500/10 hover:text-emerald-800 dark:border-emerald-500 dark:text-emerald-400 dark:hover:border-emerald-400 dark:hover:bg-emerald-500/15 dark:hover:text-emerald-300"
+                      className={cn(PR_MANAGER_ACCENT_OUTLINE_BTN, PR_MANAGER_ACCENT_OUTLINE_SURFACE, 'mr-2 px-2.5 text-sm')}
                       onClick={() => setConfirm('merge')}
                       disabled={!canMergeUi || !prRepo}
                       title={mergeBlockedByMergeable ? t('prManager.bulk.skip.mergeBlocked') : t('prManager.detail.mergeOnGithub')}
@@ -1550,9 +1551,9 @@ export function PrDetailDialog({ open, onOpenChange, projectId, prRepo, prNumber
         projectId={projectId}
         repo={prRepo}
         prNumber={prNumber}
-        onMerged={() => {
-          onAfterChange?.()
-          void load()
+        onMerged={async () => {
+          await load()
+          await Promise.resolve(onAfterChange?.())
         }}
       />
     </TooltipProvider>

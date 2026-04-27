@@ -25,7 +25,7 @@ import { Textarea } from '@/components/ui/textarea'
 import toast from '@/components/ui-elements/Toast'
 import { cn } from '@/lib/utils'
 import type { PrAutomation, PrRepo } from '../hooks/usePrData'
-import { PR_MANAGER_ACCENT_OUTLINE_BTN } from '../prManagerButtonStyles'
+import { PR_MANAGER_ACCENT_OUTLINE_BTN, PR_MANAGER_ACCENT_OUTLINE_SURFACE } from '../prManagerButtonStyles'
 
 type Props = {
   automations: PrAutomation[]
@@ -149,7 +149,7 @@ export function AutomationsTab({ automations, repos, onRefresh }: Props) {
           size="sm"
           variant="outline"
           onClick={openCreate}
-          className={cn('ml-auto', PR_MANAGER_ACCENT_OUTLINE_BTN)}
+          className={cn('ml-auto', PR_MANAGER_ACCENT_OUTLINE_BTN, PR_MANAGER_ACCENT_OUTLINE_SURFACE)}
           disabled={repos.length === 0}
         >
           <Plus className="h-3.5 w-3.5" /> {t('prManager.automations.create')}
@@ -313,9 +313,12 @@ export function AutomationsTab({ automations, repos, onRefresh }: Props) {
               />
             </div>
 
-            <label className="flex items-center gap-2 text-sm">
-              <Switch checked={isActive} onCheckedChange={setIsActive} /> {t('prManager.automations.active')}
-            </label>
+            <div className="flex items-center gap-2 text-sm">
+              <Switch id="pr-automation-edit-active" checked={isActive} onCheckedChange={setIsActive} />
+              <Label htmlFor="pr-automation-edit-active" className="cursor-pointer font-normal">
+                {t('prManager.automations.active')}
+              </Label>
+            </div>
           </div>
 
           <DialogFooter>

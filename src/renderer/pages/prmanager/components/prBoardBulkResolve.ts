@@ -1,6 +1,16 @@
 import type { PrCheckpointTemplate, PrRepo, TrackedBranchRow } from '../hooks/usePrData'
 
-export type BulkActionKind = 'merge' | 'close' | 'draft' | 'ready' | 'updateBranch' | 'deleteRemoteBranch' | 'createPr'
+export type BulkActionKind =
+  | 'merge'
+  | 'close'
+  | 'draft'
+  | 'ready'
+  | 'updateBranch'
+  | 'approve'
+  | 'reopen'
+  | 'requestReviewers'
+  | 'deleteRemoteBranch'
+  | 'createPr'
 
 /** Giống getMergeableUi(...).blockMerge trên PrBoard — không phụ thuộc i18n. */
 export function githubMergeableBlocksMerge(mergeable: string | null | undefined): boolean {
@@ -24,6 +34,8 @@ export type BulkPrRowTarget = {
   ghPrState: 'open' | 'closed' | null
   ghPrMerged: boolean | null
   ghPrMergeableState: string | null
+  /** GitHub: login người tạo PR — không thể thêm làm requested reviewer. */
+  ghPrAuthor: string | null
   eligible: boolean
   skipReasonKey: string | null
 }
@@ -52,6 +64,9 @@ export type BulkCreatePrTarget = {
   suggestedTitle: string
   eligible: boolean
   skipReasonKey: string | null
+  /** Đã có PR gắn template này (vd. skip alreadyHasPr) — để hiển thị đúng # và tiêu đề GitHub. */
+  existingPrNumber: number | null
+  existingPrTitle: string | null
 }
 
 function repoForRow(row: TrackedBranchRow, repos: PrRepo[]): PrRepo | null {
@@ -105,6 +120,17 @@ export function resolveBulkPrTargets(
 
       if (!prRepo) {
         skipReasonKey = 'prManager.bulk.skip.noRepo'
+      } else if (kind === 'reopen') {
+        if (cp.ghPrMerged === true) {
+          skipReasonKey = 'prManager.bulk.skip.merged'
+        } else if (cp.ghPrState === 'open') {
+          skipReasonKey = 'prManager.bulk.skip.alreadyOpen'
+        } else if (cp.ghPrState === 'closed') {
+          eligible = true
+          skipReasonKey = null
+        } else {
+          skipReasonKey = 'prManager.bulk.skip.reopenStateUnknown'
+        }
       } else if (cp.ghPrMerged === true) {
         skipReasonKey = 'prManager.bulk.skip.merged'
       } else if (cp.ghPrState === 'closed') {
@@ -150,6 +176,16 @@ export function resolveBulkPrTargets(
           eligible = true
           skipReasonKey = null
         }
+      } else if (kind === 'approve') {
+        if (cp.ghPrDraft === true) {
+          skipReasonKey = 'prManager.bulk.skip.draft'
+        } else {
+          eligible = true
+          skipReasonKey = null
+        }
+      } else if (kind === 'requestReviewers') {
+        eligible = true
+        skipReasonKey = null
       }
 
       out.push({
@@ -168,6 +204,7 @@ export function resolveBulkPrTargets(
         ghPrState: cp.ghPrState,
         ghPrMerged: cp.ghPrMerged,
         ghPrMergeableState: cp.ghPrMergeableState,
+        ghPrAuthor: cp.ghPrAuthor ?? null,
         eligible,
         skipReasonKey,
       })
@@ -276,6 +313,8 @@ export function resolveBulkCreatePrTargets(
       suggestedTitle,
       eligible,
       skipReasonKey,
+      existingPrNumber: typeof cp?.prNumber === 'number' ? cp.prNumber : null,
+      existingPrTitle: cp?.ghPrTitle ?? null,
     })
   }
   return out

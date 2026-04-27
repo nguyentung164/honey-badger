@@ -7,9 +7,18 @@ import toast from '@/components/ui-elements/Toast'
 
 type OpStatus = 'success' | 'error' | undefined
 
+export type StartPrOperationOpts = {
+  /** true: ghi log/ghi trạng thái nhưng không mở VcsOperationLogDialog (vd. gợi ý tiêu đề hàng loạt). */
+  silent?: boolean
+}
+
 export type PrOperationLogContextValue = {
   /** Bắt đầu phiên log; trả về false nếu đang có tác vụ (đã toast). */
-  startOperation: (titleKey: string, titleParams?: Record<string, string | number>) => boolean
+  startOperation: (
+    titleKey: string,
+    titleParams?: Record<string, string | number>,
+    opts?: StartPrOperationOpts
+  ) => boolean
   /** Nối một dòng (có thể gọi nhiều lần). */
   appendLine: (line: string) => void
   /** Kết thúc thành công. */
@@ -52,7 +61,7 @@ export function PrOperationLogProvider({ children }: Props) {
   }, [])
 
   const startOperation = useCallback(
-    (key: string, params?: Record<string, string | number>) => {
+    (key: string, params?: Record<string, string | number>, opts?: StartPrOperationOpts) => {
       if (isStreaming) {
         toast.info(t('prManager.operationLog.busy'))
         return false
@@ -62,7 +71,9 @@ export function PrOperationLogProvider({ children }: Props) {
       setStreamingLog('')
       setOperationStatus(undefined)
       setIsStreaming(true)
-      setLogOpen(true)
+      if (!opts?.silent) {
+        setLogOpen(true)
+      }
       return true
     },
     [isStreaming, t]

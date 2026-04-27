@@ -22,7 +22,7 @@ type Props = {
   projectId: string
   repo: PrRepo | null
   prNumber: number | null
-  onMerged?: () => void
+  onMerged?: () => void | Promise<void>
 }
 
 export function MergePrDialog({ open, onOpenChange, projectId, repo, prNumber, onMerged }: Props) {
@@ -75,7 +75,7 @@ export function MergePrDialog({ open, onOpenChange, projectId, repo, prNumber, o
         opLog.appendLine(t('prManager.operationLog.lineOk'))
         opLog.finishSuccess()
         toast.success(t('prManager.mergePr.toastMerged', { number: prNumber }))
-        onMerged?.()
+        await Promise.resolve(onMerged?.())
         onOpenChange(false)
       } else {
         const msg = res.message || res.data?.message || t('prManager.mergePr.toastMergeFailed')

@@ -9,6 +9,7 @@ import type {
   ListPRsOptions,
   MergePRInput,
   ParsedRemote,
+  PrAssignee,
   PrChangedFile,
   PrConversationEntry,
   PrIssueComment,
@@ -624,7 +625,23 @@ export const githubClient: IHostingClient = {
 }
 
 /**
+ * REST PATCH pulls kh\u00f4ng \u00e1p draft th\u1eadt tr\u00ean GitHub (th\u01b0\u1eddng tr\u1ea3 200 nh\u01b0ng b\u1ecf qua field) \u2014 c\u1ea7n node_id + GraphQL.
+ */
+async function fetchPullRequestNodeId(owner: string, repo: string, number: number): Promise<string> {
+  const octokit = getClient()
+  const { data } = await octokit.pulls.get({ owner, repo, pull_number: number })
+  const nodeId = (data as { node_id?: unknown }).node_id
+  if (typeof nodeId !== 'string' || !nodeId.trim()) {
+    throw new Error(
+      'GitHub API kh\u00f4ng tr\u1ea3 node_id cho PR; kh\u00f4ng th\u1ec3 \u0111\u1ed5i tr\u1ea1ng th\u00e1i draft qua GraphQL.'
+    )
+  }
+  return nodeId.trim()
+}
+
+/**
  * B\u1ecf Draft tr\u00ean PR (Ready for review) \u2014 t\u01b0\u01a1ng \u0111\u01b0\u01a1ng n\u00fat \u00abReady for review\u00bb tr\u00ean GitHub.
+ * D\u00f9ng GraphQL markPullRequestReadyForReview v\u00ec REST draft:false th\u01b0\u1eddng b\u1ecb GitHub b\u1ecf qua.
  */
 export async function markPullRequestReadyForReview(
   owner: string,
@@ -634,12 +651,24 @@ export async function markPullRequestReadyForReview(
   return withGithubRateLimitRetry(
     async () => {
       const octokit = getClient()
-      await octokit.pulls.update({
-        owner,
-        repo,
-        pull_number: number,
-        draft: false,
-      })
+      const pullRequestId = await fetchPullRequestNodeId(owner, repo, number)
+      type GqlReady = {
+        markPullRequestReadyForReview: { pullRequest: { isDraft: boolean } | null } | null
+      }
+      const gql = await octokit.graphql<GqlReady>(
+        `mutation MarkPullRequestReadyForReview($pullRequestId: ID!) {
+          markPullRequestReadyForReview(input: { pullRequestId: $pullRequestId }) {
+            pullRequest { isDraft }
+          }
+        }`,
+        { pullRequestId }
+      )
+      const readyIsDraft = gql?.markPullRequestReadyForReview?.pullRequest?.isDraft
+      if (readyIsDraft !== false) {
+        throw new Error(
+          'GitHub GraphQL kh\u00f4ng x\u00e1c nh\u1eadn PR \u0111\u00e3 s\u1eb5n s\u00e0ng review (markPullRequestReadyForReview).'
+        )
+      }
       return githubClient.getPR(owner, repo, number)
     },
     { label: `markReady ${owner}/${repo}#${number}` }
@@ -648,6 +677,7 @@ export async function markPullRequestReadyForReview(
 
 /**
  * Chuy\u1ec3n PR \u0111ang m\u1edf th\u00e0nh Draft (t\u01b0\u01a1ng t\u1ef1 \u00abConvert to draft\u00bb tr\u00ean GitHub).
+ * D\u00f9ng GraphQL convertPullRequestToDraft v\u00ec REST draft:true th\u01b0\u1eddng b\u1ecb GitHub b\u1ecf qua (200 OK nh\u01b0ng kh\u00f4ng \u0111\u1ed5i UI).
  */
 export async function markPullRequestAsDraft(
   owner: string,
@@ -657,12 +687,24 @@ export async function markPullRequestAsDraft(
   return withGithubRateLimitRetry(
     async () => {
       const octokit = getClient()
-      await octokit.pulls.update({
-        owner,
-        repo,
-        pull_number: number,
-        draft: true,
-      })
+      const pullRequestId = await fetchPullRequestNodeId(owner, repo, number)
+      type GqlDraft = {
+        convertPullRequestToDraft: { pullRequest: { isDraft: boolean } | null } | null
+      }
+      const gql = await octokit.graphql<GqlDraft>(
+        `mutation ConvertPullRequestToDraft($pullRequestId: ID!) {
+          convertPullRequestToDraft(input: { pullRequestId: $pullRequestId }) {
+            pullRequest { isDraft }
+          }
+        }`,
+        { pullRequestId }
+      )
+      const isDraft = gql?.convertPullRequestToDraft?.pullRequest?.isDraft
+      if (isDraft !== true) {
+        throw new Error(
+          'GitHub GraphQL kh\u00f4ng x\u00e1c nh\u1eadn PR \u0111\u00e3 chuy\u1ec3n sang draft (convertPullRequestToDraft).'
+        )
+      }
       return githubClient.getPR(owner, repo, number)
     },
     { label: `markDraft ${owner}/${repo}#${number}` }
@@ -683,6 +725,87 @@ export async function closePullRequest(owner: string, repo: string, number: numb
       return githubClient.getPR(owner, repo, number)
     },
     { label: `closePR ${owner}/${repo}#${number}` }
+  )
+}
+
+/** M\u1edf l\u1ea1i PR \u0111\u00e3 \u0111\u00f3ng (ch\u01b0a merge) \u2014 `state = open`. */
+export async function reopenPullRequest(owner: string, repo: string, number: number): Promise<PullRequestSummary> {
+  return withGithubRateLimitRetry(
+    async () => {
+      const octokit = getClient()
+      await octokit.pulls.update({
+        owner,
+        repo,
+        pull_number: number,
+        state: 'open',
+      })
+      return githubClient.getPR(owner, repo, number)
+    },
+    { label: `reopenPR ${owner}/${repo}#${number}` }
+  )
+}
+
+function normalizeReviewerLogins(raw: string[]): string[] {
+  const seen = new Set<string>()
+  const out: string[] = []
+  for (const s of raw) {
+    const t = s.trim()
+    if (!t) continue
+    const key = t.toLowerCase()
+    if (seen.has(key)) continue
+    seen.add(key)
+    out.push(t)
+  }
+  return out
+}
+
+/** Y\u00eau c\u1ea7u reviewer (user login) tr\u00ean PR; b\u1ecf tr\u1ed1ng `team_reviewers` (c\u00f3 th\u1ec3 b\u1ed5 sung sau). */
+export async function requestPullRequestReviewers(
+  owner: string,
+  repo: string,
+  number: number,
+  reviewers: string[]
+): Promise<PullRequestSummary> {
+  const list = normalizeReviewerLogins(reviewers)
+  if (list.length === 0) {
+    throw new Error('Thi\u1ebfu danh s\u00e1ch reviewer (login).')
+  }
+  return withGithubRateLimitRetry(
+    async () => {
+      const octokit = getClient()
+      await octokit.pulls.requestReviewers({
+        owner,
+        repo,
+        pull_number: number,
+        reviewers: list,
+      })
+      return githubClient.getPR(owner, repo, number)
+    },
+    { label: `requestReviewers ${owner}/${repo}#${number}` }
+  )
+}
+
+/** User c\u00f3 th\u1ec3 assign tr\u00ean repo (GET /repos/.../assignees) \u2014 d\u00f9ng g\u1ee3i \u00fd picker reviewer. */
+export async function listRepositoryAssignees(owner: string, repo: string): Promise<PrAssignee[]> {
+  return withGithubRateLimitRetry(
+    async () => {
+      const octokit = getClient()
+      const raw = (await octokit.paginate('GET /repos/{owner}/{repo}/assignees', {
+        owner,
+        repo,
+        per_page: 100,
+      })) as { login?: string; id?: number; avatar_url?: string }[]
+      return (raw ?? [])
+        .map(
+          (u): PrAssignee => ({
+            login: String(u.login ?? ''),
+            id: typeof u.id === 'number' ? u.id : Number(u.id) || 0,
+            avatarUrl: typeof u.avatar_url === 'string' ? u.avatar_url : null,
+          })
+        )
+        .filter(a => a.login.length > 0)
+    },
+    { label: `listAssignees ${owner}/${repo}` }
   )
 }
 
@@ -748,6 +871,27 @@ export async function listPullRequestFiles(
       })
     },
     { label: `listPullRequestFiles ${owner}/${repo}#${number}` }
+  )
+}
+
+/**
+ * Tương tự `pulls.listFiles` nhưng chỉ trả tên file — không tạo chuỗi `patch` (tiết kiệm bộ nhớ khi phân tích hàng loạt).
+ */
+export async function listPullRequestFileNames(owner: string, repo: string, number: number): Promise<string[]> {
+  return withGithubRateLimitRetry(
+    async () => {
+      const octokit = getClient()
+      const raw = (await octokit.paginate(octokit.pulls.listFiles, {
+        owner,
+        repo,
+        pull_number: number,
+        per_page: 100,
+      })) as any[]
+      return (raw ?? [])
+        .map((f: any) => String(f?.filename ?? '').trim())
+        .filter(fn => fn.length > 0)
+    },
+    { label: `listPullRequestFileNames ${owner}/${repo}#${number}` }
   )
 }
 

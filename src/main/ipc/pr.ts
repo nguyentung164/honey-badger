@@ -15,6 +15,9 @@ import {
   markPullRequestReadyForReview,
   markPullRequestAsDraft,
   closePullRequest,
+  listRepositoryAssignees,
+  reopenPullRequest,
+  requestPullRequestReviewers,
   updatePullRequestBranch,
   listPullRequestFiles,
   listPullRequestConversation,
@@ -27,7 +30,7 @@ import {
   testGithubToken,
 } from '../git-hosting'
 import type { PullRequestSummary } from '../git-hosting/types'
-import { applyPullRequestToCheckpoints, onPrMerged } from '../pr-automation/engine'
+import { applyPullRequestToCheckpoints, onPrMerged, syncPullRequestIntoTrackedCheckpoints } from '../pr-automation/engine'
 import { getSourceFoldersByProject } from '../task/mysqlTaskStore'
 import {
   deleteAutomation,
@@ -49,11 +52,25 @@ import {
   updateTrackedBranchStatusNote,
 } from '../task/mysqlPrTrackingStore'
 import { detectVersionControl } from '../utils/versionControlDetector'
+import { analyzePrFileOverlap } from '../prFileOverlap'
 
 function errResp(err: unknown) {
   const msg = err instanceof Error ? err.message : String(err)
   l.error('PR IPC error:', msg)
   return { status: 'error' as const, message: msg }
+}
+
+async function afterPrMutateSyncCheckpoints(
+  owner: string,
+  repo: string,
+  pr: PullRequestSummary,
+  label: string
+): Promise<void> {
+  try {
+    await syncPullRequestIntoTrackedCheckpoints(owner, repo, pr)
+  } catch (err) {
+    l.warn(`${label}: syncPullRequestIntoTrackedCheckpoints failed:`, err)
+  }
 }
 
 async function runInBatches<T>(items: T[], batchSize: number, worker: (item: T) => Promise<void>): Promise<void> {
@@ -653,6 +670,19 @@ export function registerPrIpcHandlers(): void {
     }
   )
 
+  ipcMain.handle(IPC.PR.PR_FILE_OVERLAP, async (_e, input: { items: { owner: string; repo: string; number: number }[] }) => {
+    try {
+      if (!getGithubToken()) {
+        return { status: 'error' as const, message: 'GitHub token ch\u01b0a c\u1ea5u h\u00ecnh.' }
+      }
+      const items = Array.isArray(input?.items) ? input.items : []
+      const data = await analyzePrFileOverlap(items)
+      return { status: 'success' as const, data }
+    } catch (err) {
+      return errResp(err)
+    }
+  })
+
   ipcMain.handle(
     IPC.PR.PR_ISSUE_COMMENTS_LIST,
     async (_e, input: { owner: string; repo: string; number: number }) => {
@@ -716,6 +746,7 @@ export function registerPrIpcHandlers(): void {
           return { status: 'error' as const, message: 'GitHub token ch\u01b0a c\u1ea5u h\u00ecnh.' }
         }
         const data = await markPullRequestReadyForReview(input.owner, input.repo, input.number)
+        await afterPrMutateSyncCheckpoints(input.owner, input.repo, data, 'PR_MARK_READY')
         return { status: 'success' as const, data }
       } catch (err) {
         return errResp(err)
@@ -731,6 +762,7 @@ export function registerPrIpcHandlers(): void {
           return { status: 'error' as const, message: 'GitHub token ch\u01b0a c\u1ea5u h\u00ecnh.' }
         }
         const data = await markPullRequestAsDraft(input.owner, input.repo, input.number)
+        await afterPrMutateSyncCheckpoints(input.owner, input.repo, data, 'PR_MARK_DRAFT')
         return { status: 'success' as const, data }
       } catch (err) {
         return errResp(err)
@@ -746,6 +778,59 @@ export function registerPrIpcHandlers(): void {
           return { status: 'error' as const, message: 'GitHub token ch\u01b0a c\u1ea5u h\u00ecnh.' }
         }
         const data = await closePullRequest(input.owner, input.repo, input.number)
+        await afterPrMutateSyncCheckpoints(input.owner, input.repo, data, 'PR_CLOSE')
+        return { status: 'success' as const, data }
+      } catch (err) {
+        return errResp(err)
+      }
+    }
+  )
+
+  ipcMain.handle(
+    IPC.PR.PR_REOPEN,
+    async (_e, input: { owner: string; repo: string; number: number }) => {
+      try {
+        if (!getGithubToken()) {
+          return { status: 'error' as const, message: 'GitHub token ch\u01b0a c\u1ea5u h\u00ecnh.' }
+        }
+        const data = await reopenPullRequest(input.owner, input.repo, input.number)
+        await afterPrMutateSyncCheckpoints(input.owner, input.repo, data, 'PR_REOPEN')
+        return { status: 'success' as const, data }
+      } catch (err) {
+        return errResp(err)
+      }
+    }
+  )
+
+  ipcMain.handle(
+    IPC.PR.PR_REQUEST_REVIEWERS,
+    async (_e, input: { owner: string; repo: string; number: number; reviewers: string[] }) => {
+      try {
+        if (!getGithubToken()) {
+          return { status: 'error' as const, message: 'GitHub token ch\u01b0a c\u1ea5u h\u00ecnh.' }
+        }
+        const data = await requestPullRequestReviewers(
+          input.owner,
+          input.repo,
+          input.number,
+          Array.isArray(input.reviewers) ? input.reviewers : []
+        )
+        await afterPrMutateSyncCheckpoints(input.owner, input.repo, data, 'PR_REQUEST_REVIEWERS')
+        return { status: 'success' as const, data }
+      } catch (err) {
+        return errResp(err)
+      }
+    }
+  )
+
+  ipcMain.handle(
+    IPC.PR.REPO_LIST_ASSIGNEES,
+    async (_e, input: { owner: string; repo: string }) => {
+      try {
+        if (!getGithubToken()) {
+          return { status: 'error' as const, message: 'GitHub token ch\u01b0a c\u1ea5u h\u00ecnh.' }
+        }
+        const data = await listRepositoryAssignees(input.owner, input.repo)
         return { status: 'success' as const, data }
       } catch (err) {
         return errResp(err)
@@ -766,6 +851,7 @@ export function registerPrIpcHandlers(): void {
           input.number,
           input.expectedHeadSha ?? undefined
         )
+        await afterPrMutateSyncCheckpoints(input.owner, input.repo, data, 'PR_UPDATE_BRANCH')
         return { status: 'success' as const, data }
       } catch (err) {
         return errResp(err)

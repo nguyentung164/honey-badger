@@ -19,7 +19,7 @@ import {
   clampCheckpointHeaderGroupId,
 } from '../checkpointHeaderGroup'
 import type { PrCheckpointTemplate } from '../hooks/usePrData'
-import { PR_MANAGER_ACCENT_OUTLINE_BTN } from '../prManagerButtonStyles'
+import { PR_MANAGER_ACCENT_OUTLINE_BTN, PR_MANAGER_ACCENT_OUTLINE_SURFACE } from '../prManagerButtonStyles'
 
 type Props = {
   projectId: string
@@ -162,7 +162,7 @@ export function CheckpointTemplatesTab({ projectId, templates, onRefresh }: Prop
             variant="outline"
             onClick={handleAdd}
             disabled={adding}
-            className={cn(PR_MANAGER_ACCENT_OUTLINE_BTN)}
+            className={cn(PR_MANAGER_ACCENT_OUTLINE_BTN, PR_MANAGER_ACCENT_OUTLINE_SURFACE)}
           >
             {adding ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Plus className="h-3.5 w-3.5" />}
             {t('prManager.checkpointTemplates.add')}
@@ -176,7 +176,7 @@ export function CheckpointTemplatesTab({ projectId, templates, onRefresh }: Prop
               variant="outline"
               onClick={handleSeed}
               disabled={seeding}
-              className={cn('shrink-0', PR_MANAGER_ACCENT_OUTLINE_BTN)}
+              className={cn('shrink-0', PR_MANAGER_ACCENT_OUTLINE_BTN, PR_MANAGER_ACCENT_OUTLINE_SURFACE)}
             >
               {seeding ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Sparkles className="h-3.5 w-3.5" />}
               {t('prManager.checkpointTemplates.seedDefault')}

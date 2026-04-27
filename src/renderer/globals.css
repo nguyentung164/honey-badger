@@ -1450,8 +1450,8 @@ html[data-font-size="large"] {
   --spacing: 0.24rem;
   --container-md: 80vw;
   /* Radix Accordion/Collapsible — khớp class trong components/ui/accordion.tsx */
-  --animate-accordion-down: accordion-down 0.2s ease-out;
-  --animate-accordion-up: accordion-up 0.2s ease-out;
+  --animate-accordion-down: accordion-down 0.28s cubic-bezier(0.22, 1, 0.36, 1);
+  --animate-accordion-up: accordion-up 0.22s cubic-bezier(0.22, 1, 0.36, 1);
 }
 
 @keyframes accordion-down {
@@ -1459,16 +1459,31 @@ html[data-font-size="large"] {
     height: 0;
   }
   to {
-    height: var(--radix-collapsible-content-height);
+    height: var(--radix-accordion-content-height, var(--radix-collapsible-content-height));
   }
 }
 
 @keyframes accordion-up {
   from {
-    height: var(--radix-collapsible-content-height);
+    height: var(--radix-accordion-content-height, var(--radix-collapsible-content-height));
   }
   to {
     height: 0;
+  }
+}
+
+/* Nội dung accordion: animation height (ưu tiên rule này thay vì utility data-[state] khó map trong @theme). */
+[data-slot="accordion-content"][data-state='open'] {
+  animation: accordion-down 0.28s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+[data-slot="accordion-content"][data-state='closed'] {
+  animation: accordion-up 0.22s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  [data-slot='accordion-content'] {
+    animation: none !important;
   }
 }
 

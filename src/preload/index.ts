@@ -749,6 +749,27 @@ declare global {
           }[]
           message?: string
         }>
+        prFileOverlap: (input: { items: { owner: string; repo: string; number: number }[] }) => Promise<{
+          status: string
+          data?: {
+            prResults: Array<{
+              owner: string
+              repo: string
+              number: number
+              fileCount: number
+              error?: string
+            }>
+            clusters: Array<{
+              owner: string
+              repo: string
+              prNumbers: number[]
+              overlappingFiles: string[]
+            }>
+            analyzedCount: number
+            failedCount: number
+          }
+          message?: string
+        }>
         prIssueCommentsList: (input: { owner: string; repo: string; number: number }) => Promise<{
           status: string
           data?: {
@@ -793,6 +814,21 @@ declare global {
         prClose: (input: { owner: string; repo: string; number: number }) => Promise<{
           status: string
           data?: any
+          message?: string
+        }>
+        prReopen: (input: { owner: string; repo: string; number: number }) => Promise<{
+          status: string
+          data?: any
+          message?: string
+        }>
+        prRequestReviewers: (input: { owner: string; repo: string; number: number; reviewers: string[] }) => Promise<{
+          status: string
+          data?: any
+          message?: string
+        }>
+        repoListAssignees: (input: { owner: string; repo: string }) => Promise<{
+          status: string
+          data?: { login: string; id: number; avatarUrl?: string | null }[]
           message?: string
         }>
         prUpdateBranch: (input: { owner: string; repo: string; number: number; expectedHeadSha?: string | null }) => Promise<{
@@ -1514,6 +1550,8 @@ contextBridge.exposeInMainWorld('api', {
       ipcRenderer.invoke(IPC.PR.PR_LOCAL_MERGE_CONFLICTS, toStructuredCloneable(input)),
         prFilesList: (input: { owner: string; repo: string; number: number }) =>
           ipcRenderer.invoke(IPC.PR.PR_FILES_LIST, toStructuredCloneable(input)),
+        prFileOverlap: (input: { items: { owner: string; repo: string; number: number }[] }) =>
+          ipcRenderer.invoke(IPC.PR.PR_FILE_OVERLAP, toStructuredCloneable(input)),
         prIssueCommentsList: (input: { owner: string; repo: string; number: number }) =>
           ipcRenderer.invoke(IPC.PR.PR_ISSUE_COMMENTS_LIST, toStructuredCloneable(input)),
         prIssueCommentCreate: (input: { owner: string; repo: string; number: number; body: string }) =>
@@ -1526,6 +1564,12 @@ contextBridge.exposeInMainWorld('api', {
       ipcRenderer.invoke(IPC.PR.PR_MARK_DRAFT, toStructuredCloneable(input)),
     prClose: (input: { owner: string; repo: string; number: number }) =>
       ipcRenderer.invoke(IPC.PR.PR_CLOSE, toStructuredCloneable(input)),
+    prReopen: (input: { owner: string; repo: string; number: number }) =>
+      ipcRenderer.invoke(IPC.PR.PR_REOPEN, toStructuredCloneable(input)),
+    prRequestReviewers: (input: { owner: string; repo: string; number: number; reviewers: string[] }) =>
+      ipcRenderer.invoke(IPC.PR.PR_REQUEST_REVIEWERS, toStructuredCloneable(input)),
+    repoListAssignees: (input: { owner: string; repo: string }) =>
+      ipcRenderer.invoke(IPC.PR.REPO_LIST_ASSIGNEES, toStructuredCloneable(input)),
     prUpdateBranch: (input: { owner: string; repo: string; number: number; expectedHeadSha?: string | null }) =>
       ipcRenderer.invoke(IPC.PR.PR_UPDATE_BRANCH, toStructuredCloneable(input)),
     branchListRemote: (input: { owner: string; repo: string }) => ipcRenderer.invoke(IPC.PR.BRANCH_LIST_REMOTE, toStructuredCloneable(input)),

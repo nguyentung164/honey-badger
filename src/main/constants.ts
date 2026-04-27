@@ -429,12 +429,17 @@ export const IPC = {
     PR_GET: 'pr:pr-get',
     PR_GET_COMMITS: 'pr:pr-get-commits',
     PR_FILES_LIST: 'pr:pr-files-list',
+    /** Giao file giữa PR open — danh tên file, cụm trong cùng repo. */
+    PR_FILE_OVERLAP: 'pr:pr-file-overlap',
     PR_ISSUE_COMMENTS_LIST: 'pr:pr-issue-comments-list',
     PR_ISSUE_COMMENT_CREATE: 'pr:pr-issue-comment-create',
     PR_REVIEW_APPROVE: 'pr:pr-review-approve',
     PR_MARK_READY: 'pr:pr-mark-ready',
     PR_MARK_DRAFT: 'pr:pr-mark-draft',
     PR_CLOSE: 'pr:pr-close',
+    PR_REOPEN: 'pr:pr-reopen',
+    PR_REQUEST_REVIEWERS: 'pr:pr-request-reviewers',
+    REPO_LIST_ASSIGNEES: 'pr:repo-list-assignees',
     PR_UPDATE_BRANCH: 'pr:pr-update-branch',
     /** git merge-tree tr\u00ean clone \u2014 m\u1edf ph\u1ea1m vi conflct (kh\u00f4ng c\u00f3 tr\u00ean API GitHub). */
     PR_LOCAL_MERGE_CONFLICTS: 'pr:pr-local-merge-conflicts',

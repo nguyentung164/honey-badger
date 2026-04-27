@@ -631,6 +631,29 @@ function toMysqlDateTime(iso: string | null): string | null {
   )
 }
 
+/** C\u00e1c checkpoint tr\u00f9ng repo + s\u1ed1 PR \u2014 \u0111\u1ed3ng b\u1ed9 gh_* sau merge/draft/close tr\u00ean GitHub. */
+export async function listCheckpointKeysForRepoPr(
+  owner: string,
+  repo: string,
+  prNumber: number
+): Promise<Array<{ trackedBranchId: string; templateId: string }>> {
+  const o = owner.trim()
+  const r = repo.trim()
+  if (!o || !r || !Number.isFinite(prNumber) || prNumber < 1) return []
+  const rows = await query<any[]>(
+    `SELECT bc.tracked_branch_id AS trackedBranchId, bc.template_id AS templateId
+     FROM pr_branch_checkpoints bc
+     INNER JOIN pr_tracked_branches tb ON tb.id = bc.tracked_branch_id
+     INNER JOIN pr_repos pr ON pr.id = tb.repo_id
+     WHERE LOWER(pr.owner) = LOWER(?) AND LOWER(pr.repo) = LOWER(?) AND bc.pr_number = ?`,
+    [o, r, prNumber]
+  )
+  return (rows ?? []).map(row => ({
+    trackedBranchId: String(row.trackedBranchId ?? row.tracked_branch_id ?? ''),
+    templateId: String(row.templateId ?? row.template_id ?? ''),
+  })).filter(k => k.trackedBranchId && k.templateId)
+}
+
 /** T\u1ea5t c\u1ea3 checkpoint \u0111ang m\u1edf (is_done=false v\u00e0 c\u00f3 pr_number) \u2014 d\u00f9ng cho scheduler sync. */
 export async function listPendingCheckpoints(): Promise<
   Array<PrBranchCheckpoint & { repoId: string; owner: string; repo: string; branchName: string; projectId: string }>

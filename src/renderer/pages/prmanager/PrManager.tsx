@@ -17,6 +17,8 @@ import { usePrData } from './hooks/usePrData'
 import { PrManagerTopBar } from './PrManagerTopBar'
 import { PrOperationLogProvider } from './PrOperationLogContext'
 
+const PR_MANAGER_LAST_PROJECT_ID_LS = 'pr-manager.shell.lastProjectIdV1'
+
 type Tab = 'board' | 'settings'
 
 export type PrManagerProps = {
@@ -51,7 +53,18 @@ export function PrManager({ embedded = false, onDetachToWindow }: PrManagerProps
       if (res.status === 'success' && res.data) {
         const list = res.data.map((p: { id: string; name: string }) => ({ id: p.id, name: p.name }))
         setProjects(list)
-        setProjectId(prev => prev ?? list[0]?.id ?? null)
+        setProjectId(prev => {
+          const ids = new Set(list.map((p: { id: string; name: string }) => p.id))
+          if (prev && ids.has(prev)) return prev
+          let saved: string | null = null
+          try {
+            saved = window.localStorage.getItem(PR_MANAGER_LAST_PROJECT_ID_LS)
+          } catch {
+            /* ignore */
+          }
+          if (saved && ids.has(saved)) return saved
+          return list[0]?.id ?? null
+        })
       }
     } catch {
       // ignore
@@ -59,6 +72,25 @@ export function PrManager({ embedded = false, onDetachToWindow }: PrManagerProps
       setLoadingProjects(false)
     }
   }, [])
+
+  const handleProjectIdChange = useCallback((id: string | null) => {
+    setProjectId(id)
+    if (id) return
+    try {
+      window.localStorage.removeItem(PR_MANAGER_LAST_PROJECT_ID_LS)
+    } catch {
+      // ignore
+    }
+  }, [])
+
+  useEffect(() => {
+    if (!projectId) return
+    try {
+      window.localStorage.setItem(PR_MANAGER_LAST_PROJECT_ID_LS, projectId)
+    } catch {
+      // ignore
+    }
+  }, [projectId])
 
   useEffect(() => {
     loadProjects()
@@ -86,7 +118,7 @@ export function PrManager({ embedded = false, onDetachToWindow }: PrManagerProps
       onActiveTabChange={setActiveTab}
       projects={projects}
       projectId={projectId}
-      onProjectIdChange={setProjectId}
+      onProjectIdChange={handleProjectIdChange}
       loadProjects={loadProjects}
       loadingProjects={loadingProjects}
       tokenStatus={tokenStatus}
