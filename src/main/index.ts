@@ -85,8 +85,6 @@ makeAppWithSingleInstanceLock(async () => {
           const { autoRefreshEnabled } = configurationStore.store
           startFileWatcher(getResolvedWatchPathsForFileWatcher(), win, autoRefreshEnabled ?? true)
         }
-        const { pullIntegrationSettingsFromDbToLocalStores } = await import('./task/integrationSettings')
-        await pullIntegrationSettingsFromDbToLocalStores().catch(() => {})
         const { startDailyReportReminderScheduler } = await import('./scheduler/dailyReportReminder')
         startDailyReportReminderScheduler()
         const { startTaskNotificationPoller } = await import('./scheduler/taskNotificationPoller')
@@ -97,9 +95,18 @@ makeAppWithSingleInstanceLock(async () => {
         startAchievementDailyScheduler()
         const { startProgressScheduler } = await import('./scheduler/progressScheduler')
         startProgressScheduler()
-        const { migratePrCheckpointGithubColumns, migratePrCheckpointTemplateHeaderGroup } = await import('./task/taskDbPatches')
+        const {
+          migratePrCheckpointGithubColumns,
+          migratePrCheckpointTemplateHeaderGroup,
+          migratePrManagerTablesUserIdColumns,
+          migratePrUserBoardSkipBranchesTable,
+          migratePrAiAssistChatsTable,
+        } = await import('./task/taskDbPatches')
         await migratePrCheckpointGithubColumns().catch(() => {})
         await migratePrCheckpointTemplateHeaderGroup().catch(() => {})
+        await migratePrManagerTablesUserIdColumns().catch(() => {})
+        await migratePrUserBoardSkipBranchesTable().catch(() => {})
+        await migratePrAiAssistChatsTable().catch(() => {})
         const { startPrStatusSync } = await import('./scheduler/prStatusSync')
         startPrStatusSync()
       })()

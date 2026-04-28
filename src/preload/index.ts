@@ -125,9 +125,9 @@ declare global {
         get_branches: (cwd?: string) => Promise<any>
         create_branch: (branchName: string, sourceBranch?: string, cwd?: string) => Promise<any>
         checkout_branch: (branchName: string, options?: { force?: boolean; stash?: boolean }, cwd?: string) => Promise<any>
-        delete_branch: (branchName: string, force: boolean) => Promise<any>
-        delete_remote_branch: (remote: string, branchName: string) => Promise<any>
-        rename_branch: (oldName: string, newName: string) => Promise<any>
+        delete_branch: (branchName: string, force: boolean, cwd?: string) => Promise<any>
+        delete_remote_branch: (remote: string, branchName: string, cwd?: string) => Promise<any>
+        rename_branch: (oldName: string, newName: string, cwd?: string) => Promise<any>
         push: (remote: string, branch?: string, commitQueueData?: Record<string, any>, cwd?: string, force?: boolean) => Promise<any>
         pull: (remote: string, branch?: string, options?: { rebase?: boolean }, cwd?: string) => Promise<any>
         /** Chỉ cập nhật một nhánh local: git fetch remote branch:branch (một repo = cwd). */
@@ -552,25 +552,6 @@ declare global {
         checkTaskApi: () => Promise<{ ok: boolean; code?: string; error?: string }>
         checkTaskSchemaApplied: () => Promise<{ ok: true; applied: boolean } | { ok: false; code: 'TASK_DB_NOT_CONFIGURED' | 'TASK_DB_CHECK_FAILED'; error?: string }>
         initSchema: () => Promise<{ recreated: boolean }>
-        getIntegrationsForSettings: (token: string) => Promise<
-          | {
-              status: 'success'
-              data: {
-                mail: { smtpServer: string; port: string; email: string; password: string }
-                onedrive: { clientId: string; clientSecret: string; refreshToken: string }
-                db: { host: string; port: string; user: string; password: string; databaseName: string }
-              }
-            }
-          | { status: 'error'; code?: string; message?: string }
-        >
-        saveIntegrationsSettings: (
-          token: string,
-          payload: {
-            mail: { smtpServer: string; port: string; email: string; password: string }
-            onedrive: { clientId: string; clientSecret: string; refreshToken: string }
-            db: { host: string; port: string; user: string; password: string; databaseName: string }
-          }
-        ) => Promise<{ status: 'success' } | { status: 'error'; code?: string; message?: string }>
         getProjects: () => Promise<{ status: string; data?: any; message?: string }>
         getProjectsForTaskUi: () => Promise<{ status: string; data?: any; message?: string }>
         getProjectsForUser: () => Promise<{ status: string; data?: any; message?: string }>
@@ -664,20 +645,33 @@ declare global {
           }
           message?: string
         }>
-        repoList: (projectId: string) => Promise<{ status: string; data?: any[]; message?: string }>
+        repoList: (userId: string, projectId: string) => Promise<{ status: string; data?: any[]; message?: string }>
         repoUpsert: (input: {
           id?: string
+          userId: string
           projectId: string
           name: string
           localPath?: string | null
           remoteUrl: string
           defaultBaseBranch?: string | null
         }) => Promise<{ status: string; data?: any; message?: string }>
-        repoRemove: (id: string) => Promise<{ status: string; message?: string }>
+        repoRemove: (userId: string, id: string) => Promise<{ status: string; message?: string }>
         repoAutodetect: (userId: string, projectId: string) => Promise<{ status: string; data?: { added: any[]; skipped: any[] }; message?: string }>
-        templateList: (projectId: string) => Promise<{ status: string; data?: any[]; message?: string }>
+        boardSkipBranchesGet: (userId: string, projectId: string) => Promise<{ status: string; data?: { lines: string[] }; message?: string }>
+        boardSkipBranchesSet: (
+          userId: string,
+          projectId: string,
+          lines: string[],
+        ) => Promise<{ status: string; message?: string }>
+        aiAssistChatGet: (
+          userId: string,
+          projectId: string,
+        ) => Promise<{ status: string; data?: { lines: unknown[] }; message?: string }>
+        aiAssistChatSave: (input: { userId: string; projectId: string; lines: unknown[] }) => Promise<{ status: string; message?: string }>
+        templateList: (userId: string, projectId: string) => Promise<{ status: string; data?: any[]; message?: string }>
         templateUpsert: (input: {
           id?: string
+          userId: string
           projectId: string
           code: string
           label: string
@@ -686,12 +680,13 @@ declare global {
           isActive?: boolean
           headerGroupId?: number | null
         }) => Promise<{ status: string; data?: any; message?: string }>
-        templateDelete: (id: string) => Promise<{ status: string; message?: string }>
-        templateReorder: (projectId: string, orderedIds: string[]) => Promise<{ status: string; message?: string }>
-        templateSeedDefault: (projectId: string) => Promise<{ status: string; data?: any[]; message?: string }>
-        trackedList: (projectId: string) => Promise<{ status: string; data?: any[]; message?: string }>
+        templateDelete: (userId: string, id: string) => Promise<{ status: string; message?: string }>
+        templateReorder: (userId: string, projectId: string, orderedIds: string[]) => Promise<{ status: string; message?: string }>
+        templateSeedDefault: (userId: string, projectId: string) => Promise<{ status: string; data?: any[]; message?: string }>
+        trackedList: (userId: string, projectId: string) => Promise<{ status: string; data?: any[]; message?: string }>
         trackedUpsert: (input: {
           id?: string
+          userId: string
           projectId: string
           repoId: string
           branchName: string
@@ -700,7 +695,11 @@ declare global {
         }) => Promise<{ status: string; data?: any; message?: string }>
         trackedUpdateStatusNote: (id: string, patch: { note?: string | null; assigneeUserId?: string | null }) => Promise<{ status: string; message?: string }>
         trackedDelete: (id: string) => Promise<{ status: string; message?: string }>
-        trackedSyncFromGithub: (projectId: string) => Promise<{ status: string; data?: { synced: number; branchesSynced?: number; errors: string[] }; message?: string }>
+        trackedSyncFromGithub: (
+          userId: string,
+          projectId: string,
+          options?: { repoId?: string; trackedBranchId?: string },
+        ) => Promise<{ status: string; data?: { synced: number; branchesSynced?: number; errors: string[] }; message?: string }>
         onTrackedSyncProgress: (callback: (payload: { projectId: string; done: number; total: number; percent: number }) => void) => () => void
         prCreate: (input: {
           projectId: string
@@ -714,6 +713,7 @@ declare global {
           draft?: boolean
           openInBrowser?: boolean
           assigneeUserId?: string | null
+          userId: string
         }) => Promise<{ status: string; data?: any; message?: string; trackingError?: string }>
         prMerge: (input: {
           projectId: string
@@ -860,7 +860,7 @@ declare global {
         }>
         branchResetHard: (input: { repoId: string; branch: string; sha: string }) => Promise<{ status: string; message?: string }>
         branchForcePush: (input: { repoId: string; branch: string }) => Promise<{ status: string; message?: string }>
-        automationList: (repoId?: string) => Promise<{ status: string; data?: any[]; message?: string }>
+        automationList: (userId: string, repoId?: string) => Promise<{ status: string; data?: any[]; message?: string }>
         automationUpsert: (input: {
           id?: string
           repoId: string
@@ -1123,9 +1123,9 @@ contextBridge.exposeInMainWorld('api', {
     get_branches: (cwd?: string) => ipcRenderer.invoke(IPC.GIT.GET_BRANCHES, cwd),
     create_branch: (branchName: string, sourceBranch?: string, cwd?: string) => ipcRenderer.invoke(IPC.GIT.CREATE_BRANCH, branchName, sourceBranch, cwd),
     checkout_branch: (branchName: string, options?: { force?: boolean; stash?: boolean }, cwd?: string) => ipcRenderer.invoke(IPC.GIT.CHECKOUT_BRANCH, branchName, options, cwd),
-    delete_branch: (branchName: string, force: boolean) => ipcRenderer.invoke(IPC.GIT.DELETE_BRANCH, branchName, force),
-    delete_remote_branch: (remote: string, branchName: string) => ipcRenderer.invoke(IPC.GIT.DELETE_REMOTE_BRANCH, remote, branchName),
-    rename_branch: (oldName: string, newName: string) => ipcRenderer.invoke(IPC.GIT.RENAME_BRANCH, oldName, newName),
+    delete_branch: (branchName: string, force: boolean, cwd?: string) => ipcRenderer.invoke(IPC.GIT.DELETE_BRANCH, branchName, force, cwd),
+    delete_remote_branch: (remote: string, branchName: string, cwd?: string) => ipcRenderer.invoke(IPC.GIT.DELETE_REMOTE_BRANCH, remote, branchName, cwd),
+    rename_branch: (oldName: string, newName: string, cwd?: string) => ipcRenderer.invoke(IPC.GIT.RENAME_BRANCH, oldName, newName, cwd),
     push: (remote: string, branch?: string, commitQueueData?: Record<string, any>, cwd?: string, force?: boolean) =>
       ipcRenderer.invoke(IPC.GIT.PUSH, remote, branch, commitQueueData, cwd, force),
     pull: (remote: string, branch?: string, options?: { rebase?: boolean }, cwd?: string) => ipcRenderer.invoke(IPC.GIT.PULL, remote, branch, options, cwd),
@@ -1401,15 +1401,6 @@ contextBridge.exposeInMainWorld('api', {
     checkTaskApi: () => ipcRenderer.invoke(IPC.TASK.CHECK_TASK_API),
     checkTaskSchemaApplied: () => ipcRenderer.invoke(IPC.TASK.CHECK_TASK_SCHEMA_APPLIED),
     initSchema: () => ipcRenderer.invoke(IPC.TASK.INIT_TASK_SCHEMA),
-    getIntegrationsForSettings: (token: string) => ipcRenderer.invoke(IPC.TASK.INTEGRATIONS_GET_FOR_SETTINGS, token),
-    saveIntegrationsSettings: (
-      token: string,
-      payload: {
-        mail: { smtpServer: string; port: string; email: string; password: string }
-        onedrive: { clientId: string; clientSecret: string; refreshToken: string }
-        db: { host: string; port: string; user: string; password: string; databaseName: string }
-      }
-    ) => ipcRenderer.invoke(IPC.TASK.INTEGRATIONS_SAVE, String(token), toStructuredCloneable(payload)),
     getProjects: () => ipcRenderer.invoke(IPC.TASK.GET_PROJECTS),
     getProjectsForTaskUi: () => ipcRenderer.invoke(IPC.TASK.GET_PROJECTS_FOR_TASK_UI),
     getProjectsForUser: () => ipcRenderer.invoke(IPC.TASK.GET_PROJECTS_FOR_USER),
@@ -1476,20 +1467,30 @@ contextBridge.exposeInMainWorld('api', {
     tokenCheck: () => ipcRenderer.invoke(IPC.PR.TOKEN_CHECK),
     tokenRemove: () => ipcRenderer.invoke(IPC.PR.TOKEN_REMOVE),
     rateLimitGet: () => ipcRenderer.invoke(IPC.PR.RATE_LIMIT_GET),
-    repoList: (projectId: string) => ipcRenderer.invoke(IPC.PR.REPO_LIST, projectId),
+    repoList: (userId: string, projectId: string) => ipcRenderer.invoke(IPC.PR.REPO_LIST, userId, projectId),
     repoUpsert: (input: {
       id?: string
+      userId: string
       projectId: string
       name: string
       localPath?: string | null
       remoteUrl: string
       defaultBaseBranch?: string | null
     }) => ipcRenderer.invoke(IPC.PR.REPO_UPSERT, toStructuredCloneable(input)),
-    repoRemove: (id: string) => ipcRenderer.invoke(IPC.PR.REPO_REMOVE, id),
+    repoRemove: (userId: string, id: string) => ipcRenderer.invoke(IPC.PR.REPO_REMOVE, userId, id),
     repoAutodetect: (userId: string, projectId: string) => ipcRenderer.invoke(IPC.PR.REPO_AUTODETECT, userId, projectId),
-    templateList: (projectId: string) => ipcRenderer.invoke(IPC.PR.TEMPLATE_LIST, projectId),
+    boardSkipBranchesGet: (userId: string, projectId: string) =>
+      ipcRenderer.invoke(IPC.PR.BOARD_SKIP_BRANCHES_GET, userId, projectId),
+    boardSkipBranchesSet: (userId: string, projectId: string, lines: string[]) =>
+      ipcRenderer.invoke(IPC.PR.BOARD_SKIP_BRANCHES_SET, userId, projectId, lines),
+    aiAssistChatGet: (userId: string, projectId: string) =>
+      ipcRenderer.invoke(IPC.PR.AI_ASSIST_CHAT_GET, userId, projectId),
+    aiAssistChatSave: (input: { userId: string; projectId: string; lines: unknown[] }) =>
+      ipcRenderer.invoke(IPC.PR.AI_ASSIST_CHAT_SAVE, toStructuredCloneable(input)),
+    templateList: (userId: string, projectId: string) => ipcRenderer.invoke(IPC.PR.TEMPLATE_LIST, userId, projectId),
     templateUpsert: (input: {
       id?: string
+      userId: string
       projectId: string
       code: string
       label: string
@@ -1498,12 +1499,14 @@ contextBridge.exposeInMainWorld('api', {
       isActive?: boolean
       headerGroupId?: number | null
     }) => ipcRenderer.invoke(IPC.PR.TEMPLATE_UPSERT, toStructuredCloneable(input)),
-    templateDelete: (id: string) => ipcRenderer.invoke(IPC.PR.TEMPLATE_DELETE, id),
-    templateReorder: (projectId: string, orderedIds: string[]) => ipcRenderer.invoke(IPC.PR.TEMPLATE_REORDER, projectId, orderedIds),
-    templateSeedDefault: (projectId: string) => ipcRenderer.invoke(IPC.PR.TEMPLATE_SEED_DEFAULT, projectId),
-    trackedList: (projectId: string) => ipcRenderer.invoke(IPC.PR.TRACKED_LIST, projectId),
+    templateDelete: (userId: string, id: string) => ipcRenderer.invoke(IPC.PR.TEMPLATE_DELETE, userId, id),
+    templateReorder: (userId: string, projectId: string, orderedIds: string[]) =>
+      ipcRenderer.invoke(IPC.PR.TEMPLATE_REORDER, userId, projectId, orderedIds),
+    templateSeedDefault: (userId: string, projectId: string) => ipcRenderer.invoke(IPC.PR.TEMPLATE_SEED_DEFAULT, userId, projectId),
+    trackedList: (userId: string, projectId: string) => ipcRenderer.invoke(IPC.PR.TRACKED_LIST, userId, projectId),
     trackedUpsert: (input: {
       id?: string
+      userId: string
       projectId: string
       repoId: string
       branchName: string
@@ -1513,7 +1516,11 @@ contextBridge.exposeInMainWorld('api', {
     trackedUpdateStatusNote: (id: string, patch: { note?: string | null; assigneeUserId?: string | null }) =>
       ipcRenderer.invoke(IPC.PR.TRACKED_UPDATE_STATUS_NOTE, id, toStructuredCloneable(patch)),
     trackedDelete: (id: string) => ipcRenderer.invoke(IPC.PR.TRACKED_DELETE, id),
-    trackedSyncFromGithub: (projectId: string) => ipcRenderer.invoke(IPC.PR.TRACKED_SYNC_FROM_GITHUB, projectId),
+    trackedSyncFromGithub: (userId: string, projectId: string, options?: { repoId?: string; trackedBranchId?: string }) =>
+      ipcRenderer.invoke(
+        IPC.PR.TRACKED_SYNC_FROM_GITHUB,
+        toStructuredCloneable({ userId, projectId, syncScope: options }),
+      ),
     onTrackedSyncProgress: (callback: (payload: { projectId: string; done: number; total: number; percent: number }) => void) => {
       const handler = (_e: Electron.IpcRendererEvent, payload: { projectId: string; done: number; total: number; percent: number }) => callback(payload)
       ipcRenderer.on(IPC.PR.EVENT_TRACKED_SYNC_PROGRESS, handler)
@@ -1531,6 +1538,7 @@ contextBridge.exposeInMainWorld('api', {
       draft?: boolean
       openInBrowser?: boolean
       assigneeUserId?: string | null
+      userId: string
     }) => ipcRenderer.invoke(IPC.PR.PR_CREATE, toStructuredCloneable(input)),
     prMerge: (input: {
       projectId: string
@@ -1589,7 +1597,7 @@ contextBridge.exposeInMainWorld('api', {
       ipcRenderer.invoke(IPC.PR.BRANCH_RESET_HARD, toStructuredCloneable(input)),
     branchForcePush: (input: { repoId: string; branch: string }) =>
       ipcRenderer.invoke(IPC.PR.BRANCH_FORCE_PUSH, toStructuredCloneable(input)),
-    automationList: (repoId?: string) => ipcRenderer.invoke(IPC.PR.AUTOMATION_LIST, repoId),
+    automationList: (userId: string, repoId?: string) => ipcRenderer.invoke(IPC.PR.AUTOMATION_LIST, userId, repoId),
     automationUpsert: (input: {
       id?: string
       repoId: string

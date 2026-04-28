@@ -7,22 +7,10 @@ import { cn } from '@/lib/utils'
 /** Màu (và cảm giác) chữ tiêu đề từng mục — sửa một chỗ, áp dụng mọi AccordionTrigger */
 const accordionHeaderText = 'text-foreground'
 
-const framedAccordion =
-  'w-full overflow-hidden rounded-lg bg-card px-3 text-card-foreground sm:px-4'
+const framedAccordion = 'w-full overflow-hidden rounded-lg bg-card px-3 text-card-foreground sm:px-4'
 
-function Accordion({
-  className,
-  variant = 'default',
-  ...props
-}: React.ComponentProps<typeof AccordionPrimitive.Root> & { variant?: 'default' | 'framed' }) {
-  return (
-    <AccordionPrimitive.Root
-      data-slot="accordion"
-      data-variant={variant}
-      className={cn(variant === 'framed' && framedAccordion, className)}
-      {...props}
-    />
-  )
+function Accordion({ className, variant = 'default', ...props }: React.ComponentProps<typeof AccordionPrimitive.Root> & { variant?: 'default' | 'framed' }) {
+  return <AccordionPrimitive.Root data-slot="accordion" data-variant={variant} className={cn(variant === 'framed' && framedAccordion, className)} {...props} />
 }
 
 function AccordionItem({ className, ...props }: React.ComponentProps<typeof AccordionPrimitive.Item>) {
@@ -52,7 +40,7 @@ function AccordionContent({ className, children, ...props }: React.ComponentProp
   return (
     <AccordionPrimitive.Content
       data-slot="accordion-content"
-      className="overflow-hidden text-sm"
+      className={cn('overflow-hidden text-sm', 'data-[state=closed]:animate-accordion-up data-[state=open]:animate-accordion-down motion-reduce:animate-none')}
       {...props}
     >
       <div className={cn('pt-0 pb-4', className)}>{children}</div>
@@ -60,4 +48,4 @@ function AccordionContent({ className, children, ...props }: React.ComponentProp
   )
 }
 
-export { Accordion, AccordionItem, AccordionTrigger, AccordionContent }
+export { Accordion, AccordionContent, AccordionItem, AccordionTrigger }

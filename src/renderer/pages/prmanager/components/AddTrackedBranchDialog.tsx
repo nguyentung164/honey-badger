@@ -15,11 +15,12 @@ type Props = {
   open: boolean
   onOpenChange: (v: boolean) => void
   projectId: string
+  userId: string | null
   repos: PrRepo[]
   onAdded?: () => void
 }
 
-export function AddTrackedBranchDialog({ open, onOpenChange, projectId, repos, onAdded }: Props) {
+export function AddTrackedBranchDialog({ open, onOpenChange, projectId, userId, repos, onAdded }: Props) {
   const { t } = useTranslation()
   const [repoId, setRepoId] = useState('')
   const [branchName, setBranchName] = useState('')
@@ -35,6 +36,10 @@ export function AddTrackedBranchDialog({ open, onOpenChange, projectId, repos, o
   }, [open, repos])
 
   const handleSubmit = async () => {
+    if (!userId?.trim()) {
+      toast.error(t('prManager.addTrackedBranch.toastRepoBranch'))
+      return
+    }
     if (!repoId || !branchName.trim()) {
       toast.error(t('prManager.addTrackedBranch.toastRepoBranch'))
       return
@@ -42,6 +47,7 @@ export function AddTrackedBranchDialog({ open, onOpenChange, projectId, repos, o
     setSubmitting(true)
     try {
       const res = await window.api.pr.trackedUpsert({
+        userId: userId.trim(),
         projectId,
         repoId,
         branchName: branchName.trim(),

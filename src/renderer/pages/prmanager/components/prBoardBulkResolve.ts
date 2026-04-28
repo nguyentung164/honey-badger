@@ -1,4 +1,29 @@
-import type { PrCheckpointTemplate, PrRepo, TrackedBranchRow } from '../hooks/usePrData'
+import type { PrBranchCheckpoint, PrCheckpointTemplate, PrRepo, TrackedBranchRow } from '../hooks/usePrData'
+
+/** Trạng thái PR theo từng cột pr_* (dùng xem trước bulk xóa remote branch). */
+export type BulkDeletePrColumnStatus = 'merged' | 'open' | 'draft' | 'closed' | 'noPr' | 'unknown'
+
+function bulkDeletePrColumnStatusFromCheckpoint(cp: PrBranchCheckpoint | null): BulkDeletePrColumnStatus {
+  if (!cp?.prNumber) return 'noPr'
+  if (cp.ghPrMerged === true) return 'merged'
+  if (cp.ghPrState === 'closed') return 'closed'
+  if (cp.ghPrDraft === true) return 'draft'
+  if (cp.ghPrState === 'open') return 'open'
+  return 'unknown'
+}
+
+function bulkDeletePrColumnSummaries(
+  row: TrackedBranchRow,
+  activeTemplates: PrCheckpointTemplate[]
+): { templateLabel: string; status: BulkDeletePrColumnStatus }[] {
+  const out: { templateLabel: string; status: BulkDeletePrColumnStatus }[] = []
+  for (const tpl of activeTemplates) {
+    if (!tpl.code.toLowerCase().startsWith('pr_')) continue
+    const cp = row.checkpoints.find(c => c.templateId === tpl.id) ?? null
+    out.push({ templateLabel: tpl.label, status: bulkDeletePrColumnStatusFromCheckpoint(cp) })
+  }
+  return out
+}
 
 export type BulkActionKind =
   | 'merge'
@@ -49,6 +74,8 @@ export type BulkDeleteBranchTarget = {
   branch: string
   eligible: boolean
   skipReasonKey: string | null
+  /** Mỗi cột PR (pr_*): nhãn template + trạng thái sync từ GitHub — hiển thị dưới tên nhánh trong dialog. */
+  prColumnSummaries: { templateLabel: string; status: BulkDeletePrColumnStatus }[]
 }
 
 export type BulkCreatePrTarget = {
@@ -256,6 +283,7 @@ export function resolveBulkDeleteBranchTargets(
       branch: row.branchName,
       eligible,
       skipReasonKey,
+      prColumnSummaries: bulkDeletePrColumnSummaries(row, activeTemplates),
     })
   }
   return out
@@ -264,7 +292,6 @@ export function resolveBulkDeleteBranchTargets(
 export function resolveBulkCreatePrTargets(
   rows: TrackedBranchRow[],
   template: PrCheckpointTemplate,
-  baseOverride: string | null,
   repos: PrRepo[],
   remoteExistMap: Record<string, boolean> | null,
   onlyExistingOnRemote: boolean
@@ -276,7 +303,7 @@ export function resolveBulkCreatePrTargets(
     const repo = prRepo(row)
     const cp = row.checkpoints.find(c => c.templateId === template.id) ?? null
     const id = `${row.id}:${template.id}`
-    const base = (baseOverride?.trim() || template.targetBranch?.trim() || repo?.defaultBaseBranch?.trim() || 'stage').trim()
+    const base = (template.targetBranch?.trim() || repo?.defaultBaseBranch?.trim() || 'stage').trim()
     const head = row.branchName.trim()
     const suggestedTitle = `${head} → ${base}`
 
@@ -333,7 +360,7 @@ export function countRowsEligibleForBulkCreateOnAnyPrTemplate(
   let n = 0
   for (const row of rows) {
     for (const tpl of prTpls) {
-      const targets = resolveBulkCreatePrTargets([row], tpl, null, repos, remoteExistMap, onlyExistingOnRemote)
+      const targets = resolveBulkCreatePrTargets([row], tpl, repos, remoteExistMap, onlyExistingOnRemote)
       if (targets[0]?.eligible) {
         n++
         break

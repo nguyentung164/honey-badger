@@ -1,6 +1,6 @@
 'use client'
 
-import { GitBranchPlus, Settings, Workflow } from 'lucide-react'
+import { EyeOff, GitBranchPlus, Settings, Workflow } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from '@/components/ui/accordion'
 import { cn } from '@/lib/utils'
@@ -8,6 +8,7 @@ import type { PrAutomation, PrCheckpointTemplate, PrRepo } from '../hooks/usePrD
 import { AutomationsTab } from './AutomationsTab'
 import { CheckpointTemplatesTab } from './CheckpointTemplatesTab'
 import { RepoRegistryTab } from './RepoRegistryTab'
+import { SkippedBranchesTab } from './SkippedBranchesTab'
 
 type Props = {
   projectId: string
@@ -22,7 +23,7 @@ export function PrManagerSettingsPanel({ projectId, userId, repos, templates, au
   const { t } = useTranslation()
   return (
     <div className="min-h-0 flex-1 overflow-auto pr-0.5">
-      <Accordion type="multiple" defaultValue={['repos', 'checkpoints', 'automations']} variant="framed">
+      <Accordion type="multiple" defaultValue={['repos', 'skipBranches', 'checkpoints', 'automations']} variant="framed">
         <AccordionItem value="repos" className="border-border/80">
           <AccordionTrigger className={cn('items-center py-3 text-sm hover:no-underline [&[data-state=open]]:border-b-0')}>
             <span className="flex items-center gap-2">
@@ -34,6 +35,17 @@ export function PrManagerSettingsPanel({ projectId, userId, repos, templates, au
             <RepoRegistryTab projectId={projectId} userId={userId} repos={repos} onRefresh={onRefresh} />
           </AccordionContent>
         </AccordionItem>
+        <AccordionItem value="skipBranches" className="border-border/80">
+          <AccordionTrigger className={cn('items-center py-3 text-sm hover:no-underline [&[data-state=open]]:border-b-0')}>
+            <span className="flex items-center gap-2">
+              <EyeOff className="h-4 w-4 shrink-0 text-muted-foreground" />
+              {t('prManager.shell.tabSkipBranches')}
+            </span>
+          </AccordionTrigger>
+          <AccordionContent className="pt-0">
+            <SkippedBranchesTab projectId={projectId} userId={userId} />
+          </AccordionContent>
+        </AccordionItem>
         <AccordionItem value="checkpoints" className="border-border/80">
           <AccordionTrigger className={cn('items-center py-3 text-sm hover:no-underline [&[data-state=open]]:border-b-0')}>
             <span className="flex items-center gap-2">
@@ -42,7 +54,7 @@ export function PrManagerSettingsPanel({ projectId, userId, repos, templates, au
             </span>
           </AccordionTrigger>
           <AccordionContent className="pt-0">
-            <CheckpointTemplatesTab projectId={projectId} templates={templates} onRefresh={onRefresh} />
+            <CheckpointTemplatesTab projectId={projectId} userId={userId} templates={templates} onRefresh={onRefresh} />
           </AccordionContent>
         </AccordionItem>
         <AccordionItem value="automations" className="last:border-b-0 border-border/80">

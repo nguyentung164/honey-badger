@@ -77,11 +77,6 @@ import {
   updateTaskStatus,
   upsertUserProjectSourceFolder,
 } from '../task/mysqlTaskStore'
-import {
-  getIntegrationSettingsMergedForForm,
-  saveIntegrationSettingsFromAdmin,
-  type IntegrationSettingsPayload,
-} from '../task/integrationSettings'
 import { initTaskSchema } from '../task/schemaInit'
 import type { TaskNotificationType } from '../task/taskNotificationStore'
 import { insertTaskNotification, markAsRead } from '../task/taskNotificationStore'
@@ -119,26 +114,6 @@ async function persistAndSendTaskNotification(
   }
 }
 
-function withAuth<T extends unknown[]>(handler: (event: IpcMainInvokeEvent, session: SessionData, ...args: T) => Promise<unknown>) {
-  return async (event: IpcMainInvokeEvent, token: string, ...args: T) => {
-    const session = verifyToken(token)
-    if (!session) {
-      return { status: 'error' as const, code: 'UNAUTHORIZED', message: 'Invalid or expired token' }
-    }
-    return handler(event, session, ...args)
-  }
-}
-
-function requireAdmin<T extends unknown[]>(handler: (event: IpcMainInvokeEvent, session: SessionData, ...args: T) => Promise<unknown>) {
-  return withAuth(async (event, session, ...args: T) => {
-    if (session.role !== 'admin') {
-      return { status: 'error' as const, code: 'FORBIDDEN', message: 'Admin role required' }
-    }
-    return handler(event, session, ...args)
-  })
-}
-
-/** Wrapper lấy token từ store, verify, rồi gọi handler - không cần renderer truyền token */
 function withAuthFromStore<T extends unknown[]>(handler: (event: IpcMainInvokeEvent, session: SessionData, ...args: T) => Promise<unknown>) {
   return async (event: IpcMainInvokeEvent, ...args: T) => {
     const token = getTokenFromStore()
@@ -317,35 +292,6 @@ export function registerTaskIpcHandlers() {
       throw new Error(error?.message ?? String(error))
     }
   })
-
-  ipcMain.handle(
-    IPC.TASK.INTEGRATIONS_GET_FOR_SETTINGS,
-    requireAdmin(async (_event, _session) => {
-      try {
-        const data = await getIntegrationSettingsMergedForForm()
-        return { status: 'success' as const, data }
-      } catch (error: any) {
-        l.error('task:integrations:get-for-settings error:', error)
-        return { status: 'error' as const, message: error?.message ?? String(error) }
-      }
-    })
-  )
-
-  ipcMain.handle(
-    IPC.TASK.INTEGRATIONS_SAVE,
-    requireAdmin(async (_event, session, body: IntegrationSettingsPayload) => {
-      try {
-        if (!body || typeof body !== 'object' || !body.mail || !body.onedrive || !body.db) {
-          return { status: 'error' as const, code: 'INVALID_BODY', message: 'Invalid integrations payload' }
-        }
-        await saveIntegrationSettingsFromAdmin(session.userId, body)
-        return { status: 'success' as const }
-      } catch (error: any) {
-        l.error('task:integrations:save error:', error)
-        return { status: 'error' as const, message: error?.message ?? String(error) }
-      }
-    })
-  )
 
   ipcMain.handle(
     IPC.TASK.GET_ALL,

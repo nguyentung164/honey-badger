@@ -593,36 +593,6 @@ CREATE TABLE IF NOT EXISTS user_daily_snapshots (
   INDEX idx_user_year (user_id, snapshot_date)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
-CREATE TABLE IF NOT EXISTS integration_mail_settings (
-  id TINYINT UNSIGNED NOT NULL PRIMARY KEY DEFAULT 1,
-  smtp_server VARCHAR(512) NOT NULL DEFAULT '',
-  port VARCHAR(32) NOT NULL DEFAULT '',
-  email VARCHAR(255) NOT NULL DEFAULT '',
-  password TEXT NOT NULL,
-  updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-  updated_by VARCHAR(36) NULL
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
-
-CREATE TABLE IF NOT EXISTS integration_onedrive_settings (
-  id TINYINT UNSIGNED NOT NULL PRIMARY KEY DEFAULT 1,
-  client_id VARCHAR(512) NOT NULL DEFAULT '',
-  client_secret TEXT NOT NULL,
-  refresh_token TEXT NOT NULL,
-  updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-  updated_by VARCHAR(36) NULL
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
-
-CREATE TABLE IF NOT EXISTS integration_task_database_settings (
-  id TINYINT UNSIGNED NOT NULL PRIMARY KEY DEFAULT 1,
-  host VARCHAR(512) NOT NULL DEFAULT '',
-  port VARCHAR(32) NOT NULL DEFAULT '3306',
-  db_user VARCHAR(255) NOT NULL DEFAULT '',
-  password TEXT NOT NULL,
-  database_name VARCHAR(128) NOT NULL DEFAULT '',
-  updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-  updated_by VARCHAR(36) NULL
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
-
 CREATE TABLE IF NOT EXISTS ai_usage_events (
   id VARCHAR(36) PRIMARY KEY,
   created_at DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
@@ -652,6 +622,7 @@ INSERT IGNORE INTO ai_usage_settings (id) VALUES (1);
 -- ========== PR MANAGER TABLES ==========
 CREATE TABLE IF NOT EXISTS pr_repos (
   id VARCHAR(36) PRIMARY KEY,
+  user_id VARCHAR(36) NOT NULL,
   project_id VARCHAR(36) NOT NULL,
   name VARCHAR(255) NOT NULL,
   local_path VARCHAR(500),
@@ -662,12 +633,14 @@ CREATE TABLE IF NOT EXISTS pr_repos (
   default_base_branch VARCHAR(200) DEFAULT 'stage',
   created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
   updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-  UNIQUE KEY uk_pr_repos_owner_repo (project_id, owner, repo),
-  INDEX idx_pr_repos_project (project_id)
+  UNIQUE KEY uk_pr_repos_user_proj_own_repo (user_id, project_id, owner, repo),
+  INDEX idx_pr_repos_project (project_id),
+  INDEX idx_pr_repos_user_project (user_id, project_id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 CREATE TABLE IF NOT EXISTS pr_checkpoint_templates (
   id VARCHAR(36) PRIMARY KEY,
+  user_id VARCHAR(36) NOT NULL,
   project_id VARCHAR(36) NOT NULL,
   code VARCHAR(50) NOT NULL,
   label VARCHAR(100) NOT NULL,
@@ -676,12 +649,14 @@ CREATE TABLE IF NOT EXISTS pr_checkpoint_templates (
   is_active BOOLEAN DEFAULT TRUE,
   header_group_id TINYINT UNSIGNED NULL COMMENT '0-9 column header group on PR board; NULL = default',
   created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-  UNIQUE KEY uk_pr_tpl_code (project_id, code),
-  INDEX idx_pr_tpl_project (project_id)
+  UNIQUE KEY uk_pr_tpl_user_proj_code (user_id, project_id, code),
+  INDEX idx_pr_tpl_project (project_id),
+  INDEX idx_pr_tpl_user_project (user_id, project_id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 CREATE TABLE IF NOT EXISTS pr_tracked_branches (
   id VARCHAR(36) PRIMARY KEY,
+  user_id VARCHAR(36) NOT NULL,
   project_id VARCHAR(36) NOT NULL,
   repo_id VARCHAR(36) NOT NULL,
   branch_name VARCHAR(255) NOT NULL,
@@ -691,13 +666,15 @@ CREATE TABLE IF NOT EXISTS pr_tracked_branches (
   created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
   updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
   version INT NOT NULL DEFAULT 1,
-  UNIQUE KEY uk_pr_track (repo_id, branch_name),
+  UNIQUE KEY uk_pr_track_user_repo_branch (user_id, repo_id, branch_name),
   INDEX idx_pr_track_project (project_id),
-  INDEX idx_pr_track_assignee (assignee_user_id)
+  INDEX idx_pr_track_assignee (assignee_user_id),
+  INDEX idx_pr_track_user_project (user_id, project_id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 CREATE TABLE IF NOT EXISTS pr_branch_checkpoints (
   id VARCHAR(36) PRIMARY KEY,
+  user_id VARCHAR(36) NOT NULL,
   tracked_branch_id VARCHAR(36) NOT NULL,
   template_id VARCHAR(36) NOT NULL,
   is_done BOOLEAN DEFAULT FALSE,
@@ -720,11 +697,13 @@ CREATE TABLE IF NOT EXISTS pr_branch_checkpoints (
   updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
   UNIQUE KEY uk_pr_bc (tracked_branch_id, template_id),
   INDEX idx_pr_bc_template (template_id),
-  INDEX idx_pr_bc_pending (is_done, pr_number)
+  INDEX idx_pr_bc_pending (is_done, pr_number),
+  INDEX idx_pr_bc_user (user_id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 CREATE TABLE IF NOT EXISTS pr_automations (
   id VARCHAR(36) PRIMARY KEY,
+  user_id VARCHAR(36) NOT NULL,
   repo_id VARCHAR(36) NOT NULL,
   name VARCHAR(200),
   trigger_event VARCHAR(50) NOT NULL,
@@ -737,7 +716,26 @@ CREATE TABLE IF NOT EXISTS pr_automations (
   is_active BOOLEAN DEFAULT TRUE,
   created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
   updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-  INDEX idx_pr_auto_repo (repo_id, is_active)
+  INDEX idx_pr_auto_repo (repo_id, is_active),
+  INDEX idx_pr_auto_user_repo (user_id, repo_id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS pr_user_board_skip_branches (
+  user_id VARCHAR(36) NOT NULL,
+  project_id VARCHAR(36) NOT NULL,
+  patterns_text TEXT NOT NULL COMMENT 'Nội dung textarea PR Board — mỗi dòng một mẫu nhánh',
+  updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  PRIMARY KEY (user_id, project_id),
+  INDEX idx_pr_ub_skip_project (project_id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS pr_ai_assist_chats (
+  user_id VARCHAR(36) NOT NULL,
+  project_id VARCHAR(36) NOT NULL,
+  messages_json LONGTEXT NOT NULL COMMENT 'JSON — mảng lượt chat assistant (payload nút Open dialog được lưu kèm)',
+  updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  PRIMARY KEY (user_id, project_id),
+  INDEX idx_pr_ai_chat_project (project_id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- ========== PHASE 2: ADD FOREIGN KEYS ==========
@@ -782,14 +780,20 @@ ALTER TABLE user_stats ADD CONSTRAINT fk_user_stats_user FOREIGN KEY (user_id) R
 ALTER TABLE user_achievements ADD CONSTRAINT fk_user_achievements_user FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE;
 ALTER TABLE user_badge_display ADD CONSTRAINT fk_user_badge_display_user FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE;
 ALTER TABLE user_daily_snapshots ADD CONSTRAINT fk_user_daily_snapshots_user FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE;
-ALTER TABLE integration_mail_settings ADD CONSTRAINT fk_integration_mail_updated_by FOREIGN KEY (updated_by) REFERENCES users(id) ON DELETE SET NULL;
-ALTER TABLE integration_onedrive_settings ADD CONSTRAINT fk_integration_onedrive_updated_by FOREIGN KEY (updated_by) REFERENCES users(id) ON DELETE SET NULL;
-ALTER TABLE integration_task_database_settings ADD CONSTRAINT fk_integration_taskdb_updated_by FOREIGN KEY (updated_by) REFERENCES users(id) ON DELETE SET NULL;
 ALTER TABLE pr_repos ADD CONSTRAINT fk_pr_repos_project FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE CASCADE;
+ALTER TABLE pr_repos ADD CONSTRAINT fk_pr_repos_user FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE;
 ALTER TABLE pr_checkpoint_templates ADD CONSTRAINT fk_pr_tpl_project FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE CASCADE;
+ALTER TABLE pr_checkpoint_templates ADD CONSTRAINT fk_pr_tpl_user FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE;
 ALTER TABLE pr_tracked_branches ADD CONSTRAINT fk_pr_track_project FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE CASCADE;
+ALTER TABLE pr_tracked_branches ADD CONSTRAINT fk_pr_track_user FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE;
 ALTER TABLE pr_tracked_branches ADD CONSTRAINT fk_pr_track_repo FOREIGN KEY (repo_id) REFERENCES pr_repos(id) ON DELETE CASCADE;
 ALTER TABLE pr_tracked_branches ADD CONSTRAINT fk_pr_track_assignee FOREIGN KEY (assignee_user_id) REFERENCES users(id) ON DELETE SET NULL;
 ALTER TABLE pr_branch_checkpoints ADD CONSTRAINT fk_pr_bc_branch FOREIGN KEY (tracked_branch_id) REFERENCES pr_tracked_branches(id) ON DELETE CASCADE;
 ALTER TABLE pr_branch_checkpoints ADD CONSTRAINT fk_pr_bc_template FOREIGN KEY (template_id) REFERENCES pr_checkpoint_templates(id) ON DELETE CASCADE;
+ALTER TABLE pr_branch_checkpoints ADD CONSTRAINT fk_pr_bc_user FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE;
 ALTER TABLE pr_automations ADD CONSTRAINT fk_pr_auto_repo FOREIGN KEY (repo_id) REFERENCES pr_repos(id) ON DELETE CASCADE;
+ALTER TABLE pr_automations ADD CONSTRAINT fk_pr_auto_user FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE;
+ALTER TABLE pr_user_board_skip_branches ADD CONSTRAINT fk_pr_ub_skip_user FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE;
+ALTER TABLE pr_user_board_skip_branches ADD CONSTRAINT fk_pr_ub_skip_project FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE CASCADE;
+ALTER TABLE pr_ai_assist_chats ADD CONSTRAINT fk_pr_ai_chat_user FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE;
+ALTER TABLE pr_ai_assist_chats ADD CONSTRAINT fk_pr_ai_chat_project FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE CASCADE;

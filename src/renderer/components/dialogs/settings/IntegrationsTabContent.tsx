@@ -22,10 +22,6 @@ export interface IntegrationsTabContentProps {
   onSave: () => void
   onTestMail: () => void
   testMailLoading: boolean
-  /** true khi không đồng bộ lên DB task (chỉ ghi cấu hình local) — ví dụ trước khi có admin/schema. */
-  saveUsesLocalDiskOnly?: boolean
-  /** Gọi sau khi Init schema thành công (cập nhật hiển thị tab Integrations). */
-  onAfterInitSchema?: () => void
 }
 
 export const IntegrationsTabContent = memo(function IntegrationsTabContent({
@@ -35,8 +31,6 @@ export const IntegrationsTabContent = memo(function IntegrationsTabContent({
   onSave,
   onTestMail,
   testMailLoading,
-  saveUsesLocalDiskOnly = false,
-  onAfterInitSchema,
 }: IntegrationsTabContentProps) {
   const { t } = useTranslation()
   const buttonVariant = useAppearanceStoreSelect(s => s.buttonVariant)
@@ -101,7 +95,6 @@ export const IntegrationsTabContent = memo(function IntegrationsTabContent({
           ? t('settings.db.schemaRecreated', 'All tables recreated from schema')
           : t('settings.db.schemaInitSuccess', 'Schema initialized')
       )
-      onAfterInitSchema?.()
     } catch (err) {
       toast.error(err instanceof Error ? err.message : String(err) || 'Schema init failed')
     } finally {
@@ -278,11 +271,9 @@ export const IntegrationsTabContent = memo(function IntegrationsTabContent({
       </Card>
 
       <div className="flex flex-col items-center gap-2 pt-1">
-        {saveUsesLocalDiskOnly && (
-          <p className="max-w-lg text-center text-sm text-muted-foreground">
-            {t('settings.integrations.saveLocalNote', 'Lưu chỉ ghi vào máy này. Sau khi có tài khoản admin, lưu lại để đồng bộ lên database task.')}
-          </p>
-        )}
+        <p className="max-w-lg text-center text-sm text-muted-foreground">
+          {t('settings.integrations.saveLocalNote', 'Thông tin tích hợp chỉ được lưu trong cấu hình trên máy này.')}
+        </p>
         <Button
           variant={integrationsDirty ? 'default' : buttonVariant}
           onClick={() => onSave()}

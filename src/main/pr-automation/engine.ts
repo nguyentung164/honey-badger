@@ -135,7 +135,6 @@ function normBranch(b: string): string {
   return b.trim().toLowerCase()
 }
 
-/** T\u00ecm template theo target + mode (d\u00f9ng cho sync h\u00e0ng lo\u1ea1t v\u1edbi cache). */
 function findMergedTemplateIdFromList(
   templates: PrCheckpointTemplate[],
   targetBranch: string,
@@ -154,13 +153,14 @@ function findMergedTemplateIdFromList(
   return byTarget?.id ?? null
 }
 
-/** T\u00ecm template code kh\u1edbp v\u1edbi target branch \u2014 \u01b0u ti\u00ean code 'pr_<target>' hay 'merge_<target>'. */
+/** Tìm template code khớp với target branch — ưu tiên code 'pr_<target>' hay 'merge_<target>'. */
 async function findMergedTemplateId(
+  userId: string,
   projectId: string,
   targetBranch: string,
-  mode: 'merge' | 'pr'
+  mode: 'merge' | 'pr',
 ): Promise<string | null> {
-  const templates = await listCheckpointTemplates(projectId)
+  const templates = await listCheckpointTemplates(userId, projectId)
   return findMergedTemplateIdFromList(templates, targetBranch, mode)
 }
 
@@ -178,12 +178,13 @@ export async function onPrMerged(event: PrMergedEvent): Promise<AutomationResult
     if (!repo) return results
 
     const tracked = await upsertTrackedBranch({
+      userId: repo.userId,
       projectId: event.projectId,
       repoId: event.repoId,
       branchName: event.sourceBranch,
     })
 
-    const mergeTplId = await findMergedTemplateId(event.projectId, event.targetBranch, 'merge')
+    const mergeTplId = await findMergedTemplateId(repo.userId, event.projectId, event.targetBranch, 'merge')
     if (mergeTplId) {
       const mUrl = event.prUrl?.trim() || `https://github.com/${repo.owner}/${repo.repo}/pull/${event.prNumber}`
       await upsertBranchCheckpoint({
@@ -202,7 +203,7 @@ export async function onPrMerged(event: PrMergedEvent): Promise<AutomationResult
     }
 
     // C\u1ed9t pr_* (Created): n\u1ebfu user t\u1ea1o/merge PR ngo\u00e0i app ho\u1eb7c record l\u00fac t\u1ea1o th\u1ea5t b\u1ea1i, merge_* \u0111\u00e3 c\u00f3 m\u00e0 pr_* v\u1eabn tr\u1ed1ng \u2192 \u0111\u1ed3ng b\u1ed9 c\u00f9ng s\u1ed1 PR.
-    const prTplId = await findMergedTemplateId(event.projectId, event.targetBranch, 'pr')
+    const prTplId = await findMergedTemplateId(repo.userId, event.projectId, event.targetBranch, 'pr')
     if (prTplId) {
       const prUrl =
         event.prUrl?.trim() ||
@@ -275,7 +276,7 @@ export async function onPrMerged(event: PrMergedEvent): Promise<AutomationResult
           base: auto.nextTarget,
         })
 
-        const nextPrTplId = await findMergedTemplateId(event.projectId, auto.nextTarget, 'pr')
+        const nextPrTplId = await findMergedTemplateId(repo.userId, event.projectId, auto.nextTarget, 'pr')
         if (nextPrTplId) {
           await upsertBranchCheckpoint({
             trackedBranchId: tracked.id,
@@ -368,7 +369,7 @@ export async function applyPullRequestToCheckpoints(args: {
   projectId: string
   repoId: string
   pr: PullRequestSummary
-  /** Sync h\u00e0ng lo\u1ea1t: tr\u00e1nh g\u1ecdi listCheckpointTemplates m\u1ed7i PR. */
+  /** Sync hàng loạt: tránh gọi listCheckpointTemplates mỗi PR. */
   templatesCache?: PrCheckpointTemplate[]
 }): Promise<void> {
   const branchName = args.pr.head
@@ -377,12 +378,17 @@ export async function applyPullRequestToCheckpoints(args: {
   const target = args.pr.base
   if (!target) return
 
-  const templates = args.templatesCache ?? (await listCheckpointTemplates(args.projectId))
+  const repoRow = await getPrRepoById(args.repoId)
+  if (!repoRow) return
+
+  const templates =
+    args.templatesCache ?? (await listCheckpointTemplates(repoRow.userId, args.projectId))
   const prTplId = findMergedTemplateIdFromList(templates, target, 'pr')
   const mergeTplId = args.pr.merged ? findMergedTemplateIdFromList(templates, target, 'merge') : null
   if (!prTplId && !mergeTplId) return
 
   const tracked = await upsertTrackedBranch({
+    userId: repoRow.userId,
     projectId: args.projectId,
     repoId: args.repoId,
     branchName,

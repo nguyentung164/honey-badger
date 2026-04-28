@@ -1,21 +1,21 @@
 'use client'
 
 import { AlertCircle, CheckCircle2, ChevronDown, Loader2, Sparkles } from 'lucide-react'
-import { Fragment, type ReactNode, useCallback, useEffect, useMemo, useState } from 'react'
+import { Fragment, type ReactNode, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Alert, AlertDescription } from '@/components/ui/alert'
 import { Button } from '@/components/ui/button'
 import { Checkbox } from '@/components/ui/checkbox'
-import { Combobox } from '@/components/ui/combobox'
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group'
-import { Table, TableBody, TableCell, TableRow } from '@/components/ui/table'
+import { Table, TableCell, TableRow } from '@/components/ui/table'
 import toast from '@/components/ui-elements/Toast'
 import { cn } from '@/lib/utils'
 import type { PrCheckpointTemplate, PrRepo, TrackedBranchRow } from '../hooks/usePrData'
 import { usePrOperationLog } from '../PrOperationLogContext'
+import { checkpointTableHeadGroupClass } from '../checkpointHeaderGroup'
 import { BULK_DIALOG_CHROME } from '../prBulkDialogChrome'
 import { PR_MANAGER_ACCENT_OUTLINE_BTN, PR_MANAGER_ACCENT_OUTLINE_SURFACE } from '../prManagerButtonStyles'
 import { PR_MANAGER_REPO_GROUP_VISUAL } from '../prManagerRepoGroupVisual'
@@ -40,6 +40,8 @@ type Props = {
   onOpenChange: (v: boolean) => void
   kind: BulkActionKind
   projectId: string
+  /** Bắt buộc cho lô tạo PR (theo user trong DB). */
+  userId: string | null
   selectedRows: TrackedBranchRow[]
   repos: PrRepo[]
   activeTemplates: PrCheckpointTemplate[]
@@ -63,6 +65,9 @@ function openUrlInDefaultBrowser(url: string): void {
 
 const BULK_ELIGIBLE_HINT_CLASS = 'text-xs text-emerald-700 dark:text-emerald-400'
 
+/** Cột cuối (icon trạng thái / chữ "Lỗi" ngắn) — width cố định để cột nội dung giãn hết phần còn lại. */
+const BULK_STATUS_COL_CLASS = 'w-16 max-w-16 shrink-0 px-1.5 align-middle text-center'
+
 /** Gom các dòng bulk theo owner/repo; sort tên repo ổn định. */
 function groupByOwnerRepo<T extends { owner: string; repo: string }>(items: T[]): { key: string; owner: string; repo: string; items: T[] }[] {
   const m = new Map<string, T[]>()
@@ -85,6 +90,61 @@ function groupByOwnerRepo<T extends { owner: string; repo: string }>(items: T[])
     }))
 }
 
+/** Bulk create preview: gom theo thứ tự template trong project, rồi theo owner/repo. */
+function groupBulkCreateTargetsForPreview(
+  items: BulkCreatePrTarget[],
+  templateOrder: PrCheckpointTemplate[]
+): {
+  templateId: string
+  label: string
+  code: string
+  targetBranch: string | null | undefined
+  repoGroups: ReturnType<typeof groupByOwnerRepo<BulkCreatePrTarget>>
+}[] {
+  const byId = new Map<string, BulkCreatePrTarget[]>()
+  for (const it of items) {
+    let arr = byId.get(it.templateId)
+    if (!arr) {
+      arr = []
+      byId.set(it.templateId, arr)
+    }
+    arr.push(it)
+  }
+  const out: {
+    templateId: string
+    label: string
+    code: string
+    targetBranch: string | null | undefined
+    repoGroups: ReturnType<typeof groupByOwnerRepo<BulkCreatePrTarget>>
+  }[] = []
+  const seen = new Set<string>()
+  for (const tpl of templateOrder) {
+    const arr = byId.get(tpl.id)
+    if (!arr?.length) continue
+    seen.add(tpl.id)
+    out.push({
+      templateId: tpl.id,
+      label: tpl.label,
+      code: tpl.code,
+      targetBranch: tpl.targetBranch,
+      repoGroups: groupByOwnerRepo(arr),
+    })
+  }
+  const orphans: (typeof out)[number][] = []
+  for (const [tid, arr] of byId) {
+    if (seen.has(tid)) continue
+    orphans.push({
+      templateId: tid,
+      label: arr[0]?.templateLabel ?? tid,
+      code: '',
+      targetBranch: undefined,
+      repoGroups: groupByOwnerRepo(arr),
+    })
+  }
+  orphans.sort((a, b) => a.label.localeCompare(b.label, undefined, { sensitivity: 'base' }))
+  return [...out, ...orphans]
+}
+
 /** Offset chỉ số dòng phẳng trong bảng (qua mọi nhóm repo) để zebra nền liên tục. */
 function bulkGroupItemBaseOffsets<T>(groups: { items: T[] }[]): number[] {
   const offsets: number[] = []
@@ -96,24 +156,130 @@ function bulkGroupItemBaseOffsets<T>(groups: { items: T[] }[]): number[] {
   return offsets
 }
 
+/** Nền xen kẽ trong nhóm template PR — lớp mỏng để lộ màu nền repo (`row`) / vùng template. */
+function bulkTemplateGroupStripeCellClass(flatIndex: number): string {
+  return flatIndex % 2 === 0
+    ? 'bg-black/[0.06] dark:bg-white/[0.08]'
+    : 'bg-black/[0.03] dark:bg-white/[0.04]'
+}
+
 /** Nền xen kẽ — gắn lên từng `TableCell` để bảng lồng vẫn phủ đủ (một số layout `tr` không tô kín). */
 function bulkItemRowStripeCellClass(flatIndex: number): string {
   return flatIndex % 2 === 0 ? 'bg-muted/40 dark:bg-muted/30' : 'bg-muted/10 dark:bg-muted/10'
 }
 
-/** Một hàng bảng + cell colspan: bảng lồng animate grid-rows 0fr/1fr. Nền palette repo chỉ ở hàng header phía trên — không tô nền dòng con. */
-function BulkRepoGroupCollapsibleRows({ collapsed, children }: { collapsed: boolean; children: ReactNode }) {
+const BULK_COLLAPSE_MS = 320
+const BULK_COLLAPSE_EASE = 'cubic-bezier(0.22, 1, 0.36, 1)'
+
+/** Accordion trong `<td>`: `max-height` trong layout table thường không chạy transition — dùng `height` px + reflow + `transitionend` → `auto` khi mở xong. */
+function BulkRepoGroupCollapsibleRows({
+  collapsed,
+  children,
+  toneRowClassName,
+}: {
+  collapsed: boolean
+  children: ReactNode
+  /** Nền `<tr>` bọc accordion (vd. `rowHeader` template hoặc `row` repo như PrBoard). */
+  toneRowClassName?: string
+}) {
+  const innerRef = useRef<HTMLDivElement>(null)
+  const shellRef = useRef<HTMLDivElement>(null)
+  const collapsedRef = useRef(collapsed)
+  collapsedRef.current = collapsed
+  const prevCollapsedRef = useRef(collapsed)
+  const isFirstLayoutRef = useRef(true)
+
+  const [reduceMotion, setReduceMotion] = useState(() =>
+    typeof window !== 'undefined' ? window.matchMedia('(prefers-reduced-motion: reduce)').matches : false
+  )
+
+  useEffect(() => {
+    const mq = window.matchMedia('(prefers-reduced-motion: reduce)')
+    const fn = () => setReduceMotion(mq.matches)
+    mq.addEventListener('change', fn)
+    return () => mq.removeEventListener('change', fn)
+  }, [])
+
+  useLayoutEffect(() => {
+    const shell = shellRef.current
+    const inner = innerRef.current
+    if (!shell || !inner) return
+
+    let onEnd: ((ev: TransitionEvent) => void) | null = null
+    const clearEnd = () => {
+      if (onEnd) {
+        shell.removeEventListener('transitionend', onEnd)
+        onEnd = null
+      }
+    }
+
+    const applyReduce = () => {
+      clearEnd()
+      shell.style.transition = 'none'
+      shell.style.overflow = 'hidden'
+      shell.style.height = collapsed ? '0px' : 'auto'
+    }
+
+    if (isFirstLayoutRef.current) {
+      isFirstLayoutRef.current = false
+      prevCollapsedRef.current = collapsed
+      if (reduceMotion) {
+        applyReduce()
+        return clearEnd
+      }
+      shell.style.overflow = 'hidden'
+      shell.style.transition = 'none'
+      shell.style.height = collapsed ? '0px' : 'auto'
+      return clearEnd
+    }
+
+    const collapsedChanged = prevCollapsedRef.current !== collapsed
+    prevCollapsedRef.current = collapsed
+
+    if (reduceMotion) {
+      applyReduce()
+      return clearEnd
+    }
+
+    shell.style.overflow = 'hidden'
+    shell.style.transition = `height ${BULK_COLLAPSE_MS}ms ${BULK_COLLAPSE_EASE}`
+
+    if (!collapsedChanged) {
+      return clearEnd
+    }
+
+    clearEnd()
+
+    if (collapsed) {
+      const rectH = shell.getBoundingClientRect().height
+      const h = Number.isFinite(rectH) && rectH > 0 ? rectH : inner.scrollHeight
+      shell.style.height = `${h}px`
+      void shell.offsetHeight
+      shell.style.height = '0px'
+    } else {
+      const full = Math.max(inner.scrollHeight, 1)
+      shell.style.height = '0px'
+      void shell.offsetHeight
+      shell.style.height = `${full}px`
+      onEnd = (ev: TransitionEvent) => {
+        if (ev.propertyName !== 'height' || ev.target !== shell) return
+        clearEnd()
+        if (!collapsedRef.current) {
+          shell.style.height = 'auto'
+        }
+      }
+      shell.addEventListener('transitionend', onEnd)
+    }
+
+    return clearEnd
+  }, [collapsed, children, reduceMotion])
+
   return (
-    <TableRow className="border-0 hover:bg-transparent">
-      <TableCell colSpan={3} className="border-0 bg-transparent p-0">
-        <div
-          className={cn(
-            'grid overflow-hidden transition-[grid-template-rows] duration-300 ease-[cubic-bezier(0.22,1,0.36,1)] motion-reduce:transition-none',
-            collapsed ? 'grid-rows-[0fr]' : 'grid-rows-[1fr]'
-          )}
-        >
-          <div className={cn('min-h-0 overflow-hidden', collapsed && 'pointer-events-none select-none')}>
-            <table className="w-full border-separate border-spacing-0 bg-transparent caption-bottom text-xs [&_td]:align-middle" role="presentation">
+    <TableRow className={cn('border-0 hover:bg-transparent', toneRowClassName)}>
+      <TableCell colSpan={3} className="border-0 bg-transparent p-0 align-top">
+        <div ref={shellRef} className="overflow-hidden">
+          <div ref={innerRef} className={cn(collapsed && 'pointer-events-none select-none')}>
+            <table className="w-full table-fixed border-separate border-spacing-0 bg-transparent caption-bottom text-xs [&_td]:align-middle" role="presentation">
               <tbody>{children}</tbody>
             </table>
           </div>
@@ -149,6 +315,7 @@ export function PrBulkActionsDialog({
   onOpenChange,
   kind,
   projectId,
+  userId,
   selectedRows,
   repos,
   activeTemplates,
@@ -166,8 +333,7 @@ export function PrBulkActionsDialog({
   const [results, setResults] = useState<Record<string, RowResult>>({})
 
   const prTemplates = useMemo(() => activePrTemplates(activeTemplates), [activeTemplates])
-  const [createTemplateId, setCreateTemplateId] = useState<string>(() => prTemplates[0]?.id ?? '')
-  const [createBaseOverride, setCreateBaseOverride] = useState('')
+  const [createTemplateIds, setCreateTemplateIds] = useState<Set<string>>(() => new Set())
   const [createDraft, setCreateDraft] = useState(false)
   const [createTitles, setCreateTitles] = useState<Record<string, string>>({})
   const [suggestingTitles, setSuggestingTitles] = useState(false)
@@ -180,6 +346,7 @@ export function PrBulkActionsDialog({
   const [showOnlyEligibleRows, setShowOnlyEligibleRows] = useState(true)
   /** Các key `owner/repo` đang thu gọn trong bảng (ẩn dòng con). */
   const [collapsedRepoGroupKeys, setCollapsedRepoGroupKeys] = useState<Set<string>>(() => new Set())
+  const bulkCreatePrPrevOpenRef = useRef(false)
 
   useEffect(() => {
     if (!open) setShowOnlyEligibleRows(false)
@@ -189,13 +356,28 @@ export function PrBulkActionsDialog({
     setCollapsedRepoGroupKeys(new Set())
   }, [open, kind])
 
+  /** Đồng bộ lựa chọn template bulk create: mở dialog = chọn hết; giữ các id còn hợp lệ khi danh sách template đổi. */
   useEffect(() => {
-    if (open && prTemplates.length > 0 && !prTemplates.some(x => x.id === createTemplateId)) {
-      setCreateTemplateId(prTemplates[0].id)
-    }
-  }, [open, prTemplates, createTemplateId])
+    const wasOpen = bulkCreatePrPrevOpenRef.current
+    bulkCreatePrPrevOpenRef.current = open
 
-  const createTemplate = useMemo(() => prTemplates.find(x => x.id === createTemplateId) ?? prTemplates[0] ?? null, [prTemplates, createTemplateId])
+    if (!open || kind !== 'createPr') return
+    if (prTemplates.length === 0) {
+      setCreateTemplateIds(new Set())
+      return
+    }
+    if (!wasOpen && open) {
+      setCreateTemplateIds(new Set(prTemplates.map(t => t.id)))
+      return
+    }
+    setCreateTemplateIds(prev => {
+      const next = new Set([...prev].filter(id => prTemplates.some(t => t.id === id)))
+      if (next.size === 0) return new Set(prTemplates.map(t => t.id))
+      return next
+    })
+  }, [open, kind, prTemplates])
+
+  const createTemplateSelectionKey = useMemo(() => [...createTemplateIds].sort().join('\0'), [createTemplateIds])
 
   const prTargets: BulkPrRowTarget[] = useMemo(() => {
     if (kind === 'deleteRemoteBranch' || kind === 'createPr' || !githubTokenOk) return []
@@ -219,31 +401,43 @@ export function PrBulkActionsDialog({
   }, [kind, selectedRows, repos, activeTemplates, remoteExistMap, onlyExistingOnRemote, githubTokenOk])
 
   const createTargets: BulkCreatePrTarget[] = useMemo(() => {
-    if (kind !== 'createPr' || !createTemplate || !githubTokenOk) return []
-    const base = createBaseOverride.trim() || null
-    return resolveBulkCreatePrTargets(selectedRows, createTemplate, base, repos, remoteExistMap, onlyExistingOnRemote)
-  }, [kind, createTemplate, createBaseOverride, selectedRows, repos, remoteExistMap, onlyExistingOnRemote, githubTokenOk])
+    if (kind !== 'createPr' || !githubTokenOk) return []
+    const out: BulkCreatePrTarget[] = []
+    for (const tpl of prTemplates) {
+      if (!createTemplateIds.has(tpl.id)) continue
+      out.push(...resolveBulkCreatePrTargets(selectedRows, tpl, repos, remoteExistMap, onlyExistingOnRemote))
+    }
+    return out
+  }, [kind, prTemplates, createTemplateIds, selectedRows, repos, remoteExistMap, onlyExistingOnRemote, githubTokenOk])
 
   const tableDeleteTargets = useMemo(() => (showOnlyEligibleRows ? deleteTargets.filter(x => x.eligible) : deleteTargets), [deleteTargets, showOnlyEligibleRows])
   const tableCreateTargets = useMemo(() => (showOnlyEligibleRows ? createTargets.filter(x => x.eligible) : createTargets), [createTargets, showOnlyEligibleRows])
   const tablePrTargets = useMemo(() => (showOnlyEligibleRows ? prTargets.filter(x => x.eligible) : prTargets), [prTargets, showOnlyEligibleRows])
 
   const groupedTableDelete = useMemo(() => groupByOwnerRepo(tableDeleteTargets), [tableDeleteTargets])
-  const groupedTableCreate = useMemo(() => groupByOwnerRepo(tableCreateTargets), [tableCreateTargets])
+  /** Chỉ dùng cho bulk tạo PR: template → repo → dòng. */
+  const groupedTableCreateByTemplate = useMemo(() => {
+    if (kind !== 'createPr') return []
+    return groupBulkCreateTargetsForPreview(tableCreateTargets, prTemplates)
+  }, [kind, tableCreateTargets, prTemplates])
+
+  const bulkCreateStripeByItemId = useMemo(() => {
+    const m: Record<string, number> = {}
+    let i = 0
+    for (const tg of groupedTableCreateByTemplate) {
+      for (const rg of tg.repoGroups) {
+        for (const item of rg.items) {
+          m[item.id] = i++
+        }
+      }
+    }
+    return m
+  }, [groupedTableCreateByTemplate])
+
   const groupedTablePr = useMemo(() => groupByOwnerRepo(tablePrTargets), [tablePrTargets])
 
   const bulkStripeOffDelete = useMemo(() => bulkGroupItemBaseOffsets(groupedTableDelete), [groupedTableDelete])
-  const bulkStripeOffCreate = useMemo(() => bulkGroupItemBaseOffsets(groupedTableCreate), [groupedTableCreate])
   const bulkStripeOffPr = useMemo(() => bulkGroupItemBaseOffsets(groupedTablePr), [groupedTablePr])
-
-  /** Trùng PrBoard: màu nhóm theo thứ tự `owner/repo` trong repo dự án (sort ổn định). */
-  const repoKeyToPaletteIndex = useMemo(() => {
-    const keys = [...new Set(repos.map(r => `${r.owner}/${r.repo}`))]
-    keys.sort((a, b) => a.localeCompare(b, undefined, { sensitivity: 'base' }))
-    const m = new Map<string, number>()
-    for (let i = 0; i < keys.length; i++) m.set(keys[i], i)
-    return m
-  }, [repos])
 
   const toggleRepoGroupCollapse = useCallback((key: string) => {
     setCollapsedRepoGroupKeys(prev => {
@@ -253,6 +447,20 @@ export function PrBulkActionsDialog({
       return next
     })
   }, [])
+
+  const toggleCreateTemplateId = useCallback((templateId: string, checked: boolean) => {
+    if (dialogBusy) return
+    setCreateTemplateIds(prev => {
+      if (!checked) {
+        if (prev.size <= 1 && prev.has(templateId)) return prev
+        const next = new Set(prev)
+        next.delete(templateId)
+        return next
+      }
+      if (prev.has(templateId)) return prev
+      return new Set([...prev, templateId])
+    })
+  }, [dialogBusy])
 
   useEffect(() => {
     if (!open) return
@@ -277,7 +485,7 @@ export function PrBulkActionsDialog({
     if (!open) return
     setResults({})
     setCurrentId(null)
-  }, [open, kind, createTemplateId, createBaseOverride])
+  }, [open, kind, createTemplateSelectionKey])
 
   const reviewersParsed = useMemo(() => uniqueReviewerLogins(requestReviewersPicked), [requestReviewersPicked])
 
@@ -372,6 +580,10 @@ export function PrBulkActionsDialog({
 
   const runBatch = async () => {
     if (!githubTokenOk || running) return
+    if (kind === 'createPr' && !userId?.trim()) {
+      toast.error(t('evm.pleaseLoginFirst'))
+      return
+    }
     if (kind === 'requestReviewers' && reviewersParsed.length === 0) {
       toast.error(t('prManager.bulk.requestReviewersNeedOne'))
       return
@@ -629,6 +841,7 @@ export function PrBulkActionsDialog({
             base: item.base,
             draft: createDraft,
             openInBrowser: false,
+            userId: userId!.trim(),
           })
           if (res.status === 'success') {
             markRowSuccess(item.id)
@@ -641,9 +854,9 @@ export function PrBulkActionsDialog({
         }
       }
 
+      opLog.finishSuccess()
       await Promise.resolve(onAfterBatch())
       toast.success(t('prManager.bulk.toast.doneToast'))
-      opLog.finishSuccess()
     } catch (e) {
       const msg = e instanceof Error ? e.message : t('prManager.bulk.toast.unexpected')
       opLog.finishError(msg)
@@ -655,7 +868,7 @@ export function PrBulkActionsDialog({
   }
 
   const handleSuggestAllTitles = async () => {
-    if (!createTemplate || suggestingTitles) return
+    if (createTemplateIds.size === 0 || suggestingTitles) return
     const list = createTargets.filter(x => x.eligible && enabledIds.has(x.id))
     if (list.length === 0) return
     if (!opLog.startOperation('prManager.operationLog.titleSuggestTitles', undefined, { silent: true })) return
@@ -730,28 +943,47 @@ export function PrBulkActionsDialog({
         <div className="flex min-h-0 flex-1 flex-col gap-3 overflow-hidden bg-muted/15 px-4 py-3 dark:bg-muted/10">
           {kind === 'createPr' ? (
             <div className="shrink-0 grid gap-3 sm:grid-cols-2">
-              <div className="space-y-1.5 min-w-0">
-                <Label className="text-xs">{t('prManager.bulk.createTemplate')}</Label>
-                <Combobox
-                  value={createTemplateId}
-                  onValueChange={setCreateTemplateId}
-                  options={prTemplates.map(tpl => ({ value: tpl.id, label: `${tpl.label} (${tpl.code})` }))}
-                  placeholder={t('prManager.bulk.createTemplate')}
-                  searchPlaceholder={t('common.search')}
-                  emptyText={t('prManager.emptyNoTemplates')}
-                  disabled={dialogBusy || prTemplates.length === 0}
-                  triggerClassName="w-full justify-between"
-                />
-              </div>
-              <div className="space-y-1.5">
-                <Label className="text-xs">{t('prManager.bulk.baseOverride')}</Label>
-                <Input
-                  value={createBaseOverride}
-                  onChange={e => setCreateBaseOverride(e.target.value)}
-                  placeholder={t('prManager.bulk.basePlaceholder')}
-                  disabled={dialogBusy}
-                  className="h-9 text-sm"
-                />
+              <div className="space-y-1.5 min-w-0 sm:col-span-2">
+                <Label className="text-xs">{t('prManager.bulk.createTemplates')}</Label>
+                <p className="text-xs text-muted-foreground">{t('prManager.bulk.createTemplatesHint')}</p>
+                {prTemplates.length === 0 ? (
+                  <p className="text-xs text-muted-foreground">{t('prManager.emptyNoTemplates')}</p>
+                ) : (
+                  <div className="max-h-36 overflow-y-auto rounded-md border border-gray-500/25 bg-muted/25 p-2 dark:border-gray-400/20">
+                    <div className="grid gap-1.5 sm:grid-cols-2">
+                      {prTemplates.map(tpl => {
+                        const checked = createTemplateIds.has(tpl.id)
+                        const disabled = dialogBusy || (checked && createTemplateIds.size <= 1)
+                        return (
+                          <div key={tpl.id} className="flex min-h-7 items-center gap-2 text-xs">
+                            <div className="flex shrink-0 items-center justify-center self-center">
+                              <Checkbox
+                                id={`bulk-create-tpl-${tpl.id}`}
+                                checked={checked}
+                                disabled={disabled}
+                                onCheckedChange={v => toggleCreateTemplateId(tpl.id, v === true)}
+                              />
+                            </div>
+                            <Label
+                              htmlFor={disabled ? undefined : `bulk-create-tpl-${tpl.id}`}
+                              className={cn(
+                                'line-clamp-2 min-w-0 font-normal',
+                                disabled && checked ? 'cursor-not-allowed text-foreground' : 'cursor-pointer'
+                              )}
+                              title={`${tpl.label} (${tpl.code})`}
+                            >
+                              <span className="font-medium">{tpl.label}</span>
+                              <span className="text-muted-foreground"> · {tpl.code}</span>
+                              {tpl.targetBranch ? (
+                                <span className="text-muted-foreground"> → {tpl.targetBranch}</span>
+                              ) : null}
+                            </Label>
+                          </div>
+                        )
+                      })}
+                    </div>
+                  </div>
+                )}
               </div>
               <div className="flex items-center gap-2 sm:col-span-2">
                 <Checkbox id="bulk-create-draft" checked={createDraft} onCheckedChange={v => setCreateDraft(v === true)} disabled={dialogBusy} />
@@ -866,13 +1098,12 @@ export function PrBulkActionsDialog({
           </div>
 
           <div className="max-h-[min(52dvh,420px)] w-full overflow-y-auto overflow-x-auto overscroll-y-contain rounded-md border border-border/80 bg-card shadow-xs">
-            <Table className="text-xs">
-              <TableBody>
+            <Table className="w-full table-fixed text-xs">
+              <tbody data-slot="table-body" className="[&_tr:last-child]:border-0">
                 {kind === 'deleteRemoteBranch'
                   ? groupedTableDelete.map((grp, groupIdx) => {
                     const repoCollapsed = collapsedRepoGroupKeys.has(grp.key)
-                    const pi = repoKeyToPaletteIndex.get(grp.key) ?? groupIdx
-                    const vis = PR_MANAGER_REPO_GROUP_VISUAL[pi % PR_MANAGER_REPO_GROUP_VISUAL.length]
+                    const vis = PR_MANAGER_REPO_GROUP_VISUAL[groupIdx % PR_MANAGER_REPO_GROUP_VISUAL.length]
                     return (
                       <Fragment key={grp.key}>
                         <TableRow className="border-0 bg-transparent">
@@ -883,7 +1114,8 @@ export function PrBulkActionsDialog({
                                 'flex w-full min-h-0 items-center gap-2 px-3 py-2.5 text-left transition-colors',
                                 'hover:brightness-[1.01] dark:hover:brightness-[1.03]',
                                 'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40 focus-visible:ring-inset',
-                                vis.rowHeader
+                                vis.row,
+                                vis.accent
                               )}
                               onClick={() => toggleRepoGroupCollapse(grp.key)}
                               aria-expanded={!repoCollapsed}
@@ -900,7 +1132,7 @@ export function PrBulkActionsDialog({
                             </button>
                           </TableCell>
                         </TableRow>
-                        <BulkRepoGroupCollapsibleRows collapsed={repoCollapsed}>
+                        <BulkRepoGroupCollapsibleRows collapsed={repoCollapsed} toneRowClassName={vis.row}>
                           {grp.items.map((item, itemIdx) => {
                             const flat = (bulkStripeOffDelete[groupIdx] ?? 0) + itemIdx
                             const stripe = bulkItemRowStripeCellClass(flat)
@@ -931,18 +1163,32 @@ export function PrBulkActionsDialog({
                                       </>
                                     ) : null}
                                   </div>
-                                </TableCell>
-                                <TableCell className={cn('p-2 text-xs', stripe)}>
-                                  {running && currentId === item.id ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
-                                  {results[item.id] ? (
-                                    results[item.id].ok ? (
-                                      <CheckCircle2 className="h-4 w-4 text-emerald-600" />
-                                    ) : (
-                                      <span className="text-xs text-rose-600" title={results[item.id].message}>
-                                        {t('prManager.bulk.error')}
-                                      </span>
-                                    )
+                                  {item.prColumnSummaries.length > 0 ? (
+                                    <div className="mt-0.5 break-words leading-snug text-muted-foreground">
+                                      {item.prColumnSummaries.map((col, i) => (
+                                        <Fragment key={`${col.templateLabel}\0${i}`}>
+                                          {i > 0 ? <span className="text-muted-foreground/60"> | </span> : null}
+                                          <span>
+                                            {col.templateLabel} - {t(`prManager.bulk.deletePrColumnStatuses.${col.status}`)}
+                                          </span>
+                                        </Fragment>
+                                      ))}
+                                    </div>
                                   ) : null}
+                                </TableCell>
+                                <TableCell className={cn(BULK_STATUS_COL_CLASS, stripe)}>
+                                  <div className="flex min-h-8 items-center justify-center">
+                                    {running && currentId === item.id ? <Loader2 className="h-4 w-4 shrink-0 animate-spin" /> : null}
+                                    {results[item.id] ? (
+                                      results[item.id].ok ? (
+                                        <CheckCircle2 className="h-4 w-4 shrink-0 text-emerald-600" />
+                                      ) : (
+                                        <span className="line-clamp-2 text-xs text-rose-600" title={results[item.id].message}>
+                                          {t('prManager.bulk.error')}
+                                        </span>
+                                      )
+                                    ) : null}
+                                  </div>
                                 </TableCell>
                               </TableRow>
                             )
@@ -954,134 +1200,175 @@ export function PrBulkActionsDialog({
                   : null}
 
                 {kind === 'createPr'
-                  ? groupedTableCreate.map((grp, groupIdx) => {
-                    const repoCollapsed = collapsedRepoGroupKeys.has(grp.key)
-                    const pi = repoKeyToPaletteIndex.get(grp.key) ?? groupIdx
-                    const vis = PR_MANAGER_REPO_GROUP_VISUAL[pi % PR_MANAGER_REPO_GROUP_VISUAL.length]
+                  ? groupedTableCreateByTemplate.map(tplGrp => {
+                    const tplKey = `bc:tpl:${tplGrp.templateId}`
+                    const tplCollapsed = collapsedRepoGroupKeys.has(tplKey)
+                    const tplDef = prTemplates.find(t => t.id === tplGrp.templateId) ?? activeTemplates.find(t => t.id === tplGrp.templateId)
+                    const tplHeadClass = checkpointTableHeadGroupClass(tplDef?.headerGroupId)
+                    const tplRowCount = tplGrp.repoGroups.reduce((n, g) => n + g.items.length, 0)
+                    const baseHint = (tplGrp.targetBranch?.trim() || tplGrp.repoGroups[0]?.items[0]?.base || '').trim()
                     return (
-                      <Fragment key={grp.key}>
-                        <TableRow className="border-0 bg-transparent">
-                          <TableCell colSpan={3} className="p-0">
+                      <Fragment key={tplGrp.templateId}>
+                        <TableRow className="border-0">
+                          <TableCell colSpan={3} className={cn('border-0 p-0 align-top backdrop-blur-sm', tplHeadClass)}>
                             <button
                               type="button"
                               className={cn(
-                                'flex w-full min-h-0 items-center gap-2 px-3 py-2.5 text-left transition-colors',
-                                'hover:brightness-[1.01] dark:hover:brightness-[1.03]',
-                                'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40 focus-visible:ring-inset',
-                                vis.rowHeader
+                                'flex w-full min-h-0 items-center gap-2 border-b border-border/50 bg-transparent px-3 py-2.5 text-left transition-colors',
+                                'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40 focus-visible:ring-inset'
                               )}
-                              onClick={() => toggleRepoGroupCollapse(grp.key)}
-                              aria-expanded={!repoCollapsed}
-                              aria-label={repoCollapsed ? t('prManager.bulk.repoGroupExpand') : t('prManager.bulk.repoGroupCollapse')}
+                              onClick={() => toggleRepoGroupCollapse(tplKey)}
+                              aria-expanded={!tplCollapsed}
+                              aria-label={tplCollapsed ? t('prManager.bulk.templateGroupExpand') : t('prManager.bulk.templateGroupCollapse')}
                             >
                               <ChevronDown
-                                className={cn('size-4 shrink-0 text-muted-foreground transition-transform duration-300 ease-out', repoCollapsed && '-rotate-90')}
+                                className={cn('size-4 shrink-0 opacity-70 transition-transform duration-300 ease-out', tplCollapsed && '-rotate-90')}
                                 aria-hidden
                               />
-                              <span className="min-w-0 font-mono text-xs font-semibold tabular-nums text-foreground">
-                                {grp.owner}/{grp.repo}
+                              <span className="min-w-0 text-left text-xs font-semibold leading-snug">
+                                <span className="font-sans">{tplGrp.label}</span>
+                                <span className="font-normal opacity-85"> · {tplGrp.code}</span>
+                                {baseHint ? <span className="font-normal opacity-85"> → {baseHint}</span> : null}
                               </span>
-                              <span className="ml-auto shrink-0 text-xs tabular-nums text-muted-foreground">({grp.items.length})</span>
+                              <span className="ml-auto shrink-0 text-xs tabular-nums opacity-80">({tplRowCount})</span>
                             </button>
                           </TableCell>
                         </TableRow>
-                        <BulkRepoGroupCollapsibleRows collapsed={repoCollapsed}>
-                          {grp.items.map((item, itemIdx) => {
-                            const flat = (bulkStripeOffCreate[groupIdx] ?? 0) + itemIdx
-                            const stripe = bulkItemRowStripeCellClass(flat)
+                        <BulkRepoGroupCollapsibleRows collapsed={tplCollapsed}>
+                          {tplGrp.repoGroups.map((grp, groupIdx) => {
+                            const repoKey = `bc:repo:${tplGrp.templateId}:${grp.key}`
+                            const repoCollapsed = collapsedRepoGroupKeys.has(repoKey)
+                            const visRepo = PR_MANAGER_REPO_GROUP_VISUAL[groupIdx % PR_MANAGER_REPO_GROUP_VISUAL.length]
                             return (
-                              <TableRow key={item.id}>
-                                <TableCell className={cn('w-10 px-2 align-middle', stripe)}>
-                                  <div className="flex min-h-8 items-center justify-center">
-                                    <Checkbox
-                                      checked={enabledIds.has(item.id)}
-                                      disabled={!item.eligible || dialogBusy || !!results[item.id]?.ok}
-                                      onCheckedChange={() => toggleId(item.id, item.eligible)}
-                                    />
-                                  </div>
-                                </TableCell>
-                                <TableCell className={cn('min-w-0 p-2 text-xs', stripe)}>
-                                  {item.existingPrNumber != null ? (
-                                    <>
-                                      <div className="flex flex-wrap items-center gap-x-1 gap-y-0.5 break-words">
-                                        <button
-                                          type="button"
-                                          className="shrink-0 text-left font-medium text-primary hover:underline"
-                                          onClick={e => {
-                                            e.stopPropagation()
-                                            const n = item.existingPrNumber
-                                            if (n != null) openUrlInDefaultBrowser(githubPrWebUrl(item.owner, item.repo, n))
-                                          }}
-                                        >
-                                          #{item.existingPrNumber}
-                                        </button>
-                                        <span className="shrink-0 text-muted-foreground">·</span>
-                                        <span>{(item.existingPrTitle ?? '').trim() || `PR #${item.existingPrNumber}`}</span>
-                                        {!item.eligible && item.skipReasonKey ? (
-                                          <>
-                                            <span className="shrink-0 text-muted-foreground">·</span>
-                                            <span className="shrink-0 text-xs text-amber-800 dark:text-amber-200">{t(item.skipReasonKey)}</span>
-                                          </>
-                                        ) : null}
-                                        {item.eligible && !results[item.id]?.ok ? (
-                                          <>
-                                            <span className="shrink-0 text-muted-foreground">·</span>
-                                            <span className={cn('shrink-0', BULK_ELIGIBLE_HINT_CLASS)}>{t('prManager.bulk.itemEligibleHint')}</span>
-                                          </>
-                                        ) : null}
-                                      </div>
-                                      <div className="mt-0.5 break-words text-xs text-muted-foreground">
-                                        {item.head} → {item.base}
-                                      </div>
-                                    </>
-                                  ) : (
-                                    <div className="flex flex-col gap-2">
-                                      <div className="flex min-w-0 items-center gap-2">
-                                        <Input
-                                          value={createTitles[item.id] ?? ''}
-                                          onChange={e => setCreateTitles(prev => ({ ...prev, [item.id]: e.target.value }))}
-                                          disabled={!item.eligible || dialogBusy || !!results[item.id]?.ok}
-                                          className="h-8 min-w-0 flex-1 text-xs sm:min-w-[10rem]"
-                                          placeholder={item.suggestedTitle}
-                                        />
-                                        {item.eligible && !results[item.id]?.ok ? (
-                                          <span
-                                            className={cn(BULK_ELIGIBLE_HINT_CLASS, 'max-w-[min(100%,11rem)] shrink-0 truncate sm:max-w-[13rem]')}
-                                            title={t('prManager.bulk.itemEligibleHint')}
-                                          >
-                                            {t('prManager.bulk.itemEligibleHint')}
-                                          </span>
-                                        ) : null}
-                                      </div>
-                                      <div className="flex flex-wrap items-center gap-x-1.5 gap-y-0.5 break-words text-xs text-muted-foreground">
-                                        <span>
-                                          {item.head} → {item.base}
-                                        </span>
-                                        {!item.eligible && item.skipReasonKey ? (
-                                          <>
-                                            <span className="text-muted-foreground/60" aria-hidden>
-                                              ·
-                                            </span>
-                                            <span className="text-amber-800 dark:text-amber-200">{t(item.skipReasonKey)}</span>
-                                          </>
-                                        ) : null}
-                                      </div>
-                                    </div>
-                                  )}
-                                </TableCell>
-                                <TableCell className={cn('p-2 text-xs', stripe)}>
-                                  {running && currentId === item.id ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
-                                  {results[item.id] ? (
-                                    results[item.id].ok ? (
-                                      <CheckCircle2 className="h-4 w-4 text-emerald-600" />
-                                    ) : (
-                                      <span className="text-xs text-rose-600" title={results[item.id].message}>
-                                        {t('prManager.bulk.error')}
+                              <Fragment key={repoKey}>
+                                <TableRow className="border-0 bg-transparent">
+                                  <TableCell colSpan={3} className="p-0">
+                                    <button
+                                      type="button"
+                                      className={cn(
+                                        'flex w-full min-h-0 items-center gap-2 border-b border-border/30 py-2 pr-3 pl-8 text-left transition-colors',
+                                        'hover:brightness-[1.01] dark:hover:brightness-[1.03]',
+                                        'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40 focus-visible:ring-inset',
+                                        visRepo.row,
+                                        visRepo.accent
+                                      )}
+                                      onClick={() => toggleRepoGroupCollapse(repoKey)}
+                                      aria-expanded={!repoCollapsed}
+                                      aria-label={repoCollapsed ? t('prManager.bulk.repoGroupExpand') : t('prManager.bulk.repoGroupCollapse')}
+                                    >
+                                      <ChevronDown
+                                        className={cn('size-4 shrink-0 text-muted-foreground transition-transform duration-300 ease-out', repoCollapsed && '-rotate-90')}
+                                        aria-hidden
+                                      />
+                                      <span className="min-w-0 font-mono text-xs font-semibold tabular-nums text-foreground">
+                                        {grp.owner}/{grp.repo}
                                       </span>
+                                      <span className="ml-auto shrink-0 text-xs tabular-nums text-muted-foreground">({grp.items.length})</span>
+                                    </button>
+                                  </TableCell>
+                                </TableRow>
+                                <BulkRepoGroupCollapsibleRows collapsed={repoCollapsed} toneRowClassName={visRepo.row}>
+                                  {grp.items.map(item => {
+                                    const stripe = bulkTemplateGroupStripeCellClass(bulkCreateStripeByItemId[item.id] ?? 0)
+                                    return (
+                                      <TableRow key={item.id}>
+                                        <TableCell className={cn('w-10 px-2 align-middle', stripe)}>
+                                          <div className="flex min-h-8 items-center justify-center">
+                                            <Checkbox
+                                              checked={enabledIds.has(item.id)}
+                                              disabled={!item.eligible || dialogBusy || !!results[item.id]?.ok}
+                                              onCheckedChange={() => toggleId(item.id, item.eligible)}
+                                            />
+                                          </div>
+                                        </TableCell>
+                                        <TableCell className={cn('min-w-0 p-2 text-xs', stripe)}>
+                                          {item.existingPrNumber != null ? (
+                                            <>
+                                              <div className="flex flex-wrap items-center gap-x-1 gap-y-0.5 break-words">
+                                                <button
+                                                  type="button"
+                                                  className="shrink-0 text-left font-medium text-primary hover:underline"
+                                                  onClick={e => {
+                                                    e.stopPropagation()
+                                                    const n = item.existingPrNumber
+                                                    if (n != null) openUrlInDefaultBrowser(githubPrWebUrl(item.owner, item.repo, n))
+                                                  }}
+                                                >
+                                                  #{item.existingPrNumber}
+                                                </button>
+                                                <span className="shrink-0 text-muted-foreground">·</span>
+                                                <span>{(item.existingPrTitle ?? '').trim() || `PR #${item.existingPrNumber}`}</span>
+                                                {!item.eligible && item.skipReasonKey ? (
+                                                  <>
+                                                    <span className="shrink-0 text-muted-foreground">·</span>
+                                                    <span className="shrink-0 text-xs text-amber-800 dark:text-amber-200">{t(item.skipReasonKey)}</span>
+                                                  </>
+                                                ) : null}
+                                                {item.eligible && !results[item.id]?.ok ? (
+                                                  <>
+                                                    <span className="shrink-0 text-muted-foreground">·</span>
+                                                    <span className={cn('shrink-0', BULK_ELIGIBLE_HINT_CLASS)}>{t('prManager.bulk.itemEligibleHint')}</span>
+                                                  </>
+                                                ) : null}
+                                              </div>
+                                              <div className="mt-0.5 break-words text-xs text-muted-foreground">
+                                                {item.head} → {item.base}
+                                              </div>
+                                            </>
+                                          ) : (
+                                            <div className="flex flex-col gap-2">
+                                              <div className="flex min-w-0 items-center gap-2">
+                                                <Input
+                                                  value={createTitles[item.id] ?? ''}
+                                                  onChange={e => setCreateTitles(prev => ({ ...prev, [item.id]: e.target.value }))}
+                                                  disabled={!item.eligible || dialogBusy || !!results[item.id]?.ok}
+                                                  className="h-8 min-w-0 flex-1 text-xs sm:min-w-[10rem]"
+                                                  placeholder={item.suggestedTitle}
+                                                />
+                                                {item.eligible && !results[item.id]?.ok ? (
+                                                  <span
+                                                    className={cn(BULK_ELIGIBLE_HINT_CLASS, 'max-w-[min(100%,11rem)] shrink-0 truncate sm:max-w-[13rem]')}
+                                                    title={t('prManager.bulk.itemEligibleHint')}
+                                                  >
+                                                    {t('prManager.bulk.itemEligibleHint')}
+                                                  </span>
+                                                ) : null}
+                                              </div>
+                                              <div className="flex flex-wrap items-center gap-x-1.5 gap-y-0.5 break-words text-xs text-muted-foreground">
+                                                <span>
+                                                  {item.head} → {item.base}
+                                                </span>
+                                                {!item.eligible && item.skipReasonKey ? (
+                                                  <>
+                                                    <span className="text-muted-foreground/60" aria-hidden>
+                                                      ·
+                                                    </span>
+                                                    <span className="text-amber-800 dark:text-amber-200">{t(item.skipReasonKey)}</span>
+                                                  </>
+                                                ) : null}
+                                              </div>
+                                            </div>
+                                          )}
+                                        </TableCell>
+                                        <TableCell className={cn(BULK_STATUS_COL_CLASS, stripe)}>
+                                          <div className="flex min-h-8 items-center justify-center">
+                                            {running && currentId === item.id ? <Loader2 className="h-4 w-4 shrink-0 animate-spin" /> : null}
+                                            {results[item.id] ? (
+                                              results[item.id].ok ? (
+                                                <CheckCircle2 className="h-4 w-4 shrink-0 text-emerald-600" />
+                                              ) : (
+                                                <span className="line-clamp-2 text-xs text-rose-600" title={results[item.id].message}>
+                                                  {t('prManager.bulk.error')}
+                                                </span>
+                                              )
+                                            ) : null}
+                                          </div>
+                                        </TableCell>
+                                      </TableRow>
                                     )
-                                  ) : null}
-                                </TableCell>
-                              </TableRow>
+                                  })}
+                                </BulkRepoGroupCollapsibleRows>
+                              </Fragment>
                             )
                           })}
                         </BulkRepoGroupCollapsibleRows>
@@ -1093,8 +1380,7 @@ export function PrBulkActionsDialog({
                 {kind !== 'deleteRemoteBranch' && kind !== 'createPr'
                   ? groupedTablePr.map((grp, groupIdx) => {
                     const repoCollapsed = collapsedRepoGroupKeys.has(grp.key)
-                    const pi = repoKeyToPaletteIndex.get(grp.key) ?? groupIdx
-                    const vis = PR_MANAGER_REPO_GROUP_VISUAL[pi % PR_MANAGER_REPO_GROUP_VISUAL.length]
+                    const vis = PR_MANAGER_REPO_GROUP_VISUAL[groupIdx % PR_MANAGER_REPO_GROUP_VISUAL.length]
                     return (
                       <Fragment key={grp.key}>
                         <TableRow className="border-0 bg-transparent">
@@ -1105,7 +1391,8 @@ export function PrBulkActionsDialog({
                                 'flex w-full min-h-0 items-center gap-2 px-3 py-2.5 text-left transition-colors',
                                 'hover:brightness-[1.01] dark:hover:brightness-[1.03]',
                                 'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40 focus-visible:ring-inset',
-                                vis.rowHeader
+                                vis.row,
+                                vis.accent
                               )}
                               onClick={() => toggleRepoGroupCollapse(grp.key)}
                               aria-expanded={!repoCollapsed}
@@ -1122,7 +1409,7 @@ export function PrBulkActionsDialog({
                             </button>
                           </TableCell>
                         </TableRow>
-                        <BulkRepoGroupCollapsibleRows collapsed={repoCollapsed}>
+                        <BulkRepoGroupCollapsibleRows collapsed={repoCollapsed} toneRowClassName={vis.row}>
                           {grp.items.map((item, itemIdx) => {
                             const mergedSkip = item.skipReasonKey === 'prManager.bulk.skip.merged'
                             const flat = (bulkStripeOffPr[groupIdx] ?? 0) + itemIdx
@@ -1180,17 +1467,19 @@ export function PrBulkActionsDialog({
                                     </span>
                                   </div>
                                 </TableCell>
-                                <TableCell className={cn('p-2 text-xs', stripe)}>
-                                  {running && currentId === item.id ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
-                                  {results[item.id] ? (
-                                    results[item.id].ok ? (
-                                      <CheckCircle2 className="h-4 w-4 text-emerald-600" />
-                                    ) : (
-                                      <span className="text-xs text-rose-600" title={results[item.id].message}>
-                                        {t('prManager.bulk.error')}
-                                      </span>
-                                    )
-                                  ) : null}
+                                <TableCell className={cn(BULK_STATUS_COL_CLASS, stripe)}>
+                                  <div className="flex min-h-8 items-center justify-center">
+                                    {running && currentId === item.id ? <Loader2 className="h-4 w-4 shrink-0 animate-spin" /> : null}
+                                    {results[item.id] ? (
+                                      results[item.id].ok ? (
+                                        <CheckCircle2 className="h-4 w-4 shrink-0 text-emerald-600" />
+                                      ) : (
+                                        <span className="line-clamp-2 text-xs text-rose-600" title={results[item.id].message}>
+                                          {t('prManager.bulk.error')}
+                                        </span>
+                                      )
+                                    ) : null}
+                                  </div>
                                 </TableCell>
                               </TableRow>
                             )
@@ -1243,7 +1532,7 @@ export function PrBulkActionsDialog({
                     </TableCell>
                   </TableRow>
                 ) : null}
-              </TableBody>
+              </tbody>
             </Table>
           </div>
         </div>

@@ -288,7 +288,7 @@ export function EVMDashboardTab() {
                   if (v === 'day' || v === 'month' || v === 'quarter') setSCurveGranularity(v)
                 }}
                 variant="outline"
-                size="sm"
+                size="md"
               >
                 <ToggleGroupItem value="day">{t('evm.reportGranularityDay')}</ToggleGroupItem>
                 <ToggleGroupItem value="month">{t('evm.reportGranularityMonth')}</ToggleGroupItem>

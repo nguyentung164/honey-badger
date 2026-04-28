@@ -44,7 +44,7 @@ import {
   X,
 } from 'lucide-react'
 import { IPC } from 'main/constants'
-import { lazy, type RefCallback, Suspense, useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
+import { lazy, type RefCallback, Suspense, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useNavigate } from 'react-router-dom'
 import type { MainShellView } from 'shared/mainShellView'
@@ -225,6 +225,11 @@ export const TitleBar = ({
   const navigate = useNavigate()
   const { t } = useTranslation()
   const multiRepoLabels = useMultiRepoEffectiveStore(s => s.labels)
+  const multiRepoPaths = useMultiRepoEffectiveStore(s => s.paths)
+  const branchManageRepoChoices = useMemo(() => {
+    if (!isMultiRepo || multiRepoPaths.length <= 1) return undefined
+    return multiRepoPaths.map((path, i) => ({ path, label: (multiRepoLabels[i] ?? path).trim() || path }))
+  }, [isMultiRepo, multiRepoPaths, multiRepoLabels])
   const user = useTaskAuthStore(s => s.user)
   const token = useTaskAuthStore(s => s.token)
   const isGuest = useTaskAuthStore(s => s.isGuest)
@@ -2073,6 +2078,7 @@ export const TitleBar = ({
           refreshGitStatus()
         }}
         cwd={gitContextPath ?? undefined}
+        repoChoices={branchManageRepoChoices}
       />
       <GitRemoteBranchDialog
         open={showPullFromDialog}
@@ -2256,7 +2262,7 @@ export const TitleBar = ({
                   if (v === 'vcs' || v === 'tasks' || v === 'prManager') onShellViewChange(v)
                 }}
                 variant="default"
-                size="sm"
+                size="md"
                 spacing={0}
                 className={cn(
                   'h-[25px] shrink-0 rounded-md border-0 shadow-none p-0.5 gap-0.5',

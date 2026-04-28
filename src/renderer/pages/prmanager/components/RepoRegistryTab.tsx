@@ -75,6 +75,7 @@ export function RepoRegistryTab({ projectId, userId, repos, onRefresh }: Props) 
     setSubmitting(true)
     try {
       const res = await window.api.pr.repoUpsert({
+        userId: userId!,
         projectId,
         name: name.trim(),
         remoteUrl: remoteUrl.trim(),
@@ -96,7 +97,7 @@ export function RepoRegistryTab({ projectId, userId, repos, onRefresh }: Props) 
 
   const handleDelete = async () => {
     if (!deleteId) return
-    const res = await window.api.pr.repoRemove(deleteId)
+    const res = await window.api.pr.repoRemove(userId!, deleteId)
     if (res.status === 'success') {
       toast.success(t('prManager.repoRegistry.deleteOk'))
       setDeleteId(null)

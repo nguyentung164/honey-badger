@@ -337,8 +337,6 @@ export const IPC = {
     CODING_RULE_UPDATE: 'task:coding-rule:update',
     CODING_RULE_DELETE: 'task:coding-rule:delete',
     CODING_RULE_GET_FOR_MANAGEMENT: 'task:coding-rule:get-for-management',
-    INTEGRATIONS_GET_FOR_SETTINGS: 'task:integrations:get-for-settings',
-    INTEGRATIONS_SAVE: 'task:integrations:save',
   },
   COMMIT_MESSAGE_HISTORY: {
     GET: 'commit-message-history:get',
@@ -414,6 +412,8 @@ export const IPC = {
     REPO_UPSERT: 'pr:repo-upsert',
     REPO_REMOVE: 'pr:repo-remove',
     REPO_AUTODETECT: 'pr:repo-autodetect',
+    BOARD_SKIP_BRANCHES_GET: 'pr:board-skip-branches-get',
+    BOARD_SKIP_BRANCHES_SET: 'pr:board-skip-branches-set',
     TRACKED_LIST: 'pr:tracked-list',
     TRACKED_UPSERT: 'pr:tracked-upsert',
     TRACKED_DELETE: 'pr:tracked-delete',
@@ -456,6 +456,8 @@ export const IPC = {
     AUTOMATION_UPSERT: 'pr:automation-upsert',
     AUTOMATION_DELETE: 'pr:automation-delete',
     AUTOMATION_TOGGLE: 'pr:automation-toggle',
+    AI_ASSIST_CHAT_GET: 'pr:ai-assist-chat-get',
+    AI_ASSIST_CHAT_SAVE: 'pr:ai-assist-chat-save',
     TRACKED_SYNC_FROM_GITHUB: 'pr:tracked-sync-from-github',
     EVENT_AUTOMATION_FIRED: 'pr:event:automation-fired',
     EVENT_CHECKPOINT_UPDATED: 'pr:event:checkpoint-updated',
@@ -794,6 +796,39 @@ Bạn là PMO phân tích rủi ro lịch từ bảng công việc (JSON factual
 
 ## DỮ LIỆU (JSON)
 {schedule_data}
+`,
+
+  PR_CHAT_INTENT: `
+You are a compact intent parser for Honey Badger PR Manager.
+The user message may be Vietnamese or English.
+
+Output exactly ONE JSON object — no markdown code fences, no comments, no text before or after.
+
+Schema (choose one shape):
+
+1) Single pull request:
+{"intent":"create_pr","head":string|null,"base":string|null,"repo_hint":string|null}
+   - head / base / repo_hint: as before (repo_hint = "owner/repo" if specified).
+
+2) Multiple pull requests in one request (each item is one head→base; tracked rows must exist):
+{"intent":"create_pr_multi","targets":[{"head":string|null,"base":string|null,"repo_hint":string|null},...]}
+   - Use only when the user clearly asks for several PRs (e.g. list of branches or repos).
+   - At most 20 targets.
+
+3) Not a create-PR request:
+{"intent":"reply","message":string}
+   Use short Vietnamese in "message".
+
+Rules:
+- Prefer "create_pr" or "create_pr_multi" when the user wants GitHub PR(s) (tạo PR, create PR, merge X into Y…).
+- Prefer exact branch strings from tracked_context below.
+- If branches are unclear, use intent "reply" explaining what is missing.
+
+Tracked branches JSON (repoId, owner, repo, branchName):
+{tracked_context}
+
+User message:
+{user_message}
 `,
 }
 

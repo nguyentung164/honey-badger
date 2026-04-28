@@ -1,6 +1,6 @@
 'use client'
 
-import { Loader2, GitPullRequest, Sparkles } from 'lucide-react'
+import { GitPullRequest, Loader2, Sparkles } from 'lucide-react'
 import { useEffect, useId, useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Button } from '@/components/ui/button'
@@ -19,14 +19,18 @@ type Props = {
   open: boolean
   onOpenChange: (v: boolean) => void
   projectId: string
+  userId: string | null
   repos: PrRepo[]
   initialRepoId?: string | null
   initialHead?: string | null
   initialBase?: string | null
+  /** Điền sẵn từ AI / trợ lý (đồng bộ khi mở dialog). */
+  initialTitle?: string | null
+  initialBody?: string | null
   onCreated?: () => void
 }
 
-export function CreatePrDialog({ open, onOpenChange, projectId, repos, initialRepoId, initialHead, initialBase, onCreated }: Props) {
+export function CreatePrDialog({ open, onOpenChange, projectId, userId, repos, initialRepoId, initialHead, initialBase, initialTitle, initialBody, onCreated }: Props) {
   const { t } = useTranslation()
   const opLog = usePrOperationLog()
   /** Mở từ nút trong table (có đủ 3 giá trị ban đầu) → khoá repo / head / base. */
@@ -52,12 +56,12 @@ export function CreatePrDialog({ open, onOpenChange, projectId, repos, initialRe
       setRepoId(initialRepoId ?? repos[0]?.id ?? '')
       setHead(initialHead ?? '')
       setBase(initialBase ?? '')
-      setTitle('')
-      setBody('')
+      setTitle(initialTitle?.trim() ?? '')
+      setBody(initialBody?.trim() ?? '')
       setDraft(false)
       setOpenBrowser(true)
     }
-  }, [open, initialRepoId, initialHead, initialBase, repos])
+  }, [open, initialRepoId, initialHead, initialBase, initialTitle, initialBody, repos])
 
   useEffect(() => {
     if (!selectedRepo) return
@@ -126,6 +130,10 @@ export function CreatePrDialog({ open, onOpenChange, projectId, repos, initialRe
 
   const handleSubmit = async () => {
     if (!selectedRepo) return
+    if (!userId?.trim()) {
+      toast.error(t('evm.pleaseLoginFirst'))
+      return
+    }
     if (!head.trim() || !base.trim() || !title.trim()) {
       toast.error(t('prManager.createPr.toastFill'))
       return
@@ -155,6 +163,7 @@ export function CreatePrDialog({ open, onOpenChange, projectId, repos, initialRe
         base: base.trim(),
         draft,
         openInBrowser: openBrowser,
+        userId: userId.trim(),
       })
       if (res.status === 'success') {
         opLog.appendLine(t('prManager.operationLog.lineOk'))
@@ -220,9 +229,7 @@ export function CreatePrDialog({ open, onOpenChange, projectId, repos, initialRe
                 disabled={isFromTable}
               />
             </div>
-            <div className="flex items-center self-end pb-2 text-xs text-muted-foreground">
-              →
-            </div>
+            <div className="flex items-center self-end pb-2 text-xs text-muted-foreground">→</div>
             <div className="space-y-1">
               <Label className="text-xs text-muted-foreground">{t('prManager.createPr.base')}</Label>
               <Combobox
@@ -260,12 +267,7 @@ export function CreatePrDialog({ open, onOpenChange, projectId, repos, initialRe
 
           <div className="space-y-1">
             <Label className="text-xs">{t('prManager.createPr.body')}</Label>
-            <Textarea
-              value={body}
-              onChange={e => setBody(e.target.value)}
-              placeholder={t('prManager.createPr.bodyPh')}
-              className="min-h-[120px]"
-            />
+            <Textarea value={body} onChange={e => setBody(e.target.value)} placeholder={t('prManager.createPr.bodyPh')} className="min-h-[120px]" />
           </div>
 
           <div className="flex flex-wrap items-center gap-6">

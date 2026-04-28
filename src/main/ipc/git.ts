@@ -159,9 +159,9 @@ export function registerGitIpcHandlers() {
     IPC.GIT.CHECKOUT_BRANCH,
     async (_event, branchName: string, options?: { force?: boolean; stash?: boolean }, cwd?: string) => await gitCheckoutBranch(branchName, options, cwd)
   )
-  ipcMain.handle(IPC.GIT.DELETE_BRANCH, async (_event, branchName: string, force: boolean) => await gitDeleteBranch(branchName, force))
-  ipcMain.handle(IPC.GIT.DELETE_REMOTE_BRANCH, async (_event, remote: string, branchName: string) => await gitDeleteRemoteBranch(remote, branchName))
-  ipcMain.handle(IPC.GIT.RENAME_BRANCH, async (_event, oldName: string, newName: string) => await gitRenameBranch(oldName, newName))
+  ipcMain.handle(IPC.GIT.DELETE_BRANCH, async (_event, branchName: string, force: boolean, cwd?: string) => await gitDeleteBranch(branchName, force, cwd))
+  ipcMain.handle(IPC.GIT.DELETE_REMOTE_BRANCH, async (_event, remote: string, branchName: string, cwd?: string) => await gitDeleteRemoteBranch(remote, branchName, cwd))
+  ipcMain.handle(IPC.GIT.RENAME_BRANCH, async (_event, oldName: string, newName: string, cwd?: string) => await gitRenameBranch(oldName, newName, cwd))
 
   // Git push/pull
   ipcMain.handle(IPC.GIT.PUSH, async (event, remote: string, branch?: string, commitQueueData?: Record<string, any>, cwd?: string, force?: boolean) => {

@@ -180,9 +180,9 @@ export async function checkoutBranch(
   }
 }
 
-export async function deleteBranch(branchName: string, force: boolean = false): Promise<GitBranchResponse> {
+export async function deleteBranch(branchName: string, force: boolean = false, cwd?: string): Promise<GitBranchResponse> {
   try {
-    const git = await getGitInstance()
+    const git = await getGitInstance(cwd)
     if (!git) {
       return { status: 'error', message: 'Not a git repository or error initializing git' }
     }
@@ -210,9 +210,9 @@ export async function deleteBranch(branchName: string, force: boolean = false): 
   }
 }
 
-export async function deleteRemoteBranch(remote: string, branchName: string): Promise<GitBranchResponse> {
+export async function deleteRemoteBranch(remote: string, branchName: string, cwd?: string): Promise<GitBranchResponse> {
   try {
-    const git = await getGitInstance()
+    const git = await getGitInstance(cwd)
     if (!git) {
       return { status: 'error', message: 'Not a git repository or error initializing git' }
     }
@@ -233,14 +233,14 @@ export async function deleteRemoteBranch(remote: string, branchName: string): Pr
   }
 }
 
-export async function renameBranch(oldName: string, newName: string): Promise<GitBranchResponse> {
+export async function renameBranch(oldName: string, newName: string, cwd?: string): Promise<GitBranchResponse> {
   try {
     const validation = validateBranchName(newName)
     if (!validation.isValid) {
       return { status: 'error', message: validation.message }
     }
 
-    const git = await getGitInstance()
+    const git = await getGitInstance(cwd)
     if (!git) {
       return { status: 'error', message: 'Not a git repository or error initializing git' }
     }

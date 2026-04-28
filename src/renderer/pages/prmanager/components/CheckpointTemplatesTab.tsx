@@ -23,11 +23,12 @@ import { PR_MANAGER_ACCENT_OUTLINE_BTN, PR_MANAGER_ACCENT_OUTLINE_SURFACE } from
 
 type Props = {
   projectId: string
+  userId: string | null
   templates: PrCheckpointTemplate[]
   onRefresh: () => void
 }
 
-export function CheckpointTemplatesTab({ projectId, templates, onRefresh }: Props) {
+export function CheckpointTemplatesTab({ projectId, userId, templates, onRefresh }: Props) {
   const { t } = useTranslation()
   const [code, setCode] = useState('')
   const [label, setLabel] = useState('')
@@ -37,15 +38,23 @@ export function CheckpointTemplatesTab({ projectId, templates, onRefresh }: Prop
   const [headerPickerOpenId, setHeaderPickerOpenId] = useState<string | null>(null)
 
   const sorted = [...templates].sort((a, b) => a.sortOrder - b.sortOrder)
+  const needLogin = !userId?.trim()
+
 
   const handleAdd = async () => {
+    if (!userId?.trim()) {
+      toast.error(t('evm.pleaseLoginFirst'))
+      return
+    }
     if (!code.trim() || !label.trim()) {
       toast.error(t('prManager.checkpointTemplates.toastCodeLabel'))
       return
     }
+    const uid = userId.trim()
     setAdding(true)
     try {
       const res = await window.api.pr.templateUpsert({
+        userId: uid,
         projectId,
         code: code.trim(),
         label: label.trim(),
@@ -68,9 +77,14 @@ export function CheckpointTemplatesTab({ projectId, templates, onRefresh }: Prop
   }
 
   const handleSeed = async () => {
+    if (!userId?.trim()) {
+      toast.error(t('evm.pleaseLoginFirst'))
+      return
+    }
+    const uid = userId.trim()
     setSeeding(true)
     try {
-      const res = await window.api.pr.templateSeedDefault(projectId)
+      const res = await window.api.pr.templateSeedDefault(uid, projectId)
       if (res.status === 'success') {
         toast.success(t('prManager.checkpointTemplates.seedOk'))
         onRefresh()
@@ -81,8 +95,14 @@ export function CheckpointTemplatesTab({ projectId, templates, onRefresh }: Prop
   }
 
   const toggleActive = async (tpl: PrCheckpointTemplate) => {
+    if (!userId?.trim()) {
+      toast.error(t('evm.pleaseLoginFirst'))
+      return
+    }
+    const uid = userId.trim()
     const res = await window.api.pr.templateUpsert({
       id: tpl.id,
+      userId: uid,
       projectId,
       code: tpl.code,
       label: tpl.label,
@@ -95,23 +115,37 @@ export function CheckpointTemplatesTab({ projectId, templates, onRefresh }: Prop
   }
 
   const moveUp = async (idx: number) => {
+    if (!userId?.trim()) {
+      toast.error(t('evm.pleaseLoginFirst'))
+      return
+    }
     if (idx === 0) return
+    const uid = userId.trim()
     const next = [...sorted]
       ;[next[idx - 1], next[idx]] = [next[idx], next[idx - 1]]
-    const res = await window.api.pr.templateReorder(projectId, next.map(t => t.id))
+    const res = await window.api.pr.templateReorder(uid, projectId, next.map(t => t.id))
     if (res.status === 'success') onRefresh()
   }
 
   const moveDown = async (idx: number) => {
+    if (!userId?.trim()) {
+      toast.error(t('evm.pleaseLoginFirst'))
+      return
+    }
     if (idx === sorted.length - 1) return
+    const uid = userId.trim()
     const next = [...sorted]
       ;[next[idx + 1], next[idx]] = [next[idx], next[idx + 1]]
-    const res = await window.api.pr.templateReorder(projectId, next.map(t => t.id))
+    const res = await window.api.pr.templateReorder(uid, projectId, next.map(t => t.id))
     if (res.status === 'success') onRefresh()
   }
 
   const handleDelete = async (id: string) => {
-    const res = await window.api.pr.templateDelete(id)
+    if (!userId?.trim()) {
+      toast.error(t('evm.pleaseLoginFirst'))
+      return
+    }
+    const res = await window.api.pr.templateDelete(userId.trim(), id)
     if (res.status === 'success') {
       toast.success(t('prManager.checkpointTemplates.deleteOk'))
       onRefresh()
@@ -119,7 +153,14 @@ export function CheckpointTemplatesTab({ projectId, templates, onRefresh }: Prop
   }
 
   const setHeaderGroup = async (tpl: PrCheckpointTemplate, headerGroupId: number | null): Promise<boolean> => {
+    if (!userId?.trim()) {
+      toast.error(t('evm.pleaseLoginFirst'))
+      return false
+    }
+    const uid = userId.trim()
     const res = await window.api.pr.templateUpsert({
+      id: tpl.id,
+      userId: uid,
       projectId,
       code: tpl.code,
       label: tpl.label,
@@ -161,7 +202,7 @@ export function CheckpointTemplatesTab({ projectId, templates, onRefresh }: Prop
             size="sm"
             variant="outline"
             onClick={handleAdd}
-            disabled={adding}
+            disabled={adding || needLogin}
             className={cn(PR_MANAGER_ACCENT_OUTLINE_BTN, PR_MANAGER_ACCENT_OUTLINE_SURFACE)}
           >
             {adding ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Plus className="h-3.5 w-3.5" />}
@@ -175,7 +216,7 @@ export function CheckpointTemplatesTab({ projectId, templates, onRefresh }: Prop
               size="sm"
               variant="outline"
               onClick={handleSeed}
-              disabled={seeding}
+              disabled={seeding || needLogin}
               className={cn('shrink-0', PR_MANAGER_ACCENT_OUTLINE_BTN, PR_MANAGER_ACCENT_OUTLINE_SURFACE)}
             >
               {seeding ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Sparkles className="h-3.5 w-3.5" />}
@@ -207,10 +248,16 @@ export function CheckpointTemplatesTab({ projectId, templates, onRefresh }: Prop
                 <TableRow key={tpl.id}>
                   <TableCell>
                     <div className="flex items-center gap-1">
-                      <Button variant="ghost" size="icon" onClick={() => moveUp(idx)} disabled={idx === 0} className="h-6 w-6">
+                      <Button variant="ghost" size="icon" onClick={() => moveUp(idx)} disabled={needLogin || idx === 0} className="h-6 w-6">
                         <ArrowUp className="h-3 w-3" />
                       </Button>
-                      <Button variant="ghost" size="icon" onClick={() => moveDown(idx)} disabled={idx === sorted.length - 1} className="h-6 w-6">
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        onClick={() => moveDown(idx)}
+                        disabled={needLogin || idx === sorted.length - 1}
+                        className="h-6 w-6"
+                      >
                         <ArrowDown className="h-3 w-3" />
                       </Button>
                     </div>
@@ -219,7 +266,7 @@ export function CheckpointTemplatesTab({ projectId, templates, onRefresh }: Prop
                   <TableCell>{tpl.label}</TableCell>
                   <TableCell className="font-mono text-xs text-muted-foreground">{tpl.targetBranch ?? '—'}</TableCell>
                   <TableCell>
-                    <Checkbox checked={tpl.isActive} onCheckedChange={() => toggleActive(tpl)} />
+                    <Checkbox checked={tpl.isActive} disabled={needLogin} onCheckedChange={() => toggleActive(tpl)} />
                   </TableCell>
                   <TableCell className="py-1.5">
                     <Popover open={headerPickerOpenId === tpl.id} onOpenChange={open => setHeaderPickerOpenId(open ? tpl.id : null)}>
@@ -228,6 +275,7 @@ export function CheckpointTemplatesTab({ projectId, templates, onRefresh }: Prop
                           type="button"
                           variant="outline"
                           size="icon-sm"
+                          disabled={needLogin}
                           className="border-none shrink-0 p-0 leading-none"
                           title={t('prManager.checkpointTemplates.headerGroupOpenButton')}
                           aria-label={t('prManager.checkpointTemplates.headerGroupOpenButton')}
@@ -280,7 +328,7 @@ export function CheckpointTemplatesTab({ projectId, templates, onRefresh }: Prop
                     </Popover>
                   </TableCell>
                   <TableCell>
-                    <Button variant="ghost" size="icon" onClick={() => handleDelete(tpl.id)} className="h-7 w-7 text-destructive">
+                    <Button variant="ghost" size="icon" onClick={() => handleDelete(tpl.id)} disabled={needLogin} className="h-7 w-7 text-destructive">
                       <Trash2 className="h-3.5 w-3.5" />
                     </Button>
                   </TableCell>

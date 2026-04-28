@@ -3,6 +3,7 @@ import { toast } from 'sonner'
 
 export interface PrRepo {
   id: string
+  userId: string
   projectId: string
   name: string
   localPath: string | null
@@ -15,6 +16,7 @@ export interface PrRepo {
 
 export interface PrCheckpointTemplate {
   id: string
+  userId: string
   projectId: string
   code: string
   label: string
@@ -27,6 +29,7 @@ export interface PrCheckpointTemplate {
 
 export interface PrBranchCheckpoint {
   id: string
+  userId: string
   trackedBranchId: string
   templateId: string
   isDone: boolean
@@ -37,13 +40,13 @@ export interface PrBranchCheckpoint {
   ghPrDraft: boolean | null
   ghPrState: 'open' | 'closed' | null
   ghPrMerged: boolean | null
-  /** GitHub: login ng\u01b0\u1eddi t\u1ea1o PR. */
+  /** GitHub: login người tạo PR. */
   ghPrAuthor: string | null
-  /** Ti\u00eau \u0111\u1ec1 PR t\u1eeb GitHub. */
+  /** Tiêu đề PR từ GitHub. */
   ghPrTitle: string | null
-  /** updated_at t\u1eeb GitHub API (ISO). */
+  /** updated_at từ GitHub API (ISO). */
   ghPrUpdatedAt: string | null
-  /** Ch\u1ec9 c\u00f3 khi sync qua getPR. */
+  /** Chỉ có khi sync qua getPR. */
   ghPrAdditions: number | null
   ghPrDeletions: number | null
   ghPrChangedFiles: number | null
@@ -55,6 +58,7 @@ export interface PrBranchCheckpoint {
 
 export interface TrackedBranchRow {
   id: string
+  userId: string
   projectId: string
   repoId: string
   branchName: string
@@ -69,6 +73,7 @@ export interface TrackedBranchRow {
 
 export interface PrAutomation {
   id: string
+  userId: string
   repoId: string
   name: string | null
   triggerEvent: string
@@ -94,7 +99,7 @@ export interface PrDataState {
   refreshToken: () => Promise<void>
 }
 
-export function usePrData(projectId: string | null): PrDataState {
+export function usePrData(projectId: string | null, userId: string | null): PrDataState {
   const [loading, setLoading] = useState(false)
   const [repos, setRepos] = useState<PrRepo[]>([])
   const [templates, setTemplates] = useState<PrCheckpointTemplate[]>([])
@@ -109,26 +114,34 @@ export function usePrData(projectId: string | null): PrDataState {
   }, [])
 
   const refreshTracked = useCallback(async () => {
-    if (!projectId) return
-    const res = await window.api.pr.trackedList(projectId)
+    if (!projectId || !userId?.trim()) return
+    const res = await window.api.pr.trackedList(userId, projectId)
     if (res.status === 'success' && res.data) setTracked(res.data as TrackedBranchRow[])
-  }, [projectId])
+  }, [projectId, userId])
 
   const refreshAutomations = useCallback(async () => {
-    const res = await window.api.pr.automationList()
+    if (!userId?.trim()) return
+    const res = await window.api.pr.automationList(userId)
     if (res.status === 'success' && res.data) setAutomations(res.data as PrAutomation[])
-  }, [])
+  }, [userId])
 
   const refresh = useCallback(async () => {
-    if (!projectId) return
+    if (!projectId || !userId?.trim()) {
+      setRepos([])
+      setTemplates([])
+      setTracked([])
+      setAutomations([])
+      return
+    }
+    const uid = userId.trim()
     const ticket = ++abortRef.current
     setLoading(true)
     try {
       const [rRepos, rTpl, rTr, rAuto] = await Promise.all([
-        window.api.pr.repoList(projectId),
-        window.api.pr.templateList(projectId),
-        window.api.pr.trackedList(projectId),
-        window.api.pr.automationList(),
+        window.api.pr.repoList(uid, projectId),
+        window.api.pr.templateList(uid, projectId),
+        window.api.pr.trackedList(uid, projectId),
+        window.api.pr.automationList(uid),
       ])
       if (ticket !== abortRef.current) return
       if (rRepos.status === 'success' && rRepos.data) setRepos(rRepos.data as PrRepo[])
@@ -138,7 +151,7 @@ export function usePrData(projectId: string | null): PrDataState {
     } finally {
       if (ticket === abortRef.current) setLoading(false)
     }
-  }, [projectId])
+  }, [projectId, userId])
 
   useEffect(() => {
     refresh()

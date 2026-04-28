@@ -208,7 +208,7 @@ function FloatingTextFormat({
               onClick={() => {
                 editor.dispatchCommand(FORMAT_TEXT_COMMAND, "bold")
               }}
-              size="sm"
+              size="md"
             >
               <BoldIcon className="h-4 w-4" />
             </ToggleGroupItem>
@@ -218,7 +218,7 @@ function FloatingTextFormat({
               onClick={() => {
                 editor.dispatchCommand(FORMAT_TEXT_COMMAND, "italic")
               }}
-              size="sm"
+              size="md"
             >
               <ItalicIcon className="h-4 w-4" />
             </ToggleGroupItem>
@@ -228,7 +228,7 @@ function FloatingTextFormat({
               onClick={() => {
                 editor.dispatchCommand(FORMAT_TEXT_COMMAND, "underline")
               }}
-              size="sm"
+              size="md"
             >
               <UnderlineIcon className="h-4 w-4" />
             </ToggleGroupItem>
@@ -238,7 +238,7 @@ function FloatingTextFormat({
               onClick={() => {
                 editor.dispatchCommand(FORMAT_TEXT_COMMAND, "strikethrough")
               }}
-              size="sm"
+              size="md"
             >
               <StrikethroughIcon className="h-4 w-4" />
             </ToggleGroupItem>
@@ -249,7 +249,7 @@ function FloatingTextFormat({
               onClick={() => {
                 editor.dispatchCommand(FORMAT_TEXT_COMMAND, "code")
               }}
-              size="sm"
+              size="md"
             >
               <CodeIcon className="h-4 w-4" />
             </ToggleGroupItem>
@@ -257,7 +257,7 @@ function FloatingTextFormat({
               value="link"
               aria-label="Toggle link"
               onClick={insertLink}
-              size="sm"
+              size="md"
             >
               <LinkIcon className="h-4 w-4" />
             </ToggleGroupItem>
@@ -275,7 +275,7 @@ function FloatingTextFormat({
               onClick={() => {
                 editor.dispatchCommand(FORMAT_TEXT_COMMAND, "subscript")
               }}
-              size="sm"
+              size="md"
             >
               <SubscriptIcon className="h-4 w-4" />
             </ToggleGroupItem>
@@ -285,7 +285,7 @@ function FloatingTextFormat({
               onClick={() => {
                 editor.dispatchCommand(FORMAT_TEXT_COMMAND, "superscript")
               }}
-              size="sm"
+              size="md"
             >
               <SuperscriptIcon className="h-4 w-4" />
             </ToggleGroupItem>

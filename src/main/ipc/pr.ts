@@ -32,11 +32,15 @@ import {
 import type { PullRequestSummary } from '../git-hosting/types'
 import { applyPullRequestToCheckpoints, onPrMerged, syncPullRequestIntoTrackedCheckpoints } from '../pr-automation/engine'
 import { getSourceFoldersByProject } from '../task/mysqlTaskStore'
+import type { PrAiAssistChatLineJson } from '../task/mysqlPrTrackingStore'
 import {
-  deleteAutomation,
   deleteCheckpointTemplate,
+  deleteAutomation,
   deletePrRepo,
   deleteTrackedBranch,
+  getPrBoardSkippedBranchPatterns,
+  getPrAiAssistChatLines,
+  upsertPrAiAssistChatLines,
   getPrRepoById,
   listAutomations,
   listCheckpointTemplates,
@@ -47,10 +51,12 @@ import {
   setAutomationActive,
   upsertAutomation,
   upsertCheckpointTemplate,
+  upsertPrBoardSkippedBranchPatterns,
   upsertPrRepo,
   upsertTrackedBranch,
   updateTrackedBranchStatusNote,
 } from '../task/mysqlPrTrackingStore'
+import { hasDbConfig } from '../task/db'
 import { detectVersionControl } from '../utils/versionControlDetector'
 import { analyzePrFileOverlap } from '../prFileOverlap'
 
@@ -118,9 +124,9 @@ export function registerPrIpcHandlers(): void {
   })
 
   // ========== Repos ==========
-  ipcMain.handle(IPC.PR.REPO_LIST, async (_e, projectId: string) => {
+  ipcMain.handle(IPC.PR.REPO_LIST, async (_e, userId: string, projectId: string) => {
     try {
-      const list = await listPrRepos(projectId)
+      const list = await listPrRepos(userId, projectId)
       return { status: 'success', data: list }
     } catch (err) {
       return errResp(err)
@@ -133,12 +139,13 @@ export function registerPrIpcHandlers(): void {
       _e,
       input: {
         id?: string
+        userId: string
         projectId: string
         name: string
         localPath?: string | null
         remoteUrl: string
         defaultBaseBranch?: string | null
-      }
+      },
     ) => {
       try {
         const parsed = parseRemoteUrl(input.remoteUrl)
@@ -147,6 +154,7 @@ export function registerPrIpcHandlers(): void {
         }
         const row = await upsertPrRepo({
           id: input.id,
+          userId: input.userId,
           projectId: input.projectId,
           name: input.name,
           localPath: input.localPath ?? null,
@@ -160,12 +168,12 @@ export function registerPrIpcHandlers(): void {
       } catch (err) {
         return errResp(err)
       }
-    }
+    },
   )
 
-  ipcMain.handle(IPC.PR.REPO_REMOVE, async (_e, id: string) => {
+  ipcMain.handle(IPC.PR.REPO_REMOVE, async (_e, userId: string, id: string) => {
     try {
-      await deletePrRepo(id)
+      await deletePrRepo(userId, id)
       return { status: 'success' }
     } catch (err) {
       return errResp(err)
@@ -197,6 +205,7 @@ export function registerPrIpcHandlers(): void {
           continue
         }
         await upsertPrRepo({
+          userId,
           projectId,
           name: folder.name,
           localPath: folder.path,
@@ -214,10 +223,72 @@ export function registerPrIpcHandlers(): void {
     }
   })
 
-  // ========== Templates ==========
-  ipcMain.handle(IPC.PR.TEMPLATE_LIST, async (_e, projectId: string) => {
+  ipcMain.handle(IPC.PR.BOARD_SKIP_BRANCHES_GET, async (_e, userId: string, projectId: string) => {
     try {
-      const list = await listCheckpointTemplates(projectId)
+      if (!hasDbConfig()) return { status: 'error' as const, message: 'Task database not configured.' }
+      const uid = typeof userId === 'string' ? userId.trim() : ''
+      if (!uid) return { status: 'error' as const, message: 'User ID required.' }
+      const pid = typeof projectId === 'string' ? projectId.trim() : ''
+      if (!pid) return { status: 'error' as const, message: 'Project ID required.' }
+      const lines = await getPrBoardSkippedBranchPatterns(uid, pid)
+      return { status: 'success' as const, data: { lines } }
+    } catch (err) {
+      return errResp(err)
+    }
+  })
+
+  ipcMain.handle(IPC.PR.BOARD_SKIP_BRANCHES_SET, async (_e, userId: string, projectId: string, lines: unknown) => {
+    try {
+      if (!hasDbConfig()) return { status: 'error' as const, message: 'Task database not configured.' }
+      const uid = typeof userId === 'string' ? userId.trim() : ''
+      if (!uid) return { status: 'error' as const, message: 'User ID required.' }
+      const pid = typeof projectId === 'string' ? projectId.trim() : ''
+      if (!pid) return { status: 'error' as const, message: 'Project ID required.' }
+      const raw = Array.isArray(lines) ? lines : []
+      const asStrings = raw.map(l => String(l ?? ''))
+      await upsertPrBoardSkippedBranchPatterns(uid, pid, asStrings)
+      return { status: 'success' as const }
+    } catch (err) {
+      return errResp(err)
+    }
+  })
+
+  ipcMain.handle(IPC.PR.AI_ASSIST_CHAT_GET, async (_e, userId: string, projectId: string) => {
+    try {
+      if (!hasDbConfig()) return { status: 'error' as const, message: 'Task database not configured.' }
+      const uid = typeof userId === 'string' ? userId.trim() : ''
+      if (!uid) return { status: 'error' as const, message: 'User ID required.' }
+      const pid = typeof projectId === 'string' ? projectId.trim() : ''
+      if (!pid) return { status: 'error' as const, message: 'Project ID required.' }
+      const lines = await getPrAiAssistChatLines(uid, pid)
+      return { status: 'success' as const, data: { lines } }
+    } catch (err) {
+      return errResp(err)
+    }
+  })
+
+  ipcMain.handle(
+    IPC.PR.AI_ASSIST_CHAT_SAVE,
+    async (_e, payload: { userId: string; projectId: string; lines: PrAiAssistChatLineJson[] }) => {
+      try {
+        if (!hasDbConfig()) return { status: 'error' as const, message: 'Task database not configured.' }
+        const uid = typeof payload?.userId === 'string' ? payload.userId.trim() : ''
+        if (!uid) return { status: 'error' as const, message: 'User ID required.' }
+        const pid = typeof payload?.projectId === 'string' ? payload.projectId.trim() : ''
+        if (!pid) return { status: 'error' as const, message: 'Project ID required.' }
+        const raw = Array.isArray(payload?.lines) ? payload.lines : []
+        await upsertPrAiAssistChatLines(uid, pid, raw as PrAiAssistChatLineJson[])
+        return { status: 'success' as const }
+      } catch (err) {
+        return errResp(err)
+      }
+    },
+  )
+
+  // ========== Templates ==========
+  ipcMain.handle(IPC.PR.TEMPLATE_LIST, async (_e, userId: string, projectId: string) => {
+    try {
+      const list = await listCheckpointTemplates(userId, projectId)
       return { status: 'success', data: list }
     } catch (err) {
       return errResp(err)
@@ -230,6 +301,7 @@ export function registerPrIpcHandlers(): void {
       _e,
       input: {
         id?: string
+        userId: string
         projectId: string
         code: string
         label: string
@@ -237,7 +309,7 @@ export function registerPrIpcHandlers(): void {
         sortOrder?: number
         isActive?: boolean
         headerGroupId?: number | null
-      }
+      },
     ) => {
       try {
         const row = await upsertCheckpointTemplate(input)
@@ -245,31 +317,31 @@ export function registerPrIpcHandlers(): void {
       } catch (err) {
         return errResp(err)
       }
-    }
+    },
   )
 
-  ipcMain.handle(IPC.PR.TEMPLATE_DELETE, async (_e, id: string) => {
+  ipcMain.handle(IPC.PR.TEMPLATE_DELETE, async (_e, userId: string, id: string) => {
     try {
-      await deleteCheckpointTemplate(id)
+      await deleteCheckpointTemplate(userId, id)
       return { status: 'success' }
     } catch (err) {
       return errResp(err)
     }
   })
 
-  ipcMain.handle(IPC.PR.TEMPLATE_REORDER, async (_e, projectId: string, orderedIds: string[]) => {
+  ipcMain.handle(IPC.PR.TEMPLATE_REORDER, async (_e, userId: string, projectId: string, orderedIds: string[]) => {
     try {
-      await reorderCheckpointTemplates(projectId, orderedIds)
+      await reorderCheckpointTemplates(userId, projectId, orderedIds)
       return { status: 'success' }
     } catch (err) {
       return errResp(err)
     }
   })
 
-  ipcMain.handle(IPC.PR.TEMPLATE_SEED_DEFAULT, async (_e, projectId: string) => {
+  ipcMain.handle(IPC.PR.TEMPLATE_SEED_DEFAULT, async (_e, userId: string, projectId: string) => {
     try {
-      await seedDefaultCheckpointTemplates(projectId)
-      const list = await listCheckpointTemplates(projectId)
+      await seedDefaultCheckpointTemplates(userId, projectId)
+      const list = await listCheckpointTemplates(userId, projectId)
       return { status: 'success', data: list }
     } catch (err) {
       return errResp(err)
@@ -277,9 +349,9 @@ export function registerPrIpcHandlers(): void {
   })
 
   // ========== Tracked Branches ==========
-  ipcMain.handle(IPC.PR.TRACKED_LIST, async (_e, projectId: string) => {
+  ipcMain.handle(IPC.PR.TRACKED_LIST, async (_e, userId: string, projectId: string) => {
     try {
-      const list = await listTrackedBranches(projectId)
+      const list = await listTrackedBranches(userId, projectId)
       return { status: 'success', data: list }
     } catch (err) {
       return errResp(err)
@@ -292,12 +364,13 @@ export function registerPrIpcHandlers(): void {
       _e,
       input: {
         id?: string
+        userId: string
         projectId: string
         repoId: string
         branchName: string
         assigneeUserId?: string | null
         note?: string | null
-      }
+      },
     ) => {
       try {
         const row = await upsertTrackedBranch(input)
@@ -305,7 +378,7 @@ export function registerPrIpcHandlers(): void {
       } catch (err) {
         return errResp(err)
       }
-    }
+    },
   )
 
   ipcMain.handle(
@@ -334,20 +407,67 @@ export function registerPrIpcHandlers(): void {
   })
 
   // ========== Sync PRs from GitHub (open + closed/merged) ==========
-  ipcMain.handle(IPC.PR.TRACKED_SYNC_FROM_GITHUB, async (e, projectId: string) => {
-    try {
+  ipcMain.handle(
+    IPC.PR.TRACKED_SYNC_FROM_GITHUB,
+    async (
+      e,
+      arg0:
+        | string
+        | { userId: string; projectId: string; syncScope?: { repoId?: string; trackedBranchId?: string } },
+      arg1?: string,
+      arg2?: { repoId?: string; trackedBranchId?: string },
+    ) => {
+      let userId: string
+      let projectId: string
+      let options: { repoId?: string; trackedBranchId?: string } | undefined
+      if (typeof arg0 === 'object' && arg0 !== null && 'userId' in arg0 && 'projectId' in arg0) {
+        userId = arg0.userId
+        projectId = arg0.projectId
+        options = arg0.syncScope
+      } else if (typeof arg0 === 'string' && typeof arg1 === 'string') {
+        userId = arg0
+        projectId = arg1
+        options = arg2
+      } else {
+        return { status: 'error', message: 'Invalid GitHub sync request.' }
+      }
+      try {
       if (!getGithubToken()) {
         return { status: 'error', message: 'GitHub token ch\u01b0a c\u1ea5u h\u00ecnh.' }
       }
-      const repos = await listPrRepos(projectId)
-      const templates = await listCheckpointTemplates(projectId)
-      const trackedRows = await listTrackedBranches(projectId)
+      const uid = typeof userId === 'string' ? userId.trim() : ''
+      if (!uid) return { status: 'error', message: 'User ID required.' }
+      const repos = await listPrRepos(uid, projectId)
+      const templates = await listCheckpointTemplates(uid, projectId)
+      const trackedRows = await listTrackedBranches(uid, projectId)
+      const optRepoId = typeof options?.repoId === 'string' ? options.repoId.trim() : ''
+      const optTrackedBranchId = typeof options?.trackedBranchId === 'string' ? options.trackedBranchId.trim() : ''
+      let onlyBranchHead: string | null = null
+      let reposToSync = repos
+      if (optTrackedBranchId) {
+        const row = trackedRows.find(r => r.id === optTrackedBranchId)
+        if (!row) {
+          return { status: 'error', message: 'Tracked branch not found.' }
+        }
+        onlyBranchHead = row.branchName.trim().toLowerCase()
+        reposToSync = repos.filter(r => r.id === row.repoId)
+        if (reposToSync.length === 0) {
+          return { status: 'error', message: 'Repo not found for tracked branch.' }
+        }
+      } else if (optRepoId) {
+        reposToSync = repos.filter(r => r.id === optRepoId)
+        if (reposToSync.length === 0) {
+          return { status: 'error', message: 'Repo not found.' }
+        }
+      }
+      const prMatchesScope = (p: PullRequestSummary) =>
+        !onlyBranchHead || p.head.trim().toLowerCase() === onlyBranchHead
       const perPage = 100
       const maxPages = 5
       /** S\u1ed1 repo x\u1eed l\u00fd song song (c\u00e2n b\u1eb1ng t\u1ed1c \u0111\u1ed9 / rate limit GitHub). */
       const repoSyncConcurrency = 3
       const branchUpsertConcurrency = 8
-      const openPrDetailConcurrency = 8
+      const prDetailPrefetchConcurrency = 8
       const prApplyConcurrency = 8
       let branchesSynced = 0
       let synced = 0
@@ -367,8 +487,8 @@ export function registerPrIpcHandlers(): void {
         e.sender.send(IPC.PR.EVENT_TRACKED_SYNC_PROGRESS, {
           projectId,
           done,
-          total: repos.length,
-          percent: repos.length === 0 ? 100 : Math.round((done / repos.length) * 100),
+          total: reposToSync.length,
+          percent: reposToSync.length === 0 ? 100 : Math.round((done / reposToSync.length) * 100),
         })
       }
 
@@ -376,7 +496,7 @@ export function registerPrIpcHandlers(): void {
 
       let reposDone = 0
       sendProgress(0)
-      await runInBatches(repos, Math.max(1, repoSyncConcurrency), async repo => {
+      await runInBatches(reposToSync, Math.max(1, repoSyncConcurrency), async repo => {
         try {
           const existingBranchNames = trackedBranchNamesByRepo.get(repo.id) ?? new Set<string>()
           trackedBranchNamesByRepo.set(repo.id, existingBranchNames)
@@ -423,22 +543,26 @@ export function registerPrIpcHandlers(): void {
               return branchName && !skippedBranchNames.has(normalizedKey) && !existingBranchNames.has(normalizedKey)
             })
 
-          await runInBatches(newRemoteBranches, branchUpsertConcurrency, async branchName => {
-            const normalizedKey = branchName.toLowerCase()
-            if (existingBranchNames.has(normalizedKey)) return
-            await upsertTrackedBranch({
-              projectId,
-              repoId: repo.id,
-              branchName,
+          if (!onlyBranchHead) {
+            await runInBatches(newRemoteBranches, branchUpsertConcurrency, async branchName => {
+              const normalizedKey = branchName.toLowerCase()
+              if (existingBranchNames.has(normalizedKey)) return
+              await upsertTrackedBranch({
+                userId: uid,
+                projectId,
+                repoId: repo.id,
+                branchName,
+              })
+              existingBranchNames.add(normalizedKey)
+              branchesSynced++
             })
-            existingBranchNames.add(normalizedKey)
-            branchesSynced++
-          })
+          }
 
-          const openEntries = [...best.entries()].filter(([, p]) => p.state === 'open')
-          const CONC = openPrDetailConcurrency
-          for (let i = 0; i < openEntries.length; i += CONC) {
-            const slice = openEntries.slice(i, i + CONC)
+          // GET each PR before apply: pulls.list can lag behind GET /pulls/{n} right after merge/close; list-only was overwriting fresh checkpoints.
+          const scopeEntries = [...best.entries()].filter(([, p]) => prMatchesScope(p))
+          const CONC = prDetailPrefetchConcurrency
+          for (let i = 0; i < scopeEntries.length; i += CONC) {
+            const slice = scopeEntries.slice(i, i + CONC)
             await Promise.all(
               slice.map(async ([key, basePr]) => {
                 try {
@@ -453,7 +577,7 @@ export function registerPrIpcHandlers(): void {
             )
           }
 
-          await runInBatches([...best.values()], prApplyConcurrency, async pr => {
+          await runInBatches([...best.values()].filter(prMatchesScope), prApplyConcurrency, async pr => {
             try {
               await applyPullRequestToCheckpoints({ projectId, repoId: repo.id, pr, templatesCache: templates })
               synced++
@@ -469,10 +593,11 @@ export function registerPrIpcHandlers(): void {
         }
       })
       return { status: 'success', data: { synced, branchesSynced, errors } }
-    } catch (err) {
-      return errResp(err)
-    }
-  })
+      } catch (err) {
+        return errResp(err)
+      }
+    },
+  )
 
   // ========== PR Operations ==========
   ipcMain.handle(
@@ -491,7 +616,8 @@ export function registerPrIpcHandlers(): void {
         draft?: boolean
         openInBrowser?: boolean
         assigneeUserId?: string | null
-      }
+        userId: string
+      },
     ) => {
       try {
         if (!getGithubToken()) {
@@ -510,6 +636,7 @@ export function registerPrIpcHandlers(): void {
         let trackingError: string | undefined
         try {
           await upsertTrackedBranch({
+            userId: input.userId,
             projectId: input.projectId,
             repoId: input.repoId,
             branchName: input.head,
@@ -1055,9 +1182,9 @@ export function registerPrIpcHandlers(): void {
   )
 
   // ========== Automations ==========
-  ipcMain.handle(IPC.PR.AUTOMATION_LIST, async (_e, repoId?: string) => {
+  ipcMain.handle(IPC.PR.AUTOMATION_LIST, async (_e, userId: string, repoId?: string) => {
     try {
-      const list = await listAutomations(repoId)
+      const list = await listAutomations(userId, repoId)
       return { status: 'success', data: list }
     } catch (err) {
       return errResp(err)

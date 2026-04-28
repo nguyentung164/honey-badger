@@ -43,62 +43,6 @@ interface SettingsDialogProps {
   onOpenChange?: (open: boolean) => void
 }
 
-type IntegrationsSavePayload = {
-  mail: { smtpServer: string; port: string; email: string; password: string }
-  onedrive: { clientId: string; clientSecret: string; refreshToken: string }
-  db: { host: string; port: string; user: string; password: string; databaseName: string }
-}
-
-/** IPC preload dùng JSON.stringify; object không thuần (vd. có tham chiếu window) gây lỗi circular. */
-function integrationFieldToString(v: unknown): string {
-  if (typeof v === 'string') return v
-  if (v == null) return ''
-  return String(v)
-}
-
-function isIntegrationsSavePayload(v: unknown): v is IntegrationsSavePayload {
-  if (v == null || typeof v !== 'object') return false
-  const o = v as Record<string, unknown>
-  return o.mail != null && typeof o.mail === 'object' && o.onedrive != null && typeof o.onedrive === 'object' && o.db != null && typeof o.db === 'object'
-}
-
-function toIntegrationsSavePayloadFromFormState(args: {
-  smtpServer: unknown
-  port: unknown
-  email: unknown
-  password: unknown
-  oneDriveClientId: unknown
-  oneDriveClientSecret: unknown
-  oneDriveRefreshToken: unknown
-  dbHost: unknown
-  dbPort: unknown
-  dbUser: unknown
-  dbPassword: unknown
-  dbName: unknown
-}): IntegrationsSavePayload {
-  const s = integrationFieldToString
-  return {
-    mail: {
-      smtpServer: s(args.smtpServer),
-      port: s(args.port),
-      email: s(args.email),
-      password: s(args.password),
-    },
-    onedrive: {
-      clientId: s(args.oneDriveClientId),
-      clientSecret: s(args.oneDriveClientSecret),
-      refreshToken: s(args.oneDriveRefreshToken),
-    },
-    db: {
-      host: s(args.dbHost),
-      port: s(args.dbPort),
-      user: s(args.dbUser),
-      password: s(args.dbPassword),
-      databaseName: s(args.dbName),
-    },
-  }
-}
-
 /** Các key này thuộc tab Integrations (integrationsDirty), không tính vào configDirty để tránh configDirtyTab=null. */
 const SETTINGS_ZUSTAND_KEYS_FOR_INTEGRATIONS_TAB = new Set([
   'oneDriveClientId',
@@ -156,11 +100,7 @@ export function SettingsDialog({ open, onOpenChange }: SettingsDialogProps) {
 
   const { smtpServer, port, email, password, setFieldMailServer, loadMailServerConfig, saveMailServerConfig } = useMailServerStore()
   const user = useTaskAuthStore(s => s.user)
-  const authToken = useTaskAuthStore(s => s.token)
-  const isGuest = useTaskAuthStore(s => s.isGuest)
   const isAdmin = user?.role === 'admin'
-  /** Lưu Integrations lên DB task (đồng bộ server) — cần admin + token; nếu không thì chỉ ghi file cấu hình local. */
-  const integrationsSaveUsesServer = Boolean(authToken && isAdmin)
   const clearSession = useTaskAuthStore(s => s.clearSession)
   const { loadWebhookConfig, addWebhook, deleteWebhook, updateWebhook } = useWebhookStore()
   const { loadCodingRuleConfig } = useCodingRuleStore()
@@ -179,37 +119,6 @@ export function SettingsDialog({ open, onOpenChange }: SettingsDialogProps) {
   const [externalEditorNameForDialog, setExternalEditorNameForDialog] = useState('')
   const [externalEditorPathForDialog, setExternalEditorPathForDialog] = useState('')
   const [activeTab, setActiveTab] = useState('appearance')
-  /** Chỉ dùng khi đã đăng nhập, không guest, không admin: ẩn tab Integrations nếu schema task đã có (tránh lộ mail/OneDrive). */
-  const [hideIntegrationsForNonAdmin, setHideIntegrationsForNonAdmin] = useState(false)
-
-  const showIntegrationsTab = isAdmin || isGuest || user == null || !hideIntegrationsForNonAdmin
-
-  useEffect(() => {
-    if (!open) {
-      setHideIntegrationsForNonAdmin(false)
-      return
-    }
-    if (isAdmin || isGuest || user == null) {
-      setHideIntegrationsForNonAdmin(false)
-      return
-    }
-    void window.api.task.checkTaskSchemaApplied().then(res => {
-      setHideIntegrationsForNonAdmin(res.ok === true && res.applied === true)
-    })
-  }, [open, isAdmin, isGuest, user])
-
-  const refreshIntegrationsTabGate = useCallback(() => {
-    if (isAdmin || isGuest || user == null) return
-    void window.api.task.checkTaskSchemaApplied().then(res => {
-      setHideIntegrationsForNonAdmin(res.ok === true && res.applied === true)
-    })
-  }, [isAdmin, isGuest, user])
-
-  useEffect(() => {
-    if (open && activeTab === 'integrations' && !showIntegrationsTab) {
-      setActiveTab('appearance')
-    }
-  }, [open, activeTab, showIntegrationsTab])
 
   const [showInfo, setShowInfo] = useState(false)
   const [showSupportFeedback, setShowSupportFeedback] = useState(false)
@@ -279,32 +188,6 @@ export function SettingsDialog({ open, onOpenChange }: SettingsDialogProps) {
     if (open) {
       const init = async () => {
         await Promise.all([loadConfigurationConfig(), loadMailServerConfig()])
-        const auth = useTaskAuthStore.getState()
-        if (auth.user?.role === 'admin' && auth.token) {
-          try {
-            const intRes = await window.api.task.getIntegrationsForSettings(auth.token)
-            if (intRes.status === 'success' && intRes.data) {
-              const d = intRes.data
-              const s = integrationFieldToString
-              const ms = useMailServerStore.getState()
-              ms.setFieldMailServer('smtpServer', s(d.mail.smtpServer))
-              ms.setFieldMailServer('port', s(d.mail.port))
-              ms.setFieldMailServer('email', s(d.mail.email))
-              ms.setFieldMailServer('password', s(d.mail.password))
-              const cs = useConfigurationStore.getState()
-              cs.setFieldConfiguration('oneDriveClientId', s(d.onedrive.clientId))
-              cs.setFieldConfiguration('oneDriveClientSecret', s(d.onedrive.clientSecret))
-              cs.setFieldConfiguration('oneDriveRefreshToken', s(d.onedrive.refreshToken))
-              cs.setFieldConfiguration('dbHost', s(d.db.host))
-              cs.setFieldConfiguration('dbPort', s(d.db.port))
-              cs.setFieldConfiguration('dbUser', s(d.db.user))
-              cs.setFieldConfiguration('dbPassword', s(d.db.password))
-              cs.setFieldConfiguration('dbName', s(d.db.databaseName))
-            }
-          } catch {
-            // ignore — dùng cache local
-          }
-        }
         loadWebhookConfig()
         loadCodingRuleConfig(useConfigurationStore.getState().sourceFolder || '')
         loadSourceFolderConfig()
@@ -642,101 +525,10 @@ export function SettingsDialog({ open, onOpenChange }: SettingsDialogProps) {
     }
   }
 
-  const handleSaveIntegrationsConfig = async (payloadOverride?: IntegrationsSavePayload) => {
-    const override = isIntegrationsSavePayload(payloadOverride) ? payloadOverride : undefined
-    const payload: IntegrationsSavePayload =
-      override ??
-      toIntegrationsSavePayloadFromFormState({
-        smtpServer,
-        port,
-        email,
-        password,
-        oneDriveClientId,
-        oneDriveClientSecret,
-        oneDriveRefreshToken,
-        dbHost,
-        dbPort,
-        dbUser,
-        dbPassword,
-        dbName,
-      })
+  const handleSaveIntegrationsConfig = async () => {
     try {
-      const auth = useTaskAuthStore.getState()
-      const saveViaTaskServer = Boolean(auth.token && isAdmin)
-      if (!saveViaTaskServer) {
-        await saveConfigurationConfig()
-        await saveMailServerConfig()
-        const configState = useConfigurationStore.getState()
-        const mailState = useMailServerStore.getState()
-        initialConfigRef.current = {
-          openaiApiKey: configState.openaiApiKey,
-          openaiModel: configState.openaiModel,
-          openaiReasoningEffort: configState.openaiReasoningEffort,
-          claudeApiKey: configState.claudeApiKey,
-          googleApiKey: configState.googleApiKey,
-          activeApiProvider: configState.activeApiProvider,
-          svnFolder: configState.svnFolder,
-          sourceFolder: configState.sourceFolder,
-          webhookMS: configState.webhookMS,
-          codingRule: configState.codingRule,
-          codingRuleId: configState.codingRuleId,
-          oneDriveClientId: configState.oneDriveClientId,
-          oneDriveClientSecret: configState.oneDriveClientSecret,
-          oneDriveRefreshToken: configState.oneDriveRefreshToken,
-          dbHost: configState.dbHost,
-          dbPort: configState.dbPort,
-          dbUser: configState.dbUser,
-          dbPassword: configState.dbPassword,
-          dbName: configState.dbName,
-          startOnLogin: configState.startOnLogin,
-          showNotifications: configState.showNotifications,
-          playNotificationSound: configState.playNotificationSound ?? true,
-          notificationSoundPath: configState.notificationSoundPath ?? '',
-          enableTeamsNotification: configState.enableTeamsNotification,
-          versionControlSystem: configState.versionControlSystem,
-          commitConventionEnabled: configState.commitConventionEnabled,
-          commitConventionMode: configState.commitConventionMode,
-          gitleaksEnabled: configState.gitleaksEnabled,
-          gitleaksMode: configState.gitleaksMode,
-          gitleaksConfigPath: configState.gitleaksConfigPath,
-          externalEditorPath: configState.externalEditorPath,
-          autoRefreshEnabled: configState.autoRefreshEnabled,
-          developerMode: configState.developerMode,
-          commitMessageDetailLevel: configState.commitMessageDetailLevel,
-          multiRepoEnabled: configState.multiRepoEnabled,
-          multiRepoSource: configState.multiRepoSource,
-          multiRepoPaths: configState.multiRepoPaths,
-          selectedProjectId: draftSelectedProjectId,
-        }
-        stopNotificationSound()
-        initialIntegrationsRef.current = {
-          config: {
-            oneDriveClientId: configState.oneDriveClientId,
-            oneDriveClientSecret: configState.oneDriveClientSecret,
-            oneDriveRefreshToken: configState.oneDriveRefreshToken,
-            dbHost: configState.dbHost,
-            dbPort: configState.dbPort,
-            dbUser: configState.dbUser,
-            dbPassword: configState.dbPassword,
-            dbName: configState.dbName,
-          },
-          mail: {
-            smtpServer: mailState.smtpServer,
-            port: mailState.port,
-            email: mailState.email,
-            password: mailState.password,
-          },
-        }
-        toast.success(t('toast.configSaved'))
-        setDirtyCheckVersion(v => v + 1)
-        window.dispatchEvent(new CustomEvent('configuration-changed', { detail: { type: 'configuration' } }))
-        return
-      }
-      const res = await window.api.task.saveIntegrationsSettings(auth.token!, payload)
-      if (res.status !== 'success') {
-        toast.error('message' in res && res.message ? String(res.message) : t('toast.configSaveFailed'))
-        throw new Error('SETTINGS_INTEGRATIONS_SAVE_ABORTED')
-      }
+      await saveConfigurationConfig()
+      await saveMailServerConfig()
       const configState = useConfigurationStore.getState()
       const mailState = useMailServerStore.getState()
       initialConfigRef.current = {
@@ -803,11 +595,8 @@ export function SettingsDialog({ open, onOpenChange }: SettingsDialogProps) {
       window.dispatchEvent(new CustomEvent('configuration-changed', { detail: { type: 'configuration' } }))
     } catch (err) {
       logger.error('Failed to save integrations configuration:', err)
-      const aborted = err instanceof Error && err.message === 'SETTINGS_INTEGRATIONS_SAVE_ABORTED'
-      if (!aborted) {
-        const detail = err instanceof Error && err.message?.trim() ? err.message : ''
-        toast.error(detail ? `${t('toast.configSaveFailed')} ${detail}` : t('toast.configSaveFailed'))
-      }
+      const detail = err instanceof Error && err.message?.trim() ? err.message : ''
+      toast.error(detail ? `${t('toast.configSaveFailed')} ${detail}` : t('toast.configSaveFailed'))
       throw err
     }
   }
@@ -816,22 +605,8 @@ export function SettingsDialog({ open, onOpenChange }: SettingsDialogProps) {
     try {
       const bothDirty = integrationsDirty && configDirty
       if (bothDirty) {
-        const integrationSnapshot = toIntegrationsSavePayloadFromFormState({
-          smtpServer,
-          port,
-          email,
-          password,
-          oneDriveClientId,
-          oneDriveClientSecret,
-          oneDriveRefreshToken,
-          dbHost,
-          dbPort,
-          dbUser,
-          dbPassword,
-          dbName,
-        })
         await handleSaveConfigurationConfig(false)
-        await handleSaveIntegrationsConfig(integrationSnapshot)
+        await handleSaveIntegrationsConfig()
       } else {
         if (integrationsDirty) {
           await handleSaveIntegrationsConfig()
@@ -845,23 +620,7 @@ export function SettingsDialog({ open, onOpenChange }: SettingsDialogProps) {
     } catch {
       // toast đã xử lý trong handleSave*; không đóng dialog khi lưu lỗi
     }
-  }, [
-    configDirty,
-    integrationsDirty,
-    onOpenChange,
-    smtpServer,
-    port,
-    email,
-    password,
-    oneDriveClientId,
-    oneDriveClientSecret,
-    oneDriveRefreshToken,
-    dbHost,
-    dbPort,
-    dbUser,
-    dbPassword,
-    dbName,
-  ])
+  }, [configDirty, integrationsDirty, onOpenChange])
 
   const handleTestMailConnection = async () => {
     setTestMailLoading(true)
@@ -1176,7 +935,7 @@ export function SettingsDialog({ open, onOpenChange }: SettingsDialogProps) {
             </div>
           </div>
           <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full gap-4! p-4">
-            <TabsList className={`grid w-full ${showIntegrationsTab ? 'grid-cols-6' : 'grid-cols-5'}`}>
+            <TabsList className="grid w-full grid-cols-6">
               <TabsTrigger id="settings-tab-appearance" value="appearance" className="flex items-center gap-1.5">
                 <Palette />
                 {t('settings.tab.appearance')}
@@ -1209,13 +968,11 @@ export function SettingsDialog({ open, onOpenChange }: SettingsDialogProps) {
                   <span className="absolute -top-0.5 -right-0.5 w-2 h-2 rounded-full bg-amber-500" title={t('settings.configuration.unsavedChanges')} />
                 )}
               </TabsTrigger>
-              {showIntegrationsTab && (
-                <TabsTrigger id="settings-tab-integrations" value="integrations" className="flex items-center gap-1.5 relative">
-                  <Cloud />
-                  {t('settings.tab.integrations')}
-                  {integrationsDirty && <span className="absolute -top-0.5 -right-0.5 w-2 h-2 rounded-full bg-amber-500" title={t('settings.configuration.unsavedChanges')} />}
-                </TabsTrigger>
-              )}
+              <TabsTrigger id="settings-tab-integrations" value="integrations" className="flex items-center gap-1.5 relative">
+                <Cloud />
+                {t('settings.tab.integrations')}
+                {integrationsDirty && <span className="absolute -top-0.5 -right-0.5 w-2 h-2 rounded-full bg-amber-500" title={t('settings.configuration.unsavedChanges')} />}
+              </TabsTrigger>
             </TabsList>
 
             {/* Appearance Tab */}
@@ -1313,23 +1070,18 @@ export function SettingsDialog({ open, onOpenChange }: SettingsDialogProps) {
               )}
             </TabsContent>
 
-            {/* Integrations: admin luôn; hoặc khi chưa đăng nhập/guest/schema chưa áp dụng để cấu hình DB + Init schema */}
-            {showIntegrationsTab && (
-              <TabsContent value="integrations">
-                {activeTab === 'integrations' && (
-                  <IntegrationsTabContent
-                    integrationsDirty={integrationsDirty}
-                    onSetConfig={handleSetConfig}
-                    onSetMailServer={handleSetMailServer}
-                    onSave={handleSaveIntegrationsConfig}
-                    onTestMail={handleTestMailConnection}
-                    testMailLoading={testMailLoading}
-                    saveUsesLocalDiskOnly={!integrationsSaveUsesServer}
-                    onAfterInitSchema={refreshIntegrationsTabGate}
-                  />
-                )}
-              </TabsContent>
-            )}
+            <TabsContent value="integrations">
+              {activeTab === 'integrations' && (
+                <IntegrationsTabContent
+                  integrationsDirty={integrationsDirty}
+                  onSetConfig={handleSetConfig}
+                  onSetMailServer={handleSetMailServer}
+                  onSave={handleSaveIntegrationsConfig}
+                  onTestMail={handleTestMailConnection}
+                  testMailLoading={testMailLoading}
+                />
+              )}
+            </TabsContent>
           </Tabs>
         </DialogContent>
       </Dialog>

@@ -238,7 +238,7 @@ export function EvmReportTab() {
               if (v === 'table' || v === 'chart') setViewMode(v)
             }}
             variant="outline"
-            size="sm"
+            size="md"
             className="shrink-0"
           >
             <ToggleGroupItem

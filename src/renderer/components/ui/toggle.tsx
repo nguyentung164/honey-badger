@@ -14,7 +14,12 @@ const toggleVariants = cva(
       },
       size: {
         default: 'h-9 px-2 min-w-9',
-        sm: 'h-8 px-1.5 min-w-8',
+        /** Nhỏ nhất (Across PR, v.v.) */
+        xs: 'h-6 min-h-6 px-1 min-w-6 gap-0.5 text-[11px] leading-none [&_svg:not([class*="size-"])]:size-3',
+        /** Trước đây là `xs` (trước khi thêm bản xs nhỏ hơn). */
+        sm: 'h-7 min-h-7 px-1.5 min-w-7 gap-1 text-xs [&_svg:not([class*="size-"])]:size-3.5',
+        /** Trước đây là `sm`. */
+        md: 'h-8 px-1.5 min-w-8',
         lg: 'h-10 px-2.5 min-w-10',
       },
     },

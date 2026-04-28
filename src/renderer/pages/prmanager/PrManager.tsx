@@ -40,7 +40,10 @@ export function PrManager({ embedded = false, onDetachToWindow }: PrManagerProps
   const [tokenDialogOpen, setTokenDialogOpen] = useState(false)
   const [cherryPickOpen, setCherryPickOpen] = useState(false)
 
-  const { loading, repos, templates, tracked, automations, tokenStatus, refresh, refreshToken } = usePrData(projectId)
+  const { loading, repos, templates, tracked, automations, tokenStatus, refresh, refreshTracked, refreshToken } = usePrData(
+    projectId,
+    user?.id ?? null,
+  )
 
   useEffect(() => {
     verifySession()
@@ -141,7 +144,17 @@ export function PrManager({ embedded = false, onDetachToWindow }: PrManagerProps
           ) : (
             <Tabs value={activeTab} onValueChange={v => setActiveTab(v as Tab)} className="flex min-h-0 flex-1 flex-col">
               <TabsContent value="board" className="min-h-0 flex-1 overflow-hidden data-[state=inactive]:hidden data-[state=active]:flex data-[state=active]:flex-col">
-                <PrBoard projectId={projectId} repos={repos} templates={templates} tracked={tracked} loading={loading} onRefresh={refresh} githubTokenOk={Boolean(tokenStatus?.ok)} />
+                <PrBoard
+                  projectId={projectId}
+                  userId={user?.id ?? null}
+                  repos={repos}
+                  templates={templates}
+                  tracked={tracked}
+                  loading={loading}
+                  onRefresh={refresh}
+                  onRefreshTracked={refreshTracked}
+                  githubTokenOk={Boolean(tokenStatus?.ok)}
+                />
               </TabsContent>
               <TabsContent value="settings" className="min-h-0 flex-1 overflow-hidden data-[state=inactive]:hidden data-[state=active]:flex data-[state=active]:flex-col">
                 <PrManagerSettingsPanel

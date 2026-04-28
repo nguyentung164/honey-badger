@@ -80,7 +80,7 @@ export function EarnedValueSeriesTable({
                 if (v === 'day' || v === 'month' || v === 'quarter') setGranularity(v)
               }}
               variant="outline"
-              size="sm"
+              size="md"
               className="shrink-0"
             >
               <ToggleGroupItem value="day" aria-label={t('evm.reportGranularityDay')}>

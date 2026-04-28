@@ -149,7 +149,7 @@ function BranchManageCreateSection({
         }
         sourceRef = tracking
       }
-      const result = await window.api.git.create_branch(name, sourceRef)
+      const result = await window.api.git.create_branch(name, sourceRef, cwd)
       if (result.status === 'success') {
         toast.success(t('git.branchManage.createSuccess'))
         onSuccess?.()
@@ -166,7 +166,7 @@ function BranchManageCreateSection({
   }
 
   return (
-    <div className="shrink-0 space-y-1.5 rounded-md bg-muted/30 p-2">
+    <div className="shrink-0 space-y-1.5 rounded-md bg-muted p-2">
       <Label className="text-xs font-medium">{t('git.branchManage.createBranch')}</Label>
       <div className="flex flex-col gap-2 sm:flex-row sm:items-end">
         <div className="min-w-0 flex-1 space-y-1">
@@ -213,9 +213,11 @@ function BranchManageCreateSection({
           </div>
         </div>
       </div>
-      <div className="min-h-[1.25rem]" aria-live="polite">
-        {createError ? <p className="text-xs leading-tight text-destructive">{createError}</p> : null}
-      </div>
+      {createError ? (
+        <p className="text-xs leading-tight text-destructive" aria-live="polite">
+          {createError}
+        </p>
+      ) : null}
     </div>
   )
 }
@@ -227,9 +229,11 @@ interface GitBranchManageDialogProps {
   onSuccess?: () => void
   /** Git working directory (repo root). When provided, branch list and fetch use this repo (multi-repo). */
   cwd?: string
+  /** When multi-repo with >1 folder: repo picker at top; each entry is path + display label. */
+  repoChoices?: { path: string; label: string }[]
 }
 
-export function GitBranchManageDialog({ open, onOpenChange, currentBranch, onSuccess, cwd }: GitBranchManageDialogProps) {
+export function GitBranchManageDialog({ open, onOpenChange, currentBranch, onSuccess, cwd, repoChoices }: GitBranchManageDialogProps) {
   const { t } = useTranslation()
   const buttonVariant = useAppearanceStoreSelect(s => s.buttonVariant)
   const [branches, setBranches] = useState<BranchesData | null>(null)
@@ -251,6 +255,34 @@ export function GitBranchManageDialog({ open, onOpenChange, currentBranch, onSuc
   const [switchUncommittedFiles, setSwitchUncommittedFiles] = useState<GitFile[]>([])
   const [switchingToBranch, setSwitchingToBranch] = useState<string | null>(null)
 
+  const showRepoPicker = (repoChoices?.length ?? 0) > 1
+  const [selectedRepoPath, setSelectedRepoPath] = useState('')
+
+  useEffect(() => {
+    if (!open) setSelectedRepoPath('')
+  }, [open])
+
+  useEffect(() => {
+    if (open) {
+      const initial = (cwd && cwd.trim()) || repoChoices?.[0]?.path || ''
+      setSelectedRepoPath(initial)
+    }
+  }, [open, cwd, repoChoices])
+
+  const effectiveCwd = useMemo(() => {
+    if (showRepoPicker && selectedRepoPath.trim()) return selectedRepoPath.trim()
+    return (cwd && cwd.trim()) || ''
+  }, [showRepoPicker, selectedRepoPath, cwd])
+
+  const repoPickerOptions = useMemo(
+    () =>
+      (repoChoices ?? []).map(r => ({
+        value: r.path,
+        label: r.label?.trim() ? r.label : r.path,
+      })),
+    [repoChoices]
+  )
+
   const localBranches = branches?.local?.all ?? EMPTY_BRANCH_LIST
   const remoteAll = branches?.remote?.all ?? []
   const current = branches?.current ?? currentBranch
@@ -262,7 +294,7 @@ export function GitBranchManageDialog({ open, onOpenChange, currentBranch, onSuc
   const loadBranches = useCallback(async () => {
     setIsLoading(true)
     try {
-      const result = await window.api.git.get_branches(cwd)
+      const result = await window.api.git.get_branches(effectiveCwd || undefined)
       if (result.status === 'success' && result.data) {
         setBranches({
           local: result.data.local,
@@ -278,7 +310,7 @@ export function GitBranchManageDialog({ open, onOpenChange, currentBranch, onSuc
     } finally {
       setIsLoading(false)
     }
-  }, [t, cwd])
+  }, [t, effectiveCwd])
 
   useEffect(() => {
     if (open) {
@@ -295,7 +327,7 @@ export function GitBranchManageDialog({ open, onOpenChange, currentBranch, onSuc
       setSwitchUncommittedFiles([])
       setSwitchingToBranch(null)
     }
-  }, [open, currentBranch, loadBranches])
+  }, [open, effectiveCwd, currentBranch, loadBranches])
 
   useEffect(() => {
     const allowed = new Set((branches?.local?.all ?? EMPTY_BRANCH_LIST).filter(b => b !== (branches?.current ?? currentBranch)))
@@ -349,7 +381,7 @@ export function GitBranchManageDialog({ open, onOpenChange, currentBranch, onSuc
     const unmergedNames: string[] = []
     try {
       for (const name of names) {
-        const result = await window.api.git.delete_branch(name, false)
+        const result = await window.api.git.delete_branch(name, false, effectiveCwd || undefined)
         if (result.status === 'success') {
           successNames.push(name)
         } else {
@@ -390,7 +422,7 @@ export function GitBranchManageDialog({ open, onOpenChange, currentBranch, onSuc
     const successNames: string[] = []
     try {
       for (const name of names) {
-        const result = await window.api.git.delete_branch(name, true)
+        const result = await window.api.git.delete_branch(name, true, effectiveCwd || undefined)
         if (result.status === 'success') {
           successNames.push(name)
         } else {
@@ -440,7 +472,7 @@ export function GitBranchManageDialog({ open, onOpenChange, currentBranch, onSuc
     }
     setIsRenaming(true)
     try {
-      const result = await window.api.git.rename_branch(editingBranch, name)
+      const result = await window.api.git.rename_branch(editingBranch, name, effectiveCwd || undefined)
       if (result.status === 'success') {
         toast.success(t('git.branchManage.renameSuccess'))
         onSuccess?.()
@@ -466,7 +498,7 @@ export function GitBranchManageDialog({ open, onOpenChange, currentBranch, onSuc
     if (!deleteTarget) return
     setIsDeleting(true)
     try {
-      const result = await window.api.git.delete_branch(deleteTarget, force)
+      const result = await window.api.git.delete_branch(deleteTarget, force, effectiveCwd || undefined)
       if (result.status === 'success') {
         toast.success(t('git.branchManage.deleteSuccess'))
         onSuccess?.()
@@ -493,7 +525,7 @@ export function GitBranchManageDialog({ open, onOpenChange, currentBranch, onSuc
     if (!deleteRemoteTarget) return
     setIsDeletingRemote(true)
     try {
-      const result = await window.api.git.delete_remote_branch(deleteRemoteTarget.remote, deleteRemoteTarget.branchName)
+      const result = await window.api.git.delete_remote_branch(deleteRemoteTarget.remote, deleteRemoteTarget.branchName, effectiveCwd || undefined)
       if (result.status === 'success') {
         toast.success(t('git.branchManage.deleteRemoteSuccess'))
         onSuccess?.()
@@ -512,10 +544,10 @@ export function GitBranchManageDialog({ open, onOpenChange, currentBranch, onSuc
 
   const handleSwitchToBranch = async (branchName: string) => {
     const head = branches?.current ?? current
-    if (branchName === head || !cwd) return
+    if (branchName === head || !effectiveCwd) return
     setSwitchingToBranch(branchName)
     try {
-      const result = await window.api.git.checkout_branch(branchName, undefined, cwd)
+      const result = await window.api.git.checkout_branch(branchName, undefined, effectiveCwd || undefined)
       if (result.status === 'error' && result.data?.hasUncommittedChanges) {
         setPendingSwitchBranch(branchName)
         const rawFiles = result.data.files || []
@@ -546,12 +578,12 @@ export function GitBranchManageDialog({ open, onOpenChange, currentBranch, onSuc
   }
 
   const handleSwitchStashAndContinue = async () => {
-    if (!cwd || !pendingSwitchBranch) return
+    if (!effectiveCwd || !pendingSwitchBranch) return
     const target = pendingSwitchBranch
     setShowSwitchBranchDialog(false)
     setSwitchingToBranch(target)
     try {
-      const result = await window.api.git.checkout_branch(target, { stash: true }, cwd)
+      const result = await window.api.git.checkout_branch(target, { stash: true }, effectiveCwd || undefined)
       if (result.status === 'success') {
         toast.success(t('git.branchManage.switchSuccess', { name: target }))
         setPendingSwitchBranch('')
@@ -570,12 +602,12 @@ export function GitBranchManageDialog({ open, onOpenChange, currentBranch, onSuc
   }
 
   const handleSwitchForceContinue = async () => {
-    if (!cwd || !pendingSwitchBranch) return
+    if (!effectiveCwd || !pendingSwitchBranch) return
     const target = pendingSwitchBranch
     setShowSwitchBranchDialog(false)
     setSwitchingToBranch(target)
     try {
-      const result = await window.api.git.checkout_branch(target, { force: true }, cwd)
+      const result = await window.api.git.checkout_branch(target, { force: true }, effectiveCwd || undefined)
       if (result.status === 'success') {
         toast.success(t('git.branchManage.switchSuccess', { name: target }))
         setPendingSwitchBranch('')
@@ -612,12 +644,28 @@ export function GitBranchManageDialog({ open, onOpenChange, currentBranch, onSuc
           </DialogHeader>
 
           <div className="flex min-h-0 flex-1 flex-col gap-3 overflow-hidden">
+            {showRepoPicker && (
+              <div className="shrink-0 space-y-1.5 rounded-md bg-muted p-2">
+                <Label className="text-xs font-medium">{t('git.branchManage.selectRepo')}</Label>
+                <Combobox
+                  value={selectedRepoPath}
+                  onValueChange={setSelectedRepoPath}
+                  disabled={isLoading}
+                  options={repoPickerOptions}
+                  placeholder={t('git.branchManage.selectRepoPlaceholder')}
+                  searchPlaceholder={t('common.search')}
+                  emptyText={t('git.branchManage.selectRepoEmpty')}
+                  size="sm"
+                  className="w-full"
+                />
+              </div>
+            )}
             <BranchManageCreateSection
               open={open}
               isLoading={isLoading}
               branches={branches}
-              cwd={cwd}
-              initialSourceBranch={currentBranch}
+              cwd={effectiveCwd || undefined}
+              initialSourceBranch={current}
               buttonVariant={buttonVariant ?? 'default'}
               onSuccess={() => {
                 void loadBranches()
@@ -667,8 +715,7 @@ export function GitBranchManageDialog({ open, onOpenChange, currentBranch, onSuc
                   <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
                 </div>
               ) : (
-                <div className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-md border border-border/70 bg-muted/10">
-                  {/* flex + ScrollArea hay gãy chiều cao; overflow-y-auto + min-h-0 + h-0 để luôn có scroll dọc khi list dài */}
+                <div className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-md border border-border/70 bg-muted">
                   <div className="h-0 min-h-0 flex-1 overflow-y-auto overscroll-y-contain [-webkit-overflow-scrolling:touch]">
                     <div className="p-1">
                       {localBranches.length === 0 ? (
