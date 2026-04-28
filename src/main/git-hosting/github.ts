@@ -1147,6 +1147,92 @@ export async function githubRemoteBranchesExistenceMap(
   return out
 }
 
+const BRANCH_PROTECT_CHECK_CONCURRENCY = 5
+
+async function batchAsyncVoid<T>(items: T[], batchSize: number, fn: (item: T) => Promise<void>): Promise<void> {
+  for (let i = 0; i < items.length; i += batchSize) {
+    await Promise.all(items.slice(i, i + batchSize).map(fn))
+  }
+}
+
+/**
+ * Theo REST GET `/repos/{owner}/{repo}/branches/{branch}`:
+ * `protected` (boolean) — GitHub set khi nhánh bị **branch protection hoặc rulesets** (xem filter `protected` của list branches).
+ * `protection.enabled` chỉ phản ánh chi tiết branch protection cổ điển; rulesets-only có thể `protected: true` nhưng `protection.enabled` không đủ — không chỉ dựa vào nested đó.
+ */
+async function githubBranchIsProtectedPerRestApi(owner: string, repo: string, branch: string): Promise<boolean> {
+  const b = normalizeGithubBranchRefName(branch)
+  if (!b) return false
+  const octokit = getClient()
+  return withGithubRateLimitRetry(async () => {
+    try {
+      const { data } = await octokit.repos.getBranch({ owner, repo, branch: b })
+      return data.protected === true || data.protection?.enabled === true
+    } catch (err: unknown) {
+      const status = (err as { status?: number })?.status ?? (err as { response?: { status?: number } })?.response?.status
+      if (status === 404) return false
+      throw err
+    }
+  }, { label: `branchProtection ${owner}/${repo}/${b}` })
+}
+
+/**
+ * Giống {@link githubRemoteBranchesExistenceMap}, thêm map nhánh GitHub coi là protected (`repos.getBranch`.protected hoặc protection.enabled).
+ */
+export async function githubRemoteBranchesExistenceAndProtectionMap(
+  items: { id: string; owner: string; repo: string; branch: string }[],
+): Promise<{ existence: Record<string, boolean>; branchProtected: Record<string, boolean> }> {
+  const existence: Record<string, boolean> = {}
+  const branchProtected: Record<string, boolean> = {}
+  if (!items.length) return { existence, branchProtected }
+
+  const byRepo = new Map<string, { owner: string; repo: string; rows: { id: string; branch: string }[] }>()
+
+  for (const it of items) {
+    const o = (it.owner ?? '').trim()
+    const r = (it.repo ?? '').trim()
+    if (!o || !r) {
+      existence[it.id] = false
+      branchProtected[it.id] = false
+      continue
+    }
+    const key = `${o}/${r}`
+    const g = byRepo.get(key) ?? { owner: o, repo: r, rows: [] }
+    g.rows.push({ id: it.id, branch: normalizeGithubBranchRefName(it.branch ?? '') })
+    byRepo.set(key, g)
+  }
+
+  for (const { owner, repo, rows } of byRepo.values()) {
+    let names: Set<string>
+    try {
+      const list = await githubClient.listBranches(owner, repo)
+      names = new Set(list)
+    } catch (err) {
+      l.warn(`listBranches for ${owner}/${repo} (existence+protection):`, (err as Error)?.message)
+      for (const { id } of rows) {
+        existence[id] = false
+        branchProtected[id] = false
+      }
+      continue
+    }
+    const onRemote: { id: string; branch: string }[] = []
+    for (const { id, branch } of rows) {
+      const ex = Boolean(branch) && names.has(branch)
+      existence[id] = ex
+      if (!ex) {
+        branchProtected[id] = false
+      } else {
+        onRemote.push({ id, branch })
+      }
+    }
+    await batchAsyncVoid(onRemote, BRANCH_PROTECT_CHECK_CONCURRENCY, async ({ id, branch }) => {
+      branchProtected[id] = await githubBranchIsProtectedPerRestApi(owner, repo, branch)
+    })
+  }
+
+  return { existence, branchProtected }
+}
+
 /**
  * Xo\u00e1 `refs/heads/<branch>` tr\u00ean GitHub (sau khi \u0111\u00e3 merge).
  * Kh\u00f4ng d\u00f9ng cho nh\u00e1nh m\u1eb7c \u0111\u1ecbnh (main/master/...) ho\u1eb7c c\u00f9ng t\u00ean default branch c\u1ee7a repo.

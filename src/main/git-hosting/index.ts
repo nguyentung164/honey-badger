@@ -18,6 +18,7 @@ export {
   listPullRequestIssueComments,
   githubRemoteBranchExists,
   githubRemoteBranchesExistenceMap,
+  githubRemoteBranchesExistenceAndProtectionMap,
   withGithubRateLimitRetry,
   parseRemoteUrl,
   resetGithubClient,

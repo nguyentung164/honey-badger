@@ -660,15 +660,12 @@ CREATE TABLE IF NOT EXISTS pr_tracked_branches (
   project_id VARCHAR(36) NOT NULL,
   repo_id VARCHAR(36) NOT NULL,
   branch_name VARCHAR(255) NOT NULL,
-  assignee_user_id VARCHAR(36),
-  status VARCHAR(50) DEFAULT 'Staged',
   note TEXT,
   created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
   updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
   version INT NOT NULL DEFAULT 1,
   UNIQUE KEY uk_pr_track_user_repo_branch (user_id, repo_id, branch_name),
   INDEX idx_pr_track_project (project_id),
-  INDEX idx_pr_track_assignee (assignee_user_id),
   INDEX idx_pr_track_user_project (user_id, project_id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
@@ -787,7 +784,6 @@ ALTER TABLE pr_checkpoint_templates ADD CONSTRAINT fk_pr_tpl_user FOREIGN KEY (u
 ALTER TABLE pr_tracked_branches ADD CONSTRAINT fk_pr_track_project FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE CASCADE;
 ALTER TABLE pr_tracked_branches ADD CONSTRAINT fk_pr_track_user FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE;
 ALTER TABLE pr_tracked_branches ADD CONSTRAINT fk_pr_track_repo FOREIGN KEY (repo_id) REFERENCES pr_repos(id) ON DELETE CASCADE;
-ALTER TABLE pr_tracked_branches ADD CONSTRAINT fk_pr_track_assignee FOREIGN KEY (assignee_user_id) REFERENCES users(id) ON DELETE SET NULL;
 ALTER TABLE pr_branch_checkpoints ADD CONSTRAINT fk_pr_bc_branch FOREIGN KEY (tracked_branch_id) REFERENCES pr_tracked_branches(id) ON DELETE CASCADE;
 ALTER TABLE pr_branch_checkpoints ADD CONSTRAINT fk_pr_bc_template FOREIGN KEY (template_id) REFERENCES pr_checkpoint_templates(id) ON DELETE CASCADE;
 ALTER TABLE pr_branch_checkpoints ADD CONSTRAINT fk_pr_bc_user FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE;

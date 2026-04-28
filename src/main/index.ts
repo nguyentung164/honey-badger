@@ -99,12 +99,14 @@ makeAppWithSingleInstanceLock(async () => {
           migratePrCheckpointGithubColumns,
           migratePrCheckpointTemplateHeaderGroup,
           migratePrManagerTablesUserIdColumns,
+          migratePrTrackedBranchesDropAssigneeStatus,
           migratePrUserBoardSkipBranchesTable,
           migratePrAiAssistChatsTable,
         } = await import('./task/taskDbPatches')
         await migratePrCheckpointGithubColumns().catch(() => {})
         await migratePrCheckpointTemplateHeaderGroup().catch(() => {})
         await migratePrManagerTablesUserIdColumns().catch(() => {})
+        await migratePrTrackedBranchesDropAssigneeStatus().catch(() => {})
         await migratePrUserBoardSkipBranchesTable().catch(() => {})
         await migratePrAiAssistChatsTable().catch(() => {})
         const { startPrStatusSync } = await import('./scheduler/prStatusSync')

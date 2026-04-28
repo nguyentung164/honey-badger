@@ -21,7 +21,7 @@ import {
   updatePullRequestBranch,
   listPullRequestFiles,
   listPullRequestConversation,
-  githubRemoteBranchesExistenceMap,
+  githubRemoteBranchesExistenceAndProtectionMap,
   hasGithubToken,
   parseRemoteUrl,
   removeGithubToken,
@@ -33,15 +33,18 @@ import type { PullRequestSummary } from '../git-hosting/types'
 import { applyPullRequestToCheckpoints, onPrMerged, syncPullRequestIntoTrackedCheckpoints } from '../pr-automation/engine'
 import { getSourceFoldersByProject } from '../task/mysqlTaskStore'
 import type { PrAiAssistChatLineJson } from '../task/mysqlPrTrackingStore'
+import { computeTrackedIdsNotOnRemote } from './prTrackedPruneRemote'
 import {
   deleteCheckpointTemplate,
   deleteAutomation,
   deletePrRepo,
   deleteTrackedBranch,
+  deleteTrackedBranchesByIds,
   getPrBoardSkippedBranchPatterns,
   getPrAiAssistChatLines,
   upsertPrAiAssistChatLines,
   getPrRepoById,
+  getTrackedBranchById,
   listAutomations,
   listCheckpointTemplates,
   listPrRepos,
@@ -54,7 +57,7 @@ import {
   upsertPrBoardSkippedBranchPatterns,
   upsertPrRepo,
   upsertTrackedBranch,
-  updateTrackedBranchStatusNote,
+  updateTrackedBranchNote,
 } from '../task/mysqlPrTrackingStore'
 import { hasDbConfig } from '../task/db'
 import { detectVersionControl } from '../utils/versionControlDetector'
@@ -368,7 +371,6 @@ export function registerPrIpcHandlers(): void {
         projectId: string
         repoId: string
         branchName: string
-        assigneeUserId?: string | null
         note?: string | null
       },
     ) => {
@@ -382,14 +384,10 @@ export function registerPrIpcHandlers(): void {
   )
 
   ipcMain.handle(
-    IPC.PR.TRACKED_UPDATE_STATUS_NOTE,
-    async (
-      _e,
-      id: string,
-      patch: { note?: string | null; assigneeUserId?: string | null }
-    ) => {
+    IPC.PR.TRACKED_UPDATE_NOTE,
+    async (_e, id: string, patch: { note?: string | null }) => {
       try {
-        await updateTrackedBranchStatusNote(id, patch)
+        await updateTrackedBranchNote(id, patch)
         return { status: 'success' }
       } catch (err) {
         return errResp(err)
@@ -472,11 +470,6 @@ export function registerPrIpcHandlers(): void {
       let branchesSynced = 0
       let synced = 0
       const errors: string[] = []
-      const targetBranches = new Set(
-        templates
-          .map(t => t.targetBranch?.trim().toLowerCase())
-          .filter((v): v is string => Boolean(v))
-      )
       const trackedBranchNamesByRepo = new Map<string, Set<string>>()
       for (const row of trackedRows) {
         const names = trackedBranchNamesByRepo.get(row.repoId) ?? new Set<string>()
@@ -500,8 +493,6 @@ export function registerPrIpcHandlers(): void {
         try {
           const existingBranchNames = trackedBranchNamesByRepo.get(repo.id) ?? new Set<string>()
           trackedBranchNamesByRepo.set(repo.id, existingBranchNames)
-          const skippedBranchNames = new Set(targetBranches)
-          if (repo.defaultBaseBranch?.trim()) skippedBranchNames.add(repo.defaultBaseBranch.trim().toLowerCase())
 
           const remoteBranchesPromise = githubClient.listBranches(repo.owner, repo.repo)
           const bestPullRequestsPromise = (async () => {
@@ -536,11 +527,15 @@ export function registerPrIpcHandlers(): void {
           })()
 
           const [remoteBranches, best] = await Promise.all([remoteBranchesPromise, bestPullRequestsPromise])
+          const remoteBranchNormSet = new Set(
+            remoteBranches.map(n => n.trim().toLowerCase()).filter(Boolean),
+          )
           const newRemoteBranches = remoteBranches
             .map(branchName => branchName.trim())
             .filter(branchName => {
               const normalizedKey = branchName.toLowerCase()
-              return branchName && !skippedBranchNames.has(normalizedKey) && !existingBranchNames.has(normalizedKey)
+              /** Không bỏ qua main/stage theo template — người dùng vẫn cần track các nhánh merge base trên remote. Chỉ tránh trùng bản ghi đã track. */
+              return Boolean(branchName) && !existingBranchNames.has(normalizedKey)
             })
 
           if (!onlyBranchHead) {
@@ -558,8 +553,17 @@ export function registerPrIpcHandlers(): void {
             })
           }
 
+          /** Chỉ getPR/apply PR cho nhánh đang track và ref vẫn còn trên remote (tránh call API cho branch đã xóa/ghi nhầm list PR). */
+          const syncPrFilter = (p: PullRequestSummary) => {
+            if (!prMatchesScope(p)) return false
+            const headNorm = p.head.trim().toLowerCase()
+            if (!existingBranchNames.has(headNorm)) return false
+            if (!remoteBranchNormSet.has(headNorm)) return false
+            return true
+          }
+
           // GET each PR before apply: pulls.list can lag behind GET /pulls/{n} right after merge/close; list-only was overwriting fresh checkpoints.
-          const scopeEntries = [...best.entries()].filter(([, p]) => prMatchesScope(p))
+          const scopeEntries = [...best.entries()].filter(([, p]) => syncPrFilter(p))
           const CONC = prDetailPrefetchConcurrency
           for (let i = 0; i < scopeEntries.length; i += CONC) {
             const slice = scopeEntries.slice(i, i + CONC)
@@ -577,7 +581,7 @@ export function registerPrIpcHandlers(): void {
             )
           }
 
-          await runInBatches([...best.values()].filter(prMatchesScope), prApplyConcurrency, async pr => {
+          await runInBatches([...best.values()].filter(syncPrFilter), prApplyConcurrency, async pr => {
             try {
               await applyPullRequestToCheckpoints({ projectId, repoId: repo.id, pr, templatesCache: templates })
               synced++
@@ -593,6 +597,58 @@ export function registerPrIpcHandlers(): void {
         }
       })
       return { status: 'success', data: { synced, branchesSynced, errors } }
+      } catch (err) {
+        return errResp(err)
+      }
+    },
+  )
+
+  // ========== Prune tracked branches missing on GitHub remote ==========
+  ipcMain.handle(
+    IPC.PR.TRACKED_PRUNE_NOT_ON_GITHUB,
+    async (
+      _e,
+      payload: { userId: string; projectId: string; dryRun: boolean },
+    ) => {
+      try {
+        if (!getGithubToken()) {
+          return { status: 'error' as const, message: 'GitHub token chưa cấu hình.' }
+        }
+        const uid = typeof payload?.userId === 'string' ? payload.userId.trim() : ''
+        const projectId = typeof payload?.projectId === 'string' ? payload.projectId.trim() : ''
+        const dryRun = Boolean(payload?.dryRun)
+        if (!uid) return { status: 'error' as const, message: 'User ID required.' }
+        if (!projectId) return { status: 'error' as const, message: 'Project ID required.' }
+
+        const repos = await listPrRepos(uid, projectId)
+        const tracked = await listTrackedBranches(uid, projectId)
+        const trackedRows = tracked.map(t => ({
+          id: t.id,
+          repoId: t.repoId,
+          branchName: t.branchName,
+        }))
+        const computed = await computeTrackedIdsNotOnRemote({
+          repos,
+          trackedRows,
+          listRemoteBranchNames: (owner, repo) => githubClient.listBranches(owner, repo),
+        })
+
+        if (dryRun) {
+          return {
+            status: 'success' as const,
+            data: {
+              wouldDelete: computed.ids.length,
+              preview: computed.preview,
+              errors: computed.errors,
+            },
+          }
+        }
+
+        const deleted = await deleteTrackedBranchesByIds(computed.ids)
+        return {
+          status: 'success' as const,
+          data: { deleted, errors: computed.errors },
+        }
       } catch (err) {
         return errResp(err)
       }
@@ -615,7 +671,6 @@ export function registerPrIpcHandlers(): void {
         base: string
         draft?: boolean
         openInBrowser?: boolean
-        assigneeUserId?: string | null
         userId: string
       },
     ) => {
@@ -640,7 +695,6 @@ export function registerPrIpcHandlers(): void {
             projectId: input.projectId,
             repoId: input.repoId,
             branchName: input.head,
-            assigneeUserId: input.assigneeUserId ?? null,
           })
           await applyPullRequestToCheckpoints({ projectId: input.projectId, repoId: input.repoId, pr })
         } catch (err) {
@@ -1006,9 +1060,12 @@ export function registerPrIpcHandlers(): void {
           return { status: 'error' as const, message: 'GitHub token ch\u01b0a c\u1ea5u h\u00ecnh.' }
         }
         if (!Array.isArray(items) || items.length === 0) {
-          return { status: 'success' as const, data: {} as Record<string, boolean> }
+          return {
+            status: 'success' as const,
+            data: { existence: {} as Record<string, boolean>, branchProtected: {} as Record<string, boolean> },
+          }
         }
-        const out = await githubRemoteBranchesExistenceMap(items)
+        const out = await githubRemoteBranchesExistenceAndProtectionMap(items)
         return { status: 'success' as const, data: out }
       } catch (err) {
         return errResp(err)
@@ -1018,7 +1075,10 @@ export function registerPrIpcHandlers(): void {
 
   ipcMain.handle(
     IPC.PR.GITHUB_DELETE_REMOTE_BRANCH,
-    async (_e, input: { owner: string; repo: string; branch: string; repoId: string }) => {
+    async (
+      _e,
+      input: { owner: string; repo: string; branch: string; repoId: string; trackedBranchId?: string },
+    ) => {
       try {
         if (!getGithubToken()) {
           return { status: 'error' as const, message: 'GitHub token ch\u01b0a c\u1ea5u h\u00ecnh.' }
@@ -1027,6 +1087,23 @@ export function registerPrIpcHandlers(): void {
         await githubDeleteRemoteBranch(input.owner, input.repo, input.branch, {
           defaultBaseBranch: prRepo?.defaultBaseBranch ?? null,
         })
+        const tid = typeof input.trackedBranchId === 'string' ? input.trackedBranchId.trim() : ''
+        if (tid) {
+          const tb = await getTrackedBranchById(tid)
+          const repoId = typeof input.repoId === 'string' ? input.repoId.trim() : ''
+          const branchNorm = input.branch?.trim().toLowerCase() ?? ''
+          const repoOk = tb !== null && tb.repoId === repoId
+          const branchOk = tb !== null && tb.branchName.trim().toLowerCase() === branchNorm
+          if (repoOk && branchOk) {
+            await deleteTrackedBranch(tid)
+          } else {
+            l.warn('GITHUB_DELETE_REMOTE_BRANCH: skipped DB delete — trackedBranchId mismatch or unknown row', {
+              tid,
+              repoOk,
+              branchOk,
+            })
+          }
+        }
         return { status: 'success' as const }
       } catch (err) {
         return errResp(err)

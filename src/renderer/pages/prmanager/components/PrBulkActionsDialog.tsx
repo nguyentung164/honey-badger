@@ -31,6 +31,18 @@ import {
   resolveBulkPrTargets,
 } from './prBoardBulkResolve'
 
+const LS_BULK_SHOW_OPERATION_LOG_V1 = 'pr-manager-bulk-show-operation-log-v1'
+
+function readBulkShowOperationLogLs(): boolean {
+  try {
+    const raw = window.localStorage.getItem(LS_BULK_SHOW_OPERATION_LOG_V1)
+    if (raw === null) return true
+    return raw === '1'
+  } catch {
+    return true
+  }
+}
+
 type MergeMethod = 'squash' | 'merge' | 'rebase'
 
 type RowResult = { ok: boolean; message?: string }
@@ -344,6 +356,8 @@ export function PrBulkActionsDialog({
   const [assigneesLoadState, setAssigneesLoadState] = useState<'idle' | 'loading' | 'done' | 'error'>('idle')
   /** Bật: chỉ hiển thị các dòng đủ điều kiện thao tác trong bảng xem trước. */
   const [showOnlyEligibleRows, setShowOnlyEligibleRows] = useState(true)
+  /** Bật: mở VcsOperationLogDialog khi chạy batch; tắt = silent (chỉ toast/ghi log phía sau). Lưu LS. */
+  const [showOperationLog, setShowOperationLog] = useState(readBulkShowOperationLogLs)
   /** Các key `owner/repo` đang thu gọn trong bảng (ẩn dòng con). */
   const [collapsedRepoGroupKeys, setCollapsedRepoGroupKeys] = useState<Set<string>>(() => new Set())
   const bulkCreatePrPrevOpenRef = useRef(false)
@@ -589,7 +603,8 @@ export function PrBulkActionsDialog({
       return
     }
     const actionLabel = t(`prManager.bulk.title.${kind}`)
-    if (!opLog.startOperation('prManager.operationLog.bulkTitle', { action: actionLabel, count: runCount })) return
+    if (!opLog.startOperation('prManager.operationLog.bulkTitle', { action: actionLabel, count: runCount }, { silent: !showOperationLog }))
+      return
     setRunning(true)
     setResults({})
     const markRowSuccess = (id: string) => {
@@ -807,6 +822,7 @@ export function PrBulkActionsDialog({
             repo: item.repo,
             branch: item.branch,
             repoId: item.repoId,
+            trackedBranchId: item.rowId,
           })
           if (res.status === 'success') {
             markRowSuccess(item.id)
@@ -906,11 +922,6 @@ export function PrBulkActionsDialog({
     }
   }
 
-  const closeDialog = () => {
-    if (dialogBusy) return
-    onOpenChange(false)
-  }
-
   return (
     <Dialog
       open={open}
@@ -919,11 +930,16 @@ export function PrBulkActionsDialog({
           onOpenChange(true)
           return
         }
-        if (dialogBusy) return
+        if (running) return
         onOpenChange(false)
       }}
     >
-      <DialogContent className="font-sans flex max-h-[min(90dvh,720px)] min-h-0 w-full max-w-4xl! flex-col gap-0 overflow-hidden border-0 bg-card p-0 shadow-xl sm:max-w-3xl">
+      <DialogContent
+        closeDisabled={running}
+        onPointerDownOutside={e => e.preventDefault()}
+        onEscapeKeyDown={e => e.preventDefault()}
+        className="font-sans flex max-h-[min(90dvh,720px)] min-h-0 w-full max-w-4xl! flex-col gap-0 overflow-hidden border-0 bg-card p-0 shadow-xl sm:max-w-3xl"
+      >
         <DialogHeader className={cn('shrink-0 border-b border-border/80 px-4 py-3 pr-12 text-left', bulkChrome.headerBar)}>
           <DialogTitle className={cn('text-base font-semibold tracking-tight', bulkChrome.title)}>{t(titleKey)}</DialogTitle>
           <DialogDescription>
@@ -1178,7 +1194,9 @@ export function PrBulkActionsDialog({
                                 </TableCell>
                                 <TableCell className={cn(BULK_STATUS_COL_CLASS, stripe)}>
                                   <div className="flex min-h-8 items-center justify-center">
-                                    {running && currentId === item.id ? <Loader2 className="h-4 w-4 shrink-0 animate-spin" /> : null}
+                                    {running && currentId === item.id && results[item.id] == null ? (
+                                      <Loader2 className="h-4 w-4 shrink-0 animate-spin" />
+                                    ) : null}
                                     {results[item.id] ? (
                                       results[item.id].ok ? (
                                         <CheckCircle2 className="h-4 w-4 shrink-0 text-emerald-600" />
@@ -1352,7 +1370,9 @@ export function PrBulkActionsDialog({
                                         </TableCell>
                                         <TableCell className={cn(BULK_STATUS_COL_CLASS, stripe)}>
                                           <div className="flex min-h-8 items-center justify-center">
-                                            {running && currentId === item.id ? <Loader2 className="h-4 w-4 shrink-0 animate-spin" /> : null}
+                                            {running && currentId === item.id && results[item.id] == null ? (
+                                              <Loader2 className="h-4 w-4 shrink-0 animate-spin" />
+                                            ) : null}
                                             {results[item.id] ? (
                                               results[item.id].ok ? (
                                                 <CheckCircle2 className="h-4 w-4 shrink-0 text-emerald-600" />
@@ -1469,7 +1489,9 @@ export function PrBulkActionsDialog({
                                 </TableCell>
                                 <TableCell className={cn(BULK_STATUS_COL_CLASS, stripe)}>
                                   <div className="flex min-h-8 items-center justify-center">
-                                    {running && currentId === item.id ? <Loader2 className="h-4 w-4 shrink-0 animate-spin" /> : null}
+                                    {running && currentId === item.id && results[item.id] == null ? (
+                                      <Loader2 className="h-4 w-4 shrink-0 animate-spin" />
+                                    ) : null}
                                     {results[item.id] ? (
                                       results[item.id].ok ? (
                                         <CheckCircle2 className="h-4 w-4 shrink-0 text-emerald-600" />
@@ -1537,10 +1559,26 @@ export function PrBulkActionsDialog({
           </div>
         </div>
 
-        <DialogFooter className="shrink-0 border-t border-border/80 bg-muted/40 px-4 py-3">
-          <Button type="button" variant="outline" onClick={closeDialog} disabled={dialogBusy}>
-            {t('common.cancel')}
-          </Button>
+        <DialogFooter className="shrink-0 flex-row flex-wrap items-center justify-end gap-3 border-t border-border/80 bg-muted/40 px-4 py-3">
+          <div className="flex min-w-0 flex-1 items-center gap-2 sm:flex-none">
+            <Checkbox
+              id="bulk-show-operation-log"
+              checked={showOperationLog}
+              onCheckedChange={v => {
+                const next = v === true
+                setShowOperationLog(next)
+                try {
+                  window.localStorage.setItem(LS_BULK_SHOW_OPERATION_LOG_V1, next ? '1' : '0')
+                } catch {
+                  /* quota / private mode */
+                }
+              }}
+              disabled={running}
+            />
+            <Label htmlFor="bulk-show-operation-log" className="cursor-pointer text-xs font-normal leading-snug text-muted-foreground sm:text-sm">
+              {t('prManager.bulk.showOperationLog')}
+            </Label>
+          </div>
           <Button type="button" onClick={() => void runBatch()} disabled={dialogBusy || !githubTokenOk || runCount === 0}>
             {running ? (
               <>

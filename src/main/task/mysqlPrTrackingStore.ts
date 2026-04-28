@@ -36,8 +36,6 @@ export interface PrTrackedBranch {
   projectId: string
   repoId: string
   branchName: string
-  assigneeUserId: string | null
-  status: string
   note: string | null
   createdAt: string
   updatedAt: string
@@ -98,7 +96,6 @@ export interface TrackedBranchWithDetails extends PrTrackedBranch {
   repoName: string
   repoOwner: string
   repoRepo: string
-  assigneeName: string | null
   checkpoints: PrBranchCheckpoint[]
 }
 
@@ -150,8 +147,6 @@ function mapTracked(r: any): PrTrackedBranch {
     projectId: r.project_id,
     repoId: r.repo_id,
     branchName: r.branch_name,
-    assigneeUserId: r.assignee_user_id ?? null,
-    status: r.status ?? 'Staged',
     note: r.note ?? null,
     createdAt: r.created_at,
     updatedAt: r.updated_at,
@@ -404,11 +399,9 @@ export async function seedDefaultCheckpointTemplates(userId: string, projectId: 
 // ========== TRACKED BRANCHES ==========
 export async function listTrackedBranches(userId: string, projectId: string): Promise<TrackedBranchWithDetails[]> {
   const branchRows = await query<any[]>(
-    `SELECT b.*, r.name AS repo_name, r.owner AS repo_owner, r.repo AS repo_repo,
-            u.name AS assignee_name
+    `SELECT b.*, r.name AS repo_name, r.owner AS repo_owner, r.repo AS repo_repo
      FROM pr_tracked_branches b
      JOIN pr_repos r ON r.id = b.repo_id
-     LEFT JOIN users u ON u.id = b.assignee_user_id
      WHERE b.user_id = ? AND b.project_id = ?
      ORDER BY b.updated_at DESC`,
     [userId, projectId],
@@ -432,7 +425,6 @@ export async function listTrackedBranches(userId: string, projectId: string): Pr
     repoName: r.repo_name,
     repoOwner: r.repo_owner,
     repoRepo: r.repo_repo,
-    assigneeName: r.assignee_name ?? null,
     checkpoints: cpMap.get(r.id) ?? [],
   }))
 }
@@ -465,7 +457,6 @@ export async function upsertTrackedBranch(input: {
   projectId: string
   repoId: string
   branchName: string
-  assigneeUserId?: string | null
   note?: string | null
 }): Promise<PrTrackedBranch> {
   let uid = input.userId?.trim()
@@ -476,61 +467,48 @@ export async function upsertTrackedBranch(input: {
   }
   const existing = await findTrackedBranch(uid, input.repoId, input.branchName)
   if (existing) {
-    // Ph\u00e2n bi\u1ec7t undefined (gi\u1eef nguy\u00ean) vs null (x\u00f3a explicit)
-    const nextAssignee =
-      'assigneeUserId' in input ? (input.assigneeUserId ?? null) : existing.assigneeUserId
     const nextNote = 'note' in input ? (input.note ?? null) : existing.note
-    await query(
-      `UPDATE pr_tracked_branches SET assignee_user_id=?, status=?, note=?, version=version+1
-       WHERE id=?`,
-      [nextAssignee, existing.status, nextNote, existing.id],
-    )
+    await query(`UPDATE pr_tracked_branches SET note=?, version=version+1 WHERE id=?`, [nextNote, existing.id])
     const row = await getTrackedBranchById(existing.id)
     if (!row) throw new Error('Branch not found after update')
     return row
   }
   const id = input.id ?? randomUuidV7()
   await query(
-    `INSERT INTO pr_tracked_branches (id, user_id, project_id, repo_id, branch_name, assignee_user_id, status, note)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-    [
-      id,
-      uid,
-      input.projectId,
-      input.repoId,
-      input.branchName,
-      input.assigneeUserId ?? null,
-      'Staged',
-      input.note ?? null,
-    ],
+    `INSERT INTO pr_tracked_branches (id, user_id, project_id, repo_id, branch_name, note)
+     VALUES (?, ?, ?, ?, ?, ?)`,
+    [id, uid, input.projectId, input.repoId, input.branchName, input.note ?? null],
   )
   const row = await getTrackedBranchById(id)
   if (!row) throw new Error('Branch not created')
   return row
 }
 
-export async function updateTrackedBranchStatusNote(
-  id: string,
-  patch: { note?: string | null; assigneeUserId?: string | null }
-): Promise<void> {
-  const sets: string[] = []
-  const params: unknown[] = []
-  if (patch.note !== undefined) {
-    sets.push('note = ?')
-    params.push(patch.note)
-  }
-  if (patch.assigneeUserId !== undefined) {
-    sets.push('assignee_user_id = ?')
-    params.push(patch.assigneeUserId)
-  }
-  if (sets.length === 0) return
-  sets.push('version = version + 1')
-  params.push(id)
-  await query(`UPDATE pr_tracked_branches SET ${sets.join(', ')} WHERE id = ?`, params)
+export async function updateTrackedBranchNote(id: string, patch: { note?: string | null }): Promise<void> {
+  if (patch.note === undefined) return
+  await query(`UPDATE pr_tracked_branches SET note = ?, version = version + 1 WHERE id = ?`, [patch.note, id])
 }
 
 export async function deleteTrackedBranch(id: string): Promise<void> {
   await query('DELETE FROM pr_tracked_branches WHERE id = ?', [id])
+}
+
+const TRACKED_DELETE_IDS_CHUNK = 500
+
+/** Xóa nhiều bản ghi track; checkpoint CASCADE theo FK. */
+export async function deleteTrackedBranchesByIds(ids: string[]): Promise<number> {
+  if (ids.length === 0) return 0
+  let total = 0
+  for (let i = 0; i < ids.length; i += TRACKED_DELETE_IDS_CHUNK) {
+    const chunk = ids.slice(i, i + TRACKED_DELETE_IDS_CHUNK)
+    const ph = chunk.map(() => '?').join(',')
+    const res = await query<{ affectedRows?: number }>(
+      `DELETE FROM pr_tracked_branches WHERE id IN (${ph})`,
+      chunk,
+    )
+    total += res?.affectedRows ?? 0
+  }
+  return total
 }
 
 async function resolveUserIdFromTrackedBranch(trackedBranchId: string): Promise<string | null> {

@@ -62,12 +62,10 @@ export interface TrackedBranchRow {
   projectId: string
   repoId: string
   branchName: string
-  assigneeUserId: string | null
   note: string | null
   repoName: string
   repoOwner: string
   repoRepo: string
-  assigneeName: string | null
   checkpoints: PrBranchCheckpoint[]
 }
 

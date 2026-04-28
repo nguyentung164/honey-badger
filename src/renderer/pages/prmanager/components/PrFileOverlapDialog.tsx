@@ -129,7 +129,7 @@ export function PrFileOverlapDialog({ open, onOpenChange, candidates, githubToke
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent
-        className="font-sans flex max-h-[min(90vh,880px)] min-h-0 w-[min(100vw-2rem,720px)] flex-col gap-0 overflow-hidden border-0 bg-card p-0 shadow-xl sm:max-w-[min(100vw-2rem,720px)]"
+        className="font-sans flex max-h-[min(90vh,880px)] min-h-0 w-[min(100vw-2rem,1000px)] flex-col gap-0 overflow-hidden border-0 bg-card p-0 shadow-xl sm:max-w-[min(100vw-2rem,1000px)]"
         showCloseButton={false}
         onPointerDownOutside={e => (loading ? e.preventDefault() : null)}
         onEscapeKeyDown={e => (loading ? e.preventDefault() : null)}

@@ -690,16 +690,26 @@ declare global {
           projectId: string
           repoId: string
           branchName: string
-          assigneeUserId?: string | null
           note?: string | null
         }) => Promise<{ status: string; data?: any; message?: string }>
-        trackedUpdateStatusNote: (id: string, patch: { note?: string | null; assigneeUserId?: string | null }) => Promise<{ status: string; message?: string }>
+        trackedUpdateNote: (id: string, patch: { note?: string | null }) => Promise<{ status: string; message?: string }>
         trackedDelete: (id: string) => Promise<{ status: string; message?: string }>
         trackedSyncFromGithub: (
           userId: string,
           projectId: string,
           options?: { repoId?: string; trackedBranchId?: string },
         ) => Promise<{ status: string; data?: { synced: number; branchesSynced?: number; errors: string[] }; message?: string }>
+        trackedPruneNotOnGithub: (input: {
+          userId: string
+          projectId: string
+          dryRun: boolean
+        }) => Promise<{
+          status: string
+          data?:
+            | { wouldDelete: number; preview: Array<{ id: string; branchName: string; repoKey: string }>; errors: string[] }
+            | { deleted: number; errors: string[] }
+          message?: string
+        }>
         onTrackedSyncProgress: (callback: (payload: { projectId: string; done: number; total: number; percent: number }) => void) => () => void
         prCreate: (input: {
           projectId: string
@@ -712,7 +722,6 @@ declare global {
           base: string
           draft?: boolean
           openInBrowser?: boolean
-          assigneeUserId?: string | null
           userId: string
         }) => Promise<{ status: string; data?: any; message?: string; trackingError?: string }>
         prMerge: (input: {
@@ -839,10 +848,19 @@ declare global {
         branchListRemote: (input: { owner: string; repo: string }) => Promise<{ status: string; data?: string[]; message?: string }>
         githubRemoteBranchesExist: (items: { id: string; owner: string; repo: string; branch: string }[]) => Promise<{
           status: string
-          data?: Record<string, boolean>
+          data?: {
+            existence: Record<string, boolean>
+            branchProtected: Record<string, boolean>
+          }
           message?: string
         }>
-        githubDeleteRemoteBranch: (input: { owner: string; repo: string; branch: string; repoId: string }) => Promise<{
+        githubDeleteRemoteBranch: (input: {
+          owner: string
+          repo: string
+          branch: string
+          repoId: string
+          trackedBranchId?: string
+        }) => Promise<{
           status: string
           message?: string
         }>
@@ -1510,17 +1528,18 @@ contextBridge.exposeInMainWorld('api', {
       projectId: string
       repoId: string
       branchName: string
-      assigneeUserId?: string | null
       note?: string | null
     }) => ipcRenderer.invoke(IPC.PR.TRACKED_UPSERT, toStructuredCloneable(input)),
-    trackedUpdateStatusNote: (id: string, patch: { note?: string | null; assigneeUserId?: string | null }) =>
-      ipcRenderer.invoke(IPC.PR.TRACKED_UPDATE_STATUS_NOTE, id, toStructuredCloneable(patch)),
+    trackedUpdateNote: (id: string, patch: { note?: string | null }) =>
+      ipcRenderer.invoke(IPC.PR.TRACKED_UPDATE_NOTE, id, toStructuredCloneable(patch)),
     trackedDelete: (id: string) => ipcRenderer.invoke(IPC.PR.TRACKED_DELETE, id),
     trackedSyncFromGithub: (userId: string, projectId: string, options?: { repoId?: string; trackedBranchId?: string }) =>
       ipcRenderer.invoke(
         IPC.PR.TRACKED_SYNC_FROM_GITHUB,
         toStructuredCloneable({ userId, projectId, syncScope: options }),
       ),
+    trackedPruneNotOnGithub: (input: { userId: string; projectId: string; dryRun: boolean }) =>
+      ipcRenderer.invoke(IPC.PR.TRACKED_PRUNE_NOT_ON_GITHUB, toStructuredCloneable(input)),
     onTrackedSyncProgress: (callback: (payload: { projectId: string; done: number; total: number; percent: number }) => void) => {
       const handler = (_e: Electron.IpcRendererEvent, payload: { projectId: string; done: number; total: number; percent: number }) => callback(payload)
       ipcRenderer.on(IPC.PR.EVENT_TRACKED_SYNC_PROGRESS, handler)
@@ -1537,7 +1556,6 @@ contextBridge.exposeInMainWorld('api', {
       base: string
       draft?: boolean
       openInBrowser?: boolean
-      assigneeUserId?: string | null
       userId: string
     }) => ipcRenderer.invoke(IPC.PR.PR_CREATE, toStructuredCloneable(input)),
     prMerge: (input: {
@@ -1583,8 +1601,13 @@ contextBridge.exposeInMainWorld('api', {
     branchListRemote: (input: { owner: string; repo: string }) => ipcRenderer.invoke(IPC.PR.BRANCH_LIST_REMOTE, toStructuredCloneable(input)),
     githubRemoteBranchesExist: (items: { id: string; owner: string; repo: string; branch: string }[]) =>
       ipcRenderer.invoke(IPC.PR.GITHUB_REMOTE_BRANCHES_EXIST, toStructuredCloneable(items)),
-    githubDeleteRemoteBranch: (input: { owner: string; repo: string; branch: string; repoId: string }) =>
-      ipcRenderer.invoke(IPC.PR.GITHUB_DELETE_REMOTE_BRANCH, toStructuredCloneable(input)),
+    githubDeleteRemoteBranch: (input: {
+      owner: string
+      repo: string
+      branch: string
+      repoId: string
+      trackedBranchId?: string
+    }) => ipcRenderer.invoke(IPC.PR.GITHUB_DELETE_REMOTE_BRANCH, toStructuredCloneable(input)),
     refCommitMessages: (input: { owner: string; repo: string; ref: string; maxCommits?: number }) =>
       ipcRenderer.invoke(IPC.PR.REF_COMMIT_MESSAGES, toStructuredCloneable(input)),
     branchLastCommitMessage: (input: { owner: string; repo: string; branch: string }) =>

@@ -1,7 +1,7 @@
 'use client'
 
 import { Bot, Copy, Loader2, SendHorizontal, Sparkles, Trash2 } from 'lucide-react'
-import { useEffect, useRef, useState, type MouseEvent } from 'react'
+import { type MouseEvent, useEffect, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { AlertDialog, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from '@/components/ui/alert-dialog'
 import { Button } from '@/components/ui/button'
@@ -57,10 +57,9 @@ function newAssistantLine(text: string, action?: ChatAction): ChatLine {
   return action !== undefined ? { ...base, action } : base
 }
 
-function linesWithoutClientKeys(lines: ChatLine[]): Array<
-  | { role: 'user'; text: string; createdAtMs?: number }
-  | { role: 'assistant'; text: string; createdAtMs?: number; action?: ChatAction }
-> {
+function linesWithoutClientKeys(
+  lines: ChatLine[]
+): Array<{ role: 'user'; text: string; createdAtMs?: number } | { role: 'assistant'; text: string; createdAtMs?: number; action?: ChatAction }> {
   return lines.map(({ clientKey: _k, ...rest }) => rest)
 }
 
@@ -200,15 +199,7 @@ async function suggestTitleFromCommits(repo: PrRepo, head: string, base: string)
   return buildIssueStylePrTitle(picked.key, picked.version, base.trim())
 }
 
-function ChatLineHoverToolbar({
-  copyText,
-  onRemove,
-  disabled,
-}: {
-  copyText: string
-  onRemove?: () => void
-  disabled?: boolean
-}) {
+function ChatLineHoverToolbar({ copyText, onRemove, disabled }: { copyText: string; onRemove?: () => void; disabled?: boolean }) {
   const { t } = useTranslation()
 
   const copyLine = async (e: MouseEvent) => {
@@ -230,11 +221,7 @@ function ChatLineHoverToolbar({
   }
 
   return (
-    <div
-      className="flex justify-end"
-      role="toolbar"
-      aria-label={t('prManager.aiAssist.lineToolbarAria')}
-    >
+    <div className="flex justify-end" role="toolbar" aria-label={t('prManager.aiAssist.lineToolbarAria')}>
       <div className="flex items-center gap-0.5 rounded-full border border-border/70 bg-background/95 px-1 py-0.5 shadow-md backdrop-blur-sm">
         <Button
           type="button"
@@ -270,7 +257,7 @@ function AiAssistThinkingBubble({ label }: { label: string }) {
   return (
     <div className="ml-0 mr-4 flex w-fit max-w-[min(100%,28rem)] flex-col">
       <div
-        className="rounded-lg bg-gradient-to-br from-slate-50 to-slate-100/95 px-3 py-2.5 text-xs shadow-sm ring-1 ring-border/45 dark:from-slate-900/80 dark:to-slate-900/55 dark:ring-border/35"
+        className="rounded-lg bg-gradient-to-br from-muted/95 to-muted/75 px-3 py-2.5 text-xs shadow-sm dark:from-muted/55 dark:to-muted/35"
         role="status"
         aria-live="polite"
         aria-busy="true"
@@ -342,17 +329,7 @@ function AssistantLineContent({
   )
 }
 
-export function PrAiAssistSheet({
-  open,
-  onOpenChange,
-  projectId,
-  userId,
-  repos,
-  tracked,
-  githubTokenOk,
-  onOpenCreatePrDialog,
-  onOpenBulkCreatePrDialog,
-}: Props) {
+export function PrAiAssistSheet({ open, onOpenChange, projectId, userId, repos, tracked, githubTokenOk, onOpenCreatePrDialog, onOpenBulkCreatePrDialog }: Props) {
   const { t, i18n } = useTranslation()
   const [lines, setLines] = useState<ChatLine[]>([])
   const [input, setInput] = useState('')
@@ -380,24 +357,24 @@ export function PrAiAssistSheet({
     }
     let alive = true
     setPersistReady(false)
-    ;(async () => {
-      try {
-        const res = await window.api.pr.aiAssistChatGet(uid, pid)
-        if (!alive) return
-        if (res.status !== 'success') {
-          setLines([])
-          setPersistReady(false)
-          return
+      ; (async () => {
+        try {
+          const res = await window.api.pr.aiAssistChatGet(uid, pid)
+          if (!alive) return
+          if (res.status !== 'success') {
+            setLines([])
+            setPersistReady(false)
+            return
+          }
+          setLines(normalizeLoadedLines(res.data?.lines))
+          setPersistReady(true)
+        } catch {
+          if (alive) {
+            setLines([])
+            setPersistReady(false)
+          }
         }
-        setLines(normalizeLoadedLines(res.data?.lines))
-        setPersistReady(true)
-      } catch {
-        if (alive) {
-          setLines([])
-          setPersistReady(false)
-        }
-      }
-    })()
+      })()
     return () => {
       alive = false
     }
@@ -463,7 +440,7 @@ export function PrAiAssistSheet({
             suggestedTitle,
             suggestedBody: undefined,
           },
-        },
+        }
       ),
     ])
   }
@@ -485,10 +462,7 @@ export function PrAiAssistSheet({
     }
     const uniqueIds = [...rowIds.keys()]
     if (failed.length > 0 && uniqueIds.length === 0) {
-      setLines(ls => [
-        ...ls,
-        newAssistantLine(t('prManager.aiAssist.multiFailed', { detail: failed.slice(0, 5).join('; ') })),
-      ])
+      setLines(ls => [...ls, newAssistantLine(t('prManager.aiAssist.multiFailed', { detail: failed.slice(0, 5).join('; ') }))])
       return
     }
     if (uniqueIds.length >= 2) {
@@ -671,7 +645,7 @@ export function PrAiAssistSheet({
                   if (ln.role === 'user') {
                     return (
                       <div key={ln.clientKey} className="group ml-auto w-fit max-w-[min(100%,28rem)]">
-                        <div className="relative flex flex-col overflow-hidden rounded-lg bg-gradient-to-br from-violet-50/95 to-white text-xs leading-relaxed text-foreground shadow-sm dark:from-violet-950/50 dark:to-violet-950/25 dark:shadow-black/15">
+                        <div className="relative flex flex-col overflow-hidden rounded-lg bg-gradient-to-br from-slate-50 to-slate-100/95 text-xs leading-relaxed text-foreground shadow-sm dark:from-slate-900/80 dark:to-slate-900/55 dark:shadow-black/25">
                           <div className="relative px-3 pt-2 pb-1.5 pr-16">
                             <div className={floatingToolbar} role="presentation">
                               <ChatLineHoverToolbar copyText={copyPayload} disabled={busy} onRemove={onRemoveLine} />
@@ -685,7 +659,7 @@ export function PrAiAssistSheet({
                   }
                   return (
                     <div key={ln.clientKey} className="group ml-0 w-fit max-w-[min(100%,28rem)]">
-                      <div className="relative flex flex-col overflow-hidden rounded-lg bg-gradient-to-br from-slate-50 to-slate-100/95 text-xs leading-relaxed text-foreground shadow-sm dark:from-slate-900/80 dark:to-slate-900/55 dark:shadow-black/25">
+                      <div className="relative flex flex-col overflow-hidden rounded-lg bg-gradient-to-br from-muted/95 to-muted/75 text-xs leading-relaxed text-foreground shadow-sm dark:from-muted/55 dark:to-muted/35">
                         <div className="relative px-3 pt-2 pb-1.5 pr-16">
                           <div className={floatingToolbar} role="presentation">
                             <ChatLineHoverToolbar copyText={copyPayload} disabled={busy} onRemove={onRemoveLine} />

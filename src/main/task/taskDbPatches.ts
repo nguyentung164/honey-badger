@@ -174,6 +174,51 @@ CREATE TABLE IF NOT EXISTS pr_ai_assist_chats (
   }
 }
 
+let prTrackedBranchesDropAssigneeStatusDone = false
+
+/** Gỡ cột legacy assignee_user_id, status khỏi pr_tracked_branches (không còn dùng). */
+export async function migratePrTrackedBranchesDropAssigneeStatus(): Promise<void> {
+  if (prTrackedBranchesDropAssigneeStatusDone || !hasDbConfig()) return
+  const p = getPool()
+
+  const hasCol = async (table: string, col: string): Promise<boolean> => {
+    const [rows] = await p.execute(
+      `SELECT 1 FROM information_schema.COLUMNS
+       WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = ? AND COLUMN_NAME = ?
+       LIMIT 1`,
+      [table, col],
+    )
+    return Array.isArray(rows) && rows.length > 0
+  }
+
+  const hasFk = async (table: string, constraintName: string): Promise<boolean> => {
+    const [rows] = await p.execute(
+      `SELECT 1 FROM information_schema.TABLE_CONSTRAINTS
+       WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = ? AND CONSTRAINT_NAME = ?
+         AND CONSTRAINT_TYPE = 'FOREIGN KEY'
+       LIMIT 1`,
+      [table, constraintName],
+    )
+    return Array.isArray(rows) && rows.length > 0
+  }
+
+  try {
+    if (await hasFk('pr_tracked_branches', 'fk_pr_track_assignee')) {
+      await p.execute('ALTER TABLE pr_tracked_branches DROP FOREIGN KEY fk_pr_track_assignee')
+    }
+    const drops: string[] = []
+    if (await hasCol('pr_tracked_branches', 'assignee_user_id')) drops.push('DROP COLUMN assignee_user_id')
+    if (await hasCol('pr_tracked_branches', 'status')) drops.push('DROP COLUMN status')
+    if (drops.length > 0) {
+      await p.execute(`ALTER TABLE pr_tracked_branches ${drops.join(', ')}`)
+    }
+  } catch (e) {
+    l.error('[task-db] migratePrTrackedBranchesDropAssigneeStatus failed', e)
+    return
+  }
+  prTrackedBranchesDropAssigneeStatusDone = true
+}
+
 let prManagerUserIdColumnsMigrationDone = false
 
 /** Thêm user_id vào các bảng PR Manager + backfill + đổi UNIQUE — dữ liệu cũ gán user đầu tiên theo project (user_project_roles). */

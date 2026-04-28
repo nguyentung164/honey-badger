@@ -5,40 +5,36 @@ import type { TFunction } from 'i18next'
 import {
   AlertCircle,
   ArrowDownToLine,
-  BadgeCheck,
   Ban,
+  BrushCleaning,
   CheckCircle2,
   ChevronDown,
   ChevronLeft,
   ChevronRight,
-  ChevronUp,
   ChevronsLeft,
   ChevronsRight,
-  CircleDashed,
+  CircleCheckBig,
   CloudAlert,
-  CloudDownload,
-  CloudSync,
-  CopyPlus,
+  CloudCheck,
   ExternalLink,
   FileWarning,
   GitBranch,
   GitMerge,
   GitMergeConflict,
+  GitPullRequestArrow,
   GitPullRequestClosed,
   GitPullRequestCreate,
+  GitPullRequestCreateArrow,
   GitPullRequestDraft,
   HelpCircle,
   Hourglass,
   Loader2,
   type LucideIcon,
-  RefreshCw,
-  RotateCcw,
   Search,
-  Send,
+  ShieldAlert,
   Sparkles,
   Trash2,
   UserPlus,
-  X,
 } from 'lucide-react'
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react'
 import { useTranslation } from 'react-i18next'
@@ -54,46 +50,35 @@ import {
 } from '@/components/ui/alert-dialog'
 import { Button } from '@/components/ui/button'
 import { Checkbox } from '@/components/ui/checkbox'
+import { Collapsible, CollapsibleContent } from '@/components/ui/collapsible'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Switch } from '@/components/ui/switch'
-import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
+import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import { GlowLoader } from '@/components/ui-elements/GlowLoader'
 import toast from '@/components/ui-elements/Toast'
 import { getDateFnsLocale } from '@/lib/dateUtils'
 import { cn } from '@/lib/utils'
 import { checkpointTableHeadGroupClass } from '../checkpointHeaderGroup'
-import {
-  branchNameMatchesSkipList,
-  hydratePrBoardSkippedBranchesFromApi,
-  readSkippedBranchesSnapshotText,
-  subscribePrBoardSkippedBranches,
-} from '../prBoardSkippedBranches'
 import { collectOpenPrsForFileOverlap } from '../collectPrFileOverlapCandidates'
 import type { PrBranchCheckpoint, PrCheckpointTemplate, PrRepo, TrackedBranchRow } from '../hooks/usePrData'
 import { usePrOperationLog } from '../PrOperationLogContext'
+import { branchNameMatchesSkipList, hydratePrBoardSkippedBranchesFromApi, readSkippedBranchesSnapshotText, subscribePrBoardSkippedBranches } from '../prBoardSkippedBranches'
 import type { PrGhStatusKind } from '../prGhStatus'
 import { PR_GH_STATUS_IDS, PR_GH_STATUS_TEXT_CLASS } from '../prGhStatus'
-import { PR_MANAGER_ACCENT_OUTLINE_BTN, PR_MANAGER_ACCENT_OUTLINE_SURFACE } from '../prManagerButtonStyles'
 import { PR_MANAGER_REPO_GROUP_VISUAL } from '../prManagerRepoGroupVisual'
 import { CreatePrDialog } from './CreatePrDialog'
 import { MergePrDialog } from './MergePrDialog'
+import { PrAiAssistSheet } from './PrAiAssistSheet'
 import { PrBulkActionsDialog } from './PrBulkActionsDialog'
 import { PrDetailDialog } from './PrDetailDialog'
 import { PrFileOverlapDialog } from './PrFileOverlapDialog'
-import { PrAiAssistSheet } from './PrAiAssistSheet'
-import {
-  activePrTemplates,
-  type BulkActionKind,
-  countRowsEligibleForBulkCreateOnAnyPrTemplate,
-  resolveBulkDeleteBranchTargets,
-  resolveBulkPrTargets,
-} from './prBoardBulkResolve'
+import { activePrTemplates, type BulkActionKind, countRowsEligibleForBulkCreateOnAnyPrTemplate, resolveBulkDeleteBranchTargets, resolveBulkPrTargets } from './prBoardBulkResolve'
 
-type BulkToolbarConfirm = BulkActionKind | 'clearSelection'
+type BulkToolbarConfirm = BulkActionKind
 
 type Props = {
   projectId: string
@@ -110,11 +95,7 @@ type Props = {
 }
 
 /** UI đồng bộ GitHub: chỉ `full` mới phủ GlowLoader cả bảng. */
-type GithubSyncUiState =
-  | { kind: 'idle' }
-  | { kind: 'full' }
-  | { kind: 'repo'; repoId: string }
-  | { kind: 'branch'; rowId: string }
+type GithubSyncUiState = { kind: 'idle' } | { kind: 'full' } | { kind: 'repo'; repoId: string } | { kind: 'branch'; rowId: string }
 
 /** L\u1ecdc theo tr\u1ea1ng th\u00e1i PR tr\u00ean GitHub (m\u1ed7i c\u1ed9t pr_* + merge_*). \u0110\u1ed3ng b\u1ed9 m\u00e0u v\u1edbi prGhStatus. */
 const PR_GH_FILTER_IDS = PR_GH_STATUS_IDS
@@ -213,12 +194,7 @@ function rowMatchesPrGhFiltersPerTemplate(
       const mergeCp = mergeTpl ? (row.checkpoints.find(c => c.templateId === mergeTpl.id) ?? null) : null
       const kind = derivePrKind(prCp, mergeCp)
       const raw = filtersByTplId[tpl.id]
-      const filters: Set<PrGhFilterId> =
-        raw === undefined
-          ? new Set(PR_GH_FILTER_IDS.filter(id => simpleGhFallback.has(id)))
-          : raw.length === 0
-            ? new Set()
-            : new Set(raw)
+      const filters: Set<PrGhFilterId> = raw === undefined ? new Set(PR_GH_FILTER_IDS.filter(id => simpleGhFallback.has(id))) : raw.length === 0 ? new Set() : new Set(raw)
       if (prColumnKindMatchesFilters(kind, filters)) return true
     }
     return false
@@ -228,12 +204,7 @@ function rowMatchesPrGhFiltersPerTemplate(
   for (const tpl of activeTemplates) {
     if (!tpl.code.toLowerCase().startsWith('pr_')) continue
     const raw = filtersByTplId[tpl.id]
-    const filters: Set<PrGhFilterId> =
-      raw === undefined
-        ? new Set(PR_GH_FILTER_IDS.filter(id => simpleGhFallback.has(id)))
-        : raw.length === 0
-          ? new Set()
-          : new Set(raw)
+    const filters: Set<PrGhFilterId> = raw === undefined ? new Set(PR_GH_FILTER_IDS.filter(id => simpleGhFallback.has(id))) : raw.length === 0 ? new Set() : new Set(raw)
     const allStatusesSelected = PR_GH_FILTER_IDS.every(id => filters.has(id))
 
     const prCp = row.checkpoints.find(c => c.templateId === tpl.id) ?? null
@@ -336,13 +307,7 @@ function stripBackgroundClasses(className: string): string {
   return className
     .split(/\s+/)
     .filter(Boolean)
-    .filter(
-      c =>
-        !c.startsWith('bg-') &&
-        !c.startsWith('dark:bg-') &&
-        !c.startsWith('hover:bg-') &&
-        !c.startsWith('dark:hover:bg-')
-    )
+    .filter(c => !c.startsWith('bg-') && !c.startsWith('dark:bg-') && !c.startsWith('hover:bg-') && !c.startsWith('dark:hover:bg-'))
     .join(' ')
 }
 
@@ -463,11 +428,9 @@ function GithubScopedSyncIdleGlyph({ visual }: { visual: GithubScopedSyncIdleVis
     return <CloudAlert className="h-3 w-3 text-amber-500 dark:text-amber-400" />
   }
   if (visual === 'fresh') {
-    return (
-      <CloudSync className="h-3 w-3 text-emerald-600 hover:text-emerald-700 dark:text-emerald-400 dark:hover:text-emerald-300" />
-    )
+    return <CloudCheck className="h-3 w-3 text-emerald-600 hover:text-emerald-700 dark:text-emerald-400 dark:hover:text-emerald-300" />
   }
-  return <CloudSync className="h-3 w-3 text-muted-foreground" />
+  return <CloudCheck className="h-3 w-3 text-muted-foreground" />
 }
 
 function formatScopedSyncTooltip(ms: number | null, lang: string, t: TFunction): string {
@@ -813,17 +776,7 @@ function PrStatusIcon({ cp, className = 'h-3 w-3 shrink-0' }: PrStatusIconProps)
 const REPO_GROUP_ROW_HOVER_TRANSITION = 'transition-[box-shadow] duration-150'
 const REPO_GROUP_ROW_HOVER_SHADOW = 'shadow-[inset_0_0_0_9999px_rgb(0_0_0_/_0.03)] dark:shadow-[inset_0_0_0_9999px_rgb(255_255_255_/_0.025)]'
 
-export function PrBoard({
-  projectId,
-  userId,
-  repos,
-  templates,
-  tracked,
-  loading,
-  onRefresh,
-  onRefreshTracked,
-  githubTokenOk = false,
-}: Props) {
+export function PrBoard({ projectId, userId, repos, templates, tracked, loading, onRefresh, onRefreshTracked, githubTokenOk = false }: Props) {
   const { t, i18n } = useTranslation()
   const opLog = usePrOperationLog()
   const syncLogActiveRef = useRef(false)
@@ -853,7 +806,7 @@ export function PrBoard({
   const [lastGithubSyncWasAuto, setLastGithubSyncWasAuto] = useState(false)
   /** Tăng sau đồng bộ theo repo/nhánh để re-render tooltip (đọc lại localStorage). */
   const [, setScopedSyncTick] = useState(0)
-  /** Phút một lần để đổi CloudSync ↔ CloudAlert khi quá ngưỡng thời gian. */
+  /** Phút một lần để đổi CloudCheck ↔ CloudAlert khi quá ngưỡng thời gian. */
   const [scopedSyncStaleClock, setScopedSyncStaleClock] = useState(0)
   const isAnyGithubSync = githubSyncUi.kind !== 'idle'
   const showFullTableGithubSyncOverlay = githubSyncUi.kind === 'full'
@@ -863,7 +816,7 @@ export function PrBoard({
       if (githubSyncUi.kind === 'branch') return row.id === githubSyncUi.rowId
       return false
     },
-    [githubSyncUi],
+    [githubSyncUi]
   )
   const [autoSyncGithub, setAutoSyncGithub] = useState(false)
   const lastUserActivityAtRef = useRef(Date.now())
@@ -882,6 +835,8 @@ export function PrBoard({
   const [onlyExistingOnRemote, setOnlyExistingOnRemote] = useState(true)
   const [onlyBranchesWithoutPr, setOnlyBranchesWithoutPr] = useState(true)
   const [remoteExistMap, setRemoteExistMap] = useState<Record<string, boolean> | null>(null)
+  /** Shield khi GitHub REST `getBranch` báo `protected` (branch protection hoặc rulesets) hoặc `protection.enabled`. */
+  const [branchProtectedMap, setBranchProtectedMap] = useState<Record<string, boolean> | null>(null)
   const [remoteExistLoading, setRemoteExistLoading] = useState(false)
   const remoteExistKeyRef = useRef<string | null>(null)
   const [selectedRowIds, setSelectedRowIds] = useState<Set<string>>(() => new Set())
@@ -890,6 +845,14 @@ export function PrBoard({
   const [bulkToolbarConfirm, setBulkToolbarConfirm] = useState<BulkToolbarConfirm | null>(null)
   const bulkToolbarConfirmRef = useRef<BulkToolbarConfirm | null>(null)
   bulkToolbarConfirmRef.current = bulkToolbarConfirm
+
+  const [pruneStaleOpen, setPruneStaleOpen] = useState(false)
+  const [pruneStalePreview, setPruneStalePreview] = useState<{
+    wouldDelete: number
+    preview: Array<{ id: string; branchName: string; repoKey: string }>
+    errors: string[]
+  } | null>(null)
+  const [pruningStaleBusy, setPruningStaleBusy] = useState(false)
 
   const [showTableBorders, setShowTableBorders] = useState<boolean>(() => {
     try {
@@ -977,11 +940,10 @@ export function PrBoard({
     if (autoSyncGithub) lastUserActivityAtRef.current = Date.now()
   }, [autoSyncGithub])
 
-  const lastGithubSyncLabel = useMemo(() => {
-    if (lastGithubSyncAt == null) return null
-    const loc = getDateFnsLocale(i18n.language)
-    return formatDistanceToNow(new Date(lastGithubSyncAt), { addSuffix: true, locale: loc })
-  }, [lastGithubSyncAt, i18n.language])
+  const fullTableGithubSyncIdleVisual = useMemo(() => {
+    void scopedSyncStaleClock
+    return githubScopedSyncIdleVisual(lastGithubSyncAt, Date.now())
+  }, [lastGithubSyncAt, scopedSyncStaleClock])
 
   const activeTemplates = useMemo(() => templates.filter(t => t.isActive).sort((a, b) => a.sortOrder - b.sortOrder), [templates])
   const orderedPrCheckpointTemplates = useMemo(() => activePrTemplates(activeTemplates), [activeTemplates])
@@ -1012,15 +974,9 @@ export function PrBoard({
     () => readSkippedBranchesSnapshotText(projectId, userId),
     () => ''
   )
-  const skipBranchPatterns = useMemo(
-    () => (skipBranchesSnapshot === '' ? [] : skipBranchesSnapshot.split('\n')),
-    [skipBranchesSnapshot]
-  )
+  const skipBranchPatterns = useMemo(() => (skipBranchesSnapshot === '' ? [] : skipBranchesSnapshot.split('\n')), [skipBranchesSnapshot])
 
-  const sortedReposForFilter = useMemo(
-    () => [...repos].sort((a, b) => a.name.localeCompare(b.name, undefined, { sensitivity: 'base' })),
-    [repos]
-  )
+  const sortedReposForFilter = useMemo(() => [...repos].sort((a, b) => a.name.localeCompare(b.name, undefined, { sensitivity: 'base' })), [repos])
   const repoExcludedSet = useMemo(() => new Set(repoExcludedIds), [repoExcludedIds])
 
   const prGhFilterKey = useMemo(() => {
@@ -1074,6 +1030,7 @@ export function PrBoard({
         if (!cancelled) {
           remoteExistKeyRef.current = trackedExistenceKey
           setRemoteExistMap({})
+          setBranchProtectedMap({})
           setRemoteExistLoading(false)
         }
         return
@@ -1082,11 +1039,13 @@ export function PrBoard({
       if (cancelled) return
       if (res.status === 'success' && res.data) {
         remoteExistKeyRef.current = trackedExistenceKey
-        setRemoteExistMap(res.data)
+        setRemoteExistMap(res.data.existence)
+        setBranchProtectedMap(res.data.branchProtected)
       } else {
         toast.error(res.message || t('prManager.board.toastRemoteCheck'))
         remoteExistKeyRef.current = null
         setRemoteExistMap(null)
+        setBranchProtectedMap(null)
       }
       setRemoteExistLoading(false)
     }
@@ -1282,13 +1241,6 @@ export function PrBoard({
   const bulkToolbarConfirmCopy = useMemo(() => {
     const a = bulkToolbarConfirm
     if (!a) return { title: '', description: '', destructive: false }
-    if (a === 'clearSelection') {
-      return {
-        title: t('prManager.bulk.confirm.clearTitle'),
-        description: t('prManager.bulk.confirm.clearDesc'),
-        destructive: false,
-      }
-    }
     return {
       title: t(`prManager.bulk.title.${a}`),
       description: a === 'deleteRemoteBranch' ? t('prManager.bulk.confirm.deleteRemoteWarning') : t('prManager.bulk.confirm.bulkPreviewHint'),
@@ -1383,7 +1335,7 @@ export function PrBoard({
     const draft = noteDraft[row.id]
     if (draft === undefined) return
     if (draft === (row.note ?? '')) return
-    const res = await window.api.pr.trackedUpdateStatusNote(row.id, { note: draft })
+    const res = await window.api.pr.trackedUpdateNote(row.id, { note: draft })
     if (res.status === 'success') {
       onRefresh()
     } else toast.error(res.message || t('prManager.board.toastNote'))
@@ -1410,30 +1362,31 @@ export function PrBoard({
     })
   }, [orderedPrCheckpointTemplates, prGhFilters])
 
-  const toggleTplGhFilter = useCallback((tplId: string, id: PrGhFilterId, checked: boolean) => {
-    setPrGhFiltersByTpl(prev => {
-      const base = prev[tplId] !== undefined ? [...prev[tplId]] : PR_GH_FILTER_IDS.filter(k => prGhFilters.has(k))
-      const nextSet = new Set(base)
-      if (checked) nextSet.add(id)
-      else nextSet.delete(id)
-      return { ...prev, [tplId]: PR_GH_FILTER_IDS.filter(k => nextSet.has(k)) }
-    })
-  }, [prGhFilters])
-
-  const syncAdvancedFiltersFromSimple = useCallback(() => {
-    setPrGhFiltersByTpl(prev => {
-      const next = { ...prev }
-      for (const tpl of orderedPrCheckpointTemplates) {
-        next[tpl.id] = PR_GH_FILTER_IDS.filter(id => prGhFilters.has(id))
-      }
-      return next
-    })
-  }, [orderedPrCheckpointTemplates, prGhFilters])
+  const toggleTplGhFilter = useCallback(
+    (tplId: string, id: PrGhFilterId, checked: boolean) => {
+      setPrGhFiltersByTpl(prev => {
+        const base = prev[tplId] !== undefined ? [...prev[tplId]] : PR_GH_FILTER_IDS.filter(k => prGhFilters.has(k))
+        const nextSet = new Set(base)
+        if (checked) nextSet.add(id)
+        else nextSet.delete(id)
+        return { ...prev, [tplId]: PR_GH_FILTER_IDS.filter(k => nextSet.has(k)) }
+      })
+    },
+    [prGhFilters]
+  )
 
   const handleSyncFromGithub = useCallback(
-    async (source: 'manual' | 'idle' = 'manual', scope?: { repoId?: string; trackedBranchId?: string }) => {
+    async (source: 'manual' | 'idle' = 'manual', scope?: { repoId?: string; trackedBranchId?: string; silentOpLog?: boolean }) => {
       const isIdle = source === 'idle'
-      const effectiveScope = isIdle ? undefined : scope
+      const silentOpLogFlag = Boolean(scope?.silentOpLog)
+      const effectiveScope = isIdle
+        ? undefined
+        : scope && (scope.repoId !== undefined || scope.trackedBranchId !== undefined)
+          ? {
+            ...(scope.repoId !== undefined ? { repoId: scope.repoId } : {}),
+            ...(scope.trackedBranchId !== undefined ? { trackedBranchId: scope.trackedBranchId } : {}),
+          }
+          : undefined
       bumpUserActivity()
 
       if (!userId?.trim()) {
@@ -1445,16 +1398,8 @@ export function PrBoard({
       const uid = userId.trim()
 
       if (!isIdle) {
-        const scopedIconSync =
-          Boolean(effectiveScope?.repoId) || Boolean(effectiveScope?.trackedBranchId)
-        if (
-          !opLog.startOperation(
-            'prManager.operationLog.titleSyncGithub',
-            undefined,
-            scopedIconSync ? { silent: true } : undefined,
-          )
-        )
-          return
+        const useSilentOpLog = Boolean(effectiveScope?.repoId) || Boolean(effectiveScope?.trackedBranchId) || silentOpLogFlag
+        if (!opLog.startOperation('prManager.operationLog.titleSyncGithub', undefined, useSilentOpLog ? { silent: true } : undefined)) return
       }
 
       syncLogActiveRef.current = !isIdle
@@ -1483,7 +1428,7 @@ export function PrBoard({
               })
             )
           }
-          if (!isIdle) {
+          if (!isIdle && !silentOpLogFlag) {
             if (synced > 0 || branchesSynced > 0) {
               toast.success(t('prManager.board.syncOkDetailed', { prs: synced, branches: branchesSynced }))
             } else {
@@ -1533,6 +1478,7 @@ export function PrBoard({
             await Promise.resolve(onRefreshTracked?.())
           } else {
             await Promise.resolve(onRefresh())
+            setSelectedRowIds(new Set())
           }
           if (!isIdle) {
             opLog.finishSuccess()
@@ -1556,8 +1502,67 @@ export function PrBoard({
         setSyncProgress(0)
       }
     },
-    [bumpUserActivity, onRefresh, onRefreshTracked, opLog, projectId, repos, t, userId]
+    [bumpUserActivity, onRefresh, onRefreshTracked, opLog, projectId, repos, setSelectedRowIds, t, userId]
   )
+
+  const handlePruneStaleDryRun = useCallback(async () => {
+    if (!userId?.trim()) {
+      toast.error(t('evm.pleaseLoginFirst'))
+      return
+    }
+    const uid = userId.trim()
+    setPruningStaleBusy(true)
+    try {
+      const res = await window.api.pr.trackedPruneNotOnGithub({ userId: uid, projectId, dryRun: true })
+      if (res.status !== 'success' || !res.data) {
+        toast.error(res.message ?? t('prManager.board.pruneStaleFail'))
+        return
+      }
+      if (!('wouldDelete' in res.data)) {
+        toast.error(t('prManager.board.pruneStaleFail'))
+        return
+      }
+      const { wouldDelete, preview, errors } = res.data
+      if (errors.length > 0) {
+        toast.warning(t('prManager.board.pruneStaleToastRepoWarn', { list: errors.join('; ') }))
+      }
+      if (wouldDelete === 0) {
+        if (errors.length === 0) toast.info(t('prManager.board.pruneStaleNone'))
+        return
+      }
+      setPruneStalePreview({ wouldDelete, preview, errors })
+      setPruneStaleOpen(true)
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : String(e))
+    } finally {
+      setPruningStaleBusy(false)
+    }
+  }, [userId, projectId, t])
+
+  const handlePruneStaleConfirm = useCallback(async () => {
+    if (!userId?.trim()) return
+    const uid = userId.trim()
+    setPruningStaleBusy(true)
+    try {
+      const res = await window.api.pr.trackedPruneNotOnGithub({ userId: uid, projectId, dryRun: false })
+      if (res.status !== 'success' || !res.data || !('deleted' in res.data)) {
+        toast.error(res.message ?? t('prManager.board.pruneStaleFail'))
+        return
+      }
+      const { deleted, errors } = res.data
+      setPruneStaleOpen(false)
+      setPruneStalePreview(null)
+      toast.success(t('prManager.board.pruneStaleOk', { count: deleted }))
+      if (errors.length > 0) {
+        toast.warning(t('prManager.board.pruneStaleToastRepoWarn', { list: errors.join('; ') }))
+      }
+      await Promise.resolve(onRefreshTracked?.() ?? onRefresh())
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : String(e))
+    } finally {
+      setPruningStaleBusy(false)
+    }
+  }, [userId, projectId, t, onRefresh, onRefreshTracked])
 
   const onAfterBulkBatch = useCallback(async () => {
     if (!userId?.trim()) {
@@ -1566,7 +1571,7 @@ export function PrBoard({
     }
     if (githubTokenOk) {
       await new Promise<void>(r => setTimeout(r, PR_POST_BULK_SYNC_SETTLE_MS))
-      await handleSyncFromGithub('manual')
+      await handleSyncFromGithub('manual', { silentOpLog: true })
     } else {
       await Promise.resolve(onRefresh())
     }
@@ -1625,6 +1630,11 @@ export function PrBoard({
     setCreatePrOpen(true)
   }
 
+  const openCreatePrFromToolbar = () => {
+    setCreatePrInitial(null)
+    setCreatePrOpen(true)
+  }
+
   const openMergePr = (row: TrackedBranchRow, cp: PrBranchCheckpoint) => {
     const repo = repos.find(r => r.id === row.repoId) ?? null
     setMergePrCtx({ repo, prNumber: cp.prNumber })
@@ -1638,56 +1648,87 @@ export function PrBoard({
           <Search className="pointer-events-none absolute left-2 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
           <Input value={search} onChange={e => setSearch(e.target.value)} placeholder={t('prManager.board.searchPh')} className="h-8 w-[260px] pl-7 text-sm" />
         </div>
-        <Button size="sm" variant="outline" onClick={onRefresh} className="h-8 gap-1">
-          <RefreshCw className={cn('h-3.5 w-3.5', loading && 'animate-spin')} /> {t('prManager.board.refresh')}
-        </Button>
         <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
-          <Button
-            size="sm"
-            variant="outline"
-            onClick={() => void handleSyncFromGithub('manual')}
-            className="h-8 gap-1"
-            disabled={repos.length === 0 || isAnyGithubSync}
-            title={t('prManager.board.syncFromGithubHelp')}
-          >
-            <CloudDownload className={cn('h-3.5 w-3.5', showFullTableGithubSyncOverlay && 'animate-pulse')} />
-            {showFullTableGithubSyncOverlay ? `${syncProgress}%` : t('prManager.board.syncFromGithub')}
-          </Button>
-          {lastGithubSyncLabel != null && lastGithubSyncAt != null ? (
-            <span
-              className="text-xs text-muted-foreground tabular-nums"
-              title={
-                new Date(lastGithubSyncAt).toLocaleString(i18n.language, { dateStyle: 'medium', timeStyle: 'short' }) +
-                (lastGithubSyncWasAuto ? t('prManager.board.lastGithubSyncAutoSuffix') : '')
-              }
-            >
-              {t('prManager.board.lastGithubSync', {
-                time: lastGithubSyncLabel + (lastGithubSyncWasAuto ? t('prManager.board.lastGithubSyncAutoSuffix') : ''),
-              })}
-            </span>
-          ) : null}
-          <div className="flex items-center gap-1.5 border-l border-border/60 pl-2">
-            <Checkbox
-              id="pr-board-auto-sync-github"
-              checked={autoSyncGithub}
-              className="data-[state=checked]:border-violet-600 data-[state=checked]:bg-violet-600 data-[state=checked]:text-white dark:data-[state=checked]:border-violet-500 dark:data-[state=checked]:bg-violet-600"
-              onCheckedChange={v => {
-                const on = v === true
-                setAutoSyncGithub(on)
-                writeAutoSyncGithub(projectId, on)
-              }}
-              disabled={!githubTokenOk || repos.length === 0}
-            />
-            <Label
-              htmlFor="pr-board-auto-sync-github"
-              title={t('prManager.board.autoSyncGithubHelp')}
-              className={cn(
-                'cursor-pointer text-xs font-medium leading-none text-violet-900 dark:text-violet-200',
-                (!githubTokenOk || repos.length === 0) && 'cursor-not-allowed opacity-50'
-              )}
-            >
-              {t('prManager.board.autoSyncGithub')}
-            </Label>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <span className="inline-flex shrink-0 rounded-md">
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="outline"
+                  onClick={() => void handleSyncFromGithub('manual')}
+                  disabled={repos.length === 0 || isAnyGithubSync}
+                  aria-label={t('prManager.board.syncFromGithub')}
+                  className={cn(
+                    'h-8 gap-1 border transition-colors duration-500 ease-in-out [&_svg]:transition-colors [&_svg]:duration-500 [&_svg]:ease-in-out',
+                    showFullTableGithubSyncOverlay
+                      ? 'border-sky-600 bg-sky-600 text-white shadow-none hover:border-sky-700 hover:bg-sky-700 hover:text-white dark:border-sky-500 dark:bg-sky-500 dark:hover:border-sky-400 dark:hover:bg-sky-400'
+                      : fullTableGithubSyncIdleVisual === 'stale'
+                        ? 'border-amber-500/80 bg-amber-50 text-amber-900 shadow-none hover:border-amber-600 hover:bg-amber-100 hover:text-amber-950 dark:border-amber-500/60 dark:bg-amber-950/35 dark:text-amber-100 dark:hover:border-amber-400 dark:hover:bg-amber-950/55 dark:hover:text-amber-50'
+                        : fullTableGithubSyncIdleVisual === 'fresh'
+                          ? 'border-emerald-600 bg-emerald-50 text-emerald-800 shadow-none hover:border-emerald-700 hover:bg-emerald-100 hover:text-emerald-900 dark:border-emerald-500 dark:bg-emerald-950/40 dark:text-emerald-200 dark:hover:border-emerald-400 dark:hover:bg-emerald-950/60 dark:hover:text-emerald-50'
+                          : 'border-border/70 bg-muted/20 text-muted-foreground shadow-none hover:bg-muted/35 hover:text-foreground'
+                  )}
+                >
+                  {showFullTableGithubSyncOverlay ? (
+                    <>
+                      <GlowLoader className="h-3.5 w-3.5 shrink-0" />
+                      <span className="text-xs font-medium tabular-nums">{syncProgress}%</span>
+                    </>
+                  ) : (
+                    <>
+                      {fullTableGithubSyncIdleVisual === 'stale' ? <CloudAlert className="h-3.5 w-3.5 shrink-0" /> : <CloudCheck className="h-3.5 w-3.5 shrink-0" />}
+                      <span className="text-xs font-medium">{t('prManager.board.syncFromGithub')}</span>
+                    </>
+                  )}
+                </Button>
+              </span>
+            </TooltipTrigger>
+            <TooltipContent side="bottom" className="max-w-xs space-y-2 text-xs">
+              <p>{t('prManager.board.syncFromGithubHelp')}</p>
+              {lastGithubSyncAt != null ? (
+                <p className="border-t border-border/60 pt-2 text-muted-foreground">
+                  {formatScopedSyncTooltip(lastGithubSyncAt, i18n.language, t)}
+                  {lastGithubSyncWasAuto ? t('prManager.board.lastGithubSyncAutoSuffix') : ''}
+                </p>
+              ) : null}
+            </TooltipContent>
+          </Tooltip>
+          <div className="border-l border-border/60 pl-2">
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <span
+                  className={cn(
+                    'inline-flex items-center gap-1.5 rounded-sm outline-none focus-visible:ring-2 focus-visible:ring-ring/50',
+                    githubTokenOk && repos.length > 0 ? 'cursor-pointer' : 'cursor-not-allowed opacity-50'
+                  )}
+                >
+                  <Checkbox
+                    id="pr-board-auto-sync-github"
+                    checked={autoSyncGithub}
+                    className="data-[state=checked]:border-violet-600 data-[state=checked]:bg-violet-600 data-[state=checked]:text-white dark:data-[state=checked]:border-violet-500 dark:data-[state=checked]:bg-violet-600"
+                    onCheckedChange={v => {
+                      const on = v === true
+                      setAutoSyncGithub(on)
+                      writeAutoSyncGithub(projectId, on)
+                    }}
+                    disabled={!githubTokenOk || repos.length === 0}
+                  />
+                  <Label
+                    htmlFor="pr-board-auto-sync-github"
+                    className={cn(
+                      'cursor-pointer text-xs font-medium leading-none text-violet-900 dark:text-violet-200',
+                      (!githubTokenOk || repos.length === 0) && 'cursor-not-allowed'
+                    )}
+                  >
+                    {t('prManager.board.autoSyncGithub')}
+                  </Label>
+                </span>
+              </TooltipTrigger>
+              <TooltipContent side="bottom" className="max-w-xs">
+                {t('prManager.board.autoSyncGithubHelp')}
+              </TooltipContent>
+            </Tooltip>
           </div>
         </div>
         <div className="ml-auto flex items-center gap-1.5">
@@ -1697,12 +1738,50 @@ export function PrBoard({
                 type="button"
                 size="sm"
                 variant="outline"
-                className="h-8 gap-1.5 px-2"
+                className="h-8 gap-1.5 px-2 text-emerald-600 hover:bg-emerald-50 hover:text-emerald-700 dark:text-emerald-400 dark:hover:bg-emerald-950/40 dark:hover:text-emerald-300"
+                disabled={!githubTokenOk || repos.length === 0}
+                onClick={openCreatePrFromToolbar}
+                aria-label={t('prManager.board.createPrCell')}
+              >
+                <GitPullRequestCreate className="h-3.5 w-3.5 shrink-0" />
+                <span className="max-w-[7rem] truncate text-xs font-medium sm:max-w-none">{t('prManager.board.createPrCell')}</span>
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent side="bottom" className="max-w-xs">
+              {t('prManager.createPr.title')}
+            </TooltipContent>
+          </Tooltip>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button
+                type="button"
+                size="sm"
+                variant="outline"
+                className="h-8 gap-1.5 px-2 text-red-600 hover:bg-red-50 hover:text-red-700 dark:text-red-400 dark:hover:bg-red-950/40 dark:hover:text-red-300"
+                disabled={repos.length === 0 || isAnyGithubSync || !githubTokenOk || !userId?.trim() || pruningStaleBusy}
+                onClick={() => void handlePruneStaleDryRun()}
+                aria-label={t('prManager.board.pruneStaleRemote')}
+              >
+                <BrushCleaning className={cn('h-3.5 w-3.5 shrink-0', pruningStaleBusy && 'animate-pulse')} />
+                <span className="max-w-[7rem] truncate text-xs font-medium sm:max-w-none">{t('prManager.board.pruneStaleRemote')}</span>
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent side="bottom" className="max-w-xs">
+              {t('prManager.board.pruneStaleRemoteHelp')}
+            </TooltipContent>
+          </Tooltip>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button
+                type="button"
+                size="sm"
+                variant="outline"
+                className="h-8 gap-1.5 px-2 text-amber-600 hover:bg-amber-50 hover:text-amber-700 dark:text-amber-400 dark:hover:bg-amber-950/40 dark:hover:text-amber-300"
                 disabled={!githubTokenOk || repos.length === 0}
                 onClick={() => setFileOverlapOpen(true)}
                 aria-label={t('prManager.fileOverlap.ariaOpen')}
               >
-                <FileWarning className="h-3.5 w-3.5 shrink-0 text-amber-600/85 dark:text-amber-400/90" />
+                <FileWarning className="h-3.5 w-3.5 shrink-0" />
                 <span className="max-w-[7rem] truncate text-xs font-medium sm:max-w-none">{t('prManager.fileOverlap.buttonLabel')}</span>
               </Button>
             </TooltipTrigger>
@@ -1716,12 +1795,12 @@ export function PrBoard({
                 type="button"
                 size="sm"
                 variant="outline"
-                className="h-8 gap-1.5 px-2"
+                className="h-8 gap-1.5 px-2 text-violet-600 hover:bg-violet-50 hover:text-violet-700 dark:text-violet-400 dark:hover:bg-violet-950/40 dark:hover:text-violet-300"
                 disabled={repos.length === 0}
                 onClick={() => setAiAssistOpen(true)}
                 aria-label={t('prManager.aiAssist.openButton')}
               >
-                <Sparkles className="h-3.5 w-3.5 shrink-0 text-violet-600 dark:text-violet-400" />
+                <Sparkles className="h-3.5 w-3.5 shrink-0" />
                 <span className="max-w-[6.5rem] truncate text-xs font-medium sm:max-w-none">{t('prManager.aiAssist.openButton')}</span>
               </Button>
             </TooltipTrigger>
@@ -1732,446 +1811,538 @@ export function PrBoard({
         </div>
       </div>
 
-      {sortedReposForFilter.length > 0 && (
+      {sortedReposForFilter.length > 0 && activeTemplates.length === 0 && (
         <div className="flex flex-wrap items-center gap-x-3 gap-y-2 rounded-md border border-border/60 bg-muted/20 px-3 py-2">
           <span className="mr-1 shrink-0 text-xs font-medium text-muted-foreground">{t('prManager.board.filterRepos')}</span>
           {sortedReposForFilter.map(repo => (
-            <div key={repo.id} className="flex max-w-[min(100%,16rem)] items-center gap-1.5">
-              <Checkbox
-                id={`pr-repo-filter-${repo.id}`}
-                checked={!repoExcludedSet.has(repo.id)}
-                className="shrink-0 data-[state=checked]:border-blue-600 data-[state=checked]:bg-blue-600 data-[state=checked]:text-white dark:data-[state=checked]:border-blue-500 dark:data-[state=checked]:bg-blue-600"
-                onCheckedChange={v => {
-                  const show = v === true
-                  setRepoExcludedIds(prev => {
-                    if (show) {
-                      const next = prev.filter(id => id !== repo.id)
-                      return next.length === prev.length ? prev : next
-                    }
-                    if (prev.includes(repo.id)) return prev
-                    return [...prev, repo.id].sort()
-                  })
-                }}
-              />
-              <Label
-                htmlFor={`pr-repo-filter-${repo.id}`}
-                className="min-w-0 cursor-pointer truncate text-xs font-medium leading-none text-foreground"
-                title={`${repo.name} (${repo.owner}/${repo.repo})`}
-              >
-                {repo.name}
-              </Label>
-            </div>
+            <Tooltip key={repo.id}>
+              <TooltipTrigger asChild>
+                <span className="flex max-w-[min(100%,16rem)] cursor-pointer items-center gap-1.5 rounded-sm outline-none focus-visible:ring-2 focus-visible:ring-ring/50">
+                  <Checkbox
+                    id={`pr-repo-filter-${repo.id}`}
+                    checked={!repoExcludedSet.has(repo.id)}
+                    className="shrink-0 data-[state=checked]:border-blue-600 data-[state=checked]:bg-blue-600 data-[state=checked]:text-white dark:data-[state=checked]:border-blue-500 dark:data-[state=checked]:bg-blue-600"
+                    onCheckedChange={v => {
+                      const show = v === true
+                      setRepoExcludedIds(prev => {
+                        if (show) {
+                          const next = prev.filter(id => id !== repo.id)
+                          return next.length === prev.length ? prev : next
+                        }
+                        if (prev.includes(repo.id)) return prev
+                        return [...prev, repo.id].sort()
+                      })
+                    }}
+                  />
+                  <Label htmlFor={`pr-repo-filter-${repo.id}`} className="min-w-0 cursor-pointer truncate text-xs font-medium leading-none text-foreground">
+                    {repo.name}
+                  </Label>
+                </span>
+              </TooltipTrigger>
+              <TooltipContent side="bottom" className="max-w-xs text-xs">
+                {`${repo.name} (${repo.owner}/${repo.repo})`}
+              </TooltipContent>
+            </Tooltip>
           ))}
         </div>
       )}
 
       {repos.length > 0 && activeTemplates.length > 0 && (
         <div className="flex flex-wrap items-stretch gap-2 sm:gap-3">
-          <div className="flex min-w-0 min-h-8 flex-1 flex-col gap-2 rounded-md border border-dashed bg-muted/30 px-3 py-2">
-            <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
-              <span className="text-xs font-medium text-muted-foreground">
-                {advancedFiltersOpen ? t('prManager.board.filterPrsAdvanced') : t('prManager.board.filterPrs')}
-              </span>
-              {!advancedFiltersOpen
-                ? PR_GH_FILTER_IDS.map(id => (
-                  <div key={id} className="flex items-center gap-1.5">
-                    <Checkbox
-                      id={`pr-gh-filter-${id}`}
-                      checked={prGhFilters.has(id)}
-                      className={PR_GH_FILTER_STYLE[id].checkbox}
-                      onCheckedChange={v => {
-                        setPrGhFilters(prev => {
-                          const n = new Set(prev)
-                          if (v === true) n.add(id)
-                          else n.delete(id)
-                          return n
-                        })
-                      }}
-                    />
-                    <Label htmlFor={`pr-gh-filter-${id}`} className={cn('cursor-pointer text-xs font-medium leading-none tabular-nums', PR_GH_FILTER_STYLE[id].label)}>
-                      {t(`prManager.ghStatus.${id}`)} ({prGhFilterCounts[id]})
-                    </Label>
-                  </div>
-                ))
-                : null}
-              {!advancedFiltersOpen ? (
+          <div className="flex min-w-0 min-h-6 flex-1 flex-col rounded-md border border-dashed bg-muted/30 px-3 py-2.5">
+            <div className="flex min-h-6 flex-wrap items-center gap-x-3 gap-y-2 pb-1">
+              {sortedReposForFilter.length > 0 ? (
                 <>
+                  <span className="shrink-0 text-[11px] font-medium leading-snug text-muted-foreground">{t('prManager.board.filterRepos')}</span>
+                  {sortedReposForFilter.map(repo => (
+                    <Tooltip key={repo.id}>
+                      <TooltipTrigger asChild>
+                        <span className="flex max-w-[min(100%,16rem)] cursor-pointer items-center gap-1.5 rounded-sm outline-none focus-visible:ring-2 focus-visible:ring-ring/50">
+                          <Checkbox
+                            id={`pr-repo-filter-${repo.id}`}
+                            checked={!repoExcludedSet.has(repo.id)}
+                            className="shrink-0 data-[state=checked]:border-blue-600 data-[state=checked]:bg-blue-600 data-[state=checked]:text-white dark:data-[state=checked]:border-blue-500 dark:data-[state=checked]:bg-blue-600"
+                            onCheckedChange={v => {
+                              const show = v === true
+                              setRepoExcludedIds(prev => {
+                                if (show) {
+                                  const next = prev.filter(id => id !== repo.id)
+                                  return next.length === prev.length ? prev : next
+                                }
+                                if (prev.includes(repo.id)) return prev
+                                return [...prev, repo.id].sort()
+                              })
+                            }}
+                          />
+                          <Label htmlFor={`pr-repo-filter-${repo.id}`} className="min-w-0 cursor-pointer truncate text-xs font-medium leading-none text-foreground">
+                            {repo.name}
+                          </Label>
+                        </span>
+                      </TooltipTrigger>
+                      <TooltipContent side="bottom" className="max-w-xs text-xs">
+                        {`${repo.name} (${repo.owner}/${repo.repo})`}
+                      </TooltipContent>
+                    </Tooltip>
+                  ))}
                   <div className="h-3 w-px shrink-0 self-center bg-border" aria-hidden />
-                  <div className="flex flex-wrap items-center gap-2">
-                    <span className="text-[11px] font-medium text-muted-foreground">{t('prManager.board.advancedCombineLabel')}</span>
-                    <ToggleGroup
-                      type="single"
-                      value={prGhSimpleCombineMode}
-                      onValueChange={v => {
-                        if (v === 'and' || v === 'or') setPrGhSimpleCombineMode(v)
-                      }}
-                      variant="default"
-                      size="xs"
-                      spacing={0}
-                      className={cn(
-                        'shrink-0 gap-0 rounded-lg bg-zinc-200/95 shadow-sm',
-                        'dark:bg-zinc-800 dark:shadow-black/20'
-                      )}
-                    >
-                      <ToggleGroupItem
-                        value="and"
-                        title={t('prManager.board.advancedCombineAndHelp')}
-                        className={cn(
-                          'border-0 font-medium shadow-none',
-                          'rounded-sm text-muted-foreground hover:bg-zinc-300/70 hover:text-foreground dark:hover:bg-zinc-700',
-                          'data-[state=on]:bg-primary data-[state=on]:font-semibold data-[state=on]:text-primary-foreground',
-                          'data-[state=on]:hover:bg-primary data-[state=on]:hover:text-primary-foreground',
-                          'focus-visible:z-10 focus-visible:ring-2 focus-visible:ring-ring/80 focus-visible:ring-offset-2 focus-visible:ring-offset-background'
-                        )}
-                      >
-                        {t('prManager.board.advancedCombineAnd')}
-                      </ToggleGroupItem>
-                      <ToggleGroupItem
-                        value="or"
-                        title={t('prManager.board.advancedCombineOrHelp')}
-                        className={cn(
-                          'border-0 font-medium shadow-none',
-                          'rounded-sm text-muted-foreground hover:bg-zinc-300/70 hover:text-foreground dark:hover:bg-zinc-700',
-                          'data-[state=on]:bg-primary data-[state=on]:font-semibold data-[state=on]:text-primary-foreground',
-                          'data-[state=on]:hover:bg-primary data-[state=on]:hover:text-primary-foreground',
-                          'focus-visible:z-10 focus-visible:ring-2 focus-visible:ring-ring/80 focus-visible:ring-offset-2 focus-visible:ring-offset-background'
-                        )}
-                      >
-                        {t('prManager.board.advancedCombineOr')}
-                      </ToggleGroupItem>
-                    </ToggleGroup>
-                  </div>
                 </>
               ) : null}
-              <div className="h-3 w-px shrink-0 self-center bg-border" aria-hidden />
-              <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5">
-                <span className="shrink-0 text-[11px] font-medium text-muted-foreground">{t('prManager.board.filterByBranchLabel')}</span>
-                <div className="flex items-center gap-1.5">
-                  <Checkbox
-                    id="pr-filter-remote-exists"
-                    checked={onlyExistingOnRemote}
-                    className="data-[state=checked]:border-cyan-600 data-[state=checked]:bg-cyan-600 data-[state=checked]:text-white dark:data-[state=checked]:border-cyan-500"
-                    onCheckedChange={v => {
-                      if (v === true) setOnlyExistingOnRemote(true)
-                      else setOnlyExistingOnRemote(false)
-                    }}
-                  />
-                  <Label htmlFor="pr-filter-remote-exists" className="flex cursor-pointer items-center gap-1.5 text-xs font-medium leading-none text-cyan-800 dark:text-cyan-200 tabular-nums">
-                    {remoteExistLoading && onlyExistingOnRemote ? <Loader2 className="h-3 w-3 shrink-0 animate-spin" /> : null}
-                    {`${t('prManager.board.onlyRemote')} (${remoteExistMap == null && remoteExistLoading ? '—' : branchesOnRemoteCount == null ? '—' : branchesOnRemoteCount})`}
-                  </Label>
-                </div>
+              <div className="flex min-h-6 flex-wrap items-center gap-x-3 gap-y-1.5">
+                <span className="shrink-0 text-[11px] font-medium leading-snug text-muted-foreground">{t('prManager.board.filterByBranchLabel')}</span>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <span className="inline-flex cursor-pointer items-center gap-1.5 rounded-sm outline-none focus-visible:ring-2 focus-visible:ring-ring/50">
+                      <Checkbox
+                        id="pr-filter-remote-exists"
+                        checked={onlyExistingOnRemote}
+                        className="data-[state=checked]:border-cyan-600 data-[state=checked]:bg-cyan-600 data-[state=checked]:text-white dark:data-[state=checked]:border-cyan-500"
+                        onCheckedChange={v => {
+                          if (v === true) setOnlyExistingOnRemote(true)
+                          else setOnlyExistingOnRemote(false)
+                        }}
+                      />
+                      <Label
+                        htmlFor="pr-filter-remote-exists"
+                        className="flex cursor-pointer items-center gap-1.5 text-xs font-medium leading-none text-cyan-800 dark:text-cyan-200 tabular-nums"
+                      >
+                        {remoteExistLoading && onlyExistingOnRemote ? <Loader2 className="h-3 w-3 shrink-0 animate-spin" /> : null}
+                        {`${t('prManager.board.onlyRemote')} (${remoteExistMap == null && remoteExistLoading ? '—' : branchesOnRemoteCount == null ? '—' : branchesOnRemoteCount})`}
+                      </Label>
+                    </span>
+                  </TooltipTrigger>
+                  <TooltipContent side="bottom" className="max-w-xs text-xs">
+                    {t('prManager.board.onlyRemoteTitle')}
+                  </TooltipContent>
+                </Tooltip>
                 <div className="h-3 w-px shrink-0 self-center bg-border" aria-hidden />
-                <div className="flex items-center gap-1.5">
-                  <Checkbox
-                    id="pr-filter-without-pr"
-                    checked={onlyBranchesWithoutPr}
-                    className="data-[state=checked]:border-amber-600 data-[state=checked]:bg-amber-600 data-[state=checked]:text-white dark:data-[state=checked]:border-amber-500"
-                    onCheckedChange={v => {
-                      if (v === true) setOnlyBranchesWithoutPr(true)
-                      else setOnlyBranchesWithoutPr(false)
-                    }}
-                  />
-                  <Label
-                    htmlFor="pr-filter-without-pr"
-                    title={t('prManager.board.onlyNoPrTitle')}
-                    className="flex cursor-pointer items-center gap-1.5 text-xs font-medium leading-none text-amber-900 tabular-nums dark:text-amber-200"
-                  >
-                    {remoteExistLoading && onlyBranchesWithoutPr && !onlyExistingOnRemote ? <Loader2 className="h-3 w-3 shrink-0 animate-spin" /> : null}
-                    {t('prManager.board.onlyNoPr')} ({remoteExistMap == null && remoteExistLoading ? '—' : branchesWithoutPrCount})
-                  </Label>
-                </div>
-              </div>
-              <div className="ml-auto flex flex-wrap items-center gap-1.5">
-                {advancedFiltersOpen ? (
-                  <Button type="button" size="sm" variant="ghost" className="h-8 px-2 text-xs text-muted-foreground" onClick={syncAdvancedFiltersFromSimple}>
-                    {t('prManager.board.syncAdvancedFromSimple')}
-                  </Button>
-                ) : null}
-                <Button
-                  type="button"
-                  size="sm"
-                  variant="outline"
-                  className="h-8 gap-1 px-2 text-xs"
-                  onClick={toggleAdvancedFilters}
-                  aria-expanded={advancedFiltersOpen}
-                  title={t('prManager.board.advancedFiltersHelp')}
-                >
-                  {advancedFiltersOpen ? <ChevronUp className="h-3.5 w-3.5 shrink-0" /> : <ChevronDown className="h-3.5 w-3.5 shrink-0" />}
-                  {advancedFiltersOpen ? t('prManager.board.advancedCollapse') : t('prManager.board.advancedOpen')}
-                </Button>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <span className="inline-flex cursor-pointer items-center gap-1.5 rounded-sm outline-none focus-visible:ring-2 focus-visible:ring-ring/50">
+                      <Checkbox
+                        id="pr-filter-without-pr"
+                        checked={onlyBranchesWithoutPr}
+                        className="data-[state=checked]:border-amber-600 data-[state=checked]:bg-amber-600 data-[state=checked]:text-white dark:data-[state=checked]:border-amber-500"
+                        onCheckedChange={v => {
+                          if (v === true) setOnlyBranchesWithoutPr(true)
+                          else setOnlyBranchesWithoutPr(false)
+                        }}
+                      />
+                      <Label
+                        htmlFor="pr-filter-without-pr"
+                        className="flex cursor-pointer items-center gap-1.5 text-xs font-medium leading-none text-amber-900 tabular-nums dark:text-amber-200"
+                      >
+                        {remoteExistLoading && onlyBranchesWithoutPr && !onlyExistingOnRemote ? <Loader2 className="h-3 w-3 shrink-0 animate-spin" /> : null}
+                        {t('prManager.board.onlyNoPr')} ({remoteExistMap == null && remoteExistLoading ? '—' : branchesWithoutPrCount})
+                      </Label>
+                    </span>
+                  </TooltipTrigger>
+                  <TooltipContent side="bottom" className="max-w-xs text-xs">
+                    {t('prManager.board.onlyNoPrTitle')}
+                  </TooltipContent>
+                </Tooltip>
               </div>
             </div>
-            {advancedFiltersOpen ? (
-              <div className="flex flex-col gap-2 border-t border-border/60 pt-2">
-                <p className="text-[11px] leading-snug text-muted-foreground">{t('prManager.board.advancedFiltersHelp')}</p>
-                <div className="flex flex-wrap items-center gap-2">
-                  <span className="text-[11px] font-medium text-muted-foreground">{t('prManager.board.advancedCombineLabel')}</span>
+            <Collapsible open={advancedFiltersOpen}>
+              <div className="flex w-full min-w-0 flex-wrap items-center justify-between gap-x-4 gap-y-2 border-t border-border/60 pt-1">
+                <div className="flex min-w-0 flex-1 flex-wrap items-center gap-x-3 gap-y-2">
+                  <span className="shrink-0 text-[11px] font-medium leading-snug text-muted-foreground">{t('prManager.board.advancedCombineLabel')}</span>
                   <ToggleGroup
                     type="single"
-                    value={prGhAdvancedCombineMode}
+                    value={advancedFiltersOpen ? prGhAdvancedCombineMode : prGhSimpleCombineMode}
                     onValueChange={v => {
-                      if (v === 'and' || v === 'or') setPrGhAdvancedCombineMode(v)
+                      if (v !== 'and' && v !== 'or') return
+                      if (advancedFiltersOpen) setPrGhAdvancedCombineMode(v)
+                      else setPrGhSimpleCombineMode(v)
                     }}
                     variant="default"
                     size="xs"
                     spacing={0}
-                    className={cn(
-                      'shrink-0 gap-0 rounded-lg bg-zinc-200/95 shadow-sm',
-                      'dark:bg-zinc-800 dark:shadow-black/20'
-                    )}
+                    className={cn('shrink-0 gap-0 rounded-lg bg-zinc-200/95 shadow-sm', 'dark:bg-zinc-800 dark:shadow-black/20')}
                   >
-                    <ToggleGroupItem
-                      value="and"
-                      title={t('prManager.board.advancedCombineAndHelp')}
-                      className={cn(
-                        'border-0 font-medium shadow-none',
-                        'rounded-sm text-muted-foreground hover:bg-zinc-300/70 hover:text-foreground dark:hover:bg-zinc-700',
-                        'data-[state=on]:bg-primary data-[state=on]:font-semibold data-[state=on]:text-primary-foreground',
-                        'data-[state=on]:hover:bg-primary data-[state=on]:hover:text-primary-foreground',
-                        'focus-visible:z-10 focus-visible:ring-2 focus-visible:ring-ring/80 focus-visible:ring-offset-2 focus-visible:ring-offset-background'
-                      )}
-                    >
-                      {t('prManager.board.advancedCombineAnd')}
-                    </ToggleGroupItem>
-                    <ToggleGroupItem
-                      value="or"
-                      title={t('prManager.board.advancedCombineOrHelp')}
-                      className={cn(
-                        'border-0 font-medium shadow-none',
-                        'rounded-sm text-muted-foreground hover:bg-zinc-300/70 hover:text-foreground dark:hover:bg-zinc-700',
-                        'data-[state=on]:bg-primary data-[state=on]:font-semibold data-[state=on]:text-primary-foreground',
-                        'data-[state=on]:hover:bg-primary data-[state=on]:hover:text-primary-foreground',
-                        'focus-visible:z-10 focus-visible:ring-2 focus-visible:ring-ring/80 focus-visible:ring-offset-2 focus-visible:ring-offset-background'
-                      )}
-                    >
-                      {t('prManager.board.advancedCombineOr')}
-                    </ToggleGroupItem>
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <ToggleGroupItem
+                          value="and"
+                          className={cn(
+                            'border-0 font-medium shadow-none',
+                            'rounded-sm text-muted-foreground hover:bg-zinc-300/70 hover:text-foreground dark:hover:bg-zinc-700',
+                            'data-[state=on]:bg-primary data-[state=on]:font-semibold data-[state=on]:text-primary-foreground',
+                            'data-[state=on]:hover:bg-primary data-[state=on]:hover:text-primary-foreground',
+                            'focus-visible:z-10 focus-visible:ring-2 focus-visible:ring-ring/80 focus-visible:ring-offset-2 focus-visible:ring-offset-background'
+                          )}
+                        >
+                          {t('prManager.board.advancedCombineAnd')}
+                        </ToggleGroupItem>
+                      </TooltipTrigger>
+                      <TooltipContent side="bottom" className="max-w-xs text-xs">
+                        {t('prManager.board.advancedCombineAndHelp')}
+                      </TooltipContent>
+                    </Tooltip>
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <ToggleGroupItem
+                          value="or"
+                          className={cn(
+                            'border-0 font-medium shadow-none',
+                            'rounded-sm text-muted-foreground hover:bg-zinc-300/70 hover:text-foreground dark:hover:bg-zinc-700',
+                            'data-[state=on]:bg-primary data-[state=on]:font-semibold data-[state=on]:text-primary-foreground',
+                            'data-[state=on]:hover:bg-primary data-[state=on]:hover:text-primary-foreground',
+                            'focus-visible:z-10 focus-visible:ring-2 focus-visible:ring-ring/80 focus-visible:ring-offset-2 focus-visible:ring-offset-background'
+                          )}
+                        >
+                          {t('prManager.board.advancedCombineOr')}
+                        </ToggleGroupItem>
+                      </TooltipTrigger>
+                      <TooltipContent side="bottom" className="max-w-xs text-xs">
+                        {t('prManager.board.advancedCombineOrHelp')}
+                      </TooltipContent>
+                    </Tooltip>
                   </ToggleGroup>
+                  {!advancedFiltersOpen ? (
+                    <>
+                      <div className="h-3 w-px shrink-0 self-center bg-border" aria-hidden />
+                      {PR_GH_FILTER_IDS.map(id => (
+                        <Tooltip key={id}>
+                          <TooltipTrigger asChild>
+                            <span className="inline-flex cursor-pointer items-center gap-1.5 rounded-sm outline-none focus-visible:ring-2 focus-visible:ring-ring/50">
+                              <Checkbox
+                                id={`pr-gh-filter-${id}`}
+                                checked={prGhFilters.has(id)}
+                                className={PR_GH_FILTER_STYLE[id].checkbox}
+                                onCheckedChange={v => {
+                                  setPrGhFilters(prev => {
+                                    const n = new Set(prev)
+                                    if (v === true) n.add(id)
+                                    else n.delete(id)
+                                    return n
+                                  })
+                                }}
+                              />
+                              <Label htmlFor={`pr-gh-filter-${id}`} className={cn('cursor-pointer text-xs font-medium leading-none tabular-nums', PR_GH_FILTER_STYLE[id].label)}>
+                                {t(`prManager.ghStatus.${id}`)} ({prGhFilterCounts[id]})
+                              </Label>
+                            </span>
+                          </TooltipTrigger>
+                          <TooltipContent side="bottom" className="max-w-xs text-xs">
+                            {t(`prManager.ghStatus.tooltips.${id}`)}
+                          </TooltipContent>
+                        </Tooltip>
+                      ))}
+                    </>
+                  ) : null}
                 </div>
-                {orderedPrCheckpointTemplates.map(tpl => {
-                  const colCounts = prGhAdvancedColumnCounts[tpl.id]
-                  const effective = prGhFiltersByTpl[tpl.id] ?? PR_GH_FILTER_IDS.filter(k => prGhFilters.has(k))
-                  return (
-                    <div key={tpl.id} className="flex flex-wrap items-center gap-x-3 gap-y-1.5 border-l-2 border-l-border/80 pl-2">
-                      <span className="min-w-[6rem] max-w-[160px] truncate text-xs font-semibold text-foreground/90" title={tpl.label}>
-                        {tpl.label}
-                      </span>
-                      <div className="flex flex-1 flex-wrap items-center gap-x-3 gap-y-1">
-                        {PR_GH_FILTER_IDS.map(id => (
-                          <div key={id} className="flex items-center gap-1.5">
-                            <Checkbox
-                              id={`pr-gh-filter-${tpl.id}-${id}`}
-                              checked={effective.includes(id)}
-                              className={PR_GH_FILTER_STYLE[id].checkbox}
-                              onCheckedChange={v => toggleTplGhFilter(tpl.id, id, v === true)}
-                            />
-                            <Label
-                              htmlFor={`pr-gh-filter-${tpl.id}-${id}`}
-                              className={cn('cursor-pointer text-xs font-medium leading-none tabular-nums', PR_GH_FILTER_STYLE[id].label)}
-                            >
-                              {t(`prManager.ghStatus.${id}`)} ({colCounts?.[id] ?? 0})
-                            </Label>
-                          </div>
-                        ))}
-                      </div>
-                    </div>
-                  )
-                })}
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <Button
+                      type="button"
+                      variant="link"
+                      className="inline-flex h-8 min-h-8 shrink-0 items-center gap-1 px-0 text-xs font-medium text-muted-foreground underline-offset-4 hover:text-foreground hover:underline"
+                      onClick={toggleAdvancedFilters}
+                      aria-expanded={advancedFiltersOpen}
+                    >
+                      <ChevronDown className={cn('h-3.5 w-3.5 shrink-0 transition-transform duration-300 ease-out', advancedFiltersOpen && '-rotate-180')} aria-hidden />
+                      {advancedFiltersOpen ? t('prManager.board.advancedCollapse') : t('prManager.board.advancedOpen')}
+                    </Button>
+                  </TooltipTrigger>
+                  <TooltipContent side="bottom" className="max-w-xs text-xs">
+                    {t('prManager.board.advancedFiltersHelp')}
+                  </TooltipContent>
+                </Tooltip>
               </div>
-            ) : null}
+              <CollapsibleContent className={cn('overflow-hidden', 'data-[state=closed]:animate-accordion-up data-[state=open]:animate-accordion-down motion-reduce:animate-none')}>
+                <div className="flex flex-col gap-2 pt-1">
+                  {orderedPrCheckpointTemplates.map(tpl => {
+                    const colCounts = prGhAdvancedColumnCounts[tpl.id]
+                    const effective = prGhFiltersByTpl[tpl.id] ?? PR_GH_FILTER_IDS.filter(k => prGhFilters.has(k))
+                    return (
+                      <div key={tpl.id} className="flex min-h-0 flex-wrap items-center gap-x-2 gap-y-0.5 border-l-2 border-l-border/80 pl-2">
+                        <Tooltip>
+                          <TooltipTrigger asChild>
+                            <span className="min-w-[6rem] max-w-[160px] cursor-default truncate text-xs font-semibold text-foreground/90">{tpl.label}</span>
+                          </TooltipTrigger>
+                          <TooltipContent side="top" className="max-w-xs text-xs">
+                            {tpl.label}
+                          </TooltipContent>
+                        </Tooltip>
+                        <div className="flex flex-1 flex-wrap items-center gap-x-3 gap-y-0.5">
+                          {PR_GH_FILTER_IDS.map(id => (
+                            <Tooltip key={id}>
+                              <TooltipTrigger asChild>
+                                <span className="inline-flex cursor-pointer items-center gap-1.5 rounded-sm outline-none focus-visible:ring-2 focus-visible:ring-ring/50">
+                                  <Checkbox
+                                    id={`pr-gh-filter-${tpl.id}-${id}`}
+                                    checked={effective.includes(id)}
+                                    className={PR_GH_FILTER_STYLE[id].checkbox}
+                                    onCheckedChange={v => toggleTplGhFilter(tpl.id, id, v === true)}
+                                  />
+                                  <Label
+                                    htmlFor={`pr-gh-filter-${tpl.id}-${id}`}
+                                    className={cn('cursor-pointer text-xs font-medium leading-none tabular-nums', PR_GH_FILTER_STYLE[id].label)}
+                                  >
+                                    {t(`prManager.ghStatus.${id}`)} ({colCounts?.[id] ?? 0})
+                                  </Label>
+                                </span>
+                              </TooltipTrigger>
+                              <TooltipContent side="bottom" className="max-w-xs text-xs">
+                                {t(`prManager.ghStatus.tooltips.${id}`)}
+                              </TooltipContent>
+                            </Tooltip>
+                          ))}
+                        </div>
+                      </div>
+                    )
+                  })}
+                </div>
+              </CollapsibleContent>
+            </Collapsible>
           </div>
-          <div className="ml-auto flex min-h-8 shrink-0 flex-wrap items-center justify-end gap-1.5 rounded-md border border-dashed bg-muted/30 px-2 py-2 sm:gap-2 sm:px-3">
+          <div className="ml-auto flex min-w-0 max-w-full shrink-0 flex-col items-stretch gap-1.5 rounded-md border border-dashed bg-muted/30 px-2 pt-1.5 sm:px-3">
+            <span className="w-full text-center text-[12px] font-medium leading-none text-muted-foreground">{t('prManager.bulk.toolbarLabel')}</span>
+            <div className="flex min-h-8 w-full flex-wrap items-center justify-end gap-1.5 sm:gap-2">
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <span className="inline-flex shrink-0 rounded-md">
+                    <Button
+                      type="button"
+                      size="icon"
+                      variant="outline"
+                      className={cn(
+                        'h-8 w-8 border transition-colors duration-500 ease-in-out [&_svg]:transition-colors [&_svg]:duration-500 [&_svg]:ease-in-out',
+                        bulkCreatePrToolbarEnabled
+                          ? 'border-sky-600 bg-sky-600 text-white shadow-none hover:border-sky-700 hover:bg-sky-700 hover:text-white dark:border-sky-500 dark:bg-sky-500 dark:hover:border-sky-400 dark:hover:bg-sky-400'
+                          : 'border-border/70 bg-muted/20 text-muted-foreground'
+                      )}
+                      disabled={!bulkCreatePrToolbarEnabled}
+                      onClick={() => setBulkToolbarConfirm('createPr')}
+                    >
+                      <GitPullRequestCreate className="h-3.5 w-3.5" />
+                    </Button>
+                  </span>
+                </TooltipTrigger>
+                <TooltipContent side="bottom" className="max-w-xs text-xs">
+                  {t('prManager.bulk.tt.createPr')}
+                </TooltipContent>
+              </Tooltip>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <span className="inline-flex shrink-0 rounded-md">
+                    <Button
+                      type="button"
+                      size="icon"
+                      variant="outline"
+                      className={cn(
+                        'h-8 w-8 border transition-colors duration-500 ease-in-out [&_svg]:transition-colors [&_svg]:duration-500 [&_svg]:ease-in-out',
+                        githubTokenOk && bulkElig.merge > 0
+                          ? 'border-violet-600 bg-violet-600 text-white shadow-none hover:border-violet-700 hover:bg-violet-700 hover:text-white dark:border-violet-500 dark:bg-violet-600 dark:hover:border-violet-400 dark:hover:bg-violet-500'
+                          : 'border-border/70 bg-muted/20 text-muted-foreground'
+                      )}
+                      disabled={!githubTokenOk || bulkElig.merge === 0}
+                      onClick={() => setBulkToolbarConfirm('merge')}
+                    >
+                      <GitMerge className="h-3.5 w-3.5" />
+                    </Button>
+                  </span>
+                </TooltipTrigger>
+                <TooltipContent side="bottom" className="max-w-xs text-xs">
+                  {t('prManager.bulk.tt.merge')}
+                </TooltipContent>
+              </Tooltip>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <span className="inline-flex shrink-0 rounded-md">
+                    <Button
+                      type="button"
+                      size="icon"
+                      variant="outline"
+                      className={cn(
+                        'h-8 w-8 border transition-colors duration-500 ease-in-out [&_svg]:transition-colors [&_svg]:duration-500 [&_svg]:ease-in-out',
+                        githubTokenOk && bulkElig.approve > 0
+                          ? 'border-teal-600 bg-teal-600 text-white shadow-none hover:border-teal-700 hover:bg-teal-700 hover:text-white dark:border-teal-500 dark:bg-teal-500 dark:hover:border-teal-400 dark:hover:bg-teal-400'
+                          : 'border-border/70 bg-muted/20 text-muted-foreground'
+                      )}
+                      disabled={!githubTokenOk || bulkElig.approve === 0}
+                      onClick={() => setBulkToolbarConfirm('approve')}
+                    >
+                      <CircleCheckBig className="h-3.5 w-3.5" />
+                    </Button>
+                  </span>
+                </TooltipTrigger>
+                <TooltipContent side="bottom" className="max-w-xs text-xs">
+                  {t('prManager.bulk.tt.approve')}
+                </TooltipContent>
+              </Tooltip>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <span className="inline-flex shrink-0 rounded-md">
+                    <Button
+                      type="button"
+                      size="icon"
+                      variant="outline"
+                      className={cn(
+                        'h-8 w-8 border transition-colors duration-500 ease-in-out [&_svg]:transition-colors [&_svg]:duration-500 [&_svg]:ease-in-out',
+                        githubTokenOk && bulkElig.close > 0
+                          ? 'border-rose-600 bg-rose-600 text-white shadow-none hover:border-rose-700 hover:bg-rose-700 hover:text-white dark:border-rose-500 dark:bg-rose-500 dark:hover:border-rose-400 dark:hover:bg-rose-400'
+                          : 'border-border/70 bg-muted/20 text-muted-foreground'
+                      )}
+                      disabled={!githubTokenOk || bulkElig.close === 0}
+                      onClick={() => setBulkToolbarConfirm('close')}
+                    >
+                      <GitPullRequestClosed className="h-3.5 w-3.5" />
+                    </Button>
+                  </span>
+                </TooltipTrigger>
+                <TooltipContent side="bottom" className="max-w-xs text-xs">
+                  {t('prManager.bulk.tt.close')}
+                </TooltipContent>
+              </Tooltip>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <span className="inline-flex shrink-0 rounded-md">
+                    <Button
+                      type="button"
+                      size="icon"
+                      variant="outline"
+                      className={cn(
+                        'h-8 w-8 border transition-colors duration-500 ease-in-out [&_svg]:transition-colors [&_svg]:duration-500 [&_svg]:ease-in-out',
+                        githubTokenOk && bulkElig.reopen > 0
+                          ? 'border-orange-600 bg-orange-600 text-white shadow-none hover:border-orange-700 hover:bg-orange-700 hover:text-white dark:border-orange-500 dark:bg-orange-500 dark:hover:border-orange-400 dark:hover:bg-orange-400'
+                          : 'border-border/70 bg-muted/20 text-muted-foreground'
+                      )}
+                      disabled={!githubTokenOk || bulkElig.reopen === 0}
+                      onClick={() => setBulkToolbarConfirm('reopen')}
+                    >
+                      <GitPullRequestCreateArrow className="h-3.5 w-3.5" />
+                    </Button>
+                  </span>
+                </TooltipTrigger>
+                <TooltipContent side="bottom" className="max-w-xs text-xs">
+                  {t('prManager.bulk.tt.reopen')}
+                </TooltipContent>
+              </Tooltip>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <span className="inline-flex shrink-0 rounded-md">
+                    <Button
+                      type="button"
+                      size="icon"
+                      variant="outline"
+                      className={cn(
+                        'h-8 w-8 border transition-colors duration-500 ease-in-out [&_svg]:transition-colors [&_svg]:duration-500 [&_svg]:ease-in-out',
+                        githubTokenOk && bulkElig.draft > 0
+                          ? 'border-slate-600 bg-slate-600 text-white shadow-none hover:border-slate-700 hover:bg-slate-700 hover:text-white dark:border-slate-500 dark:bg-slate-500 dark:hover:border-slate-400 dark:hover:bg-slate-400'
+                          : 'border-border/70 bg-muted/20 text-muted-foreground'
+                      )}
+                      disabled={!githubTokenOk || bulkElig.draft === 0}
+                      onClick={() => setBulkToolbarConfirm('draft')}
+                    >
+                      <GitPullRequestDraft className="h-3.5 w-3.5" />
+                    </Button>
+                  </span>
+                </TooltipTrigger>
+                <TooltipContent side="bottom" className="max-w-xs text-xs">
+                  {t('prManager.bulk.tt.draft')}
+                </TooltipContent>
+              </Tooltip>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <span className="inline-flex shrink-0 rounded-md">
+                    <Button
+                      type="button"
+                      size="icon"
+                      variant="outline"
+                      className={cn(
+                        'h-8 w-8 border transition-colors duration-500 ease-in-out [&_svg]:transition-colors [&_svg]:duration-500 [&_svg]:ease-in-out',
+                        githubTokenOk && bulkElig.ready > 0
+                          ? 'border-emerald-600 bg-emerald-600 text-white shadow-none hover:border-emerald-700 hover:bg-emerald-700 hover:text-white dark:border-emerald-500 dark:bg-emerald-500 dark:hover:border-emerald-400 dark:hover:bg-emerald-400'
+                          : 'border-border/70 bg-muted/20 text-muted-foreground'
+                      )}
+                      disabled={!githubTokenOk || bulkElig.ready === 0}
+                      onClick={() => setBulkToolbarConfirm('ready')}
+                    >
+                      <GitPullRequestArrow className="h-3.5 w-3.5" />
+                    </Button>
+                  </span>
+                </TooltipTrigger>
+                <TooltipContent side="bottom" className="max-w-xs text-xs">
+                  {t('prManager.bulk.tt.ready')}
+                </TooltipContent>
+              </Tooltip>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <span className="inline-flex shrink-0 rounded-md">
+                    <Button
+                      type="button"
+                      size="icon"
+                      variant="outline"
+                      className={cn(
+                        'h-8 w-8 border transition-colors duration-500 ease-in-out [&_svg]:transition-colors [&_svg]:duration-500 [&_svg]:ease-in-out',
+                        githubTokenOk && bulkElig.requestReviewers > 0
+                          ? 'border-fuchsia-600 bg-fuchsia-600 text-white shadow-none hover:border-fuchsia-700 hover:bg-fuchsia-700 hover:text-white dark:border-fuchsia-500 dark:bg-fuchsia-500 dark:hover:border-fuchsia-400 dark:hover:bg-fuchsia-400'
+                          : 'border-border/70 bg-muted/20 text-muted-foreground'
+                      )}
+                      disabled={!githubTokenOk || bulkElig.requestReviewers === 0}
+                      onClick={() => setBulkToolbarConfirm('requestReviewers')}
+                    >
+                      <UserPlus className="h-3.5 w-3.5" />
+                    </Button>
+                  </span>
+                </TooltipTrigger>
+                <TooltipContent side="bottom" className="max-w-xs text-xs">
+                  {t('prManager.bulk.tt.requestReviewers')}
+                </TooltipContent>
+              </Tooltip>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <span className="inline-flex shrink-0 rounded-md">
+                    <Button
+                      type="button"
+                      size="icon"
+                      variant="outline"
+                      className={cn(
+                        'h-8 w-8 border transition-colors duration-500 ease-in-out [&_svg]:transition-colors [&_svg]:duration-500 [&_svg]:ease-in-out',
+                        githubTokenOk && bulkElig.updateBranch > 0
+                          ? 'border-cyan-600 bg-cyan-600 text-white shadow-none hover:border-cyan-700 hover:bg-cyan-700 hover:text-white dark:border-cyan-500 dark:bg-cyan-500 dark:hover:border-cyan-400 dark:hover:bg-cyan-400'
+                          : 'border-border/70 bg-muted/20 text-muted-foreground'
+                      )}
+                      disabled={!githubTokenOk || bulkElig.updateBranch === 0}
+                      onClick={() => setBulkToolbarConfirm('updateBranch')}
+                    >
+                      <ArrowDownToLine className="h-3.5 w-3.5" />
+                    </Button>
+                  </span>
+                </TooltipTrigger>
+                <TooltipContent side="bottom" className="max-w-xs text-xs">
+                  {t('prManager.bulk.tt.updateBranch')}
+                </TooltipContent>
+              </Tooltip>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <span className="inline-flex shrink-0 rounded-md">
+                    <Button
+                      type="button"
+                      size="icon"
+                      variant="outline"
+                      className={cn(
+                        'h-8 w-8 border transition-colors duration-500 ease-in-out [&_svg]:transition-colors [&_svg]:duration-500 [&_svg]:ease-in-out',
+                        githubTokenOk && bulkElig.deleteBranch > 0
+                          ? 'border-red-600 bg-red-600 text-white shadow-none hover:border-red-700 hover:bg-red-700 hover:text-white dark:border-red-500 dark:bg-red-500 dark:hover:border-red-400 dark:hover:bg-red-400'
+                          : 'border-border/70 bg-muted/20 text-muted-foreground'
+                      )}
+                      disabled={!githubTokenOk || bulkElig.deleteBranch === 0}
+                      onClick={() => setBulkToolbarConfirm('deleteRemoteBranch')}
+                    >
+                      <Trash2 className="h-3.5 w-3.5" />
+                    </Button>
+                  </span>
+                </TooltipTrigger>
+                <TooltipContent side="bottom" className="max-w-xs text-xs">
+                  {t('prManager.bulk.tt.deleteRemoteBranch')}
+                </TooltipContent>
+              </Tooltip>
+            </div>
             {selectedRowIds.size > 0 ? (
-              <span className="mr-0.5 text-xs tabular-nums text-muted-foreground">{t('prManager.bulk.nSelected', { count: selectedRowIds.size })}</span>
+              <span className="w-full text-center text-xs tabular-nums text-muted-foreground">{t('prManager.bulk.nSelected', { count: selectedRowIds.size })}</span>
             ) : null}
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <Button
-                  type="button"
-                  size="icon"
-                  variant="outline"
-                  className="h-8 w-8 text-sky-700 hover:bg-sky-500/10 dark:text-sky-400"
-                  disabled={!bulkCreatePrToolbarEnabled}
-                  onClick={() => setBulkToolbarConfirm('createPr')}
-                >
-                  <CopyPlus className="h-3.5 w-3.5" />
-                </Button>
-              </TooltipTrigger>
-              <TooltipContent side="bottom" className="max-w-xs text-xs">
-                {t('prManager.bulk.tt.createPr')}
-              </TooltipContent>
-            </Tooltip>
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <Button
-                  type="button"
-                  size="icon"
-                  variant="outline"
-                  className="h-8 w-8 text-violet-700 hover:bg-violet-500/10 dark:text-violet-400"
-                  disabled={!githubTokenOk || bulkElig.merge === 0}
-                  onClick={() => setBulkToolbarConfirm('merge')}
-                >
-                  <GitMerge className="h-3.5 w-3.5" />
-                </Button>
-              </TooltipTrigger>
-              <TooltipContent side="bottom" className="max-w-xs text-xs">
-                {t('prManager.bulk.tt.merge')}
-              </TooltipContent>
-            </Tooltip>
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <Button
-                  type="button"
-                  size="icon"
-                  variant="outline"
-                  className="h-8 w-8 text-teal-700 hover:bg-teal-500/10 dark:text-teal-400"
-                  disabled={!githubTokenOk || bulkElig.approve === 0}
-                  onClick={() => setBulkToolbarConfirm('approve')}
-                >
-                  <BadgeCheck className="h-3.5 w-3.5" />
-                </Button>
-              </TooltipTrigger>
-              <TooltipContent side="bottom" className="max-w-xs text-xs">
-                {t('prManager.bulk.tt.approve')}
-              </TooltipContent>
-            </Tooltip>
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <Button
-                  type="button"
-                  size="icon"
-                  variant="outline"
-                  className="h-8 w-8 text-rose-700 hover:bg-rose-500/10 dark:text-rose-400"
-                  disabled={!githubTokenOk || bulkElig.close === 0}
-                  onClick={() => setBulkToolbarConfirm('close')}
-                >
-                  <GitPullRequestClosed className="h-3.5 w-3.5" />
-                </Button>
-              </TooltipTrigger>
-              <TooltipContent side="bottom" className="max-w-xs text-xs">
-                {t('prManager.bulk.tt.close')}
-              </TooltipContent>
-            </Tooltip>
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <Button
-                  type="button"
-                  size="icon"
-                  variant="outline"
-                  className="h-8 w-8 text-orange-700 hover:bg-orange-500/10 dark:text-orange-400"
-                  disabled={!githubTokenOk || bulkElig.reopen === 0}
-                  onClick={() => setBulkToolbarConfirm('reopen')}
-                >
-                  <RotateCcw className="h-3.5 w-3.5" />
-                </Button>
-              </TooltipTrigger>
-              <TooltipContent side="bottom" className="max-w-xs text-xs">
-                {t('prManager.bulk.tt.reopen')}
-              </TooltipContent>
-            </Tooltip>
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <Button
-                  type="button"
-                  size="icon"
-                  variant="outline"
-                  className="h-8 w-8 text-slate-600 hover:bg-slate-500/10 dark:text-slate-400"
-                  disabled={!githubTokenOk || bulkElig.draft === 0}
-                  onClick={() => setBulkToolbarConfirm('draft')}
-                >
-                  <CircleDashed className="h-3.5 w-3.5" />
-                </Button>
-              </TooltipTrigger>
-              <TooltipContent side="bottom" className="max-w-xs text-xs">
-                {t('prManager.bulk.tt.draft')}
-              </TooltipContent>
-            </Tooltip>
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <Button
-                  type="button"
-                  size="icon"
-                  variant="outline"
-                  className="h-8 w-8 text-emerald-700 hover:bg-emerald-500/10 dark:text-emerald-400"
-                  disabled={!githubTokenOk || bulkElig.ready === 0}
-                  onClick={() => setBulkToolbarConfirm('ready')}
-                >
-                  <Send className="h-3.5 w-3.5" />
-                </Button>
-              </TooltipTrigger>
-              <TooltipContent side="bottom" className="max-w-xs text-xs">
-                {t('prManager.bulk.tt.ready')}
-              </TooltipContent>
-            </Tooltip>
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <Button
-                  type="button"
-                  size="icon"
-                  variant="outline"
-                  className="h-8 w-8 text-fuchsia-700 hover:bg-fuchsia-500/10 dark:text-fuchsia-400"
-                  disabled={!githubTokenOk || bulkElig.requestReviewers === 0}
-                  onClick={() => setBulkToolbarConfirm('requestReviewers')}
-                >
-                  <UserPlus className="h-3.5 w-3.5" />
-                </Button>
-              </TooltipTrigger>
-              <TooltipContent side="bottom" className="max-w-xs text-xs">
-                {t('prManager.bulk.tt.requestReviewers')}
-              </TooltipContent>
-            </Tooltip>
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <Button
-                  type="button"
-                  size="icon"
-                  variant="outline"
-                  className="h-8 w-8 text-teal-700 hover:bg-teal-500/10 dark:text-teal-400"
-                  disabled={!githubTokenOk || bulkElig.updateBranch === 0}
-                  onClick={() => setBulkToolbarConfirm('updateBranch')}
-                >
-                  <ArrowDownToLine className="h-3.5 w-3.5" />
-                </Button>
-              </TooltipTrigger>
-              <TooltipContent side="bottom" className="max-w-xs text-xs">
-                {t('prManager.bulk.tt.updateBranch')}
-              </TooltipContent>
-            </Tooltip>
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <Button
-                  type="button"
-                  size="icon"
-                  variant="outline"
-                  className="h-8 w-8 text-red-700 hover:bg-red-500/10 dark:text-red-400"
-                  disabled={!githubTokenOk || bulkElig.deleteBranch === 0}
-                  onClick={() => setBulkToolbarConfirm('deleteRemoteBranch')}
-                >
-                  <Trash2 className="h-3.5 w-3.5" />
-                </Button>
-              </TooltipTrigger>
-              <TooltipContent side="bottom" className="max-w-xs text-xs">
-                {t('prManager.bulk.tt.deleteRemoteBranch')}
-              </TooltipContent>
-            </Tooltip>
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <Button
-                  type="button"
-                  size="icon"
-                  variant="ghost"
-                  className="h-8 w-8 text-muted-foreground hover:text-foreground"
-                  disabled={selectedRowIds.size === 0}
-                  onClick={() => setBulkToolbarConfirm('clearSelection')}
-                >
-                  <X className="h-3.5 w-3.5" />
-                </Button>
-              </TooltipTrigger>
-              <TooltipContent side="bottom" className="max-w-xs text-xs">
-                {t('prManager.bulk.tt.clearSelection')}
-              </TooltipContent>
-            </Tooltip>
           </div>
         </div>
       )}
@@ -2274,7 +2445,7 @@ export function PrBoard({
                           'align-top',
                           showTableBorders ? 'border-b-0' : 'border-b border-b-border/60',
                           vis.row,
-                          rowInteractionLocked && 'pointer-events-none opacity-[0.65]',
+                          rowInteractionLocked && 'pointer-events-none opacity-[0.65]'
                         )}
                         onMouseEnter={() => setPrBoardHoveredRowId(row.id)}
                         onMouseLeave={e => {
@@ -2321,14 +2492,13 @@ export function PrBoard({
                                       >
                                         {githubSyncUi.kind === 'repo' && githubSyncUi.repoId === repoKeyId ? (
                                           <GlowLoader className="h-3 w-3 animate-spin" />
-                                        ) : (() => {
+                                        ) : (
+                                          (() => {
                                             void scopedSyncStaleClock
-                                            const visual = githubScopedSyncIdleVisual(
-                                              readLastGithubSyncRepoMs(projectId, rows[0].repoId),
-                                              Date.now(),
-                                            )
+                                            const visual = githubScopedSyncIdleVisual(readLastGithubSyncRepoMs(projectId, rows[0].repoId), Date.now())
                                             return <GithubScopedSyncIdleGlyph visual={visual} />
-                                          })()}
+                                          })()
+                                        )}
                                       </Button>
                                     </TooltipTrigger>
                                     <TooltipContent side="right" className="max-w-xs text-xs">
@@ -2337,16 +2507,10 @@ export function PrBoard({
                                   </Tooltip>
                                   <Tooltip>
                                     <TooltipTrigger asChild>
-                                      <span className="min-w-0 flex-1 cursor-default truncate leading-tight text-foreground/90">
-                                        {rows[0].repoName}
-                                      </span>
+                                      <span className="min-w-0 flex-1 cursor-default truncate leading-tight text-foreground/90">{rows[0].repoName}</span>
                                     </TooltipTrigger>
                                     <TooltipContent side="bottom" className="max-w-xs text-xs">
-                                      {formatScopedSyncTooltip(
-                                        readLastGithubSyncRepoMs(projectId, rows[0].repoId),
-                                        i18n.language,
-                                        t,
-                                      )}
+                                      {formatScopedSyncTooltip(readLastGithubSyncRepoMs(projectId, rows[0].repoId), i18n.language, t)}
                                     </TooltipContent>
                                   </Tooltip>
                                 </div>
@@ -2406,17 +2570,16 @@ export function PrBoard({
                                 >
                                   {githubSyncUi.kind === 'branch' && githubSyncUi.rowId === row.id ? (
                                     <GlowLoader className="h-3 w-3 animate-spin" />
-                                  ) : (() => {
+                                  ) : (
+                                    (() => {
                                       void scopedSyncStaleClock
                                       const visual = githubScopedSyncIdleVisual(
-                                        effectiveGithubSyncMsForBranchRow(
-                                          readLastGithubSyncRepoMs(projectId, row.repoId),
-                                          readLastGithubSyncBranchMs(projectId, row.id),
-                                        ),
-                                        Date.now(),
+                                        effectiveGithubSyncMsForBranchRow(readLastGithubSyncRepoMs(projectId, row.repoId), readLastGithubSyncBranchMs(projectId, row.id)),
+                                        Date.now()
                                       )
                                       return <GithubScopedSyncIdleGlyph visual={visual} />
-                                    })()}
+                                    })()
+                                  )}
                                 </Button>
                               </TooltipTrigger>
                               <TooltipContent side="top" className="max-w-xs text-xs">
@@ -2439,18 +2602,19 @@ export function PrBoard({
                                   {formatScopedSyncTooltip(readLastGithubSyncBranchMs(projectId, row.id), i18n.language, t)}
                                 </TooltipContent>
                               </Tooltip>
-                              {remoteExistMap != null && remoteExistMap[row.id] === true ? (
+                              {branchProtectedMap != null && branchProtectedMap[row.id] === true ? (
                                 <Tooltip>
                                   <TooltipTrigger asChild>
                                     <span
-                                      className="inline-flex shrink-0 text-cyan-600 dark:text-cyan-400"
-                                      aria-label={t('prManager.board.branchOnRemoteBadge')}
+                                      role="img"
+                                      className="inline-flex shrink-0 text-amber-600 dark:text-amber-400"
+                                      aria-label={t('prManager.board.branchGithubProtectedBadge')}
                                     >
-                                      <CheckCircle2 className="h-3.5 w-3.5" strokeWidth={2.25} aria-hidden />
+                                      <ShieldAlert className="h-3.5 w-3.5" strokeWidth={2.25} aria-hidden />
                                     </span>
                                   </TooltipTrigger>
                                   <TooltipContent side="top" className="max-w-xs text-xs">
-                                    {t('prManager.board.branchOnRemoteBadge')}
+                                    {t('prManager.board.branchGithubProtectedBadge')}
                                   </TooltipContent>
                                 </Tooltip>
                               ) : null}
@@ -2533,10 +2697,10 @@ export function PrBoard({
                 {totalRowCount === 0
                   ? t('prManager.board.zeroRows')
                   : t('prManager.board.showRows', {
-                      from: (safePage - 1) * pageSize + 1,
-                      to: Math.min(safePage * pageSize, totalRowCount),
-                      total: totalRowCount,
-                    })}
+                    from: (safePage - 1) * pageSize + 1,
+                    to: Math.min(safePage * pageSize, totalRowCount),
+                    total: totalRowCount,
+                  })}
               </div>
               <div className="flex flex-wrap items-center gap-2 sm:gap-3">
                 <div className="flex items-center gap-1.5">
@@ -2653,6 +2817,54 @@ export function PrBoard({
       )}
 
       <AlertDialog
+        open={pruneStaleOpen}
+        onOpenChange={open => {
+          if (!open) {
+            setPruneStaleOpen(false)
+            setPruneStalePreview(null)
+          }
+        }}
+      >
+        <AlertDialogContent className="max-h-[min(90vh,32rem)] gap-4 overflow-hidden sm:max-w-lg">
+          <AlertDialogHeader>
+            <AlertDialogTitle>{t('prManager.board.pruneStaleDialogTitle', { count: pruneStalePreview?.wouldDelete ?? 0 })}</AlertDialogTitle>
+            <AlertDialogDescription className="flex max-h-[min(60vh,22rem)] flex-col gap-3 overflow-hidden text-left">
+              <span>{t('prManager.board.pruneStaleDialogIntro')}</span>
+              {pruneStalePreview != null && pruneStalePreview.preview.length > 0 ? (
+                <ul className="max-h-36 shrink-0 overflow-auto rounded border border-border/60 bg-muted/30 px-3 py-2 font-mono text-xs leading-relaxed">
+                  {pruneStalePreview.preview.slice(0, 5).map(row => (
+                    <li key={row.id}>
+                      {row.repoKey} — {row.branchName}
+                    </li>
+                  ))}
+                </ul>
+              ) : null}
+              {pruneStalePreview != null && pruneStalePreview.preview.length > 5 ? (
+                <span className="text-xs">{t('prManager.board.pruneStalePreviewMore', { count: pruneStalePreview.preview.length - 5 })}</span>
+              ) : null}
+              {pruneStalePreview != null && pruneStalePreview.errors.length > 0 ? (
+                <div className="min-h-0 shrink overflow-auto rounded border border-destructive/40 bg-destructive/5 px-3 py-2 text-xs text-destructive">
+                  <p className="mb-1 font-medium">{t('prManager.board.pruneStaleRepoErrorsIntro')}</p>
+                  <ul className="font-mono leading-relaxed">
+                    {pruneStalePreview.errors.map((line, i) => (
+                      <li key={i}>{line}</li>
+                    ))}
+                  </ul>
+                </div>
+              ) : null}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={pruningStaleBusy}>{t('common.cancel')}</AlertDialogCancel>
+            <Button variant="destructive" disabled={pruningStaleBusy} onClick={() => void handlePruneStaleConfirm()}>
+              {pruningStaleBusy ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
+              {t('prManager.board.pruneStaleConfirm')}
+            </Button>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      <AlertDialog
         open={bulkToolbarConfirm != null}
         onOpenChange={open => {
           if (!open) setBulkToolbarConfirm(null)
@@ -2671,10 +2883,6 @@ export function PrBoard({
                 const a = bulkToolbarConfirmRef.current
                 setBulkToolbarConfirm(null)
                 if (!a) return
-                if (a === 'clearSelection') {
-                  setSelectedRowIds(new Set())
-                  return
-                }
                 setBulkKind(a)
                 setBulkDlgOpen(true)
               }}
@@ -2887,9 +3095,9 @@ function CheckpointCell({
             onClick={
               canOpen
                 ? () => {
-                    if (blockN == null) return
-                    onOpenPrInApp?.(blockN)
-                  }
+                  if (blockN == null) return
+                  onOpenPrInApp?.(blockN)
+                }
                 : undefined
             }
             title={mergeUi.mergeTitle ? `${mergeUi.mergeTitle} ${t('prManager.mergeableUi.openInAppHint')}` : t('prManager.mergeableUi.openInAppHint')}
@@ -2907,11 +3115,7 @@ function CheckpointCell({
     if (canMerge) {
       return (
         <div className="flex w-full min-w-0 items-stretch gap-0.5">
-          <div
-            className={vs(
-              cn('flex min-w-0 flex-1 items-center justify-center rounded-md bg-emerald-500/[0.06] dark:bg-emerald-500/[0.05]', CELL_CTRL_H)
-            )}
-          >
+          <div className={vs(cn('flex min-w-0 flex-1 items-center justify-center rounded-md bg-emerald-500/[0.06] dark:bg-emerald-500/[0.05]', CELL_CTRL_H))}>
             <Button
               type="button"
               variant="ghost"
@@ -2963,9 +3167,7 @@ function CheckpointCell({
     // Ch\u01b0a c\u00f3 PR c\u00f9ng target \u2192 hi\u1ec3n \u201cCh\u1edd PR\u201d
     return (
       <div
-        className={vs(
-          cn('flex w-full items-center justify-center gap-1 rounded-md bg-zinc-500/10 text-zinc-800 dark:bg-zinc-900/45 dark:text-zinc-200', CELL_CTRL_H, CELL_TXT)
-        )}
+        className={vs(cn('flex w-full items-center justify-center gap-1 rounded-md bg-zinc-500/10 text-zinc-800 dark:bg-zinc-900/45 dark:text-zinc-200', CELL_CTRL_H, CELL_TXT))}
       >
         <Hourglass className="h-3.5 w-3.5 shrink-0 text-zinc-600 dark:text-zinc-400" /> {t('prManager.board.waitingForPr')}
       </div>
@@ -3037,9 +3239,9 @@ function CheckpointCell({
                   : cp.ghPrDraft === true
                     ? t('prManager.board.tooltipDraft')
                     : (() => {
-                        const u = getMergeableUi(cp.ghPrMergeableState, t)
-                        return u.blockMerge ? t('prManager.board.openBlocked', { label: u.shortLabel }) : t('prManager.board.openReady')
-                      })()}
+                      const u = getMergeableUi(cp.ghPrMergeableState, t)
+                      return u.blockMerge ? t('prManager.board.openBlocked', { label: u.shortLabel }) : t('prManager.board.openReady')
+                    })()}
             </div>
             <div className="leading-snug text-muted-foreground">{titleText}</div>
             {cp.ghPrUpdatedAt ? (
