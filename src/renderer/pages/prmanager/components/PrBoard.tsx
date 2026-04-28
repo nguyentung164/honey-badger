@@ -8,8 +8,10 @@ import {
   BadgeCheck,
   Ban,
   CheckCircle2,
+  ChevronDown,
   ChevronLeft,
   ChevronRight,
+  ChevronUp,
   ChevronsLeft,
   ChevronsRight,
   CircleDashed,
@@ -184,6 +186,38 @@ function rowMatchesPrGhFilters(row: TrackedBranchRow, activeTemplates: PrCheckpo
   return [...kinds].some(k => prGhFilters.has(k))
 }
 
+/** Lọc nâng cao: mỗi cột pr_* có PR thì trạng thái PR phải khớp bộ checkbox của cột đó; cột không có PR — không ràng buộc. */
+function rowMatchesPrGhFiltersPerTemplate(
+  row: TrackedBranchRow,
+  activeTemplates: PrCheckpointTemplate[],
+  filtersByTplId: Record<string, PrGhFilterId[]>,
+  /** Chưa có entry trong map → coi như copy bộ lọc đơn (đồng bộ UI merge template). */
+  simpleGhFallback: Set<PrGhFilterId>
+): boolean {
+  let anyPr = false
+  for (const tpl of activeTemplates) {
+    if (!tpl.code.toLowerCase().startsWith('pr_')) continue
+    const prCp = row.checkpoints.find(c => c.templateId === tpl.id) ?? null
+    if (!prCp?.prNumber) continue
+    anyPr = true
+    const mergeTpl = activeTemplates.find(t => t.code.toLowerCase().startsWith('merge_') && t.targetBranch === tpl.targetBranch)
+    const mergeCp = mergeTpl ? (row.checkpoints.find(c => c.templateId === mergeTpl.id) ?? null) : null
+    const kind = derivePrKind(prCp, mergeCp)
+    const raw = filtersByTplId[tpl.id]
+    const filters: Set<PrGhFilterId> =
+      raw === undefined
+        ? new Set(PR_GH_FILTER_IDS.filter(id => simpleGhFallback.has(id)))
+        : raw.length === 0
+          ? new Set()
+          : new Set(raw)
+    const allOn = PR_GH_FILTER_IDS.every(id => filters.has(id))
+    if (allOn) continue
+    if (filters.size === 0) return false
+    if (!filters.has(kind)) return false
+  }
+  return anyPr
+}
+
 const PAGE_SIZE_OPTIONS = [10, 20, 50, 100] as const
 
 /** Tạm thời ẩn cột Note trên bảng (bật lại khi cần). */
@@ -262,30 +296,69 @@ function parsePrGhFiltersFromStorage(raw: unknown): Set<PrGhFilterId> {
   return s
 }
 
-type PrBoardFiltersV1 = { gh: string[]; remote: boolean; noPr: boolean }
+type PrBoardFiltersV1 = {
+  gh: string[]
+  remote: boolean
+  noPr: boolean
+  /** Lọc theo từng template pr_* (chế độ Advanced). */
+  ghByTpl?: Record<string, string[]>
+  advancedOpen?: boolean
+}
+
+function parseGhByTplFromStorage(raw: unknown): Record<string, PrGhFilterId[]> {
+  if (raw == null || typeof raw !== 'object' || Array.isArray(raw)) return {}
+  const out: Record<string, PrGhFilterId[]> = {}
+  for (const [k, v] of Object.entries(raw as Record<string, unknown>)) {
+    const set = parsePrGhFiltersFromStorage(v)
+    out[k] = PR_GH_FILTER_IDS.filter(id => set.has(id))
+  }
+  return out
+}
 
 function readPrBoardFilters(projectId: string): {
   prGhFilters: Set<PrGhFilterId>
   onlyExistingOnRemote: boolean
   onlyBranchesWithoutPr: boolean
+  prGhFiltersByTpl: Record<string, PrGhFilterId[]>
+  advancedFiltersOpen: boolean
 } {
   try {
     const raw = window.localStorage.getItem(PR_BOARD_FILTERS_V1_PREFIX + projectId)
     if (raw == null || raw === '') {
-      return { prGhFilters: defaultPrGhFilterSet(), onlyExistingOnRemote: true, onlyBranchesWithoutPr: true }
+      return {
+        prGhFilters: defaultPrGhFilterSet(),
+        onlyExistingOnRemote: true,
+        onlyBranchesWithoutPr: true,
+        prGhFiltersByTpl: {},
+        advancedFiltersOpen: false,
+      }
     }
     const p = JSON.parse(raw) as unknown
     if (p == null || typeof p !== 'object' || Array.isArray(p)) {
-      return { prGhFilters: defaultPrGhFilterSet(), onlyExistingOnRemote: true, onlyBranchesWithoutPr: true }
+      return {
+        prGhFilters: defaultPrGhFilterSet(),
+        onlyExistingOnRemote: true,
+        onlyBranchesWithoutPr: true,
+        prGhFiltersByTpl: {},
+        advancedFiltersOpen: false,
+      }
     }
     const o = p as Record<string, unknown>
     return {
       prGhFilters: parsePrGhFiltersFromStorage(o.gh),
       onlyExistingOnRemote: typeof o.remote === 'boolean' ? o.remote : true,
       onlyBranchesWithoutPr: typeof o.noPr === 'boolean' ? o.noPr : true,
+      prGhFiltersByTpl: parseGhByTplFromStorage(o.ghByTpl),
+      advancedFiltersOpen: o.advancedOpen === true,
     }
   } catch {
-    return { prGhFilters: defaultPrGhFilterSet(), onlyExistingOnRemote: true, onlyBranchesWithoutPr: true }
+    return {
+      prGhFilters: defaultPrGhFilterSet(),
+      onlyExistingOnRemote: true,
+      onlyBranchesWithoutPr: true,
+      prGhFiltersByTpl: {},
+      advancedFiltersOpen: false,
+    }
   }
 }
 
@@ -293,11 +366,18 @@ function writePrBoardFilters(
   projectId: string,
   prGhFilters: Set<PrGhFilterId>,
   onlyExistingOnRemote: boolean,
-  onlyBranchesWithoutPr: boolean
+  onlyBranchesWithoutPr: boolean,
+  prGhFiltersByTpl: Record<string, PrGhFilterId[]>,
+  advancedFiltersOpen: boolean
 ): void {
   try {
     const gh = [...prGhFilters].filter(id => (PR_GH_FILTER_IDS as readonly string[]).includes(id)).sort() as PrGhFilterId[]
-    const payload: PrBoardFiltersV1 = { gh, remote: onlyExistingOnRemote, noPr: onlyBranchesWithoutPr }
+    const ghByTpl: Record<string, string[]> = {}
+    for (const [tid, arr] of Object.entries(prGhFiltersByTpl)) {
+      const sorted = [...arr].filter(id => (PR_GH_FILTER_IDS as readonly string[]).includes(id)).sort() as PrGhFilterId[]
+      ghByTpl[tid] = sorted
+    }
+    const payload: PrBoardFiltersV1 = { gh, remote: onlyExistingOnRemote, noPr: onlyBranchesWithoutPr, ghByTpl, advancedOpen: advancedFiltersOpen }
     window.localStorage.setItem(PR_BOARD_FILTERS_V1_PREFIX + projectId, JSON.stringify(payload))
   } catch {
     /* ignore */
@@ -502,6 +582,9 @@ export function PrBoard({ projectId, repos, templates, tracked, loading, onRefre
   const [autoSyncGithub, setAutoSyncGithub] = useState(false)
   const lastUserActivityAtRef = useRef(Date.now())
   const [prGhFilters, setPrGhFilters] = useState<Set<PrGhFilterId>>(() => new Set<PrGhFilterId>(['open', 'draft']))
+  /** Chế độ Advanced: lọc theo từng cột pr_*; key = templateId, mảng rỗng = không chọn trạng thái nào. */
+  const [prGhFiltersByTpl, setPrGhFiltersByTpl] = useState<Record<string, PrGhFilterId[]>>({})
+  const [advancedFiltersOpen, setAdvancedFiltersOpen] = useState(false)
   const [page, setPage] = useState(1)
   const [pageSize, setPageSize] = useState<(typeof PAGE_SIZE_OPTIONS)[number]>(20)
   const [onlyExistingOnRemote, setOnlyExistingOnRemote] = useState(true)
@@ -546,11 +629,13 @@ export function PrBoard({ projectId, repos, templates, tracked, loading, onRefre
     setPrGhFilters(r.prGhFilters)
     setOnlyExistingOnRemote(r.onlyExistingOnRemote)
     setOnlyBranchesWithoutPr(r.onlyBranchesWithoutPr)
+    setPrGhFiltersByTpl(r.prGhFiltersByTpl)
+    setAdvancedFiltersOpen(r.advancedFiltersOpen)
   }, [projectId])
 
   useEffect(() => {
-    writePrBoardFilters(projectId, prGhFilters, onlyExistingOnRemote, onlyBranchesWithoutPr)
-  }, [projectId, prGhFilters, onlyExistingOnRemote, onlyBranchesWithoutPr])
+    writePrBoardFilters(projectId, prGhFilters, onlyExistingOnRemote, onlyBranchesWithoutPr, prGhFiltersByTpl, advancedFiltersOpen)
+  }, [projectId, prGhFilters, onlyExistingOnRemote, onlyBranchesWithoutPr, prGhFiltersByTpl, advancedFiltersOpen])
 
   useEffect(() => {
     setAutoSyncGithub(readAutoSyncGithub(projectId))
@@ -567,8 +652,33 @@ export function PrBoard({ projectId, repos, templates, tracked, loading, onRefre
   }, [lastGithubSyncAt, i18n.language])
 
   const activeTemplates = useMemo(() => templates.filter(t => t.isActive).sort((a, b) => a.sortOrder - b.sortOrder), [templates])
+  const orderedPrCheckpointTemplates = useMemo(() => activePrTemplates(activeTemplates), [activeTemplates])
+
+  /** Thêm mục lọc cho template pr_* mới (copy theo bộ lọc đơn hiện tại). */
+  useEffect(() => {
+    setPrGhFiltersByTpl(prev => {
+      let changed = false
+      const next = { ...prev }
+      for (const tpl of orderedPrCheckpointTemplates) {
+        if (!(tpl.id in next)) {
+          next[tpl.id] = PR_GH_FILTER_IDS.filter(id => prGhFilters.has(id))
+          changed = true
+        }
+      }
+      return changed ? next : prev
+    })
+  }, [orderedPrCheckpointTemplates, prGhFilters])
+
   const prOverlapCandidates = useMemo(() => collectOpenPrsForFileOverlap(tracked, activeTemplates), [tracked, activeTemplates])
-  const prGhFilterKey = useMemo(() => [...prGhFilters].sort().join(','), [prGhFilters])
+  const prGhFilterKey = useMemo(() => {
+    if (advancedFiltersOpen) {
+      const entries = Object.keys(prGhFiltersByTpl)
+        .sort()
+        .map(id => `${id}:${PR_GH_FILTER_IDS.filter(k => prGhFiltersByTpl[id]?.includes(k)).join(',')}`)
+      return `adv:${entries.join('|')}`
+    }
+    return [...prGhFilters].sort().join(',')
+  }, [advancedFiltersOpen, prGhFilters, prGhFiltersByTpl])
   const trackedExistenceKey = useMemo(
     () =>
       tracked
@@ -653,6 +763,23 @@ export function PrBoard({ projectId, repos, templates, tracked, loading, onRefre
     return counts
   }, [prGhFilterCountRows, activeTemplates])
 
+  /** Số PR theo trạng thái riêng từng cột pr_* (dùng hiển thị trong Advanced). */
+  const prGhAdvancedColumnCounts = useMemo(() => {
+    const m: Record<string, Record<PrGhFilterId, number>> = {}
+    for (const tpl of orderedPrCheckpointTemplates) {
+      const counts: Record<PrGhFilterId, number> = { open: 0, draft: 0, merged: 0, closed: 0 }
+      for (const row of prGhFilterCountRows) {
+        const prCp = row.checkpoints.find(c => c.templateId === tpl.id) ?? null
+        if (!prCp?.prNumber) continue
+        const mergeTpl = activeTemplates.find(t => t.code.toLowerCase().startsWith('merge_') && t.targetBranch === tpl.targetBranch)
+        const mergeCp = mergeTpl ? (row.checkpoints.find(c => c.templateId === mergeTpl.id) ?? null) : null
+        counts[derivePrKind(prCp, mergeCp)]++
+      }
+      m[tpl.id] = counts
+    }
+    return m
+  }, [prGhFilterCountRows, orderedPrCheckpointTemplates, activeTemplates])
+
   const branchesWithoutPrCount = useMemo(() => {
     if (remoteExistMap == null) return 0
     let n = 0
@@ -664,7 +791,11 @@ export function PrBoard({ projectId, repos, templates, tracked, loading, onRefre
   }, [prGhFilterCountRows, activeTemplates, remoteExistMap])
 
   const filteredRows = useMemo(() => {
-    const fromKind = remoteFilteredRows.filter(row => rowMatchesPrGhFilters(row, activeTemplates, prGhFilters))
+    const matchPrRow = (row: TrackedBranchRow) =>
+      advancedFiltersOpen
+        ? rowMatchesPrGhFiltersPerTemplate(row, activeTemplates, prGhFiltersByTpl, prGhFilters)
+        : rowMatchesPrGhFilters(row, activeTemplates, prGhFilters)
+    const fromKind = remoteFilteredRows.filter(matchPrRow)
     if (!onlyBranchesWithoutPr) return fromKind
     const fromNoPr = remoteFilteredRows.filter(row => {
       if (rowHasAnyPrNumber(row, activeTemplates)) return false
@@ -676,7 +807,16 @@ export function PrBoard({ projectId, repos, templates, tracked, loading, onRefre
     for (const row of fromNoPr) byId.set(row.id, row)
     for (const row of fromKind) byId.set(row.id, row)
     return Array.from(byId.values())
-  }, [remoteFilteredRows, activeTemplates, prGhFilters, onlyBranchesWithoutPr, onlyExistingOnRemote, remoteExistMap])
+  }, [
+    remoteFilteredRows,
+    activeTemplates,
+    prGhFilters,
+    advancedFiltersOpen,
+    prGhFiltersByTpl,
+    onlyBranchesWithoutPr,
+    onlyExistingOnRemote,
+    remoteExistMap,
+  ])
 
   const groupedRows = useMemo(() => {
     const groups = new Map<string, TrackedBranchRow[]>()
@@ -749,22 +889,23 @@ export function PrBoard({ projectId, repos, templates, tracked, loading, onRefre
     return Array.from(groups.entries()).sort((a, b) => a[0].localeCompare(b[0]))
   }, [pagedFlatRows])
 
-  const filteredRowIdSet = useMemo(() => new Set(filteredRows.map(r => r.id)), [filteredRows])
+  /** Chỉ gỡ selection khi nhánh không còn trong tracked; giữ checkbox khi đổi search/filter. */
+  const trackedRowIdSet = useMemo(() => new Set(tracked.map(r => r.id)), [tracked])
 
   useEffect(() => {
     setSelectedRowIds(prev => {
       let changed = false
       const n = new Set<string>()
       for (const id of prev) {
-        if (filteredRowIdSet.has(id)) n.add(id)
+        if (trackedRowIdSet.has(id)) n.add(id)
         else changed = true
       }
       if (!changed && n.size === prev.size) return prev
       return n
     })
-  }, [filteredRowIdSet])
+  }, [trackedRowIdSet])
 
-  const selectedRowsFull = useMemo(() => filteredRows.filter(r => selectedRowIds.has(r.id)), [filteredRows, selectedRowIds])
+  const selectedRowsFull = useMemo(() => tracked.filter(r => selectedRowIds.has(r.id)), [tracked, selectedRowIds])
 
   const defaultPrTemplate = useMemo(() => activePrTemplates(activeTemplates)[0] ?? null, [activeTemplates])
 
@@ -822,8 +963,6 @@ export function PrBoard({ projectId, repos, templates, tracked, loading, onRefre
       createFirstStage: createFirstStageN,
     }
   }, [selectedRowsFull, githubTokenOk, activeTemplates, repos, remoteExistMap, onlyExistingOnRemote, defaultPrTemplate])
-
-  const orderedPrCheckpointTemplates = useMemo(() => activePrTemplates(activeTemplates), [activeTemplates])
 
   /** Chọn lẫn nhánh “chỉ cần PR cột sau” với nhánh vẫn thiếu PR cột đầu → tắt bulk Create (tránh nhầm). */
   const bulkCreateMixedLaterStage = useMemo(() => {
@@ -895,6 +1034,43 @@ export function PrBoard({ projectId, repos, templates, tracked, loading, onRefre
   const bumpUserActivity = useCallback(() => {
     lastUserActivityAtRef.current = Date.now()
   }, [])
+
+  const toggleAdvancedFilters = useCallback(() => {
+    setAdvancedFiltersOpen(prevOpen => {
+      if (!prevOpen) {
+        setPrGhFiltersByTpl(prevTpl => {
+          const merged = { ...prevTpl }
+          for (const tpl of orderedPrCheckpointTemplates) {
+            if (!(tpl.id in merged)) {
+              merged[tpl.id] = PR_GH_FILTER_IDS.filter(id => prGhFilters.has(id))
+            }
+          }
+          return merged
+        })
+      }
+      return !prevOpen
+    })
+  }, [orderedPrCheckpointTemplates, prGhFilters])
+
+  const toggleTplGhFilter = useCallback((tplId: string, id: PrGhFilterId, checked: boolean) => {
+    setPrGhFiltersByTpl(prev => {
+      const base = prev[tplId] !== undefined ? [...prev[tplId]] : PR_GH_FILTER_IDS.filter(k => prGhFilters.has(k))
+      const nextSet = new Set(base)
+      if (checked) nextSet.add(id)
+      else nextSet.delete(id)
+      return { ...prev, [tplId]: PR_GH_FILTER_IDS.filter(k => nextSet.has(k)) }
+    })
+  }, [prGhFilters])
+
+  const syncAdvancedFiltersFromSimple = useCallback(() => {
+    setPrGhFiltersByTpl(prev => {
+      const next = { ...prev }
+      for (const tpl of orderedPrCheckpointTemplates) {
+        next[tpl.id] = PR_GH_FILTER_IDS.filter(id => prGhFilters.has(id))
+      }
+      return next
+    })
+  }, [orderedPrCheckpointTemplates, prGhFilters])
 
   const handleSyncFromGithub = useCallback(
     async (source: 'manual' | 'idle' = 'manual') => {
@@ -1125,64 +1301,121 @@ export function PrBoard({ projectId, repos, templates, tracked, loading, onRefre
 
       {repos.length > 0 && activeTemplates.length > 0 && (
         <div className="flex flex-wrap items-stretch gap-2 sm:gap-3">
-          <div className="flex min-w-0 min-h-8 flex-1 flex-wrap items-center gap-x-4 gap-y-2 rounded-md border border-dashed bg-muted/30 px-3 py-2">
-            <span className="text-xs font-medium text-muted-foreground">{t('prManager.board.filterPrs')}</span>
-            {PR_GH_FILTER_IDS.map(id => (
-              <div key={id} className="flex items-center gap-1.5">
+          <div className="flex min-w-0 min-h-8 flex-1 flex-col gap-2 rounded-md border border-dashed bg-muted/30 px-3 py-2">
+            <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
+              <span className="text-xs font-medium text-muted-foreground">
+                {advancedFiltersOpen ? t('prManager.board.filterPrsAdvanced') : t('prManager.board.filterPrs')}
+              </span>
+              {PR_GH_FILTER_IDS.map(id => (
+                <div key={id} className="flex items-center gap-1.5">
+                  <Checkbox
+                    id={`pr-gh-filter-${id}`}
+                    checked={prGhFilters.has(id)}
+                    className={PR_GH_FILTER_STYLE[id].checkbox}
+                    onCheckedChange={v => {
+                      setPrGhFilters(prev => {
+                        const n = new Set(prev)
+                        if (v === true) n.add(id)
+                        else n.delete(id)
+                        return n
+                      })
+                    }}
+                  />
+                  <Label htmlFor={`pr-gh-filter-${id}`} className={cn('cursor-pointer text-xs font-medium leading-none tabular-nums', PR_GH_FILTER_STYLE[id].label)}>
+                    {t(`prManager.ghStatus.${id}`)} ({prGhFilterCounts[id]})
+                  </Label>
+                </div>
+              ))}
+              <div className="h-3 w-px bg-border self-center" aria-hidden />
+              <div className="flex items-center gap-1.5">
                 <Checkbox
-                  id={`pr-gh-filter-${id}`}
-                  checked={prGhFilters.has(id)}
-                  className={PR_GH_FILTER_STYLE[id].checkbox}
+                  id="pr-filter-remote-exists"
+                  checked={onlyExistingOnRemote}
+                  className="data-[state=checked]:border-cyan-600 data-[state=checked]:bg-cyan-600 data-[state=checked]:text-white dark:data-[state=checked]:border-cyan-500"
                   onCheckedChange={v => {
-                    setPrGhFilters(prev => {
-                      const n = new Set(prev)
-                      if (v === true) n.add(id)
-                      else n.delete(id)
-                      return n
-                    })
+                    if (v === true) setOnlyExistingOnRemote(true)
+                    else setOnlyExistingOnRemote(false)
                   }}
                 />
-                <Label htmlFor={`pr-gh-filter-${id}`} className={cn('cursor-pointer text-xs font-medium leading-none tabular-nums', PR_GH_FILTER_STYLE[id].label)}>
-                  {t(`prManager.ghStatus.${id}`)} ({prGhFilterCounts[id]})
+                <Label htmlFor="pr-filter-remote-exists" className="flex cursor-pointer items-center gap-1.5 text-xs font-medium leading-none text-cyan-800 dark:text-cyan-200">
+                  {remoteExistLoading && onlyExistingOnRemote ? <Loader2 className="h-3 w-3 shrink-0 animate-spin" /> : null}
+                  {t('prManager.board.onlyRemote')}
                 </Label>
               </div>
-            ))}
-            <div className="h-3 w-px bg-border" aria-hidden />
-            <div className="flex items-center gap-1.5">
-              <Checkbox
-                id="pr-filter-remote-exists"
-                checked={onlyExistingOnRemote}
-                className="data-[state=checked]:border-cyan-600 data-[state=checked]:bg-cyan-600 data-[state=checked]:text-white dark:data-[state=checked]:border-cyan-500"
-                onCheckedChange={v => {
-                  if (v === true) setOnlyExistingOnRemote(true)
-                  else setOnlyExistingOnRemote(false)
-                }}
-              />
-              <Label htmlFor="pr-filter-remote-exists" className="flex cursor-pointer items-center gap-1.5 text-xs font-medium leading-none text-cyan-800 dark:text-cyan-200">
-                {remoteExistLoading && onlyExistingOnRemote ? <Loader2 className="h-3 w-3 shrink-0 animate-spin" /> : null}
-                {t('prManager.board.onlyRemote')}
-              </Label>
+              <div className="h-3 w-px bg-border self-center" aria-hidden />
+              <div className="flex items-center gap-1.5">
+                <Checkbox
+                  id="pr-filter-without-pr"
+                  checked={onlyBranchesWithoutPr}
+                  className="data-[state=checked]:border-amber-600 data-[state=checked]:bg-amber-600 data-[state=checked]:text-white dark:data-[state=checked]:border-amber-500"
+                  onCheckedChange={v => {
+                    if (v === true) setOnlyBranchesWithoutPr(true)
+                    else setOnlyBranchesWithoutPr(false)
+                  }}
+                />
+                <Label
+                  htmlFor="pr-filter-without-pr"
+                  title={t('prManager.board.onlyNoPrTitle')}
+                  className="flex cursor-pointer items-center gap-1.5 text-xs font-medium leading-none text-amber-900 tabular-nums dark:text-amber-200"
+                >
+                  {remoteExistLoading && onlyBranchesWithoutPr && !onlyExistingOnRemote ? <Loader2 className="h-3 w-3 shrink-0 animate-spin" /> : null}
+                  {t('prManager.board.onlyNoPr')} ({remoteExistMap == null && remoteExistLoading ? '—' : branchesWithoutPrCount})
+                </Label>
+              </div>
+              <div className="ml-auto flex flex-wrap items-center gap-1.5">
+                {advancedFiltersOpen ? (
+                  <Button type="button" size="sm" variant="ghost" className="h-8 px-2 text-xs text-muted-foreground" onClick={syncAdvancedFiltersFromSimple}>
+                    {t('prManager.board.syncAdvancedFromSimple')}
+                  </Button>
+                ) : null}
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="outline"
+                  className="h-8 gap-1 px-2 text-xs"
+                  onClick={toggleAdvancedFilters}
+                  aria-expanded={advancedFiltersOpen}
+                  title={t('prManager.board.advancedFiltersHelp')}
+                >
+                  {advancedFiltersOpen ? <ChevronUp className="h-3.5 w-3.5 shrink-0" /> : <ChevronDown className="h-3.5 w-3.5 shrink-0" />}
+                  {advancedFiltersOpen ? t('prManager.board.advancedCollapse') : t('prManager.board.advancedOpen')}
+                </Button>
+              </div>
             </div>
-            <div className="h-3 w-px bg-border" aria-hidden />
-            <div className="flex items-center gap-1.5">
-              <Checkbox
-                id="pr-filter-without-pr"
-                checked={onlyBranchesWithoutPr}
-                className="data-[state=checked]:border-amber-600 data-[state=checked]:bg-amber-600 data-[state=checked]:text-white dark:data-[state=checked]:border-amber-500"
-                onCheckedChange={v => {
-                  if (v === true) setOnlyBranchesWithoutPr(true)
-                  else setOnlyBranchesWithoutPr(false)
-                }}
-              />
-              <Label
-                htmlFor="pr-filter-without-pr"
-                title={t('prManager.board.onlyNoPrTitle')}
-                className="flex cursor-pointer items-center gap-1.5 text-xs font-medium leading-none text-amber-900 tabular-nums dark:text-amber-200"
-              >
-                {remoteExistLoading && onlyBranchesWithoutPr && !onlyExistingOnRemote ? <Loader2 className="h-3 w-3 shrink-0 animate-spin" /> : null}
-                {t('prManager.board.onlyNoPr')} ({remoteExistMap == null && remoteExistLoading ? '—' : branchesWithoutPrCount})
-              </Label>
-            </div>
+            {advancedFiltersOpen ? (
+              <div className="flex flex-col gap-2 border-t border-border/60 pt-2">
+                <p className="text-[11px] leading-snug text-muted-foreground">{t('prManager.board.advancedFiltersHelp')}</p>
+                {orderedPrCheckpointTemplates.map(tpl => {
+                  const colCounts = prGhAdvancedColumnCounts[tpl.id]
+                  const effective = prGhFiltersByTpl[tpl.id] ?? PR_GH_FILTER_IDS.filter(k => prGhFilters.has(k))
+                  return (
+                    <div key={tpl.id} className="flex flex-wrap items-center gap-x-3 gap-y-1.5 border-l-2 border-l-border/80 pl-2">
+                      <span className="min-w-[6rem] max-w-[160px] truncate text-xs font-semibold text-foreground/90" title={tpl.label}>
+                        {tpl.label}
+                      </span>
+                      <div className="flex flex-1 flex-wrap items-center gap-x-3 gap-y-1">
+                        {PR_GH_FILTER_IDS.map(id => (
+                          <div key={id} className="flex items-center gap-1.5">
+                            <Checkbox
+                              id={`pr-gh-filter-${tpl.id}-${id}`}
+                              checked={effective.includes(id)}
+                              className={PR_GH_FILTER_STYLE[id].checkbox}
+                              onCheckedChange={v => toggleTplGhFilter(tpl.id, id, v === true)}
+                            />
+                            <Label
+                              htmlFor={`pr-gh-filter-${tpl.id}-${id}`}
+                              className={cn('cursor-pointer text-xs font-medium leading-none tabular-nums', PR_GH_FILTER_STYLE[id].label)}
+                            >
+                              {t(`prManager.ghStatus.${id}`)} ({colCounts?.[id] ?? 0})
+                            </Label>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )
+                })}
+              </div>
+            ) : null}
           </div>
           <div className="ml-auto flex min-h-8 shrink-0 flex-wrap items-center justify-end gap-1.5 rounded-md border border-dashed bg-muted/30 px-2 py-2 sm:gap-2 sm:px-3">
             {selectedRowIds.size > 0 ? (

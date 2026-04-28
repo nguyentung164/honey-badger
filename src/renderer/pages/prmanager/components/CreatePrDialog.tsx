@@ -94,7 +94,7 @@ export function CreatePrDialog({ open, onOpenChange, projectId, repos, initialRe
       toast.error(t('prManager.createPr.toastSelectHeadBase'))
       return
     }
-    if (!opLog.startOperation('prManager.operationLog.generateTitle')) return
+    if (!opLog.startOperation('prManager.operationLog.generateTitle', undefined, { silent: true })) return
     opLog.appendLine(t('prManager.operationLog.refCommit'))
     setGeneratingTitle(true)
     try {

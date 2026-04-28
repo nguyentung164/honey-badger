@@ -945,71 +945,75 @@ export function PrDetailDialog({ open, onOpenChange, projectId, prRepo, prNumber
                       {loading ? <GlowLoader className="h-3.5 w-3.5" /> : <RefreshCw className="h-3.5 w-3.5" />}
                     </HeaderIconBtn>
                   </div>
-                  {showHeaderBranchGroup ? (
+                  {!pr.merged ? (
                     <>
+                      {showHeaderBranchGroup ? (
+                        <>
+                          <HeaderToolbarSep />
+                          <div className="flex items-center gap-0.5">
+                            {detailTab === 'commits' ? (
+                              <HeaderIconBtn
+                                label={t('prManager.detail.forcePush', { branch: headBranch || '…' })}
+                                disabled={!canLocalBranchOps || !headBranch || commitBusySha !== null}
+                                onRequest={() => setCommitForcePushOpen(true)}
+                                className="text-rose-600 hover:bg-rose-500/10 hover:text-rose-700 dark:text-rose-400 dark:hover:text-rose-300"
+                              >
+                                {commitBusySha === '__push__' ? <GlowLoader className="h-3.5 w-3.5" /> : <Upload className="h-3.5 w-3.5" />}
+                              </HeaderIconBtn>
+                            ) : null}
+                            {canMarkDraft ? (
+                              <HeaderIconBtn
+                                label={t('prManager.detail.markDraftLabel')}
+                                disabled={!prRepo || markingDraft}
+                                onRequest={() => void doMarkDraft()}
+                                className="text-amber-600 hover:bg-amber-500/10 hover:text-amber-800 dark:text-amber-400/95 dark:hover:bg-amber-500/15 dark:hover:text-amber-300"
+                              >
+                                {markingDraft ? <GlowLoader className="h-3.5 w-3.5" /> : <CircleDashed className="h-3.5 w-3.5" />}
+                              </HeaderIconBtn>
+                            ) : null}
+                            {pr.draft && pr.state === 'open' ? (
+                              <HeaderIconBtn
+                                label={t('prManager.detail.markReadyLabel')}
+                                disabled={!prRepo || markingReady}
+                                onRequest={() => void doMarkReady()}
+                                className="text-sky-600 hover:bg-sky-500/10 hover:text-sky-800 dark:text-sky-400 dark:hover:bg-sky-500/15 dark:hover:text-sky-300"
+                              >
+                                {markingReady ? <GlowLoader className="h-3.5 w-3.5" /> : <Send className="h-3.5 w-3.5" />}
+                              </HeaderIconBtn>
+                            ) : null}
+                            {isPrBranchBehind ? (
+                              <HeaderIconBtn
+                                label={t('prManager.detail.updateBranchLabel')}
+                                disabled={!prRepo || updatingBranch}
+                                onRequest={() => void doUpdateBranch()}
+                                className="text-violet-600 hover:bg-violet-500/10 hover:text-violet-800 dark:text-violet-400 dark:hover:bg-violet-500/15 dark:hover:text-violet-300"
+                              >
+                                {updatingBranch ? <GlowLoader className="h-3.5 w-3.5" /> : <ArrowDownToLine className="h-3.5 w-3.5" />}
+                              </HeaderIconBtn>
+                            ) : null}
+                          </div>
+                        </>
+                      ) : null}
                       <HeaderToolbarSep />
                       <div className="flex items-center gap-0.5">
-                        {detailTab === 'commits' ? (
-                          <HeaderIconBtn
-                            label={t('prManager.detail.forcePush', { branch: headBranch || '…' })}
-                            disabled={!canLocalBranchOps || !headBranch || commitBusySha !== null}
-                            onRequest={() => setCommitForcePushOpen(true)}
-                            className="text-rose-600 hover:bg-rose-500/10 hover:text-rose-700 dark:text-rose-400 dark:hover:text-rose-300"
-                          >
-                            {commitBusySha === '__push__' ? <GlowLoader className="h-3.5 w-3.5" /> : <Upload className="h-3.5 w-3.5" />}
-                          </HeaderIconBtn>
-                        ) : null}
-                        {canMarkDraft ? (
-                          <HeaderIconBtn
-                            label={t('prManager.detail.markDraftLabel')}
-                            disabled={!prRepo || markingDraft}
-                            onRequest={() => void doMarkDraft()}
-                            className="text-amber-600 hover:bg-amber-500/10 hover:text-amber-800 dark:text-amber-400/95 dark:hover:bg-amber-500/15 dark:hover:text-amber-300"
-                          >
-                            {markingDraft ? <GlowLoader className="h-3.5 w-3.5" /> : <CircleDashed className="h-3.5 w-3.5" />}
-                          </HeaderIconBtn>
-                        ) : null}
-                        {pr.draft && pr.state === 'open' ? (
-                          <HeaderIconBtn
-                            label={t('prManager.detail.markReadyLabel')}
-                            disabled={!prRepo || markingReady}
-                            onRequest={() => void doMarkReady()}
-                            className="text-sky-600 hover:bg-sky-500/10 hover:text-sky-800 dark:text-sky-400 dark:hover:bg-sky-500/15 dark:hover:text-sky-300"
-                          >
-                            {markingReady ? <GlowLoader className="h-3.5 w-3.5" /> : <Send className="h-3.5 w-3.5" />}
-                          </HeaderIconBtn>
-                        ) : null}
-                        {isPrBranchBehind ? (
-                          <HeaderIconBtn
-                            label={t('prManager.detail.updateBranchLabel')}
-                            disabled={!prRepo || updatingBranch}
-                            onRequest={() => void doUpdateBranch()}
-                            className="text-violet-600 hover:bg-violet-500/10 hover:text-violet-800 dark:text-violet-400 dark:hover:bg-violet-500/15 dark:hover:text-violet-300"
-                          >
-                            {updatingBranch ? <GlowLoader className="h-3.5 w-3.5" /> : <ArrowDownToLine className="h-3.5 w-3.5" />}
-                          </HeaderIconBtn>
-                        ) : null}
+                        <HeaderIconBtn label={t('prManager.detail.approveLabel')} onRequest={() => setConfirm('approve')} disabled={!canApprove || approving}>
+                          {approving ? <GlowLoader className="h-3.5 w-3.5" /> : <BadgeCheck className="text-emerald-600 h-3.5 w-3.5" />}
+                        </HeaderIconBtn>
+                        <Button
+                          type="button"
+                          size="sm"
+                          variant="outline"
+                          className={cn(PR_MANAGER_ACCENT_OUTLINE_BTN, PR_MANAGER_ACCENT_OUTLINE_SURFACE, 'mr-2 px-2.5 text-sm')}
+                          onClick={() => setConfirm('merge')}
+                          disabled={!canMergeUi || !prRepo}
+                          title={mergeBlockedByMergeable ? t('prManager.bulk.skip.mergeBlocked') : t('prManager.detail.mergeOnGithub')}
+                        >
+                          <GitMerge className="h-3.5 w-3.5" />
+                          {t('prManager.detail.merge')}
+                        </Button>
                       </div>
                     </>
                   ) : null}
-                  <HeaderToolbarSep />
-                  <div className="flex items-center gap-0.5">
-                    <HeaderIconBtn label={t('prManager.detail.approveLabel')} onRequest={() => setConfirm('approve')} disabled={!canApprove || approving}>
-                      {approving ? <GlowLoader className="h-3.5 w-3.5" /> : <BadgeCheck className="text-emerald-600 h-3.5 w-3.5" />}
-                    </HeaderIconBtn>
-                    <Button
-                      type="button"
-                      size="sm"
-                      variant="outline"
-                      className={cn(PR_MANAGER_ACCENT_OUTLINE_BTN, PR_MANAGER_ACCENT_OUTLINE_SURFACE, 'mr-2 px-2.5 text-sm')}
-                      onClick={() => setConfirm('merge')}
-                      disabled={!canMergeUi || !prRepo}
-                      title={mergeBlockedByMergeable ? t('prManager.bulk.skip.mergeBlocked') : t('prManager.detail.mergeOnGithub')}
-                    >
-                      <GitMerge className="h-3.5 w-3.5" />
-                      {t('prManager.detail.merge')}
-                    </Button>
-                  </div>
                 </div>
               )}
             </div>
@@ -1292,7 +1296,7 @@ export function PrDetailDialog({ open, onOpenChange, projectId, prRepo, prNumber
                               <col className="w-full" style={{ minWidth: '12rem' }} />
                               <col style={{ minWidth: '7.5rem' }} />
                               <col style={{ minWidth: '7.5rem' }} />
-                              <col style={{ width: '44px' }} />
+                              {!pr.merged ? <col style={{ width: '44px' }} /> : null}
                             </colgroup>
                             <TableHeader sticky>
                               <TableRow className="hover:bg-transparent">
@@ -1300,7 +1304,7 @@ export function PrDetailDialog({ open, onOpenChange, projectId, prRepo, prNumber
                                 <TableHead className="!text-[var(--table-header-fg)] text-sm">{t('prManager.detail.message')}</TableHead>
                                 <TableHead className="whitespace-nowrap !text-[var(--table-header-fg)] text-sm sm:text-left">{t('prManager.detail.author')}</TableHead>
                                 <TableHead className="whitespace-nowrap !text-[var(--table-header-fg)] text-sm text-right sm:text-left">{t('prManager.detail.time')}</TableHead>
-                                <TableHead className="!text-[var(--table-header-fg)]" />
+                                {!pr.merged ? <TableHead className="!text-[var(--table-header-fg)]" /> : null}
                               </TableRow>
                             </TableHeader>
                             <TableBody>
@@ -1340,23 +1344,25 @@ export function PrDetailDialog({ open, onOpenChange, projectId, prRepo, prNumber
                                     <TableCell className="whitespace-nowrap py-2.5 text-right text-sm text-muted-foreground sm:text-left" title={c.date ?? undefined}>
                                       {timeLabel}
                                     </TableCell>
-                                    <TableCell className="py-1.5">
-                                      <Tooltip>
-                                        <TooltipTrigger asChild>
-                                          <Button
-                                            type="button"
-                                            variant="ghost"
-                                            size="icon"
-                                            className="h-8 w-8 text-muted-foreground hover:text-amber-600"
-                                            disabled={!canLocalBranchOps || commitBusySha !== null}
-                                            onClick={() => setCommitResetTarget({ sha: c.sha, shortSha, message: subject })}
-                                          >
-                                            {isBusy ? <GlowLoader className="h-4 w-4" /> : <RotateCcw className="h-4 w-4" />}
-                                          </Button>
-                                        </TooltipTrigger>
-                                        <TooltipContent>{t('prManager.detail.resetTooltip', { sha: shortSha })}</TooltipContent>
-                                      </Tooltip>
-                                    </TableCell>
+                                    {!pr.merged ? (
+                                      <TableCell className="py-1.5">
+                                        <Tooltip>
+                                          <TooltipTrigger asChild>
+                                            <Button
+                                              type="button"
+                                              variant="ghost"
+                                              size="icon"
+                                              className="h-8 w-8 text-muted-foreground hover:text-amber-600"
+                                              disabled={!canLocalBranchOps || commitBusySha !== null}
+                                              onClick={() => setCommitResetTarget({ sha: c.sha, shortSha, message: subject })}
+                                            >
+                                              {isBusy ? <GlowLoader className="h-4 w-4" /> : <RotateCcw className="h-4 w-4" />}
+                                            </Button>
+                                          </TooltipTrigger>
+                                          <TooltipContent>{t('prManager.detail.resetTooltip', { sha: shortSha })}</TooltipContent>
+                                        </Tooltip>
+                                      </TableCell>
+                                    ) : null}
                                   </TableRow>
                                 )
                               })}
