@@ -6,7 +6,7 @@ import { IPC } from '../constants'
 import { githubClient } from '../git-hosting/github'
 import configurationStore from '../store/ConfigurationStore'
 import type { PullRequestSummary } from '../git-hosting/types'
-import type { PrCheckpointTemplate } from '../task/mysqlPrTrackingStore'
+import type { PrCheckpointTemplate } from '../task/pgPrTrackingStore'
 import {
   getPrRepoById,
   getTrackedBranchById,
@@ -15,7 +15,7 @@ import {
   listCheckpointTemplates,
   upsertBranchCheckpoint,
   upsertTrackedBranch,
-} from '../task/mysqlPrTrackingStore'
+} from '../task/pgPrTrackingStore'
 
 export interface PrMergedEvent {
   repoId: string

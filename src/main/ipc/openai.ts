@@ -10,7 +10,7 @@ import configurationStore from '../store/ConfigurationStore'
 import type { ApiProvider } from '../store/ConfigurationStore'
 import { appendAiUsageEvent } from '../task/aiUsageDb'
 import { getTokenFromStore } from '../task/auth'
-import { getCodingRuleContentByIdOrName } from '../task/mysqlTaskStore'
+import { getCodingRuleContentByIdOrName } from '../task/pgTaskStore'
 import { verifyToken } from '../task/auth'
 
 type AiCallSuccess = {

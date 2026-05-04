@@ -1,16 +1,18 @@
 import path from 'node:path'
+import l from 'electron-log'
+import { MANAGEMENT_BOARD_MAX_ROWS } from 'shared/constants'
 import { randomUuidV7 } from 'shared/randomUuidV7'
 import { query, withTransaction } from './db'
-import { createTasksFromCsv, createUsersFromCsv, parseCSVRows } from './importCsv'
+import { collectRedmineCsvProjectRefsForAuthorization, createTasksFromCsv, createUsersFromCsv, parseCSVRows } from './importCsv'
 import { getNextTicketId } from './ticketSequence'
 
 function throwVersionConflict(): never {
   const e = new Error('Task not found or was modified by another user')
-    ; (e as Error & { code: string }).code = 'VERSION_CONFLICT'
+  ;(e as Error & { code: string }).code = 'VERSION_CONFLICT'
   throw e
 }
 
-/** ISO-8601 từ renderer (vd. …T…Z) không được MySQL DATETIME chấp nhận; chuẩn hóa thành YYYY-MM-DD HH:mm:ss (UTC). */
+/** ISO-8601 từ renderer (vd. …T…Z) chuẩn hóa thành YYYY-MM-DD HH:mm:ss cho cột Postgres `timestamp` (UTC). */
 function toMysqlDateTime(value: string | null | undefined): string | null {
   if (value == null || value === '') return null
   const d = new Date(value)
@@ -221,10 +223,7 @@ export async function hasPlRole(userId: string): Promise<boolean> {
 /** Phần Developer / Project Lead trong Today's Reminders theo user_project_roles. */
 export async function getReminderSectionVisibility(userId: string): Promise<{ showDev: boolean; showPl: boolean }> {
   if (await isAppAdmin(userId)) return { showDev: true, showPl: true }
-  const rows = await query<{ role: string }[]>(
-    `SELECT DISTINCT role FROM user_project_roles WHERE user_id = ? AND role IN ('dev', 'pl')`,
-    [userId]
-  )
+  const rows = await query<{ role: string }[]>(`SELECT DISTINCT role FROM user_project_roles WHERE user_id = ? AND role IN ('dev', 'pl')`, [userId])
   const set = new Set((rows ?? []).map(r => r.role))
   const hasDev = set.has('dev')
   const hasPl = set.has('pl')
@@ -314,10 +313,7 @@ export async function deleteUserProjectSourceFolder(userId: string, sourceFolder
 }
 
 /** Trả về danh sách source folder của user cho project. */
-export async function getSourceFoldersByProject(
-  userId: string,
-  projectId: string
-): Promise<{ id: string; name: string; path: string }[]> {
+export async function getSourceFoldersByProject(userId: string, projectId: string): Promise<{ id: string; name: string; path: string }[]> {
   const rows = await query<any[]>(
     'SELECT id, source_folder_path, source_folder_name FROM user_project_source_folder WHERE user_id = ? AND project_id = ? ORDER BY source_folder_path',
     [userId, projectId]
@@ -330,10 +326,7 @@ export async function getSourceFoldersByProject(
 }
 
 /** Trả về danh sách source folder hợp nhất (union theo path) của user cho nhiều project. */
-export async function getSourceFoldersByProjects(
-  userId: string,
-  projectIds: string[]
-): Promise<{ id: string; name: string; path: string }[]> {
+export async function getSourceFoldersByProjects(userId: string, projectIds: string[]): Promise<{ id: string; name: string; path: string }[]> {
   if (projectIds.length === 0) return []
   const placeholders = projectIds.map(() => '?').join(',')
   const rows = await query<any[]>(
@@ -409,18 +402,14 @@ export async function getProjectsForLeaderboardPicker(userId: string): Promise<{
   let targetIds: string[]
   let scope: LeaderboardPickerScope
 
-  const managedIds = [...rolesByProject.entries()]
-    .filter(([, roles]) => [...roles].some(role => role === 'pl' || role === 'pm'))
-    .map(([pid]) => pid)
+  const managedIds = [...rolesByProject.entries()].filter(([, roles]) => [...roles].some(role => role === 'pl' || role === 'pm')).map(([pid]) => pid)
 
   if (managedIds.length > 0) {
     scope = 'managed'
     targetIds = managedIds
   } else {
     scope = 'dev'
-    targetIds = [...rolesByProject.entries()]
-      .filter(([, roles]) => roles.has('dev'))
-      .map(([pid]) => pid)
+    targetIds = [...rolesByProject.entries()].filter(([, roles]) => roles.has('dev')).map(([pid]) => pid)
   }
 
   if (targetIds.length === 0) {
@@ -428,10 +417,7 @@ export async function getProjectsForLeaderboardPicker(userId: string): Promise<{
   }
 
   const placeholders = targetIds.map(() => '?').join(',')
-  const prows = await query<any[]>(
-    `SELECT id, name, created_at, version FROM projects WHERE id IN (${placeholders}) ORDER BY created_at DESC`,
-    targetIds
-  )
+  const prows = await query<any[]>(`SELECT id, name, created_at, version FROM projects WHERE id IN (${placeholders}) ORDER BY created_at DESC`, targetIds)
   const projects = (prows ?? []).map(r => ({
     id: r.id,
     name: r.name,
@@ -481,16 +467,10 @@ export async function getTaskListVisibleProjectIds(userId: string, appRole: stri
   const r = (appRole || '').toLowerCase()
   if (r === 'admin') return null
   if (r === 'pl' || r === 'pm') {
-    const rows = await query<{ project_id: string }[]>(
-      `SELECT DISTINCT project_id FROM user_project_roles WHERE user_id = ? AND role IN ('pl','pm')`,
-      [userId]
-    )
+    const rows = await query<{ project_id: string }[]>(`SELECT DISTINCT project_id FROM user_project_roles WHERE user_id = ? AND role IN ('pl','pm')`, [userId])
     return (rows ?? []).map(x => x.project_id).filter(Boolean)
   }
-  const rows = await query<{ project_id: string }[]>(
-    `SELECT DISTINCT project_id FROM user_project_roles WHERE user_id = ? AND role = 'dev'`,
-    [userId]
-  )
+  const rows = await query<{ project_id: string }[]>(`SELECT DISTINCT project_id FROM user_project_roles WHERE user_id = ? AND role = 'dev'`, [userId])
   return (rows ?? []).map(x => x.project_id).filter(Boolean)
 }
 
@@ -499,10 +479,7 @@ export async function getProjectsForTaskManagement(userId: string, appRole: stri
   if (visible === null) return getProjects()
   if (visible.length === 0) return []
   const ph = visible.map(() => '?').join(',')
-  const rows = await query<any[]>(
-    `SELECT id, name, created_at, version FROM projects WHERE id IN (${ph}) ORDER BY created_at DESC`,
-    visible
-  )
+  const rows = await query<any[]>(`SELECT id, name, created_at, version FROM projects WHERE id IN (${ph}) ORDER BY created_at DESC`, visible)
   return (rows ?? []).map(r => ({
     id: r.id,
     name: r.name,
@@ -560,11 +537,7 @@ const MAX_PICKER_PAGE = 100
  * Danh sách task phân trang cho combobox (scroll load thêm).
  * Cùng quy tắc project visibility với getTasksForSession (không lọc projectId đơn — toàn bộ project được phép).
  */
-export async function listTasksForPickerPage(
-  userId: string,
-  appRole: string,
-  params: ListTasksForPickerParams
-): Promise<{ items: TaskPickerListItem[]; hasMore: boolean }> {
+export async function listTasksForPickerPage(userId: string, appRole: string, params: ListTasksForPickerParams): Promise<{ items: TaskPickerListItem[]; hasMore: boolean }> {
   const offN = Number(params.offset)
   const limN = Number(params.limit)
   const offset = Number.isFinite(offN) ? Math.max(0, Math.floor(offN)) : 0
@@ -607,7 +580,7 @@ export async function listTasksForPickerPage(
     }
   }
 
-  // Không bind LIMIT/OFFSET: mysql2 prepared statement + LIMIT ? OFFSET ? dễ gây "Incorrect arguments to mysqld_stmt_execute" trên một số server.
+  // Không bind LIMIT/OFFSET vào một số query: ép số vào literal cho LIMIT/OFFSET (tránh edge case prepared statement/driver).
   const fetchCap = limit + 1
   sql += ` ORDER BY t.created_at DESC LIMIT ${fetchCap} OFFSET ${offset}`
 
@@ -644,8 +617,12 @@ export type TaskManagementListParams = {
   typeCodes?: string[]
   priorityCodes?: string[]
   projectIds?: string[]
-  /** `from` / `to`: chuỗi ngày YYYY-MM-DD */
+  /** `from` / `to`: chuỗi ngày YYYY-MM-DD — khoảng hoạt động/trạng thái hiện tại (actual_end / updated / created). */
   dateRange?: { from: string; to?: string }
+  /** Lọc theo ngày tạo (DATE(created_at)). */
+  createdDateRange?: { from: string; to?: string }
+  /** Lọc theo ngày cập nhật (DATE COALESCE(updated_at, created_at)). */
+  updatedDateRange?: { from: string; to?: string }
   sortColumn?: string | null
   sortDirection?: 'asc' | 'desc'
 }
@@ -686,7 +663,11 @@ export type TaskManagementListResponse = {
 }
 
 function normalizeManagementSearch(raw: string): string {
-  return raw.trim().slice(0, 200).replace(/[%_\\]/g, ' ').trim()
+  return raw
+    .trim()
+    .slice(0, 200)
+    .replace(/[%_\\]/g, ' ')
+    .trim()
 }
 
 /**
@@ -711,9 +692,7 @@ function buildManagementWhereParts(
   const searchSafe = normalizeManagementSearch(p.search || '')
   if (searchSafe) {
     const like = `%${searchSafe}%`
-    parts.push(
-      '(t.title LIKE ? OR t.description LIKE ? OR t.ticket_id LIKE ? OR CAST(t.assignee_user_id AS CHAR) LIKE ? OR u.name LIKE ? OR p.name LIKE ?)'
-    )
+    parts.push('(t.title LIKE ? OR t.description LIKE ? OR t.ticket_id LIKE ? OR CAST(t.assignee_user_id AS CHAR) LIKE ? OR u.name LIKE ? OR p.name LIKE ?)')
     params.push(like, like, like, like, like, like)
   }
 
@@ -771,10 +750,26 @@ function buildManagementWhereParts(
     const fromKey = dr.from.slice(0, 10)
     const toKey = (dr.to ?? dr.from).slice(0, 10)
     parts.push(
-      `((t.actual_end_date IS NOT NULL AND DATE(t.actual_end_date) BETWEEN ? AND ?) OR ` +
-        `(t.actual_end_date IS NULL AND DATE(COALESCE(t.updated_at, t.created_at)) BETWEEN ? AND ?))`,
+      `((t.actual_end_date IS NOT NULL AND t.actual_end_date::date BETWEEN ?::date AND ?::date) OR ` +
+        `(t.actual_end_date IS NULL AND COALESCE(t.updated_at, t.created_at)::date BETWEEN ?::date AND ?::date))`
     )
     params.push(fromKey, toKey, fromKey, toKey)
+  }
+
+  const cr = p.createdDateRange
+  if (cr?.from) {
+    const fromKey = cr.from.slice(0, 10)
+    const toKey = (cr.to ?? cr.from).slice(0, 10)
+    parts.push(`t.created_at::date BETWEEN ?::date AND ?::date`)
+    params.push(fromKey, toKey)
+  }
+
+  const ur = p.updatedDateRange
+  if (ur?.from) {
+    const fromKey = ur.from.slice(0, 10)
+    const toKey = (ur.to ?? ur.from).slice(0, 10)
+    parts.push(`COALESCE(t.updated_at, t.created_at)::date BETWEEN ?::date AND ?::date`)
+    params.push(fromKey, toKey)
   }
 
   return { parts, params, isEmptyScope: false }
@@ -833,6 +828,12 @@ async function managementBaseParams(
   const visible = await getTaskListVisibleProjectIds(userId, appRole)
   const { parts, params, isEmptyScope } = buildManagementWhereParts(visible, p, omitFacet)
   if (isEmptyScope) return { whereSql: '1=0', params: [], isEmptyScope: true }
+  const role = (appRole || '').toLowerCase()
+  /** Dev chỉ được xem task mình được assign trong project thành viên (PL/PM không áp điều kiện này). */
+  if (role === 'dev') {
+    parts.push('t.assignee_user_id = ?')
+    params.push(userId)
+  }
   return { whereSql: managementWhereClause(parts), params, isEmptyScope: false }
 }
 
@@ -863,11 +864,7 @@ async function runFacetGroup(
   return out
 }
 
-export async function getTaskManagementFacetCounts(
-  userId: string,
-  appRole: string,
-  p: TaskManagementListParams
-): Promise<TaskManagementFacetCounts> {
+export async function getTaskManagementFacetCounts(userId: string, appRole: string, p: TaskManagementListParams): Promise<TaskManagementFacetCounts> {
   const [status, priority, type, assignee, project] = await Promise.all([
     runFacetGroup(userId, appRole, p, 'status', 't.status', 'k'),
     runFacetGroup(userId, appRole, p, 'priority', "COALESCE(t.priority, 'medium')", 'k'),
@@ -890,13 +887,15 @@ export async function getManagementScopeMeta(userId: string, appRole: string): P
     visParts.push(`t.project_id IN (${ph})`)
     visParams.push(...visible)
   }
+  const role = (appRole || '').toLowerCase()
+  if (role === 'dev') {
+    visParts.push('t.assignee_user_id = ?')
+    visParams.push(userId)
+  }
   const w = visParts.length > 0 ? visParts.join(' AND ') : '1=1'
   const [unRows, distRows] = await Promise.all([
     query<{ x: number }[]>(`SELECT 1 as x ${MANAGEMENT_TASKS_FROM} WHERE ${w} AND t.assignee_user_id IS NULL LIMIT 1`, visParams),
-    query<{ id: string }[]>(
-      `SELECT DISTINCT t.assignee_user_id as id ${MANAGEMENT_TASKS_FROM} WHERE ${w} AND t.assignee_user_id IS NOT NULL`,
-      visParams
-    ),
+    query<{ id: string }[]>(`SELECT DISTINCT t.assignee_user_id as id ${MANAGEMENT_TASKS_FROM} WHERE ${w} AND t.assignee_user_id IS NOT NULL`, visParams),
   ])
   return {
     hasUnassignedTask: (unRows?.length ?? 0) > 0,
@@ -904,11 +903,7 @@ export async function getManagementScopeMeta(userId: string, appRole: string): P
   }
 }
 
-export async function listTasksForManagementPage(
-  userId: string,
-  appRole: string,
-  p: TaskManagementListParams
-): Promise<{ tasks: Task[]; total: number }> {
+export async function listTasksForManagementPage(userId: string, appRole: string, p: TaskManagementListParams): Promise<{ tasks: Task[]; total: number }> {
   const pageN = Number(p.page)
   const limN = Number(p.limit)
   const page = Number.isFinite(pageN) ? Math.max(1, Math.floor(pageN)) : 1
@@ -945,6 +940,39 @@ export async function listTasksForManagementForCharts(
   return (rows || []).map(mapManagementChartRow)
 }
 
+export type TaskManagementBoardListResult = {
+  tasks: Task[]
+  total: number
+  truncated: boolean
+}
+
+/** Danh sách đầy đủ cho board/gantt/calendar (cùng filter Chart), có giới hạn cứng và flag truncated. */
+export async function listTasksForManagementBoard(
+  userId: string,
+  appRole: string,
+  p: Omit<TaskManagementListParams, 'page' | 'limit' | 'sortColumn' | 'sortDirection'>
+): Promise<TaskManagementBoardListResult> {
+  const base: TaskManagementListParams = { page: 1, limit: 1, ...p }
+  const { whereSql, params, isEmptyScope } = await managementBaseParams(userId, appRole, base, undefined)
+  if (isEmptyScope) return { tasks: [], total: 0, truncated: false }
+
+  const countSql = `SELECT COUNT(*) as cnt ${MANAGEMENT_TASKS_FROM} WHERE ${whereSql}`
+  const countRows = await query<{ cnt: number }[]>(countSql, params)
+  const total = Number(countRows?.[0]?.cnt ?? 0)
+
+  const orderBy = getManagementOrderBySql(null, undefined)
+  const listSql =
+    `SELECT t.*, p.name as project_name, u.name as assignee_name, ` +
+    `cu.name AS created_by_display_name, cu.avatar_data AS created_by_avatar_data, ` +
+    `uu.name AS updated_by_display_name, uu.avatar_data AS updated_by_avatar_data ` +
+    `${MANAGEMENT_TASKS_FROM} LEFT JOIN task_favorites fav ON fav.task_id = t.id AND fav.user_id = ? WHERE ${whereSql} ORDER BY ${orderBy} LIMIT ${MANAGEMENT_BOARD_MAX_ROWS}`
+  const listParams: unknown[] = [userId, ...params]
+  const rows = await query<any[]>(listSql, listParams)
+  const tasks = (rows || []).map(mapTask)
+  const truncated = total > tasks.length
+  return { tasks, total, truncated }
+}
+
 export async function listTasksForManagementWithFacets(
   userId: string,
   appRole: string,
@@ -956,10 +984,7 @@ export async function listTasksForManagementWithFacets(
     const pageBlock = await listTasksForManagementPage(userId, appRole, p)
     return { tasks: pageBlock.tasks, total: pageBlock.total, facets: null }
   }
-  const [pageBlock, facets] = await Promise.all([
-    listTasksForManagementPage(userId, appRole, p),
-    getTaskManagementFacetCounts(userId, appRole, p),
-  ])
+  const [pageBlock, facets] = await Promise.all([listTasksForManagementPage(userId, appRole, p), getTaskManagementFacetCounts(userId, appRole, p)])
   return { tasks: pageBlock.tasks, total: pageBlock.total, facets }
 }
 
@@ -968,6 +993,15 @@ export async function canUserViewTaskByScope(userId: string, appRole: string, ta
   const visible = await getTaskListVisibleProjectIds(userId, appRole)
   if (visible === null) return true
   return visible.includes(task.projectId)
+}
+
+/** Cùng phạm vi project với Task Management (danh sách task): admin app = mọi project; không thì chỉ PL/PM hoặc dev của project đó. */
+export async function canUserCreateTasksInProject(userId: string, appRole: string, projectId: string | null | undefined): Promise<boolean> {
+  const pid = (projectId ?? '').trim()
+  if (!pid) return false
+  const visible = await getTaskListVisibleProjectIds(userId, appRole)
+  if (visible === null) return true
+  return visible.includes(pid)
 }
 
 /** Lấy danh sách task_id mà user đã favorite */
@@ -1101,7 +1135,71 @@ export async function createTask(input: CreateTaskInput): Promise<Task> {
   return mapTask(row)
 }
 
+async function fetchTaskRowById(id: string): Promise<any | null> {
+  const rows = await query<any[]>('SELECT * FROM tasks WHERE id = ? LIMIT 1', [id])
+  return rows?.[0] ?? null
+}
+
+const TASK_HISTORY_FIELDS: { db: string; camel: string }[] = [
+  { db: 'title', camel: 'title' },
+  { db: 'description', camel: 'description' },
+  { db: 'assignee_user_id', camel: 'assigneeUserId' },
+  { db: 'status', camel: 'status' },
+  { db: 'progress', camel: 'progress' },
+  { db: 'priority', camel: 'priority' },
+  { db: 'type', camel: 'type' },
+  { db: 'source', camel: 'source' },
+  { db: 'ticket_id', camel: 'ticketId' },
+  { db: 'project_id', camel: 'projectId' },
+  { db: 'plan_start_date', camel: 'planStartDate' },
+  { db: 'plan_end_date', camel: 'planEndDate' },
+  { db: 'actual_start_date', camel: 'actualStartDate' },
+  { db: 'actual_end_date', camel: 'actualEndDate' },
+  { db: 'parent_id', camel: 'parentId' },
+]
+
+function normalizeHistoryScalar(v: unknown): unknown {
+  if (v === null || v === undefined) return null
+  if (v instanceof Date) {
+    return v.toISOString().slice(0, 19).replace('T', ' ')
+  }
+  if (typeof Buffer !== 'undefined' && Buffer.isBuffer(v)) {
+    return v.toString('utf8')
+  }
+  return v
+}
+
+export function diffTaskRowsForHistory(before: Record<string, unknown>, after: Record<string, unknown>): Record<string, { from: unknown; to: unknown }> | null {
+  const out: Record<string, { from: unknown; to: unknown }> = {}
+  for (const { db, camel } of TASK_HISTORY_FIELDS) {
+    const a = normalizeHistoryScalar(before[db])
+    const b = normalizeHistoryScalar(after[db])
+    if (JSON.stringify(a) !== JSON.stringify(b)) {
+      out[camel] = { from: a, to: b }
+    }
+  }
+  return Object.keys(out).length ? out : null
+}
+
+async function persistTaskChangeHistory(taskId: string, before: any, after: any, actorUserId: string | undefined, source: string): Promise<void> {
+  try {
+    const delta = diffTaskRowsForHistory(before, after)
+    if (!delta || !taskId) return
+    await query(`INSERT INTO task_change_history (id, task_id, actor_user_id, source, changes_json, created_at) VALUES (?, ?, ?, ?, ?::jsonb, NOW())`, [
+      randomUuidV7(),
+      taskId,
+      actorUserId?.trim() || null,
+      source,
+      JSON.stringify(delta),
+    ])
+  } catch (e) {
+    l.warn('[task] persistTaskChangeHistory failed', e)
+  }
+}
+
 export async function updateTaskStatus(id: string, status: TaskStatus, version?: number, updatedByUserId?: string): Promise<void> {
+  const before = await fetchTaskRowById(id)
+  if (!before) throw new Error('Task not found')
   const doneDates = status === 'done' ? ', actual_end_date = COALESCE(actual_end_date, CURDATE())' : ''
   const up = updatedByUserId?.trim()
   const auditSql = up ? ', updated_by = ?' : ''
@@ -1109,13 +1207,16 @@ export async function updateTaskStatus(id: string, status: TaskStatus, version?:
     version !== undefined
       ? `UPDATE tasks SET status = ?, updated_at = NOW(), version = version + 1${doneDates}${auditSql} WHERE id = ? AND version = ?`
       : `UPDATE tasks SET status = ?, updated_at = NOW(), version = version + 1${doneDates}${auditSql} WHERE id = ?`
-  const params =
-    version !== undefined ? (up ? [status, up, id, version] : [status, id, version]) : up ? [status, up, id] : [status, id]
+  const params = version !== undefined ? (up ? [status, up, id, version] : [status, id, version]) : up ? [status, up, id] : [status, id]
   const result = await query<{ affectedRows?: number }>(sql, params)
   if (result?.affectedRows === 0) throwVersionConflict()
+  const after = await fetchTaskRowById(id)
+  if (after) await persistTaskChangeHistory(id, before, after, updatedByUserId, 'status')
 }
 
 export async function updateTaskProgress(id: string, progress: number, version?: number, updatedByUserId?: string): Promise<void> {
+  const before = await fetchTaskRowById(id)
+  if (!before) throw new Error('Task not found')
   const clamped = Math.min(100, Math.max(0, Number(progress) ?? 0))
   const up = updatedByUserId?.trim()
   const auditSql = up ? ', updated_by = ?' : ''
@@ -1123,10 +1224,11 @@ export async function updateTaskProgress(id: string, progress: number, version?:
     version !== undefined
       ? `UPDATE tasks SET progress = ?, updated_at = NOW(), version = version + 1${auditSql} WHERE id = ? AND version = ?`
       : `UPDATE tasks SET progress = ?, updated_at = NOW(), version = version + 1${auditSql} WHERE id = ?`
-  const params =
-    version !== undefined ? (up ? [clamped, up, id, version] : [clamped, id, version]) : up ? [clamped, up, id] : [clamped, id]
+  const params = version !== undefined ? (up ? [clamped, up, id, version] : [clamped, id, version]) : up ? [clamped, up, id] : [clamped, id]
   const result = await query<{ affectedRows?: number }>(sql, params)
   if (result?.affectedRows === 0) throwVersionConflict()
+  const after = await fetchTaskRowById(id)
+  if (after) await persistTaskChangeHistory(id, before, after, updatedByUserId, 'progress')
 }
 
 export async function updateTaskDates(
@@ -1154,6 +1256,8 @@ export async function updateTaskDates(
     params.push(dates.actualEndDate ? toMysqlDateTime(dates.actualEndDate) : null)
   }
   if (updates.length === 0) return
+  const before = await fetchTaskRowById(id)
+  if (!before) throw new Error('Task not found')
   const up = updatedByUserId?.trim()
   if (up) {
     updates.push('updated_by = ?')
@@ -1165,9 +1269,13 @@ export async function updateTaskDates(
   const whereClause = version !== undefined ? 'WHERE id = ? AND version = ?' : 'WHERE id = ?'
   const result = await query<{ affectedRows?: number }>(`UPDATE tasks SET ${updates.join(', ')} ${whereClause}`, params)
   if (result?.affectedRows === 0) throwVersionConflict()
+  const after = await fetchTaskRowById(id)
+  if (after) await persistTaskChangeHistory(id, before, after, updatedByUserId, 'dates')
 }
 
 export async function assignTask(id: string, assigneeUserId: string | null, version?: number, updatedByUserId?: string): Promise<void> {
+  const before = await fetchTaskRowById(id)
+  if (!before) throw new Error('Task not found')
   await ensureUserExists(assigneeUserId)
   const up = updatedByUserId?.trim()
   const auditSql = up ? ', updated_by = ?' : ''
@@ -1185,12 +1293,14 @@ export async function assignTask(id: string, assigneeUserId: string | null, vers
         : [assigneeUserId ?? null, id]
   const result = await query<{ affectedRows?: number }>(sql, params)
   if (result?.affectedRows === 0) throwVersionConflict()
+  const after = await fetchTaskRowById(id)
+  if (after) await persistTaskChangeHistory(id, before, after, updatedByUserId, 'assign')
 }
 
 export async function updateTask(id: string, input: UpdateTaskInput, updatedByUserId?: string): Promise<void> {
   const rows = await query<any[]>('SELECT * FROM tasks WHERE id = ?', [id])
   if (!rows?.length) throw new Error('Task not found')
-
+  const beforeRow = rows[0]
   const projectId = (input as any).projectId
   if (projectId !== undefined && projectId !== null && projectId !== '') {
     const proj = await query<any[]>('SELECT id FROM projects WHERE id = ?', [projectId])
@@ -1272,6 +1382,123 @@ export async function updateTask(id: string, input: UpdateTaskInput, updatedByUs
   if (inputVersion !== undefined) params.push(inputVersion)
   const result = await query<{ affectedRows?: number }>(`UPDATE tasks SET ${updates.join(', ')} ${whereClause}`, params)
   if (result?.affectedRows === 0) throwVersionConflict()
+  const afterRow = await fetchTaskRowById(id)
+  if (afterRow) await persistTaskChangeHistory(id, beforeRow, afterRow, updatedByUserId, 'update')
+}
+
+export type TaskBulkFieldPatch = {
+  status?: string
+  priority?: string
+  assigneeUserId?: string | null
+}
+
+export interface TaskChangeHistoryEntry {
+  id: string
+  taskId: string
+  actorUserId: string | null
+  source: string
+  changes: Record<string, { from: unknown; to: unknown }>
+  createdAt: string
+}
+
+export async function listTaskChangeHistory(taskId: string, limit = 50): Promise<TaskChangeHistoryEntry[]> {
+  const lim = Math.min(Math.max(1, limit), 200)
+  const rows = await query<any[]>(
+    `SELECT id, task_id, actor_user_id, source, changes_json, created_at FROM task_change_history WHERE task_id = ? ORDER BY created_at DESC LIMIT ?`,
+    [taskId, lim]
+  )
+  return (rows ?? []).map(r => ({
+    id: r.id,
+    taskId: r.task_id,
+    actorUserId: r.actor_user_id ?? null,
+    source: r.source,
+    changes:
+      typeof r.changes_json === 'string'
+        ? (JSON.parse(r.changes_json) as Record<string, { from: unknown; to: unknown }>)
+        : (r.changes_json as Record<string, { from: unknown; to: unknown }>),
+    createdAt: r.created_at ? new Date(r.created_at).toISOString() : '',
+  }))
+}
+
+export async function bulkUpdateTasksWithPatch(
+  items: { id: string; version: number }[],
+  patch: TaskBulkFieldPatch,
+  actorUserId?: string
+): Promise<{ updatedIds: string[]; skippedIds: string[] }> {
+  const hasField = patch.status !== undefined || patch.priority !== undefined || patch.assigneeUserId !== undefined
+  if (!hasField || items.length === 0) {
+    return { updatedIds: [], skippedIds: [] }
+  }
+  if (patch.status !== undefined) await ensureMasterCodeExists('statuses', patch.status)
+  if (patch.priority !== undefined) await ensureMasterCodeExists('priorities', patch.priority)
+  if (patch.assigneeUserId !== undefined && patch.assigneeUserId !== null && String(patch.assigneeUserId).trim() !== '') {
+    await ensureUserExists(patch.assigneeUserId)
+  }
+
+  const updatedIds: string[] = []
+  const skippedIds: string[] = []
+
+  await withTransaction(async txQuery => {
+    for (const item of items) {
+      const sel = (await txQuery('SELECT * FROM tasks WHERE id = ? LIMIT 1', [item.id])) as any[]
+      const before = sel?.[0]
+      if (!before || Number(before.version) !== Number(item.version)) {
+        skippedIds.push(item.id)
+        continue
+      }
+      const setParts: string[] = []
+      const params: unknown[] = []
+      if (patch.status !== undefined) {
+        setParts.push('status = ?')
+        params.push(patch.status)
+        if (patch.status === 'done') {
+          setParts.push('actual_end_date = COALESCE(actual_end_date, CURDATE())')
+        }
+      }
+      if (patch.priority !== undefined) {
+        setParts.push('priority = ?')
+        params.push(patch.priority)
+      }
+      if (patch.assigneeUserId !== undefined) {
+        setParts.push('assignee_user_id = ?')
+        params.push(patch.assigneeUserId)
+      }
+      const actor = actorUserId?.trim()
+      if (actor) {
+        setParts.push('updated_by = ?')
+        params.push(actor)
+      }
+      setParts.push('updated_at = NOW()', 'version = version + 1')
+      params.push(item.id, item.version)
+      const sql = `UPDATE tasks SET ${setParts.join(', ')} WHERE id = ? AND version = ?`
+      const res = (await txQuery(sql, params)) as { affectedRows?: number }
+      if (res?.affectedRows === 0) {
+        skippedIds.push(item.id)
+        continue
+      }
+      const afterSel = (await txQuery('SELECT * FROM tasks WHERE id = ? LIMIT 1', [item.id])) as any[]
+      const after = afterSel?.[0]
+      if (after) {
+        const delta = diffTaskRowsForHistory(before, after)
+        if (delta) {
+          try {
+            await txQuery(`INSERT INTO task_change_history (id, task_id, actor_user_id, source, changes_json, created_at) VALUES (?, ?, ?, ?, ?::jsonb, NOW())`, [
+              randomUuidV7(),
+              item.id,
+              actorUserId?.trim() || null,
+              'bulk',
+              JSON.stringify(delta),
+            ])
+          } catch (e) {
+            l.warn('[task] bulk history insert failed', e)
+          }
+        }
+      }
+      updatedIds.push(item.id)
+    }
+  })
+
+  return { updatedIds, skippedIds }
 }
 
 export async function deleteTask(id: string, version?: number): Promise<void> {
@@ -1431,9 +1658,8 @@ export async function deleteTaskLink(taskId: string, linkId: string, version?: n
 
 function mapRowToUser(r: Record<string, unknown>): User {
   const avatarData = r.avatar_data as string | null | undefined
-  const avatarUrl = avatarData && typeof avatarData === 'string' && avatarData.length > 0
-    ? (avatarData.startsWith('data:') ? avatarData : `data:image/png;base64,${avatarData}`)
-    : null
+  const avatarUrl =
+    avatarData && typeof avatarData === 'string' && avatarData.length > 0 ? (avatarData.startsWith('data:') ? avatarData : `data:image/png;base64,${avatarData}`) : null
   return {
     id: r.id as string,
     userCode: r.user_code as string,
@@ -1695,7 +1921,7 @@ export async function getProjects(): Promise<Project[]> {
 
 /**
  * Create project - Task Management flow (minimal: id, name).
- * For EVM projects with full metadata, use mysqlEVMStore.createProject.
+ * For EVM projects with full metadata, use pgEVMStore.createProject.
  */
 export async function createProject(name: string, pmUserId?: string | null): Promise<Project> {
   if (!name || typeof name !== 'string' || !name.trim()) throw new Error('name is required')
@@ -1770,7 +1996,7 @@ export async function deleteProject(id: string, version?: number): Promise<void>
 async function getMaster(kind: 'statuses' | 'priorities' | 'types' | 'sources', all = false): Promise<MasterItem[]> {
   const tables = { statuses: 'task_statuses', priorities: 'task_priorities', types: 'task_types', sources: 'task_sources' }
   const table = tables[kind]
-  const sql = all ? `SELECT * FROM ${table} ORDER BY sort_order, code` : `SELECT * FROM ${table} WHERE is_active = 1 ORDER BY sort_order, code`
+  const sql = all ? `SELECT * FROM ${table} ORDER BY sort_order, code` : `SELECT * FROM ${table} WHERE is_active = TRUE ORDER BY sort_order, code`
   const rows = await query<any[]>(sql)
   return (rows || []).map(r => ({
     code: r.code,
@@ -1801,7 +2027,7 @@ export interface TaskLinkTypeItem {
 }
 
 export async function getMasterTaskLinkTypesAll(): Promise<TaskLinkTypeItem[]> {
-  const rows = await query<any[]>('SELECT code, name, sort_order FROM task_link_types WHERE is_active = 1 ORDER BY sort_order, code')
+  const rows = await query<any[]>('SELECT code, name, sort_order FROM task_link_types WHERE is_active = TRUE ORDER BY sort_order, code')
   return (rows || []).map(r => ({
     code: r.code,
     name: r.name,
@@ -1893,7 +2119,7 @@ async function deleteMaster(kind: 'statuses' | 'priorities' | 'types' | 'sources
   if (inUse?.length) {
     throw new Error(`Không thể xóa: có task đang sử dụng ${MASTER_LABELS[kind]} "${code}"`)
   }
-  const result = await query<{ affectedRows?: number }>(`UPDATE ${table} SET is_active = 0, version = version + 1 WHERE code = ?`, [code])
+  const result = await query<{ affectedRows?: number }>(`UPDATE ${table} SET is_active = FALSE, version = version + 1 WHERE code = ?`, [code])
   if (result?.affectedRows === 0) throw new Error('Master record not found')
 }
 
@@ -1934,13 +2160,32 @@ export async function deleteMasterSource(code: string): Promise<void> {
   return deleteMaster('sources', code)
 }
 
-export async function createTasksFromRedmineCsv(csvContent: string, _users: User[], createdBy = ''): Promise<{ created: number; updated: number; errors: string[] }> {
+export async function createTasksFromRedmineCsv(
+  csvContent: string,
+  _users: User[],
+  importerUserId: string,
+  importerAppRole: string,
+  createdBy = ''
+): Promise<{ created: number; updated: number; errors: string[] }> {
   const rows = parseCSVRows(csvContent)
   if (rows.length < 2) return { created: 0, updated: 0, errors: ['CSV trống hoặc không có dữ liệu'] }
-  const tablesCheck = await query<any[]>("SELECT 1 FROM information_schema.tables WHERE table_schema = DATABASE() AND table_name = 'users'")
+  const tablesCheck = await query<any[]>("SELECT 1 FROM information_schema.tables WHERE table_schema = current_schema() AND table_name = 'users'")
   if (!tablesCheck?.length) {
     throw new Error('Database chưa được khởi tạo schema. Vui lòng khởi tạo schema trước khi import CSV.')
   }
+  const refs = await collectRedmineCsvProjectRefsForAuthorization(rows)
+  const visible = await getTaskListVisibleProjectIds(importerUserId, importerAppRole)
+  if (visible !== null) {
+    for (const pid of refs.existingProjectIds) {
+      if (!visible.includes(pid)) {
+        throw new Error('Không có quyền import CSV vào một hoặc nhiều project trong file.')
+      }
+    }
+  }
+  if (refs.pendingNewProjectNames.length > 0 && !(await isAppAdmin(importerUserId))) {
+    throw new Error('Chỉ app admin mới được import CSV tạo project mới (project chưa có trong DB).')
+  }
+
   const users = await query<any[]>('SELECT * FROM users')
   const userList = (users || []).map((u: any) => ({
     userCode: u.user_code,
@@ -1953,7 +2198,7 @@ export async function createTasksFromRedmineCsv(csvContent: string, _users: User
     userCode: u.user_code,
     name: u.name,
   }))
-  const { created: taskCreated, updated: taskUpdated, errors, assigneeProjectDevLinks } = await createTasksFromCsv(rows, userListAfter, createdBy)
+  const { created: taskCreated, updated: taskUpdated, errors, assigneeProjectDevLinks } = await createTasksFromCsv(rows, userListAfter, createdBy || importerUserId)
   for (const { userId, projectId } of assigneeProjectDevLinks) {
     await setUserProjectRole(userId, projectId, 'dev')
   }
@@ -1966,7 +2211,7 @@ export async function ensureTaskFile(): Promise<void> {
   if (!res.ok) throw new Error(res.error || 'Database connection failed')
 }
 
-// --- Commit Review (MySQL) ---
+// --- Commit Review (PostgreSQL) ---
 export interface CommitReviewRecord {
   id: string
   sourceFolderPath: string
@@ -2137,7 +2382,7 @@ export async function getReminderStats(userId: string, appRole: string): Promise
     query<any[]>(
       `SELECT t.id, t.title, t.ticket_id, t.plan_end_date, t.updated_at FROM tasks t
        JOIN user_project_roles upr ON upr.project_id = t.project_id AND upr.role IN ('pl','pm') AND upr.user_id = ?
-       WHERE t.status = 'in_review' AND t.updated_at < DATE_SUB(NOW(), INTERVAL 3 DAY)${pf.sql} ORDER BY t.updated_at`,
+       WHERE t.status = 'in_review' AND t.updated_at < NOW() - interval '3 days'${pf.sql} ORDER BY t.updated_at`,
       [userId, ...pf.params]
     ),
   ])
@@ -2194,11 +2439,11 @@ export async function getCodingRulesForSelection(userId: string, sourceFolderPat
   const projectId = await getProjectIdByUserAndPath(userId, sourceFolderPath)
   const rows = projectId
     ? await query<any[]>(
-      `SELECT id, name, content, project_id, created_by FROM coding_rules
+        `SELECT id, name, content, project_id, created_by FROM coding_rules
          WHERE project_id IS NULL OR project_id = ?
          ORDER BY project_id IS NULL DESC, name`,
-      [projectId]
-    )
+        [projectId]
+      )
     : await query<any[]>('SELECT id, name, content, project_id, created_by FROM coding_rules WHERE project_id IS NULL ORDER BY name')
   return (rows ?? []).map(r => ({
     id: r.id,
@@ -2238,16 +2483,18 @@ export async function getCodingRuleContentByIdOrName(idOrName: string, options?:
     const rows = await query<any[]>('SELECT content, project_id FROM coding_rules WHERE id = ?', [idOrName])
     const r = rows?.[0]
     if (!r) return null
-    if (!options?.userId && r.project_id) return null
-    if (options?.userId && options?.sourceFolderPath) {
-      const projectId = await getProjectIdByUserAndPath(options.userId, options.sourceFolderPath)
-      if (r.project_id && r.project_id !== projectId) return null
-    }
+    if (!r.project_id) return r.content ?? null
+    const uid = options?.userId?.trim()
+    if (!uid) return null
+    const path = options?.sourceFolderPath?.trim()
+    if (!path) return null
+    const allowedProjectId = await getProjectIdByUserAndPath(uid, path)
+    if (!allowedProjectId || r.project_id !== allowedProjectId) return null
     return r.content ?? null
   }
   let projectId: string | null = null
-  if (options?.userId && options?.sourceFolderPath) {
-    projectId = await getProjectIdByUserAndPath(options.userId, options.sourceFolderPath)
+  if (options?.userId?.trim() && options?.sourceFolderPath?.trim()) {
+    projectId = await getProjectIdByUserAndPath(options.userId.trim(), options.sourceFolderPath.trim())
   }
   const rows = await query<any[]>('SELECT content FROM coding_rules WHERE name = ? AND (project_id <=> ?)', [idOrName, projectId])
   const r = rows?.[0]

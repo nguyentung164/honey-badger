@@ -1,8 +1,7 @@
 import { query } from './db'
 
 /**
- * commit_message_history: Migrated from IndexedDB to MySQL.
- * App uses MySQL via IPC. No runtime migration script - new installs use MySQL directly.
+ * commit_message_history: Postgres qua IPC.
  */
 export interface HistoryCommitMessage {
   message: string
@@ -19,7 +18,7 @@ export async function getHistoryMessages(): Promise<HistoryCommitMessage[]> {
 
 export async function addHistoryMessage(message: HistoryCommitMessage): Promise<void> {
   await query(
-    'INSERT INTO commit_message_history (date, message) VALUES (?, ?) ON DUPLICATE KEY UPDATE message = VALUES(message)',
+    'INSERT INTO commit_message_history (date, message) VALUES (?, ?) ON CONFLICT (date) DO UPDATE SET message = EXCLUDED.message',
     [message.date, message.message]
   )
 }

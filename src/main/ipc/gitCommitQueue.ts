@@ -2,8 +2,8 @@ import { ipcMain } from 'electron'
 import l from 'electron-log'
 import { IPC } from 'main/constants'
 import { getTokenFromStore, verifyToken } from '../task/auth'
-import { getUserEmailById } from '../task/mysqlTaskStore'
-import { addToQueue } from '../task/mysqlGitCommitQueue'
+import { getUserEmailById } from '../task/pgTaskStore'
+import { addToQueue } from '../task/pgGitCommitQueue'
 
 export function registerGitCommitQueueIpcHandlers() {
   l.info('Registering GitCommitQueue IPC Handlers...')
@@ -27,7 +27,7 @@ export function registerGitCommitQueueIpcHandlers() {
   })
 
   ipcMain.handle(IPC.GIT_COMMIT_QUEUE.REMOVE_MANY, async () => {
-    // Không xóa MySQL: bảng git_commit_queue dùng cho heatmap/progress (đồng bộ với push-pull).
+    // Không xóa bản ghi `git_commit_queue` trên Postgres: heatmap/progress cần chúng (đồng bộ với push-pull).
     return { status: 'success' as const }
   })
 }

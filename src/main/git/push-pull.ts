@@ -6,14 +6,14 @@ import { IPC } from 'main/constants'
 import { sendMail } from 'main/notification/sendMail'
 import { sendTeams } from 'main/notification/sendTeams'
 import type { CommitInfo } from 'main/types/types'
-import { getManyFromQueue as getFromQueueMySQLByHashes } from '../task/mysqlGitCommitQueue'
+import { getManyFromQueue as fetchCommitsFromDbQueueByHashes } from '../task/pgGitCommitQueue'
 import { getFromQueue, removeManyFromQueue } from '../store/CommitNotificationQueue'
 import configurationStore from '../store/ConfigurationStore'
 import { updateGitCommitStatus } from '../windows/overlayStateManager'
 import { checkForUpdates } from './check-updates'
 import { formatGitError, getGitInstance } from './utils'
 
-/** Giới hạn gửi mail/Teams cho commit không có trong queue (MySQL/memory) — tránh spam khi push lịch sử lớn / commit ngoài app. */
+/** Giới hạn gửi mail/Teams cho commit không có trong queue (PostgreSQL/memory) — tránh spam khi push lịch sử lớn / commit ngoài app. */
 const MAX_NOTIFICATIONS_BUILT_FROM_GIT_PER_PUSH = 25
 
 interface GitPushPullResponse {
@@ -133,7 +133,7 @@ async function buildCommitInfoFromHash(
 export async function push(
   remote: string = 'origin',
   branch?: string,
-  /** CommitInfo từ renderer (legacy) - main process ưu tiên lấy từ MySQL */
+  /** CommitInfo từ renderer (legacy) — main ưu tiên đọc từ `git_commit_queue` (PostgreSQL). */
   _commitQueueData?: Record<string, CommitInfo>,
   sender?: WebContents,
   cwdOverride?: string,
@@ -192,9 +192,9 @@ export async function push(
     if (commitHashes.length > 0) {
       let commitQueueData: Record<string, CommitInfo> | undefined
       try {
-        commitQueueData = await getFromQueueMySQLByHashes(commitHashes)
+        commitQueueData = await fetchCommitsFromDbQueueByHashes(commitHashes)
       } catch (e) {
-        l.warn('Could not get commit queue from MySQL:', e)
+        l.warn('Could not get commit queue from database:', e)
       }
       const hashesWithoutQueue = commitHashes.filter(h => !(commitQueueData?.[h] ?? getFromQueue(h)))
       const allowBuildFromGit = new Set(
@@ -208,9 +208,9 @@ export async function push(
         )
       }
       for (const hash of commitHashes) {
-        const fromMysql = commitQueueData?.[hash]
+        const fromDbQueue = commitQueueData?.[hash]
         const fromMemory = getFromQueue(hash)
-        let data: CommitInfo | null | undefined = fromMysql ?? fromMemory
+        let data: CommitInfo | null | undefined = fromDbQueue ?? fromMemory
         if (!data) {
           if (!allowBuildFromGit.has(hash)) continue
           data = await buildCommitInfoFromHash(git, hash, branchToPush, cwd)
@@ -222,7 +222,7 @@ export async function push(
         }
       }
       removeManyFromQueue(commitHashes)
-      // Không xóa git_commit_queue trên MySQL: progressScheduler / heatmap cần bản ghi;
+      // Không xóa git_commit_queue trên Postgres: progressScheduler / heatmap cần bản ghi;
       // trước đây xóa sau push khiến snapshot ngày không còn commit.
     }
 

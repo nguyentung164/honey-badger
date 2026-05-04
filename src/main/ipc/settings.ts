@@ -13,7 +13,7 @@ import mailServerStore from '../store/MailServerStore'
 import sourceFolderStore from '../store/SourceFolderStore'
 import webhookStore from '../store/WebhookStore'
 import { resetPool } from '../task/db'
-import { getCodingRulesGlobalOnly, getFirstAdminUserId, createCodingRule } from '../task/mysqlTaskStore'
+import { getCodingRulesGlobalOnly, getFirstAdminUserId, createCodingRule } from '../task/pgTaskStore'
 import { startFileWatcher } from '../utils/fileWatcher'
 
 const BACKUP_VERSION = 1

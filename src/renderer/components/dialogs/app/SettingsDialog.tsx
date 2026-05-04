@@ -53,6 +53,8 @@ const SETTINGS_ZUSTAND_KEYS_FOR_INTEGRATIONS_TAB = new Set([
   'dbUser',
   'dbPassword',
   'dbName',
+  'dbPgSchema',
+  'dbTls',
 ])
 
 export function SettingsDialog({ open, onOpenChange }: SettingsDialogProps) {
@@ -96,6 +98,8 @@ export function SettingsDialog({ open, onOpenChange }: SettingsDialogProps) {
     dbUser,
     dbPassword,
     dbName,
+    dbPgSchema,
+    dbTls,
   } = useConfigurationStore()
 
   const { smtpServer, port, email, password, setFieldMailServer, loadMailServerConfig, saveMailServerConfig } = useMailServerStore()
@@ -216,6 +220,8 @@ export function SettingsDialog({ open, onOpenChange }: SettingsDialogProps) {
           dbUser: configState.dbUser,
           dbPassword: configState.dbPassword,
           dbName: configState.dbName,
+          dbPgSchema: configState.dbPgSchema,
+          dbTls: configState.dbTls ?? 'auto',
           startOnLogin: configState.startOnLogin,
           showNotifications: configState.showNotifications,
           playNotificationSound: configState.playNotificationSound ?? true,
@@ -253,6 +259,8 @@ export function SettingsDialog({ open, onOpenChange }: SettingsDialogProps) {
             dbUser: configState.dbUser,
             dbPassword: configState.dbPassword,
             dbName: configState.dbName,
+            dbPgSchema: configState.dbPgSchema,
+            dbTls: configState.dbTls ?? 'auto',
           },
           mail: {
             smtpServer: mailState.smtpServer,
@@ -293,6 +301,7 @@ export function SettingsDialog({ open, onOpenChange }: SettingsDialogProps) {
       dbUser,
       dbPassword,
       dbName,
+      dbPgSchema,
       startOnLogin,
       showNotifications,
       playNotificationSound,
@@ -363,6 +372,7 @@ export function SettingsDialog({ open, onOpenChange }: SettingsDialogProps) {
     dbUser,
     dbPassword,
     dbName,
+    dbPgSchema,
     startOnLogin,
     showNotifications,
     playNotificationSound,
@@ -386,13 +396,30 @@ export function SettingsDialog({ open, onOpenChange }: SettingsDialogProps) {
     if (!open || !initialIntegrationsRef.current) return false
     const { config: initConfig, mail: initMail } = initialIntegrationsRef.current
     const currentMail = { smtpServer, port, email, password }
-    const currentIntegrationsConfig = { oneDriveClientId, oneDriveClientSecret, oneDriveRefreshToken, dbHost, dbPort, dbUser, dbPassword, dbName }
+    const currentIntegrationsConfig = { oneDriveClientId, oneDriveClientSecret, oneDriveRefreshToken, dbHost, dbPort, dbUser, dbPassword, dbName, dbPgSchema, dbTls }
     const mailDirty = Object.keys(initMail).some(k => String((initMail as Record<string, unknown>)[k] ?? '') !== String((currentMail as Record<string, unknown>)[k] ?? ''))
     const integrationsConfigDirty = Object.keys(initConfig).some(
       k => String((initConfig as Record<string, unknown>)[k] ?? '') !== String((currentIntegrationsConfig as Record<string, unknown>)[k] ?? '')
     )
     return mailDirty || integrationsConfigDirty
-  }, [dirtyCheckVersion, open, smtpServer, port, email, password, oneDriveClientId, oneDriveClientSecret, oneDriveRefreshToken, dbHost, dbPort, dbUser, dbPassword, dbName])
+  }, [
+    dirtyCheckVersion,
+    open,
+    smtpServer,
+    port,
+    email,
+    password,
+    oneDriveClientId,
+    oneDriveClientSecret,
+    oneDriveRefreshToken,
+    dbHost,
+    dbPort,
+    dbUser,
+    dbPassword,
+    dbName,
+    dbPgSchema,
+    dbTls,
+  ])
 
   const isDirty = configDirty || integrationsDirty
   isDirtyRef.current = isDirty
@@ -481,6 +508,8 @@ export function SettingsDialog({ open, onOpenChange }: SettingsDialogProps) {
         dbUser: configState.dbUser,
         dbPassword: configState.dbPassword,
         dbName: configState.dbName,
+        dbPgSchema: configState.dbPgSchema,
+        dbTls: configState.dbTls ?? 'auto',
         startOnLogin: configState.startOnLogin,
         showNotifications: configState.showNotifications,
         playNotificationSound: configState.playNotificationSound ?? true,
@@ -551,6 +580,8 @@ export function SettingsDialog({ open, onOpenChange }: SettingsDialogProps) {
         dbUser: configState.dbUser,
         dbPassword: configState.dbPassword,
         dbName: configState.dbName,
+        dbPgSchema: configState.dbPgSchema,
+        dbTls: configState.dbTls ?? 'auto',
         startOnLogin: configState.startOnLogin,
         showNotifications: configState.showNotifications,
         playNotificationSound: configState.playNotificationSound ?? true,
@@ -582,6 +613,8 @@ export function SettingsDialog({ open, onOpenChange }: SettingsDialogProps) {
           dbUser: configState.dbUser,
           dbPassword: configState.dbPassword,
           dbName: configState.dbName,
+          dbPgSchema: configState.dbPgSchema,
+          dbTls: configState.dbTls ?? 'auto',
         },
         mail: {
           smtpServer: mailState.smtpServer,

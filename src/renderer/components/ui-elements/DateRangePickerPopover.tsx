@@ -22,6 +22,10 @@ interface DateRangePickerPopoverProps {
   confirmLabel: string
   /** Đồng bộ với date range header Dashboard */
   disabled?: boolean
+  /** Ưu tiên sau các class cố định (vd. `h-8` để khớp ô search). */
+  triggerClassName?: string
+  /** Tooltip gốc trên nút mở lịch. */
+  triggerTitle?: string
 }
 
 /**
@@ -36,6 +40,8 @@ export function DateRangePickerPopover({
   allTimeLabel,
   confirmLabel,
   disabled = false,
+  triggerClassName,
+  triggerTitle,
 }: DateRangePickerPopoverProps) {
   const locale = getDateFnsLocale(i18n.language)
   const dateFormat = getDateOnlyPattern(i18n.language)
@@ -75,14 +81,16 @@ export function DateRangePickerPopover({
           variant={buttonVariant}
           size="sm"
           disabled={disabled}
+          title={triggerTitle}
           className={cn(
-            'h-6 px-2 text-xs justify-start text-left font-normal transition-all duration-200',
-            !dateRange?.from && 'text-muted-foreground'
+            'inline-flex min-h-0 min-w-0 max-w-full items-center gap-1.5 px-2 text-xs font-normal justify-start text-left transition-all duration-200',
+            !dateRange?.from && 'text-muted-foreground',
+            triggerClassName ?? 'h-6',
           )}
           style={{ WebkitAppRegion: 'no-drag' } as CSSProperties}
         >
-          <CalendarIcon className="mr-1.5 h-3.5 w-3.5" />
-          {displayText}
+          <CalendarIcon className="h-3.5 w-3.5 shrink-0" aria-hidden />
+          <span className="min-w-0 flex-1 truncate text-left">{displayText}</span>
         </Button>
       </PopoverTrigger>
       <PopoverContent className="w-auto p-0" align="start">

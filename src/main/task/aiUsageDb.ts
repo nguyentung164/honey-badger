@@ -67,7 +67,10 @@ export async function appendAiUsageEvent(event: Omit<AiUsageEvent, 'id' | 'ts'>)
     const c = Number(cntRows?.[0]?.c) || 0
     if (c > MAX_EVENTS) {
       const excess = c - MAX_EVENTS
-      await query(`DELETE FROM ai_usage_events ORDER BY created_at ASC LIMIT ?`, [excess])
+      await query(
+        `DELETE FROM ai_usage_events WHERE id IN (SELECT id FROM ai_usage_events ORDER BY created_at ASC LIMIT ?)`,
+        [excess],
+      )
     }
     return true
   } catch (e) {
@@ -116,8 +119,8 @@ export async function setDisplayCurrency(currency: AiDisplayCurrency): Promise<b
     /** Row id=1 may be missing on older DBs; plain UPDATE would affect 0 rows and still "succeed". */
     await query(
       `INSERT INTO ai_usage_settings (id, display_currency) VALUES (1, ?)
-       ON DUPLICATE KEY UPDATE display_currency = ?`,
-      [currency, currency]
+       ON CONFLICT (id) DO UPDATE SET display_currency = EXCLUDED.display_currency`,
+      [currency]
     )
     return true
   } catch (e) {

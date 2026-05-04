@@ -69,8 +69,8 @@ export function parseCSVRows(content: string): string[][] {
   return colsSemicolon > colsComma && colsSemicolon >= 2 ? rowsSemicolon : rowsComma
 }
 
-/** Chuyển ISO string hoặc MySQL format sang MySQL datetime (YYYY-MM-DD HH:MM:SS) */
-function toMySQLDatetime(isoOrEmpty: string): string | null {
+/** Chuẩn hóa chuỗi thời gian nhập vào Postgres `timestamp`: YYYY-MM-DD HH:MM:SS (không ép timezone). */
+function toPgTimestampString(isoOrEmpty: string): string | null {
   if (!isoOrEmpty?.trim()) return null
   const s = isoOrEmpty.trim()
   if (/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/.test(s)) return s
@@ -87,7 +87,7 @@ function toMySQLDatetime(isoOrEmpty: string): string | null {
 
 const pad2 = (n: number) => String(n).padStart(2, '0')
 
-/** Parse Redmine date (DD-MM-YYYY hoặc DD-MM-YYYY HH:MM) -> MySQL format YYYY-MM-DD HH:MM:SS, không convert timezone */
+/** Parse Redmine date (DD-MM-YYYY hoặc DD-MM-YYYY HH:MM) → `toPgTimestampString` (YYYY-MM-DD HH:MM:SS), không convert timezone. */
 function parseRedmineDate(s: string): string {
   if (!s?.trim()) return ''
   const trimmed = s.trim()
@@ -417,10 +417,10 @@ export async function createTasksFromCsv(
             progress,
             priority,
             type,
-            toMySQLDatetime(planEndDate),
-            toMySQLDatetime(actualStartDate),
-            toMySQLDatetime(actualEndDate),
-            toMySQLDatetime(finalUpdatedAt) ?? toMySQLDatetime(now),
+            toPgTimestampString(planEndDate),
+            toPgTimestampString(actualStartDate),
+            toPgTimestampString(actualEndDate),
+            toPgTimestampString(finalUpdatedAt) ?? toPgTimestampString(now),
             auditBy,
             existingTaskId,
           ]
@@ -447,12 +447,12 @@ export async function createTasksFromCsv(
             type,
             'redmine',
             ticketId,
-            toMySQLDatetime(planStartDate),
-            toMySQLDatetime(planEndDate),
-            toMySQLDatetime(actualStartDate),
-            toMySQLDatetime(actualEndDate),
-            toMySQLDatetime(createdAtVal) ?? toMySQLDatetime(now),
-            toMySQLDatetime(finalUpdatedAtVal) ?? toMySQLDatetime(now),
+            toPgTimestampString(planStartDate),
+            toPgTimestampString(planEndDate),
+            toPgTimestampString(actualStartDate),
+            toPgTimestampString(actualEndDate),
+            toPgTimestampString(createdAtVal) ?? toPgTimestampString(now),
+            toPgTimestampString(finalUpdatedAtVal) ?? toPgTimestampString(now),
             creatorIns,
             creatorIns,
           ]
@@ -493,4 +493,35 @@ export async function createTasksFromCsv(
     )
   }
   return result
+}
+
+/** Phục vụ kiểm tra quyền trước import: chỉ dòng có title + ticket id; khớp tên project và default "Default" như createTasksFromCsv. */
+export async function collectRedmineCsvProjectRefsForAuthorization(rows: string[][]): Promise<{
+  existingProjectIds: string[]
+  pendingNewProjectNames: string[]
+}> {
+  const existingIds = new Set<string>()
+  const pendingNames = new Set<string>()
+  if (rows.length < 2) return { existingProjectIds: [], pendingNewProjectNames: [] }
+  const header = rows[0]
+  const col = resolveColIndices(header)
+  const namesToResolve = new Set<string>()
+  for (let r = 1; r < rows.length; r++) {
+    const row = rows[r]
+    const title = getCol(row, col.title)
+    const ticketId = (getCol(row, col.ticketId) || '').trim()
+    if (!title.trim() || !ticketId) continue
+    const rawProject = getCol(row, col.project).trim()
+    const projectLabel = rawProject || 'Default'
+    namesToResolve.add(projectLabel)
+  }
+  for (const n of namesToResolve) {
+    const existing = await query<any[]>('SELECT id FROM projects WHERE name = ? LIMIT 1', [n])
+    if (existing?.length) existingIds.add(String(existing[0].id))
+    else pendingNames.add(n)
+  }
+  return {
+    existingProjectIds: [...existingIds],
+    pendingNewProjectNames: [...pendingNames],
+  }
 }

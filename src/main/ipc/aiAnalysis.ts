@@ -10,7 +10,7 @@ import {
   getHistoryById,
   saveAnalysis,
   saveAnalysisHistory,
-} from '../task/mysqlAiAnalysis'
+} from '../task/pgAiAnalysis'
 
 export function registerAiAnalysisIpcHandlers() {
   l.info('Registering AiAnalysis IPC Handlers...')

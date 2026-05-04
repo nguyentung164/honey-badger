@@ -26,28 +26,28 @@ export async function seedAchievements(): Promise<void> {
         def.description,
         def.icon,
         def.xp_reward,
-        def.is_repeatable ? 1 : 0,
+        def.is_repeatable,
         def.condition_type,
         def.condition_threshold ?? null,
-        def.is_negative ? 1 : 0,
+        def.is_negative,
         def.sort_order,
       ])
       await query(
         `INSERT INTO achievements
           (code, category, tier, name, description, icon, xp_reward, is_repeatable, condition_type, condition_threshold, is_negative, sort_order)
          VALUES ${valuesSql}
-         ON DUPLICATE KEY UPDATE
-           category = VALUES(category),
-           tier = VALUES(tier),
-           name = VALUES(name),
-           description = VALUES(description),
-           icon = VALUES(icon),
-           xp_reward = VALUES(xp_reward),
-           is_repeatable = VALUES(is_repeatable),
-           condition_type = VALUES(condition_type),
-           condition_threshold = VALUES(condition_threshold),
-           is_negative = VALUES(is_negative),
-           sort_order = VALUES(sort_order)`,
+         ON CONFLICT (code) DO UPDATE SET
+           category = EXCLUDED.category,
+           tier = EXCLUDED.tier,
+           name = EXCLUDED.name,
+           description = EXCLUDED.description,
+           icon = EXCLUDED.icon,
+           xp_reward = EXCLUDED.xp_reward,
+           is_repeatable = EXCLUDED.is_repeatable,
+           condition_type = EXCLUDED.condition_type,
+           condition_threshold = EXCLUDED.condition_threshold,
+           is_negative = EXCLUDED.is_negative,
+           sort_order = EXCLUDED.sort_order`,
         params
       )
     }

@@ -1,7 +1,7 @@
-import mysql, { type RowDataPacket } from 'mysql2/promise'
+import { Client, Pool, type PoolClient } from 'pg'
 import configurationStore from '../store/ConfigurationStore'
 
-let pool: mysql.Pool | null = null
+let pool: Pool | null = null
 let poolResetPromise: Promise<void> | null = null
 
 export const SCHEMA_ALREADY_EXISTS_CODE = 'SCHEMA_ALREADY_EXISTS'
@@ -14,14 +14,60 @@ export class SchemaAlreadyExistsError extends Error {
   }
 }
 
-function getConfig() {
+function isHostedSupabaseHost(host: string): boolean {
+  const h = host.toLowerCase()
+  return h.includes('supabase.co') || h.includes('pooler.supabase.com')
+}
+
+/** SSL cho Supabase / khi ép bật/tắt. Local thường tắt. */
+export function sslConfigForPg(): boolean | { rejectUnauthorized: boolean } {
+  const store = configurationStore.store
+  const host = store.dbHost?.trim() ?? ''
+  const mode = (store.dbTls ?? 'auto') as 'auto' | 'required' | 'disabled'
+  if (mode === 'disabled') return false
+  if (mode === 'required') return { rejectUnauthorized: false }
+  return isHostedSupabaseHost(host) ? { rejectUnauthorized: false } : false
+}
+
+function pgSchemaFromStore(): string {
+  const t = configurationStore.store.dbPgSchema?.trim()
+  return t !== undefined && t.length > 0 ? t : 'public'
+}
+
+/** Tên schema PG (namespace) đã được kiểm tra an toàn tham vào động. */
+function validatedPgSchemaName(): string {
+  const s = pgSchemaFromStore()
+  if (!s || !/^[a-zA-Z_][a-zA-Z0-9_]*$/.test(s)) {
+    throw new Error('PostgreSQL schema (namespace): chỉ chữ, số, gạch dưới; ký tự đầu phải là chữ hoặc _.')
+  }
+  return s
+}
+
+function pgStartupSearchPathOption(): string {
+  const schema = validatedPgSchemaName()
+  return `-c search_path=${schema},public`
+}
+
+function quotePgIdentValidated(name: string): string {
+  return `"${name.replace(/"/g, '""')}"`
+}
+
+function getConfig(): {
+  host: string
+  port: number
+  user: string
+  password: string
+  database: string
+  ssl: boolean | { rejectUnauthorized: boolean }
+} {
   const store = configurationStore.store
   return {
     host: store.dbHost?.trim() || 'localhost',
-    port: Number(store.dbPort) || 3306,
-    user: store.dbUser?.trim() || 'root',
+    port: Number(store.dbPort) || 5432,
+    user: store.dbUser?.trim() || 'postgres',
     password: store.dbPassword ?? '',
-    database: store.dbName?.trim() || 'honey_badger',
+    database: store.dbName?.trim() || 'postgres',
+    ssl: sslConfigForPg(),
   }
 }
 
@@ -30,21 +76,53 @@ export function hasDbConfig(): boolean {
   return !!(store.dbHost?.trim() || store.dbName?.trim())
 }
 
-export function getPool(): mysql.Pool {
+/**
+ * Chuyển placeholder positional `?` → `$1`, `$2`, … cho driver `pg` (node-postgres).
+ */
+export function sqlPlaceholdersToPg(sql: string, params: unknown[] | undefined): { text: string; values: unknown[] } {
+  const values = params ?? []
+  if (sql.includes('?')) {
+    let n = 0
+    const text = sql.replace(/\?/g, () => `$${++n}`)
+    return { text, values }
+  }
+  return { text: sql, values }
+}
+
+/** `omitSearchPath`: kết nối máy chủ/catalog (vd. tạo database) — không set search_path của schema ứng dụng */
+function newAdhocClient(overrides: { database?: string; omitSearchPath?: boolean } = {}): Client {
+  const config = getConfig()
+  const ssl = config.ssl
+  const startupSearchPath = overrides.omitSearchPath === true ? undefined : pgStartupSearchPathOption()
+  return new Client({
+    host: config.host,
+    port: config.port,
+    user: config.user,
+    password: config.password,
+    database: overrides.database ?? config.database,
+    ssl: ssl === false ? undefined : ssl,
+    ...(startupSearchPath !== undefined ? { options: startupSearchPath } : {}),
+    connectionTimeoutMillis: 15_000,
+  })
+}
+
+export function getPool(): Pool {
   if (!pool) {
     const config = getConfig()
-    pool = mysql.createPool({
+    const ssl = config.ssl
+    pool = new Pool({
       host: config.host,
       port: config.port,
       user: config.user,
       password: config.password,
       database: config.database,
-      charset: 'utf8mb4',
-      waitForConnections: true,
-      connectionLimit: 10,
-      queueLimit: 0,
-      multipleStatements: true,
+      ssl: ssl === false ? undefined : ssl,
+      options: pgStartupSearchPathOption(),
+      max: 10,
+      idleTimeoutMillis: 30_000,
+      connectionTimeoutMillis: 15_000,
     })
+    pool.on('error', () => {})
   }
   return pool
 }
@@ -57,7 +135,6 @@ export function resetPool(): void {
   poolResetPromise = null
 }
 
-/** Reset pool và đợi hoàn tất; dùng khi retry sau "Pool is closed" để tránh race với các query song song */
 export async function resetPoolAndWait(): Promise<void> {
   if (poolResetPromise) return poolResetPromise
   if (!pool) return
@@ -72,202 +149,297 @@ export async function resetPoolAndWait(): Promise<void> {
   return poolResetPromise
 }
 
-export async function query<T = unknown>(sql: string, params?: unknown[]): Promise<T> {
-  const run = async (): Promise<T> => {
-    const p = getPool()
-    const [rows] = await p.execute(sql, (params ?? []) as (string | number | boolean | Date | Buffer | null)[])
-    return rows as T
-  }
+async function execWithRetries<T>(runner: () => Promise<T>): Promise<T> {
   try {
-    return await run()
+    return await runner()
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err)
-    if (msg.includes('Pool is closed')) {
+    if (/Pool is closed|Connection terminated unexpectedly/i.test(msg)) {
       await resetPoolAndWait()
-      return run()
+      return runner()
     }
     throw err
   }
 }
 
-/** Chỉ test kết nối tới MySQL server (host, port, user, password). Không kiểm tra schema/database. */
+export async function query<T extends Record<string, unknown> = Record<string, unknown>>(sql: string, params?: unknown[]): Promise<T[]> {
+  return execWithRetries(async () => {
+    const p = getPool()
+    const { text, values } = sqlPlaceholdersToPg(sql, params)
+    const res = await p.query<T>(text, values as [])
+    return res.rows
+  })
+}
+
+/**
+ * Trả về index ngay sau chuỗi dollar-quote nếu tại `start` có `$$ … $$` hoặc `$tag$ … $tag$`.
+ * `$1` không phải dollar-quote và trả null.
+ */
+function tryConsumeDollarQuotedString(blob: string, start: number): number | null {
+  if (blob[start] !== '$' || start + 1 >= blob.length) return null
+  let delimEndIdx: number
+  const c1 = blob[start + 1]
+  if (c1 === '$') {
+    delimEndIdx = start + 1
+  } else if (/[A-Za-z_]/.test(c1)) {
+    let j = start + 1
+    while (j < blob.length && /[A-Za-z0-9_]/.test(blob[j])) j++
+    if (j >= blob.length || blob[j] !== '$') return null
+    delimEndIdx = j
+  } else {
+    return null
+  }
+  const delim = blob.slice(start, delimEndIdx + 1)
+  const closeIdx = blob.indexOf(delim, delimEndIdx + 1)
+  if (closeIdx === -1) return null
+  return closeIdx + delim.length
+}
+
+/** Tách DDL (comment `--`, `/* … *\/`, `'…'`, `"…"`, và dollar-quote `$$…$$`). */
+export function splitPostgresStatements(sqlBlob: string): string[] {
+  const statements: string[] = []
+  let cur = ''
+  let inSq = false
+  let inDq = false
+  let inLineComment = false
+  let inBlock = false
+
+  for (let i = 0; i < sqlBlob.length; i++) {
+    const ch = sqlBlob[i]
+    const next = sqlBlob[i + 1]
+
+    if (inLineComment) {
+      cur += ch
+      if (ch === '\n') inLineComment = false
+      continue
+    }
+
+    if (inBlock) {
+      cur += ch
+      if (ch === '*' && next === '/') {
+        cur += '/'
+        i++
+        inBlock = false
+      }
+      continue
+    }
+
+    if (!inSq && !inDq && ch === '-' && next === '-') {
+      inLineComment = true
+      cur += '-'
+      continue
+    }
+
+    if (!inSq && !inDq && ch === '/' && next === '*') {
+      inBlock = true
+      cur += '/*'
+      i++
+      continue
+    }
+
+    // Không chia tại ';' trong thân FUNCTION/DO (plpgsql trong $$ … $$).
+    if (!inSq && !inDq && ch === '$') {
+      const afterQuote = tryConsumeDollarQuotedString(sqlBlob, i)
+      if (afterQuote !== null) {
+        cur += sqlBlob.slice(i, afterQuote)
+        i = afterQuote - 1
+        continue
+      }
+    }
+
+    if (!inDq && ch === "'") {
+      if (inSq && next === "'") {
+        cur += "''"
+        i++
+        continue
+      }
+      inSq = !inSq
+      cur += ch
+      continue
+    }
+
+    if (!inSq && ch === '"') {
+      inDq = !inDq
+      cur += ch
+      continue
+    }
+
+    if (ch === ';' && !inSq && !inDq) {
+      const stmt = cur.trim()
+      if (stmt.length > 0) statements.push(stmt)
+      cur = ''
+      continue
+    }
+
+    cur += ch
+  }
+  const last = cur.trim()
+  if (last.length > 0) statements.push(last)
+  return statements
+}
+
+/** Chỉ test kết nối Postgres tới database đã cấu hình. */
 export async function testConnection(): Promise<{ ok: boolean; error?: string }> {
   if (!hasDbConfig()) {
     return { ok: false, error: 'Task database not configured' }
   }
   const config = getConfig()
+  let client: Client
   try {
-    const conn = await mysql.createConnection({
-      host: config.host,
-      port: config.port,
-      user: config.user,
-      password: config.password,
-    })
-    try {
-      await conn.execute('SELECT 1')
-      return { ok: true }
-    } finally {
-      await conn.end()
-    }
+    client = newAdhocClient({ database: config.database })
+  } catch (e: unknown) {
+    return { ok: false, error: e instanceof Error ? e.message : String(e) }
+  }
+  try {
+    await client.connect()
+    await client.query('SELECT 1')
+    return { ok: true }
   } catch (err: unknown) {
     const msg = err instanceof Error ? err.message : String(err)
     return { ok: false, error: msg }
+  } finally {
+    await client.end().catch(() => {})
   }
 }
 
-/** Chỉ cho phép tên DB: chữ, số, gạch dưới. Tránh SQL injection. */
 function validateDatabaseName(name: string): void {
   if (!/^[a-zA-Z0-9_]+$/.test(name)) {
     throw new Error('Invalid database name. Only alphanumeric and underscore allowed.')
   }
 }
 
-/** Tạo database nếu chưa tồn tại, dùng utf8mb4. Chạy trước initSchema. */
+/**
+ * Trên Supabase không tạo database từ app. Local/self-host: CREATE DATABASE nếu chưa có.
+ */
 export async function ensureDatabase(): Promise<void> {
   if (!hasDbConfig()) {
     throw new Error('Task database not configured')
   }
-  resetPool()
   const config = getConfig()
+  resetPool()
+  if (isHostedSupabaseHost(config.host)) {
+    return
+  }
   validateDatabaseName(config.database)
-  const conn = await mysql.createConnection({
-    host: config.host,
-    port: config.port,
-    user: config.user,
-    password: config.password,
-  })
+  const admin = newAdhocClient({ database: 'postgres', omitSearchPath: true })
   try {
-    const escapedDb = conn.escapeId(config.database)
-    await conn.query(`CREATE DATABASE IF NOT EXISTS ${escapedDb} CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci`)
+    await admin.connect()
+    const exists = await admin.query<{ exists: boolean }>('SELECT EXISTS(SELECT 1 FROM pg_database WHERE datname = $1) AS exists', [config.database])
+    if (!exists.rows[0]?.exists) {
+      await admin.query(`CREATE DATABASE ${config.database} ENCODING 'UTF8'`)
+    }
   } finally {
-    await conn.end()
+    await admin.end().catch(() => {})
   }
 }
 
-/**
- * Kiểm tra qua kết nối độc lập (không dùng pool) — phù hợp gọi trước khi có DB/schema,
- * không tạo database, không reset pool.
- */
 export async function checkTaskSchemaAppliedOverConnection(): Promise<
-  | { ok: true; applied: boolean }
-  | { ok: false; code: 'TASK_DB_NOT_CONFIGURED' | 'TASK_DB_CHECK_FAILED'; error?: string }
+  { ok: true; applied: boolean } | { ok: false; code: 'APP_DB_NOT_CONFIGURED' | 'APP_DB_CHECK_FAILED'; error?: string }
 > {
   if (!hasDbConfig()) {
-    return { ok: false, code: 'TASK_DB_NOT_CONFIGURED' }
+    return { ok: false, code: 'APP_DB_NOT_CONFIGURED' }
   }
   const config = getConfig()
+  let schemaSql: string
   try {
     validateDatabaseName(config.database)
+    schemaSql = validatedPgSchemaName()
   } catch (e: unknown) {
     const msg = e instanceof Error ? e.message : String(e)
-    return { ok: false, code: 'TASK_DB_CHECK_FAILED', error: msg }
+    return { ok: false, code: 'APP_DB_CHECK_FAILED', error: msg }
   }
+  const client = newAdhocClient({ database: config.database })
   try {
-    const conn = await mysql.createConnection({
-      host: config.host,
-      port: config.port,
-      user: config.user,
-      password: config.password,
-    })
-    try {
-      const [rows] = await conn.execute(
-        'SELECT 1 FROM information_schema.tables WHERE table_schema = ? AND table_name = ? LIMIT 1',
-        [config.database, 'task_statuses']
-      )
-      return { ok: true, applied: Array.isArray(rows) && rows.length > 0 }
-    } finally {
-      await conn.end()
-    }
+    await client.connect()
+    const r = await client.query(`SELECT 1 FROM information_schema.tables WHERE table_schema = $1 AND table_name = $2 LIMIT 1`, [schemaSql, 'task_statuses'])
+    return { ok: true, applied: r.rows.length > 0 }
   } catch (e: unknown) {
     const msg = e instanceof Error ? e.message : String(e)
-    return { ok: false, code: 'TASK_DB_CHECK_FAILED', error: msg }
+    return { ok: false, code: 'APP_DB_CHECK_FAILED', error: msg }
+  } finally {
+    await client.end().catch(() => {})
   }
 }
 
-/** true khi bảng task_statuses đã tồn tại (coi là schema task đã áp dụng). */
 export async function isTaskSchemaApplied(): Promise<boolean> {
-  const config = getConfig()
-  const p = getPool()
-  const [rows] = await p.execute('SELECT 1 FROM information_schema.tables WHERE table_schema = ? AND table_name = ? LIMIT 1', [config.database, 'task_statuses'])
-  return Array.isArray(rows) && rows.length > 0
+  const schema = validatedPgSchemaName()
+  const rows = await query<{ one: number }>(`SELECT 1 AS one FROM information_schema.tables WHERE table_schema = $1 AND table_name = $2 LIMIT 1`, [schema, 'task_statuses'])
+  return rows.length > 0
 }
 
-/** Kiểm tra schema đã tồn tại. Nếu có thì throw SchemaAlreadyExistsError. */
 export async function checkSchemaExists(): Promise<void> {
   if (await isTaskSchemaApplied()) {
     throw new SchemaAlreadyExistsError()
   }
 }
 
-/**
- * Xóa mọi bảng (BASE TABLE) trong database cấu hình. Chỉ dùng khi reset schema;
- * database chuyên dụng cho task — không gọi trên DB dùng chung có bảng khác.
- */
 export async function dropAllTablesInTaskDatabase(): Promise<void> {
-  const config = getConfig()
-  validateDatabaseName(config.database)
-  const p = getPool()
-  const conn = await p.getConnection()
-  try {
-    const [tableRows] = await conn.execute<RowDataPacket[]>(
-      'SELECT TABLE_NAME AS t FROM information_schema.TABLES WHERE TABLE_SCHEMA = ? AND TABLE_TYPE = ?',
-      [config.database, 'BASE TABLE']
-    )
-    if (!Array.isArray(tableRows) || tableRows.length === 0) return
-    await conn.query('SET FOREIGN_KEY_CHECKS=0')
-    for (const row of tableRows) {
-      const name = row.t as string
-      if (!/^[a-zA-Z0-9_]+$/.test(name)) continue
-      await conn.query(`DROP TABLE IF EXISTS ${conn.escapeId(name)}`)
+  validateDatabaseName(getConfig().database)
+  await execWithRetries(async () => {
+    const p = getPool()
+    const client: PoolClient = await p.connect()
+    try {
+      const schemaSql = validatedPgSchemaName()
+      const qSch = quotePgIdentValidated(schemaSql)
+      const { rows } = await client.query<{ tablename: string }>(`SELECT tablename FROM pg_tables WHERE schemaname = $1`, [schemaSql])
+      for (const { tablename } of rows) {
+        if (!/^[a-zA-Z0-9_]+$/.test(tablename)) continue
+        const qTbl = quotePgIdentValidated(tablename)
+        await client.query(`DROP TABLE IF EXISTS ${qSch}.${qTbl} CASCADE`)
+      }
+    } finally {
+      client.release()
     }
-    await conn.query('SET FOREIGN_KEY_CHECKS=1')
-  } catch (err) {
-    await conn.query('SET FOREIGN_KEY_CHECKS=1').catch(() => {})
-    throw err
-  } finally {
-    conn.release()
-  }
+  })
 }
 
-/**
- * Chạy schema SQL theo chuẩn MySQL:
- * - SET FOREIGN_KEY_CHECKS=0 chạy riêng trước (đảm bảo session áp dụng)
- * - Schema chạy trong 1 batch
- * - SET FOREIGN_KEY_CHECKS=1 chạy riêng sau
- */
 export async function executeSchemaSql(sql: string): Promise<void> {
-  const p = getPool()
-  const conn = await p.getConnection()
-  try {
-    await conn.query('SET FOREIGN_KEY_CHECKS=0')
-    await conn.query(sql)
-    await conn.query('SET FOREIGN_KEY_CHECKS=1')
-  } catch (err) {
-    await conn.query('SET FOREIGN_KEY_CHECKS=1').catch(() => {})
-    throw err
-  } finally {
-    conn.release()
+  if (!hasDbConfig()) {
+    throw new Error('Task database not configured')
   }
+  validateDatabaseName(getConfig().database)
+  validatedPgSchemaName()
+  const stmts = splitPostgresStatements(sql)
+  await execWithRetries(async () => {
+    const p = getPool()
+    const client = await p.connect()
+    try {
+      await client.query('BEGIN')
+      try {
+        for (const stmt of stmts) {
+          if (stmt.length === 0) continue
+          await client.query(stmt)
+        }
+        await client.query('COMMIT')
+      } catch (e) {
+        await client.query('ROLLBACK').catch(() => {})
+        throw e
+      }
+    } finally {
+      client.release()
+    }
+  })
 }
 
 export type TransactionQuery = (sql: string, params?: unknown[]) => Promise<unknown>
 
 export async function withTransaction<T>(fn: (txQuery: TransactionQuery) => Promise<T>): Promise<T> {
   const p = getPool()
-  const conn = await p.getConnection()
+  const client = await p.connect()
   const txQuery: TransactionQuery = async (sql: string, params?: unknown[]) => {
-    const [rows] = await conn.execute(sql, (params ?? []) as (string | number | boolean | Date | Buffer | null)[])
-    return rows
+    const { text, values } = sqlPlaceholdersToPg(sql, params)
+    const res = await client.query(text, values as [])
+    return res.rows
   }
   try {
-    await conn.query('START TRANSACTION')
+    await client.query('BEGIN')
     const result = await fn(txQuery)
-    await conn.query('COMMIT')
+    await client.query('COMMIT')
     return result
   } catch (err) {
-    await conn.query('ROLLBACK').catch(() => {})
+    await client.query('ROLLBACK').catch(() => {})
     throw err
   } finally {
-    conn.release()
+    client.release()
   }
 }

@@ -9,6 +9,8 @@ import { readFileSync, writeFileSync } from 'node:fs'
 import { join, dirname } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
+import { isPreservedI18nKey } from './i18nPreservedPrefixes'
+
 const __dirname = dirname(fileURLToPath(import.meta.url))
 const ROOT = join(__dirname, '..')
 const LOCALES_DIR = join(ROOT, 'src/renderer/locales')
@@ -35,10 +37,16 @@ function deleteKey(obj: Record<string, unknown>, keyPath: string): boolean {
 
 function main() {
   const unusedPath = join(ROOT, 'unused-translation-keys.txt')
-  const unusedKeys = readFileSync(unusedPath, 'utf-8')
+  const rawLines = readFileSync(unusedPath, 'utf-8')
     .split('\n')
     .map((s) => s.trim())
     .filter((s) => s.length > 0 && !s.startsWith('spotbugs.bugDescriptions'))
+
+  const unusedKeys = rawLines.filter((k) => !isPreservedI18nKey(k))
+  const skipped = rawLines.length - unusedKeys.length
+  if (skipped > 0) {
+    console.log(`Skipping ${skipped} keys (dynamic/template — see i18nPreservedPrefixes.ts)`)
+  }
 
   console.log(`Removing ${unusedKeys.length} unused keys from 3 locale files...`)
 

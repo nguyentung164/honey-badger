@@ -4,7 +4,7 @@ import { IPC } from 'main/constants'
 import { log as gitLog } from '../git/log'
 import { onDailyReport } from '../task/achievementService'
 import { getTokenFromStore, verifyToken } from '../task/auth'
-import { getUserEmailById } from '../task/mysqlTaskStore'
+import { getUserEmailById } from '../task/pgTaskStore'
 import {
   getDailyReportByUserAndDate,
   getDailyReportHistoryByUser,
@@ -15,7 +15,7 @@ import {
   saveDailyReport,
   type DailyReportInput,
   type SelectedCommit,
-} from '../task/mysqlDailyReport'
+} from '../task/pgDailyReport'
 import { log as svnLog } from '../svn/log'
 
 function withAuthFromStore<T extends unknown[]>(

@@ -114,7 +114,8 @@ export function MainPage() {
   const [effectiveLabels, setEffectiveLabels] = useState<string[]>([])
   const [multiRepoActiveTab, setMultiRepoActiveTab] = useState('0')
   const [repoLinksVersion, setRepoLinksVersion] = useState(0)
-  const gitMultiTableRefs = useRef<any[]>([])
+  /** Map repo root path → bảng staging (tránh lệch index A/B/C khi React reconcile tab) */
+  const gitMultiTableRefs = useRef<Record<string, any>>({})
   const effectivePathsRef = useRef<string[]>([])
   const prevIsMultiRepoRef = useRef<boolean>(false)
   const isMultiRepo = versionControlSystem === 'git' && !!multiRepoEnabled && effectivePaths.length >= 1
@@ -156,45 +157,54 @@ export function MainPage() {
       return
     }
     let cancelled = false
-    ;(async () => {
-      const res = await window.api.task.getSourceFoldersByProject(selectedProjectId)
-      if (cancelled) return
-      if (res.status !== 'success' || !Array.isArray(res.data) || res.data.length === 0) {
-        effectivePathsRef.current = []
-        setEffectivePaths([])
-        setEffectiveLabels([])
-        setEffectiveMultiRepo([], [])
-        return
-      }
-      const paths: string[] = []
-      const labels: string[] = []
-      for (const folder of res.data) {
-        const p = (folder.path ?? '').trim()
-        if (!p) continue
-        const det = await window.api.system.detect_version_control(p)
+      ; (async () => {
+        const res = await window.api.task.getSourceFoldersByProject(selectedProjectId)
         if (cancelled) return
-        if (det.status === 'success' && det.data?.type === 'git' && det.data?.isValid) {
-          paths.push(p)
-          labels.push(folder.name ?? p.split(/[/\\]/).filter(Boolean).pop() ?? p)
+        if (res.status !== 'success' || !Array.isArray(res.data) || res.data.length === 0) {
+          effectivePathsRef.current = []
+          setEffectivePaths([])
+          setEffectiveLabels([])
+          setEffectiveMultiRepo([], [])
+          return
         }
-      }
-      if (cancelled) return
-      const limit = 5
-      const truncated = paths.length > limit
-      const finalPaths = truncated ? paths.slice(0, limit) : paths
-      const finalLabels = truncated ? labels.slice(0, limit) : labels
-      effectivePathsRef.current = finalPaths
-      setEffectivePaths(finalPaths)
-      setEffectiveLabels(finalLabels)
-      setEffectiveMultiRepo(finalPaths, finalLabels)
-      if (truncated && !cancelled) {
-        toast.warning(t('settings.versioncontrol.multiRepoTooManyTruncated', 'Chỉ hiển thị tối đa 5 repo; các repo còn lại bị ẩn'))
-      }
-    })()
+        const paths: string[] = []
+        const labels: string[] = []
+        for (const folder of res.data) {
+          const p = (folder.path ?? '').trim()
+          if (!p) continue
+          const det = await window.api.system.detect_version_control(p)
+          if (cancelled) return
+          if (det.status === 'success' && det.data?.type === 'git' && det.data?.isValid) {
+            paths.push(p)
+            labels.push(folder.name ?? p.split(/[/\\]/).filter(Boolean).pop() ?? p)
+          }
+        }
+        if (cancelled) return
+        const limit = 5
+        const truncated = paths.length > limit
+        const finalPaths = truncated ? paths.slice(0, limit) : paths
+        const finalLabels = truncated ? labels.slice(0, limit) : labels
+        effectivePathsRef.current = finalPaths
+        setEffectivePaths(finalPaths)
+        setEffectiveLabels(finalLabels)
+        setEffectiveMultiRepo(finalPaths, finalLabels)
+        if (truncated && !cancelled) {
+          toast.warning(t('settings.versioncontrol.multiRepoTooManyTruncated', 'Chỉ hiển thị tối đa 5 repo; các repo còn lại bị ẩn'))
+        }
+      })()
     return () => {
       cancelled = true
     }
   }, [versionControlSystem, multiRepoEnabled, selectedProjectId, repoLinksVersion, setEffectiveMultiRepo])
+
+  // Bỏ ref repo không còn trong project (tránh giữ instance cũ trùng key)
+  useEffect(() => {
+    if (versionControlSystem !== 'git' || !multiRepoEnabled) return
+    const allowed = new Set(effectivePaths)
+    for (const k of Object.keys(gitMultiTableRefs.current)) {
+      if (!allowed.has(k)) delete gitMultiTableRefs.current[k]
+    }
+  }, [versionControlSystem, multiRepoEnabled, effectivePaths])
 
   // Reset multi-repo tab khi số repo thay đổi (tránh tab không hợp lệ)
   useEffect(() => {
@@ -210,13 +220,13 @@ export function MainPage() {
   // Sync multi-repo watch paths to main (byProject: paths from effectivePaths; else or empty → main uses sourceFolder)
   useEffect(() => {
     if (versionControlSystem !== 'git' || !multiRepoEnabled) {
-      window.api.configuration.setMultirepoWatchPaths([]).catch(() => {})
+      window.api.configuration.setMultirepoWatchPaths([]).catch(() => { })
       return
     }
     if (effectivePaths.length > 0) {
-      window.api.configuration.setMultirepoWatchPaths(effectivePaths).catch(() => {})
+      window.api.configuration.setMultirepoWatchPaths(effectivePaths).catch(() => { })
     } else {
-      window.api.configuration.setMultirepoWatchPaths([]).catch(() => {})
+      window.api.configuration.setMultirepoWatchPaths([]).catch(() => { })
     }
   }, [versionControlSystem, multiRepoEnabled, effectivePaths])
 
@@ -256,8 +266,8 @@ export function MainPage() {
 
     if (isMultiRepo && effectivePaths.length > 0) {
       const timer = setTimeout(() => {
-        effectivePaths.forEach((_, i) => {
-          gitMultiTableRefs.current[i]?.reloadData?.()
+        effectivePaths.forEach(path => {
+          gitMultiTableRefs.current[path]?.reloadData?.()
         })
       }, 0)
       return () => clearTimeout(timer)
@@ -281,8 +291,8 @@ export function MainPage() {
       const paths = effectivePathsRef.current
       const multi = isMultiRepo && paths.length > 0
       if (multi) {
-        paths.forEach((_, i) => {
-          gitMultiTableRefs.current[i]?.reloadData?.()
+        paths.forEach(path => {
+          gitMultiTableRefs.current[path]?.reloadData?.()
         })
       } else if (gitDualTableRef.current) {
         gitDualTableRef.current.reloadData()
@@ -312,8 +322,8 @@ export function MainPage() {
       const multi = vcs === 'git' && !!cfg.multiRepoEnabled && paths.length >= 1
       if (vcs === 'git') {
         if (multi && paths.length > 0) {
-          paths.forEach((_, i) => {
-            gitMultiTableRefs.current[i]?.reloadData?.()
+          paths.forEach(path => {
+            gitMultiTableRefs.current[path]?.reloadData?.()
           })
         } else if (gitDualTableRef.current) {
           gitDualTableRef.current.reloadData()
@@ -334,7 +344,7 @@ export function MainPage() {
         if (event.detail?.clearData) {
           logger.info('Clearing data - folder is not a valid Git/SVN repository')
           if (gitDualTableRef.current?.clearData) gitDualTableRef.current.clearData()
-          gitMultiTableRefs.current.forEach(ref => {
+          Object.values(gitMultiTableRefs.current).forEach(ref => {
             ref?.clearData?.()
           })
           if (tableRef.current?.clearData) tableRef.current.clearData()
@@ -357,8 +367,8 @@ export function MainPage() {
         const paths = effectivePathsRef.current
         if (updatedVCS === 'git') {
           if (updatedMultiRepo && paths.length > 0) {
-            paths.forEach((_, i) => {
-              gitMultiTableRefs.current[i]?.reloadData?.()
+            paths.forEach(path => {
+              gitMultiTableRefs.current[path]?.reloadData?.()
             })
           } else if (gitDualTableRef.current) {
             gitDualTableRef.current.reloadData()
@@ -376,8 +386,8 @@ export function MainPage() {
       const multi = cfg.versionControlSystem === 'git' && !!cfg.multiRepoEnabled && paths.length >= 1
       if (cfg.versionControlSystem === 'git') {
         if (multi && paths.length > 0) {
-          paths.forEach((_, i) => {
-            gitMultiTableRefs.current[i]?.reloadData?.()
+          paths.forEach(path => {
+            gitMultiTableRefs.current[path]?.reloadData?.()
           })
         } else if (gitDualTableRef.current) {
           gitDualTableRef.current.reloadData()
@@ -392,8 +402,8 @@ export function MainPage() {
       const multi = cfg.versionControlSystem === 'git' && !!cfg.multiRepoEnabled && paths.length >= 1
       if (cfg.versionControlSystem === 'git') {
         if (multi && paths.length > 0) {
-          paths.forEach((_, i) => {
-            gitMultiTableRefs.current[i]?.reloadData?.()
+          paths.forEach(path => {
+            gitMultiTableRefs.current[path]?.reloadData?.()
           })
         } else if (gitDualTableRef.current) {
           gitDualTableRef.current.reloadData()
@@ -577,7 +587,7 @@ export function MainPage() {
 
     if (versionControlSystem === 'git') {
       if (isMultiRepo) {
-        const stagedPerRepo = effectivePaths.map((_, i) => gitMultiTableRefs.current[i]?.getAllStagedFiles?.() ?? [])
+        const stagedPerRepo = effectivePaths.map(path => gitMultiTableRefs.current[path]?.getAllStagedFiles?.() ?? [])
         const totalStaged = stagedPerRepo.flat().length
         if (totalStaged === 0) {
           toast.warning(t('settings.versioncontrol.multiRepoNoStagedFiles'))
@@ -614,7 +624,7 @@ export function MainPage() {
     let deletedFilesList = ''
     try {
       if (versionControlSystem === 'git' && isMultiRepo && effectivePaths.length > 0) {
-        const stagedPerRepo = effectivePaths.map((_, i) => gitMultiTableRefs.current[i]?.getAllStagedFiles?.() ?? [])
+        const stagedPerRepo = effectivePaths.map(path => gitMultiTableRefs.current[path]?.getAllStagedFiles?.() ?? [])
         const diffPromises = effectivePaths.map((path, i) => {
           const files = stagedPerRepo[i].map((f: FileData) => f.filePath)
           return files.length > 0
@@ -680,7 +690,7 @@ export function MainPage() {
     let selectedFiles: any[] = []
     if (versionControlSystem === 'git') {
       if (isMultiRepo && effectivePaths.length > 0) {
-        selectedFiles = effectivePaths.flatMap((_, i) => gitMultiTableRefs.current[i]?.getAllStagedFiles?.() ?? [])
+        selectedFiles = effectivePaths.flatMap(path => gitMultiTableRefs.current[path]?.getAllStagedFiles?.() ?? [])
       } else if (gitDualTableRef.current) {
         selectedFiles = gitDualTableRef.current.getAllStagedFiles()
       }
@@ -761,8 +771,8 @@ export function MainPage() {
           unsubCommit()
           hasCheckCodingRuleRef.current = false
           hasCheckSpotbugsRef.current = false
-          repos.forEach((_, i) => {
-            gitMultiTableRefs.current[i]?.reloadData?.()
+          repos.forEach(r => {
+            gitMultiTableRefs.current[r.path]?.reloadData?.()
           })
           window.dispatchEvent(new CustomEvent('git-commit-success'))
           setCommitMessageSeed('')
@@ -992,7 +1002,7 @@ export function MainPage() {
 
     if (versionControlSystem === 'git') {
       if (isMultiRepo && effectivePaths.length > 0) {
-        const stagedPerRepo = effectivePaths.map((_, i) => gitMultiTableRefs.current[i]?.getAllStagedFiles?.() ?? [])
+        const stagedPerRepo = effectivePaths.map(path => gitMultiTableRefs.current[path]?.getAllStagedFiles?.() ?? [])
         if (stagedPerRepo.every(files => files.length === 0)) {
           toast.warning(t('settings.versioncontrol.multiRepoNoStagedFiles'))
           return
@@ -1163,7 +1173,8 @@ export function MainPage() {
                           <TabsContent key={path} value={String(i)} forceMount className="flex-1 min-h-0 mt-0 overflow-hidden data-[state=inactive]:hidden">
                             <GitStagingTable
                               ref={el => {
-                                gitMultiTableRefs.current[i] = el
+                                if (el) gitMultiTableRefs.current[path] = el
+                                else delete gitMultiTableRefs.current[path]
                               }}
                               cwd={path}
                               label={effectiveLabels[i]}
@@ -1315,7 +1326,7 @@ export function MainPage() {
                       if (versionControlSystem === 'git') {
                         // For Git, use only selected (checked) staged files
                         if (isMultiRepo && effectivePaths.length > 0) {
-                          const stagedFiles = effectivePaths.flatMap((_, i) => gitMultiTableRefs.current[i]?.getAllStagedFiles?.() ?? [])
+                          const stagedFiles = effectivePaths.flatMap(path => gitMultiTableRefs.current[path]?.getAllStagedFiles?.() ?? [])
                           selectedFiles = stagedFiles.filter((file: any) => file.filePath.endsWith('.java')).map((file: any) => file.filePath)
                         } else if (gitDualTableRef.current) {
                           const stagedFiles = gitDualTableRef.current.getAllStagedFiles()

@@ -9,7 +9,7 @@ import { IPC } from 'main/constants'
 import { sendWelcomeEmail } from '../notification/sendMail'
 import { onFirstLogin } from '../task/achievementService'
 import { clearTokenFromStore, createToken, getTokenFromStore, removeSession, removeSessionsForUserId, type SessionData, verifyPassword, verifyToken } from '../task/auth'
-import type { CreateUserInput } from '../task/mysqlTaskStore'
+import type { CreateUserInput } from '../task/pgTaskStore'
 import {
   canUserManageProjectRole,
   createUser,
@@ -23,7 +23,7 @@ import {
   setUserProjectRole,
   updateUser,
   updateUserAvatar,
-} from '../task/mysqlTaskStore'
+} from '../task/pgTaskStore'
 
 const MAX_AVATAR_SIZE_BYTES = 2 * 1024 * 1024 // 2MB
 const MAX_AVATAR_DIMENSION = 512

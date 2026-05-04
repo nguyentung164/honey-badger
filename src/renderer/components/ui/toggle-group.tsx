@@ -58,6 +58,10 @@ function ToggleGroupItem({ className, children, variant, size, ...props }: React
         }),
         'w-auto min-w-0 shrink-0 px-3 data-[size=xs]:px-1.5 data-[size=sm]:px-2 focus:z-10 focus-visible:z-10',
         'data-[spacing=0]:rounded-none data-[spacing=0]:shadow-none data-[spacing=0]:first:rounded-l-md data-[spacing=0]:last:rounded-r-md data-[spacing=0]:data-[variant=outline]:border-l-0 data-[spacing=0]:data-[variant=outline]:first:border-l',
+        // Trạng thái chọn: tương phản rõ hơn so với Toggle đơn (accent)
+        'data-[state=on]:z-10 data-[state=on]:bg-primary data-[state=on]:text-primary-foreground data-[state=on]:shadow-sm',
+        'data-[state=on]:hover:bg-primary/90 data-[state=on]:hover:text-primary-foreground',
+        'data-[variant=outline]:data-[state=on]:border-primary',
         className
       )}
       {...props}

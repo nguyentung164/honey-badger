@@ -1,7 +1,7 @@
 'use client'
 
 import { format } from 'date-fns'
-import { startTransition, useCallback, useMemo, useState } from 'react'
+import { startTransition, useCallback, useEffect, useMemo, useState } from 'react'
 import type { DateRange } from 'react-day-picker'
 import { useTranslation } from 'react-i18next'
 import { Area, AreaChart, Bar, BarChart, CartesianGrid, Cell, ComposedChart, Line, LineChart, Pie, PieChart, XAxis, YAxis } from 'recharts'
@@ -10,6 +10,39 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import i18n from '@/lib/i18n'
 import { getDateFnsLocale, getMonthDayOnlyPattern } from '@/lib/dateUtils'
 import { type ChartTask, computeBurndownData, computeBurnupData, computeCFDData, computeCompletionTrendData } from './chartDataUtils'
+
+const CHART_TYPE_LS_PREFIX = 'task-management-chart-chartType:v1:'
+const CHART_TYPE_VALUES = ['burndown', 'burnup', 'cfd', 'completionTrend', 'status', 'priority', 'assignee'] as const
+type PersistedChartTabType = (typeof CHART_TYPE_VALUES)[number]
+
+function chartTypeStorageKey(scope: string): string {
+  return `${CHART_TYPE_LS_PREFIX}${encodeURIComponent(scope)}`
+}
+
+function coerceChartTabType(raw: unknown): PersistedChartTabType | null {
+  if (typeof raw !== 'string') return null
+  return (CHART_TYPE_VALUES as readonly string[]).includes(raw) ? (raw as PersistedChartTabType) : null
+}
+
+function loadChartTypeFromStorage(scope: string): PersistedChartTabType | null {
+  if (!scope) return null
+  try {
+    const raw = localStorage.getItem(chartTypeStorageKey(scope))
+    if (!raw) return null
+    return coerceChartTabType(JSON.parse(raw) as unknown)
+  } catch {
+    return null
+  }
+}
+
+function saveChartTypeToStorage(scope: string, value: PersistedChartTabType): void {
+  if (!scope) return
+  try {
+    localStorage.setItem(chartTypeStorageKey(scope), JSON.stringify(value))
+  } catch {
+    /* ignore */
+  }
+}
 
 const STATUS_LABEL_KEYS: Record<string, string> = {
   new: 'statusNew',
@@ -132,9 +165,18 @@ interface TaskChartsProps {
   priorities?: MasterItem[]
   types?: MasterItem[]
   dateRange?: DateRange | undefined
+  /** Theo user (hoặc 'guest') để ghi nhớ tab biểu đồ */
+  persistSessionScope?: string
 }
 
-export function TaskCharts({ tasks, users, statuses = [], priorities = [], dateRange }: TaskChartsProps) {
+export function TaskCharts({
+  tasks,
+  users,
+  statuses = [],
+  priorities = [],
+  dateRange,
+  persistSessionScope,
+}: TaskChartsProps) {
   const statusColorMap = useMemo(
     () => Object.fromEntries(statuses.filter((s): s is MasterItem & { color: string } => Boolean(s.color)).map(s => [s.code, s.color])),
     [statuses]
@@ -146,9 +188,23 @@ export function TaskCharts({ tasks, users, statuses = [], priorities = [], dateR
   const { t } = useTranslation()
   const locale = getDateFnsLocale(i18n.language)
   const monthDayPattern = getMonthDayOnlyPattern(i18n.language)
-  const [chartType, setChartType] = useState<'burndown' | 'burnup' | 'cfd' | 'completionTrend' | 'status' | 'priority' | 'assignee'>('burndown')
+  const [chartType, setChartType] = useState<PersistedChartTabType>(() => {
+    if (!persistSessionScope) return 'burndown'
+    return loadChartTypeFromStorage(persistSessionScope) ?? 'burndown'
+  })
 
-  const setChartTypeDeferred = useCallback((next: typeof chartType) => {
+  useEffect(() => {
+    if (!persistSessionScope) return
+    const next = loadChartTypeFromStorage(persistSessionScope)
+    setChartType(next ?? 'burndown')
+  }, [persistSessionScope])
+
+  useEffect(() => {
+    if (!persistSessionScope) return
+    saveChartTypeToStorage(persistSessionScope, chartType)
+  }, [persistSessionScope, chartType])
+
+  const setChartTypeDeferred = useCallback((next: PersistedChartTabType) => {
     startTransition(() => setChartType(next))
   }, [])
 

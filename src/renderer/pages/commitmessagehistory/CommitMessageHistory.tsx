@@ -24,18 +24,18 @@ export function CommitMessageHistory() {
   const handleRefresh = useCallback(async () => {
     setIsLoading(true)
     try {
-      logger.info('Đang tải dữ liệu từ MySQL...')
+      logger.info('Commit message history: loading...')
       const res = await window.api.commitMessageHistory.get()
       const messages = res.status === 'success' && res.data ? res.data : []
-      logger.info('Dữ liệu từ MySQL:', messages)
+      logger.info('Loaded commit message history:', messages)
 
       const sortedMessages = [...messages].sort((a, b) => {
         return new Date(b.date).getTime() - new Date(a.date).getTime()
       })
       setResult(sortedMessages)
-      logger.info('Đã cập nhật state với dữ liệu từ MySQL')
+      logger.info('Commit message history: state updated')
     } catch (error) {
-      logger.error('Lỗi khi tải dữ liệu từ MySQL:', error)
+      logger.error('Commit message history load failed:', error)
       const fallbackMessages = useHistoryStore.getState().commitMessages
       logger.info('Sử dụng dữ liệu từ store:', fallbackMessages)
       const sortedMessages = [...fallbackMessages].sort((a, b) => {

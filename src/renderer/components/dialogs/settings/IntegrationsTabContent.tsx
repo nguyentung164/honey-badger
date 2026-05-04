@@ -1,14 +1,15 @@
 'use client'
 
 import { Cloud, Database, Layers, Link2, Loader2, Lock, Mail, Network, RefreshCw, Save, User } from 'lucide-react'
+import type { Configuration, TaskDbTlsMode } from 'main/types/types'
 import { memo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from '@/components/ui/accordion'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent } from '@/components/ui/card'
 import { Label } from '@/components/ui/label'
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import toast from '@/components/ui-elements/Toast'
-import type { Configuration } from 'main/types/types'
 import { useAppearanceStoreSelect } from '../../../stores/useAppearanceStore'
 import type { ConfigFieldKey } from '../../../stores/useConfigurationStore'
 import { useConfigurationStore } from '../../../stores/useConfigurationStore'
@@ -17,7 +18,7 @@ import { ConfigInput } from './ConfigInput'
 
 export interface IntegrationsTabContentProps {
   integrationsDirty: boolean
-  onSetConfig: (key: ConfigFieldKey, value: string) => void
+  onSetConfig: (key: ConfigFieldKey, value: string | TaskDbTlsMode) => void
   onSetMailServer: (key: 'smtpServer' | 'port' | 'email' | 'password', value: string) => void
   onSave: () => void
   onTestMail: () => void
@@ -46,10 +47,12 @@ export const IntegrationsTabContent = memo(function IntegrationsTabContent({
   const dbUser = useConfigurationStore(s => s.dbUser)
   const dbPassword = useConfigurationStore(s => s.dbPassword)
   const dbName = useConfigurationStore(s => s.dbName)
+  const dbPgSchema = useConfigurationStore(s => s.dbPgSchema)
+  const dbTls = useConfigurationStore(s => s.dbTls)
   const [testDbLoading, setTestDbLoading] = useState(false)
   const [initSchemaLoading, setInitSchemaLoading] = useState(false)
 
-  /** Đẩy Task DB từ Zustand sang main (electron-store) + reset pool, không broadcast — main mới đọc đúng khi test/init. */
+  /** Đẩy cấu hình database từ Zustand sang main (electron-store) + reset pool, không broadcast — main mới đọc đúng khi test/init. */
   const pushTaskDbToMainSilent = async (): Promise<boolean> => {
     try {
       const s = useConfigurationStore.getState()
@@ -59,6 +62,8 @@ export const IntegrationsTabContent = memo(function IntegrationsTabContent({
         dbUser: s.dbUser ?? '',
         dbPassword: s.dbPassword ?? '',
         dbName: s.dbName ?? '',
+        dbPgSchema: s.dbPgSchema ?? '',
+        dbTls: (s.dbTls === 'required' || s.dbTls === 'disabled' ? s.dbTls : 'auto') satisfies TaskDbTlsMode,
       }
       await window.api.configuration.patchSilent(taskDbPatch)
       return true
@@ -76,7 +81,7 @@ export const IntegrationsTabContent = memo(function IntegrationsTabContent({
       if (res.ok) {
         toast.success(t('settings.db.testSuccess', 'Connection successful'))
       } else {
-        toast.error(res.code === 'TASK_DB_NOT_CONFIGURED' ? t('settings.db.notConfigured', 'Database not configured') : res.error || res.code || 'Connection failed')
+        toast.error(res.code === 'APP_DB_NOT_CONFIGURED' ? t('settings.db.notConfigured', 'Database not configured') : res.error || res.code || 'Connection failed')
       }
     } catch (err) {
       toast.error(err instanceof Error ? err.message : 'Connection failed')
@@ -90,11 +95,7 @@ export const IntegrationsTabContent = memo(function IntegrationsTabContent({
     try {
       if (!(await pushTaskDbToMainSilent())) return
       const { recreated } = await window.api.task.initSchema()
-      toast.success(
-        recreated
-          ? t('settings.db.schemaRecreated', 'All tables recreated from schema')
-          : t('settings.db.schemaInitSuccess', 'Schema initialized')
-      )
+      toast.success(recreated ? t('settings.db.schemaRecreated', 'All tables recreated from schema') : t('settings.db.schemaInitSuccess', 'Schema initialized'))
     } catch (err) {
       toast.error(err instanceof Error ? err.message : String(err) || 'Schema init failed')
     } finally {
@@ -113,7 +114,7 @@ export const IntegrationsTabContent = memo(function IntegrationsTabContent({
               <AccordionTrigger className={sectionTriggerClass}>
                 <span className="flex items-center gap-2 text-base font-semibold">
                   <Database className="size-5 shrink-0" />
-                  {t('settings.db.database')}
+                  {t('settings.db.sectionTitle', 'Task database (PostgreSQL)')}
                 </span>
               </AccordionTrigger>
               <AccordionContent className="px-1 pb-4 pt-0 sm:px-2">
@@ -143,35 +144,61 @@ export const IntegrationsTabContent = memo(function IntegrationsTabContent({
                   </div>
                 </div>
                 <div className="grid grid-cols-2 gap-4">
-                  <div id="settings-task-db-host" className="space-y-2">
+                  <div id="settings-db-host" className="space-y-2">
                     <Label className="flex items-center gap-2">
                       <Network className="h-4 w-4" /> {t('settings.db.host', 'Host')}
                     </Label>
                     <ConfigInput type="text" value={dbHost} onSync={v => onSetConfig('dbHost', v)} placeholder="localhost" />
                   </div>
-                  <div id="settings-task-db-port" className="space-y-2">
+                  <div id="settings-db-port" className="space-y-2">
                     <Label className="flex items-center gap-2">
                       <Network className="h-4 w-4" /> {t('settings.db.port', 'Port')}
                     </Label>
-                    <ConfigInput type="text" value={dbPort} onSync={v => onSetConfig('dbPort', v)} placeholder="3306" />
+                    <ConfigInput type="text" value={dbPort} onSync={v => onSetConfig('dbPort', v)} placeholder="5432" />
                   </div>
-                  <div id="settings-task-db-user" className="space-y-2">
+                  <div id="settings-db-user" className="space-y-2">
                     <Label className="flex items-center gap-2">
                       <User className="h-4 w-4" /> {t('settings.db.user', 'User')}
                     </Label>
-                    <ConfigInput type="text" value={dbUser} onSync={v => onSetConfig('dbUser', v)} placeholder="root" />
+                    <ConfigInput type="text" value={dbUser} onSync={v => onSetConfig('dbUser', v)} placeholder="postgres" />
                   </div>
-                  <div id="settings-task-db-password" className="space-y-2">
+                  <div id="settings-db-password" className="space-y-2">
                     <Label className="flex items-center gap-2">
                       <Lock className="h-4 w-4" /> {t('settings.db.password', 'Password')}
                     </Label>
                     <ConfigInput type="password" value={dbPassword} onSync={v => onSetConfig('dbPassword', v)} placeholder="" />
                   </div>
-                  <div id="settings-task-db-name" className="col-span-2 space-y-2">
+                  <div id="settings-db-name" className="col-span-2 space-y-2">
                     <Label className="flex items-center gap-2">
                       <Database className="h-4 w-4" /> {t('settings.db.database', 'Database')}
                     </Label>
-                    <ConfigInput type="text" value={dbName} onSync={v => onSetConfig('dbName', v)} placeholder="honey_badger" />
+                    <ConfigInput type="text" value={dbName} onSync={v => onSetConfig('dbName', v)} placeholder="postgres" />
+                  </div>
+                  <div id="settings-db-pg-schema" className="col-span-2 space-y-2">
+                    <Label className="flex items-center gap-2">
+                      <Layers className="h-4 w-4" /> {t('settings.db.pgSchema', 'PostgreSQL schema')}
+                    </Label>
+                    <ConfigInput type="text" value={dbPgSchema} onSync={v => onSetConfig('dbPgSchema', v)} placeholder="honey_badger" />
+                    <p className="text-muted-foreground text-xs">{t('settings.db.pgSchemaHint')}</p>
+                  </div>
+                  <div id="settings-db-tls" className="col-span-2 space-y-2">
+                    <Label className="flex items-center gap-2">{t('settings.db.tls', 'TLS / SSL')}</Label>
+                    <Select
+                      value={dbTls === 'required' || dbTls === 'disabled' ? dbTls : 'auto'}
+                      onValueChange={value => {
+                        const v = value as TaskDbTlsMode
+                        onSetConfig('dbTls', v === 'required' || v === 'disabled' ? v : 'auto')
+                      }}
+                    >
+                      <SelectTrigger className="h-10 w-full sm:max-w-md" size="default">
+                        <SelectValue placeholder={t('settings.db.tls', 'TLS / SSL')} />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="auto">{t('settings.db.tlsAuto', 'Tự động (khuyến nghị; bật SSL trên Supabase)')}</SelectItem>
+                        <SelectItem value="required">{t('settings.db.tlsRequired', 'Luôn bật SSL')}</SelectItem>
+                        <SelectItem value="disabled">{t('settings.db.tlsDisabled', 'Tắt SSL (Postgres cục bộ)')}</SelectItem>
+                      </SelectContent>
+                    </Select>
                   </div>
                 </div>
               </AccordionContent>
@@ -186,7 +213,12 @@ export const IntegrationsTabContent = memo(function IntegrationsTabContent({
               </AccordionTrigger>
               <AccordionContent className="px-1 pb-4 pt-0 sm:px-2">
                 <div className="mb-3 flex justify-end">
-                  <Button variant={buttonVariant} size="sm" onClick={onTestMail} disabled={!smtpServer?.trim() || !port?.trim() || !email?.trim() || !password?.trim() || testMailLoading}>
+                  <Button
+                    variant={buttonVariant}
+                    size="sm"
+                    onClick={onTestMail}
+                    disabled={!smtpServer?.trim() || !port?.trim() || !email?.trim() || !password?.trim() || testMailLoading}
+                  >
                     {testMailLoading ? (
                       <Loader2 className="h-4 w-4 animate-spin" />
                     ) : (

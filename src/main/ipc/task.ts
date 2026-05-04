@@ -5,22 +5,19 @@ import l from 'electron-log'
 import { IPC } from 'main/constants'
 import { sendTaskNotification } from '../notification/taskNotification'
 import configurationStore from '../store/ConfigurationStore'
-import {
-  onCodingRuleCreated,
-  onCommitReview,
-  onTaskCreated,
-  onTaskDone,
-} from '../task/achievementService'
+import { onCodingRuleCreated, onCommitReview, onTaskCreated, onTaskDone } from '../task/achievementService'
 import { getTokenFromStore, type SessionData, verifyToken } from '../task/auth'
-import { checkTaskSchemaAppliedOverConnection, resetPoolAndWait, testConnection } from '../task/db'
-import type { CreateTaskInput, ListTasksForPickerParams, TaskStatus, UpdateTaskInput } from '../task/mysqlTaskStore'
+import { checkTaskSchemaAppliedOverConnection, isTaskSchemaApplied, resetPoolAndWait, testConnection } from '../task/db'
+import type { CreateTaskInput, ListTasksForPickerParams, TaskStatus, UpdateTaskInput } from '../task/pgTaskStore'
 import {
   addTaskFavorite,
   assignTask,
-  canUserViewTaskByScope,
+  bulkUpdateTasksWithPatch,
+  canUserCreateTasksInProject,
   canUserDeleteTask,
   canUserUpdateOrDeleteDoneTask,
   canUserUpdateTask,
+  canUserViewTaskByScope,
   copyTask,
   createCodingRule,
   createProject,
@@ -42,32 +39,35 @@ import {
   getCommitReview,
   getCommitReviewsBySourceFolder,
   getFavoriteTaskIds,
+  getManagementScopeMeta,
   getProjectIdByUserAndPath,
   getProjectMembers,
   getProjectPlUserIds,
   getProjectReminderTime,
   getProjects,
   getProjectsForLeaderboardPicker,
+  getProjectsForTaskManagement,
   getProjectsForUser,
   getReminderStats,
-  getProjectsForTaskManagement,
   getReviewedCommitIds,
   getSourceFoldersByProject,
   getSourceFoldersByProjects,
   getTask,
   getTaskChildren,
   getTaskLinks,
-  getManagementScopeMeta,
   getTasksForSession,
-  listTasksForManagementForCharts,
-  listTasksForManagementWithFacets,
-  listTasksForPickerPage,
-  type TaskManagementListParams,
   getUserProjectSourceFolderMappings,
   getUsers,
   hasPlRole,
+  isAppAdmin,
+  listTaskChangeHistory,
+  listTasksForManagementBoard,
+  listTasksForManagementForCharts,
+  listTasksForManagementWithFacets,
+  listTasksForPickerPage,
   removeTaskFavorite,
   saveCommitReview,
+  type TaskManagementListParams,
   updateCodingRule,
   updateProject,
   updateProjectReminderTime,
@@ -76,7 +76,7 @@ import {
   updateTaskProgress,
   updateTaskStatus,
   upsertUserProjectSourceFolder,
-} from '../task/mysqlTaskStore'
+} from '../task/pgTaskStore'
 import { initTaskSchema } from '../task/schemaInit'
 import type { TaskNotificationType } from '../task/taskNotificationStore'
 import { insertTaskNotification, markAsRead } from '../task/taskNotificationStore'
@@ -169,10 +169,10 @@ export function registerTaskIpcHandlers() {
   ipcMain.handle(IPC.TASK.CHECK_TASK_API, async () => {
     const { dbHost, dbName } = configurationStore.store
     if (!dbHost?.trim() || !dbName?.trim()) {
-      return { ok: false, code: 'TASK_DB_NOT_CONFIGURED' }
+      return { ok: false, code: 'APP_DB_NOT_CONFIGURED' }
     }
     const res = await testConnection()
-    if (!res.ok) return { ok: false, code: 'TASK_DB_UNREACHABLE', error: res.error }
+    if (!res.ok) return { ok: false, code: 'APP_DB_UNREACHABLE', error: res.error }
     return { ok: true }
   })
 
@@ -239,14 +239,7 @@ export function registerTaskIpcHandlers() {
           )
         }
         if (needReviewCount > 0) {
-          await persistAndSendTaskNotification(
-            session.userId,
-            'review_needed',
-            'Task cần review',
-            `Bạn có ${needReviewCount} task cần review`,
-            undefined,
-            session.userId
-          )
+          await persistAndSendTaskNotification(session.userId, 'review_needed', 'Task cần review', `Bạn có ${needReviewCount} task cần review`, undefined, session.userId)
         }
         return { status: 'success' as const }
       }
@@ -283,8 +276,15 @@ export function registerTaskIpcHandlers() {
     })
   )
 
-  ipcMain.handle(IPC.TASK.INIT_TASK_SCHEMA, async () => {
+  ipcMain.handle(IPC.TASK.INIT_TASK_SCHEMA, async (_event) => {
     try {
+      const applied = await isTaskSchemaApplied()
+      if (applied) {
+        const token = getTokenFromStore()
+        const session = token ? verifyToken(token) : null
+        if (!session) throw new Error('Đăng nhập tài khoản admin là bắt buộc để tái khởi tạo schema (sẽ xóa dữ liệu task hiện có).')
+        if (session.role !== 'admin') throw new Error('Chỉ admin mới được tái khởi tạo schema.')
+      }
       const recreated = await initTaskSchema()
       return { recreated }
     } catch (error: any) {
@@ -334,17 +334,21 @@ export function registerTaskIpcHandlers() {
     })
   )
 
+  function parseMgmtDateRange(b: Record<string, unknown>, key: string): { from: string; to?: string } | undefined {
+    const dr = b[key] && typeof b[key] === 'object' ? (b[key] as Record<string, unknown>) : null
+    if (!dr || typeof dr.from !== 'string') return undefined
+    return { from: dr.from.slice(0, 32), to: typeof dr.to === 'string' ? dr.to.slice(0, 32) : undefined }
+  }
+
   function parseTaskManagementListBody(body: unknown): TaskManagementListParams {
     const b = body && typeof body === 'object' ? (body as Record<string, unknown>) : {}
     const page = Math.max(1, Math.floor(Number(b.page) || 1))
     const limit = Math.min(100, Math.max(1, Math.floor(Number(b.limit) || 25)))
     const sortColumn = b.sortColumn === null || b.sortColumn === undefined ? null : typeof b.sortColumn === 'string' ? b.sortColumn : null
     const sortDirection = b.sortDirection === 'desc' ? 'desc' : 'asc'
-    const dr = b.dateRange && typeof b.dateRange === 'object' ? (b.dateRange as Record<string, unknown>) : null
-    const dateRange =
-      dr && typeof dr.from === 'string'
-        ? { from: dr.from.slice(0, 32), to: typeof dr.to === 'string' ? dr.to.slice(0, 32) : undefined }
-        : undefined
+    const dateRange = parseMgmtDateRange(b, 'dateRange')
+    const createdDateRange = parseMgmtDateRange(b, 'createdDateRange')
+    const updatedDateRange = parseMgmtDateRange(b, 'updatedDateRange')
     return {
       page,
       limit,
@@ -355,6 +359,8 @@ export function registerTaskIpcHandlers() {
       priorityCodes: Array.isArray(b.priorityCodes) ? b.priorityCodes.filter((x): x is string => typeof x === 'string') : undefined,
       projectIds: Array.isArray(b.projectIds) ? b.projectIds.filter((x): x is string => typeof x === 'string') : undefined,
       dateRange,
+      createdDateRange,
+      updatedDateRange,
       sortColumn,
       sortDirection,
     }
@@ -395,10 +401,36 @@ export function registerTaskIpcHandlers() {
           priorityCodes: p.priorityCodes,
           projectIds: p.projectIds,
           dateRange: p.dateRange,
+          createdDateRange: p.createdDateRange,
+          updatedDateRange: p.updatedDateRange,
         })
         return { status: 'success' as const, data }
       } catch (error: any) {
         l.error('task:list-for-management-charts error:', error)
+        return { status: 'error' as const, message: error?.message ?? String(error) }
+      }
+    })
+  )
+
+  ipcMain.handle(
+    IPC.TASK.LIST_FOR_MANAGEMENT_BOARD,
+    withAuthFromStore(async (_event, session, body: unknown) => {
+      try {
+        const p = parseTaskManagementListBody(body)
+        const data = await listTasksForManagementBoard(session.userId, session.role, {
+          search: p.search,
+          statusCodes: p.statusCodes,
+          assigneeUserIds: p.assigneeUserIds,
+          typeCodes: p.typeCodes,
+          priorityCodes: p.priorityCodes,
+          projectIds: p.projectIds,
+          dateRange: p.dateRange,
+          createdDateRange: p.createdDateRange,
+          updatedDateRange: p.updatedDateRange,
+        })
+        return { status: 'success' as const, data }
+      } catch (error: any) {
+        l.error('task:list-for-management-board error:', error)
         return { status: 'error' as const, message: error?.message ?? String(error) }
       }
     })
@@ -437,11 +469,15 @@ export function registerTaskIpcHandlers() {
     IPC.TASK.CREATE,
     withAuthFromStore(async (_event, session, input: CreateTaskInput) => {
       try {
+        const pid = typeof input.projectId === 'string' ? input.projectId.trim() : ''
+        if (!pid) return { status: 'error' as const, message: 'projectId là bắt buộc' }
+        const okProject = await canUserCreateTasksInProject(session.userId, session.role, pid)
+        if (!okProject) return { status: 'error' as const, code: 'FORBIDDEN' as const, message: 'Không có quyền tạo task trong project này' }
         const task = await createTask({ ...input, createdBy: session.userId })
         if (task.assigneeUserId && task.title) {
           await persistAndSendTaskNotification(task.assigneeUserId, 'assign', 'Task mới được assign', `Bạn được assign task mới: "${task.title}"`, task.id, session.userId)
         }
-        onTaskCreated(session.userId).catch(() => { })
+        onTaskCreated(session.userId).catch(() => {})
         return { status: 'success' as const, data: task }
       } catch (error: any) {
         l.error('task:create error:', error)
@@ -488,7 +524,7 @@ export function registerTaskIpcHandlers() {
             priority: updatedTask.priority,
             planEndDate: updatedTask.planEndDate,
             actualEndDate: updatedTask.actualEndDate,
-          }).catch(() => { })
+          }).catch(() => {})
         }
         return { status: 'success' as const }
       } catch (error: any) {
@@ -522,24 +558,29 @@ export function registerTaskIpcHandlers() {
 
   ipcMain.handle(
     IPC.TASK.UPDATE_DATES,
-    withAuthFromStore(async (_event, session, id: string, dates: { planStartDate?: string; planEndDate?: string; actualStartDate?: string; actualEndDate?: string }, version?: number) => {
-      try {
-        const task = await getTask(id)
-        if (!task) return { status: 'error' as const, message: 'Task not found' }
-        const projectId = task.projectId
-        if (!projectId || typeof projectId !== 'string') return { status: 'error' as const, code: 'FORBIDDEN', message: 'Task không có project' }
-        const canUpdate =
-          task.status === 'done'
-            ? await canUserUpdateOrDeleteDoneTask(session.userId, projectId, session.role === 'admin')
-            : await canUserUpdateTask(session.userId, projectId, task.assigneeUserId ?? null, session.role === 'admin')
-        if (!canUpdate) return { status: 'error' as const, code: 'FORBIDDEN', message: 'Không có quyền sửa task' }
-        await updateTaskDates(id, dates, version, session.userId)
-        return { status: 'success' as const }
-      } catch (error: any) {
-        l.error('task:update-dates error:', error)
-        return { status: 'error' as const, message: error?.message ?? String(error) }
+    withAuthFromStore(
+      async (_event, session, id: string, dates: { planStartDate?: string; planEndDate?: string; actualStartDate?: string; actualEndDate?: string }, version?: number) => {
+        try {
+          const task = await getTask(id)
+          if (!task) return { status: 'error' as const, message: 'Task not found' }
+          const projectId = task.projectId
+          if (!projectId || typeof projectId !== 'string') return { status: 'error' as const, code: 'FORBIDDEN', message: 'Task không có project' }
+          const canUpdate =
+            task.status === 'done'
+              ? await canUserUpdateOrDeleteDoneTask(session.userId, projectId, session.role === 'admin')
+              : await canUserUpdateTask(session.userId, projectId, task.assigneeUserId ?? null, session.role === 'admin')
+          if (!canUpdate) return { status: 'error' as const, code: 'FORBIDDEN', message: 'Không có quyền sửa task' }
+          await updateTaskDates(id, dates, version, session.userId)
+          return { status: 'success' as const }
+        } catch (error: any) {
+          l.error('task:update-dates error:', error)
+          if (error?.code === 'VERSION_CONFLICT') {
+            return { status: 'error' as const, code: 'VERSION_CONFLICT' as const, message: error?.message ?? 'VERSION_CONFLICT' }
+          }
+          return { status: 'error' as const, message: error?.message ?? String(error) }
+        }
       }
-    })
+    )
   )
 
   ipcMain.handle(
@@ -555,6 +596,10 @@ export function registerTaskIpcHandlers() {
             ? await canUserUpdateOrDeleteDoneTask(session.userId, projectId, session.role === 'admin')
             : await canUserUpdateTask(session.userId, projectId, before.assigneeUserId ?? null, session.role === 'admin')
         if (!canUpdate) return { status: 'error' as const, code: 'FORBIDDEN', message: 'Không có quyền sửa task' }
+        if (typeof data.projectId === 'string' && data.projectId.trim() !== '' && data.projectId !== projectId) {
+          const okTarget = await canUserCreateTasksInProject(session.userId, session.role, data.projectId)
+          if (!okTarget) return { status: 'error' as const, code: 'FORBIDDEN', message: 'Không có quyền chuyển task sang project đích' }
+        }
         if (data.parentId !== undefined) {
           const parentTask = data.parentId ? await getTask(data.parentId) : null
           if (parentTask && parentTask.status === 'done') {
@@ -576,7 +621,7 @@ export function registerTaskIpcHandlers() {
             priority: after.priority,
             planEndDate: after.planEndDate,
             actualEndDate: after.actualEndDate,
-          }).catch(() => { })
+          }).catch(() => {})
         }
         if (!updatedProjectId || typeof updatedProjectId !== 'string' || !updatedProjectId.trim()) return { status: 'success' as const }
         const plIds = await getProjectPlUserIds(updatedProjectId)
@@ -601,6 +646,68 @@ export function registerTaskIpcHandlers() {
         if (error?.code === 'VERSION_CONFLICT') {
           return { status: 'error' as const, code: 'VERSION_CONFLICT', message: error?.message ?? String(error) }
         }
+        return { status: 'error' as const, message: error?.message ?? String(error) }
+      }
+    })
+  )
+
+  ipcMain.handle(
+    IPC.TASK.LIST_TASK_CHANGE_HISTORY,
+    withAuthFromStore(async (_event, session, taskId: string, limit?: number) => {
+      try {
+        const task = await getTask(taskId)
+        if (!task) return { status: 'error' as const, message: 'Task not found' }
+        const ok = await canUserViewTaskByScope(session.userId, session.role, task)
+        if (!ok) return { status: 'error' as const, code: 'FORBIDDEN' as const, message: 'Không có quyền xem task này' }
+        const data = await listTaskChangeHistory(taskId, limit)
+        return { status: 'success' as const, data }
+      } catch (error: any) {
+        l.error('task:list-change-history error:', error)
+        return { status: 'error' as const, message: error?.message ?? String(error) }
+      }
+    })
+  )
+
+  ipcMain.handle(
+    IPC.TASK.BULK_UPDATE_TASKS,
+    withAuthFromStore(async (_event, session, payload: { items: { id: string; version: number }[]; patch: { status?: string; priority?: string; assigneeUserId?: string | null } }) => {
+      try {
+        const items = payload.items ?? []
+        const patch = payload.patch ?? {}
+        const allowed: { id: string; version: number }[] = []
+        const skippedEarly: string[] = []
+        for (const item of items) {
+          const task = await getTask(item.id)
+          if (!task) {
+            skippedEarly.push(item.id)
+            continue
+          }
+          const projectId = task.projectId
+          if (!projectId || typeof projectId !== 'string') {
+            skippedEarly.push(item.id)
+            continue
+          }
+          if (task.version !== item.version) {
+            skippedEarly.push(item.id)
+            continue
+          }
+          const canUpdate =
+            task.status === 'done'
+              ? await canUserUpdateOrDeleteDoneTask(session.userId, projectId, session.role === 'admin')
+              : await canUserUpdateTask(session.userId, projectId, task.assigneeUserId ?? null, session.role === 'admin')
+          if (!canUpdate) {
+            skippedEarly.push(item.id)
+            continue
+          }
+          allowed.push({ id: item.id, version: item.version })
+        }
+        const { updatedIds, skippedIds } = await bulkUpdateTasksWithPatch(allowed, patch, session.userId)
+        return {
+          status: 'success' as const,
+          data: { updatedIds, skippedIds: [...skippedEarly, ...skippedIds], updatedCount: updatedIds.length },
+        }
+      } catch (error: any) {
+        l.error('task:bulk-update error:', error)
         return { status: 'error' as const, message: error?.message ?? String(error) }
       }
     })
@@ -644,13 +751,13 @@ export function registerTaskIpcHandlers() {
         const [canEdit, canDelete] =
           task.status === 'done'
             ? await Promise.all([
-              canUserUpdateOrDeleteDoneTask(session.userId, projectId, session.role === 'admin'),
-              canUserUpdateOrDeleteDoneTask(session.userId, projectId, session.role === 'admin'),
-            ])
+                canUserUpdateOrDeleteDoneTask(session.userId, projectId, session.role === 'admin'),
+                canUserUpdateOrDeleteDoneTask(session.userId, projectId, session.role === 'admin'),
+              ])
             : await Promise.all([
-              canUserUpdateTask(session.userId, projectId, task.assigneeUserId ?? null, session.role === 'admin'),
-              session.role === 'admin' ? Promise.resolve(true) : canUserDeleteTask(session.userId, projectId),
-            ])
+                canUserUpdateTask(session.userId, projectId, task.assigneeUserId ?? null, session.role === 'admin'),
+                session.role === 'admin' ? Promise.resolve(true) : canUserDeleteTask(session.userId, projectId),
+              ])
         return { status: 'success' as const, data: { canEdit, canDelete } }
       } catch (error: any) {
         l.error('task:can-edit-task error:', error)
@@ -702,6 +809,13 @@ export function registerTaskIpcHandlers() {
     IPC.TASK.COPY_TASK,
     withAuthFromStore(async (_event, session, taskId: string) => {
       try {
+        const src = await getTask(taskId)
+        if (!src) return { status: 'error' as const, message: 'Task not found' }
+        const okView = await canUserViewTaskByScope(session.userId, session.role, src)
+        if (!okView) return { status: 'error' as const, code: 'FORBIDDEN' as const, message: 'Không có quyền sao chép task này' }
+        const pid = src.projectId
+        const okProj = pid ? await canUserCreateTasksInProject(session.userId, session.role, pid) : false
+        if (!okProj) return { status: 'error' as const, code: 'FORBIDDEN' as const, message: 'Không có quyền tạo task trong project này' }
         const task = await copyTask(taskId, session.userId)
         if (task.assigneeUserId && task.title) {
           await persistAndSendTaskNotification(task.assigneeUserId, 'assign', 'Task mới được assign', `Bạn được assign task mới: "${task.title}"`, task.id, session.userId)
@@ -772,7 +886,13 @@ export function registerTaskIpcHandlers() {
     withAuthFromStore(async (_event, session, csvContent: string) => {
       try {
         const users = await getUsers()
-        const { created, updated, errors } = await createTasksFromRedmineCsv(csvContent, users as any, session.userId)
+        const { created, updated, errors } = await createTasksFromRedmineCsv(
+          csvContent,
+          users as any,
+          session.userId,
+          session.role,
+          session.userId
+        )
         return { status: 'success' as const, created, updated, errors }
       } catch (error: any) {
         l.error('task:import-redmine-csv error:', error)
@@ -986,9 +1106,16 @@ export function registerTaskIpcHandlers() {
 
   ipcMain.handle(
     IPC.TASK.HAS_PL_ROLE,
-    withAuthFromStore(async (_event, _session, userId: string) => {
+    withAuthFromStore(async (_event, session, userId: string) => {
       try {
-        const result = await hasPlRole(userId)
+        const uid = (userId || '').trim()
+        if (!uid) return { status: 'error' as const, message: 'userId không hợp lệ' }
+        const selfOk = uid === session.userId
+        const adminOk = await isAppAdmin(session.userId)
+        if (!selfOk && !adminOk) {
+          return { status: 'error' as const, code: 'FORBIDDEN' as const, message: 'Không được kiểm tra PL role của user khác' }
+        }
+        const result = await hasPlRole(uid)
         return { status: 'success' as const, data: result }
       } catch (error: any) {
         l.error('task:has-pl-role error:', error)
@@ -1020,9 +1147,14 @@ export function registerTaskIpcHandlers() {
     }
   })
 
-  ipcMain.handle(IPC.TASK.CODING_RULE_GET_CONTENT, async (_event, idOrName: string, options?: { sourceFolderPath?: string; userId?: string }) => {
+  ipcMain.handle(IPC.TASK.CODING_RULE_GET_CONTENT, async (_event, idOrName: string, options?: { sourceFolderPath?: string }) => {
     try {
-      const content = await getCodingRuleContentByIdOrName(idOrName, options)
+      const token = getTokenFromStore()
+      const session = token ? verifyToken(token) : null
+      const content = await getCodingRuleContentByIdOrName(idOrName, {
+        sourceFolderPath: typeof options?.sourceFolderPath === 'string' ? options.sourceFolderPath : undefined,
+        userId: session?.userId,
+      })
       return { status: 'success' as const, data: content }
     } catch (error: any) {
       l.error('task:coding-rule:get-content error:', error)
@@ -1040,7 +1172,7 @@ export function registerTaskIpcHandlers() {
           projectId: input.projectId ?? null,
           createdBy: session.userId,
         })
-        onCodingRuleCreated(session.userId).catch(() => { })
+        onCodingRuleCreated(session.userId).catch(() => {})
         return { status: 'success' as const, data }
       } catch (error: any) {
         l.error('task:coding-rule:create error:', error)
@@ -1090,8 +1222,12 @@ export function registerTaskIpcHandlers() {
 
   ipcMain.handle(
     IPC.TASK.GET_TASK_CHILDREN,
-    withAuthFromStore(async (_event, _session, taskId: string) => {
+    withAuthFromStore(async (_event, session, taskId: string) => {
       try {
+        const parent = await getTask(taskId)
+        if (!parent) return { status: 'error' as const, message: 'Task not found' }
+        const ok = await canUserViewTaskByScope(session.userId, session.role, parent)
+        if (!ok) return { status: 'error' as const, code: 'FORBIDDEN' as const, message: 'Không có quyền xem task này' }
         const data = await getTaskChildren(taskId)
         return { status: 'success' as const, data }
       } catch (error: any) {
@@ -1107,11 +1243,15 @@ export function registerTaskIpcHandlers() {
       try {
         const parentTask = await getTask(taskId)
         if (!parentTask) return { status: 'error' as const, message: 'Task not found' }
+        const okParentView = await canUserViewTaskByScope(session.userId, session.role, parentTask)
+        if (!okParentView) return { status: 'error' as const, code: 'FORBIDDEN' as const, message: 'Không có quyền xem task cha' }
+        const ppid = parentTask.projectId
+        if (!ppid || typeof ppid !== 'string') return { status: 'error' as const, code: 'FORBIDDEN', message: 'Task không có project' }
+        const okCreate = await canUserCreateTasksInProject(session.userId, session.role, ppid)
+        if (!okCreate) return { status: 'error' as const, code: 'FORBIDDEN' as const, message: 'Không có quyền tạo sub-task trong project này' }
         if (parentTask.status === 'done') {
-          const projectId = parentTask.projectId
-          if (!projectId || typeof projectId !== 'string') return { status: 'error' as const, code: 'FORBIDDEN', message: 'Task không có project' }
-          const canUpdate = await canUserUpdateOrDeleteDoneTask(session.userId, projectId, session.role === 'admin')
-          if (!canUpdate) return { status: 'error' as const, code: 'FORBIDDEN', message: 'Không có quyền thêm sub-task vào task đã done' }
+          const canUpdateDone = await canUserUpdateOrDeleteDoneTask(session.userId, ppid, session.role === 'admin')
+          if (!canUpdateDone) return { status: 'error' as const, code: 'FORBIDDEN', message: 'Không có quyền thêm sub-task vào task đã done' }
         }
         const data = await createTaskChild(taskId, { ...input, createdBy: session.userId })
         if (data.assigneeUserId && data.title) {
@@ -1127,8 +1267,12 @@ export function registerTaskIpcHandlers() {
 
   ipcMain.handle(
     IPC.TASK.GET_TASK_LINKS,
-    withAuthFromStore(async (_event, _session, taskId: string) => {
+    withAuthFromStore(async (_event, session, taskId: string) => {
       try {
+        const anchor = await getTask(taskId)
+        if (!anchor) return { status: 'error' as const, message: 'Task not found' }
+        const ok = await canUserViewTaskByScope(session.userId, session.role, anchor)
+        if (!ok) return { status: 'error' as const, code: 'FORBIDDEN' as const, message: 'Không có quyền xem task này' }
         const data = await getTaskLinks(taskId)
         return { status: 'success' as const, data }
       } catch (error: any) {
@@ -1144,6 +1288,12 @@ export function registerTaskIpcHandlers() {
       try {
         const task = await getTask(taskId)
         if (!task) return { status: 'error' as const, message: 'Task not found' }
+        const okFrom = await canUserViewTaskByScope(session.userId, session.role, task)
+        if (!okFrom) return { status: 'error' as const, code: 'FORBIDDEN' as const, message: 'Không có quyền với task nguồn' }
+        const toTask = await getTask(toTaskId)
+        if (!toTask) return { status: 'error' as const, message: 'Target task not found' }
+        const okTo = await canUserViewTaskByScope(session.userId, session.role, toTask)
+        if (!okTo) return { status: 'error' as const, code: 'FORBIDDEN' as const, message: 'Không có quyền với task đích' }
         if (task.status === 'done') {
           const projectId = task.projectId
           if (!projectId || typeof projectId !== 'string') return { status: 'error' as const, code: 'FORBIDDEN', message: 'Task không có project' }
@@ -1165,6 +1315,8 @@ export function registerTaskIpcHandlers() {
       try {
         const task = await getTask(taskId)
         if (!task) return { status: 'error' as const, message: 'Task not found' }
+        const okAnchor = await canUserViewTaskByScope(session.userId, session.role, task)
+        if (!okAnchor) return { status: 'error' as const, code: 'FORBIDDEN' as const, message: 'Không có quyền với task này' }
         if (task.status === 'done') {
           const projectId = task.projectId
           if (!projectId || typeof projectId !== 'string') return { status: 'error' as const, code: 'FORBIDDEN', message: 'Task không có project' }
@@ -1199,7 +1351,7 @@ export function registerTaskIpcHandlers() {
           // Luôn gắn người review = user đang đăng nhập (token hợp lệ), không tin reviewerUserId từ client.
           const merged = { ...record, reviewerUserId: session.userId }
           await saveCommitReview(merged)
-          if (merged.reviewerUserId) onCommitReview(merged.reviewerUserId).catch(() => { })
+          if (merged.reviewerUserId) onCommitReview(merged.reviewerUserId).catch(() => {})
           return { status: 'success' as const }
         } catch (error: any) {
           l.error('task:commit-review:save error:', error)

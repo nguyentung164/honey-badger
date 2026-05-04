@@ -115,7 +115,10 @@ export async function commit(
     const addedFiles: string[] = []
     const modifiedFiles: string[] = []
     const deletedFiles: string[] = []
+    const partialStagedPaths =
+      stagedOnly && !amend && selectedFiles.length > 0 ? new Set(selectedFiles) : null
     for (const file of statusBeforeCommit.files || []) {
+      if (partialStagedPaths && !partialStagedPaths.has(file.path)) continue
       const idx = file.index
       if (idx === 'A' || idx === 'C') {
         addedFiles.push(file.path)
@@ -155,7 +158,12 @@ export async function commit(
           : { changes: 0, insertions: 0, deletions: 0 },
       }
     } else {
-      commitResult = await git.commit(finalMessage)
+      // Chỉ commit đúng path đã chọn (staged) — tránh ghi cả index vào repo khác khi list file lệch cwd
+      if (stagedOnly && selectedFiles.length > 0) {
+        commitResult = await git.commit(finalMessage, selectedFiles)
+      } else {
+        commitResult = await git.commit(finalMessage)
+      }
     }
 
     /** Nội dung đã ghi vào Git (khác `commitMessage` tham số khi có sign-off / amend --no-edit). */

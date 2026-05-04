@@ -44,7 +44,7 @@ export const IPC = {
       GET: 'setting:configuration:get',
       SET: 'setting:configuration:set',
       PATCH: 'setting:configuration:patch',
-      /** Merge partial + resetPool; không broadcast CONFIG_UPDATED (tránh renderer reload Zustand khi chỉ sync Task DB). */
+      /** Merge partial + resetPool; không broadcast CONFIG_UPDATED (tránh renderer reload Zustand khi chỉ sync cấu hình DB). */
       PATCH_SILENT: 'setting:configuration:patch-silent',
     },
     SET_MULTIREPO_WATCH_PATHS: 'setting:set-multirepo-watch-paths',
@@ -283,6 +283,8 @@ export const IPC = {
     /** Task Management: lọc + sort + phân trang + facet counts */
     LIST_FOR_MANAGEMENT: 'task:list-for-management',
     LIST_FOR_MANAGEMENT_CHARTS: 'task:list-for-management-charts',
+    /** Kanban / Gantt / Calendar: full tasks, capped + truncated flag */
+    LIST_FOR_MANAGEMENT_BOARD: 'task:list-for-management-board',
     GET_MANAGEMENT_SCOPE_META: 'task:get-management-scope-meta',
     GET_TASK: 'task:get-task',
     CREATE: 'task:create',
@@ -293,6 +295,8 @@ export const IPC = {
     DELETE_TASK: 'task:delete-task',
     CAN_EDIT_TASK: 'task:can-edit-task',
     ASSIGN: 'task:assign',
+    LIST_TASK_CHANGE_HISTORY: 'task:list-task-change-history',
+    BULK_UPDATE_TASKS: 'task:bulk-update-tasks',
     CHECK_ONEDRIVE: 'task:check-onedrive',
     CHECK_TASK_API: 'task:check-task-api',
     CHECK_TASK_SCHEMA_APPLIED: 'task:check-task-schema-applied',

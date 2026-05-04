@@ -22,10 +22,10 @@ import {
   updateWbsRow,
   updateWbsMasterRow,
   replaceWbsDayUnitsForWbs,
-} from '../task/mysqlEVMStore'
+} from '../task/pgEVMStore'
 import { assertEvmProjectId, assertEvmRecordId, isValidEvmProjectId } from '../task/evmProjectId'
 import type { ACRow, EVMMasterUpdatePayload, EVMProject, WBSRow } from 'shared/types/evm'
-import type { WbsMasterUpdatePayload } from '../task/mysqlEVMStore'
+import type { WbsMasterUpdatePayload } from '../task/pgEVMStore'
 
 function normalizeOptionalProjectId(projectId?: string): string | undefined {
   if (projectId == null) return undefined

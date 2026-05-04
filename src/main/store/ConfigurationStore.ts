@@ -1,4 +1,11 @@
+import os from 'node:os'
+import path from 'node:path'
 import Store from 'electron-store'
+
+import type { TaskDbTlsMode } from '../types/types'
+
+/** `conf` cần `cwd` hoặc `projectName`; ngoài Electron, electron-store không có `app.getPath` → gán thư mục tạm (vd. seed:mock bằng tsx). */
+const isElectronRuntime = process.versions.electron != null
 
 export type ApiProvider = 'openai' | 'claude' | 'google'
 
@@ -30,6 +37,9 @@ export type Schema = {
   dbUser: string
   dbPassword: string
   dbName: string
+  /** Namespace PostgreSQL (schema), ví dụ public hoặc honey_badger — khác với tên database. */
+  dbPgSchema: string
+  dbTls: TaskDbTlsMode
   startOnLogin: boolean
   showNotifications: boolean
   playNotificationSound: boolean
@@ -52,6 +62,7 @@ export type Schema = {
 
 const config = new Store<Schema>({
   name: 'configuration',
+  ...(!isElectronRuntime ? { cwd: path.join(os.tmpdir(), 'honey-badger-config-store') } : {}),
   defaults: {
     openaiApiKey: '',
     openaiModel: 'gpt-5.4',
@@ -68,10 +79,12 @@ const config = new Store<Schema>({
     oneDriveClientSecret: '',
     oneDriveRefreshToken: '',
     dbHost: 'localhost',
-    dbPort: '3306',
-    dbUser: 'root',
+    dbPort: '5432',
+    dbUser: 'postgres',
     dbPassword: '',
-    dbName: 'honey_badger',
+    dbName: 'postgres',
+    dbPgSchema: 'public',
+    dbTls: 'auto',
     startOnLogin: false,
     showNotifications: true,
     playNotificationSound: true,

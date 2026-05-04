@@ -6,7 +6,7 @@ export async function getNextTicketId(projectId: string, source: string): Promis
   const nextValue = await withTransaction<number>(async txQuery => {
     await txQuery(
       `INSERT INTO task_ticket_sequences (project_id, source, next_value) VALUES (?, ?, 1)
-       ON DUPLICATE KEY UPDATE next_value = next_value + 1`,
+       ON CONFLICT (project_id, source) DO UPDATE SET next_value = task_ticket_sequences.next_value + 1`,
       [projectId, effectiveSource]
     )
     const rows = (await txQuery('SELECT next_value FROM task_ticket_sequences WHERE project_id = ? AND source = ?', [projectId, effectiveSource])) as any[]

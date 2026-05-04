@@ -8,6 +8,8 @@ import { readFileSync, readdirSync, writeFileSync } from 'node:fs'
 import { join, dirname } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
+import { isPreservedI18nKey } from './i18nPreservedPrefixes'
+
 const __dirname = dirname(fileURLToPath(import.meta.url))
 const ROOT = join(__dirname, '..')
 const LOCALES_DIR = join(ROOT, 'src/renderer/locales')
@@ -159,6 +161,7 @@ function main() {
   const unusedKeys: string[] = []
   for (const key of allKeys) {
     if (usedKeys.has(key)) continue
+    if (isPreservedI18nKey(key)) continue
     const isPrefixOfUsed = [...usedKeys].some((u) => u.startsWith(key + '.'))
     if (isPrefixOfUsed) continue
     unusedKeys.push(key)

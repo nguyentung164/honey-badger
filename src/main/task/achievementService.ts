@@ -693,7 +693,7 @@ export async function onCodingRuleCreated(userId: string): Promise<void> {
   }
 }
 
-/** Chuẩn hóa YYYY-MM-DD từ created_at (MySQL DATETIME / string / Date). */
+/** Chuẩn hóa YYYY-MM-DD từ created_at (`timestamptz` / string / Date). */
 function datePartFromDb(value: unknown): string | null {
   if (value == null) return null
   if (typeof value === 'string') {

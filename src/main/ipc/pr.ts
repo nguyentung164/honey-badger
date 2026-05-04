@@ -31,8 +31,8 @@ import {
 } from '../git-hosting'
 import type { PullRequestSummary } from '../git-hosting/types'
 import { applyPullRequestToCheckpoints, onPrMerged, syncPullRequestIntoTrackedCheckpoints } from '../pr-automation/engine'
-import { getSourceFoldersByProject } from '../task/mysqlTaskStore'
-import type { PrAiAssistChatLineJson } from '../task/mysqlPrTrackingStore'
+import { getSourceFoldersByProject } from '../task/pgTaskStore'
+import type { PrAiAssistChatLineJson } from '../task/pgPrTrackingStore'
 import { computeTrackedIdsNotOnRemote } from './prTrackedPruneRemote'
 import {
   deleteCheckpointTemplate,
@@ -58,7 +58,7 @@ import {
   upsertPrRepo,
   upsertTrackedBranch,
   updateTrackedBranchNote,
-} from '../task/mysqlPrTrackingStore'
+} from '../task/pgPrTrackingStore'
 import { hasDbConfig } from '../task/db'
 import { detectVersionControl } from '../utils/versionControlDetector'
 import { analyzePrFileOverlap } from '../prFileOverlap'

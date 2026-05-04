@@ -73,7 +73,7 @@ export function AIAnalysisDialog({ data, isOpen, onOpenChange, filePath, dateRan
     loadAnalysis()
   }, [isOpen, sourceFolder])
 
-  // Save analysis to MySQL whenever analysis changes
+  // Lưu phân tích vào Postgres khi nội dung thay đổi.
   useEffect(() => {
     const saveAnalysis = async () => {
       if (analysis && sourceFolder && analysisDate) {

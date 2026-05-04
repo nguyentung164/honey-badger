@@ -8,6 +8,11 @@ export const PLATFORM = {
   IS_LINUX: process.platform === 'linux',
 }
 
+/**
+ * Giới hạn batch API board (Kanban/Gantt/Calendar). Luôn khớp LIMIT trong truy vấn Postgres `listTasksForManagementBoard`.
+ */
+export const MANAGEMENT_BOARD_MAX_ROWS = 5000
+
 /** Main process → renderer (cửa sổ chính): trạng thái PR Manager tách/gộp. */
 export const PR_MANAGER_RENDERER_CHANNELS = {
   DOCKED_TO_MAIN: 'pr-manager:docked-to-main',

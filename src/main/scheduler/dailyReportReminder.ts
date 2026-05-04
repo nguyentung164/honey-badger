@@ -2,8 +2,8 @@ import { Notification } from 'electron'
 import l from 'electron-log'
 import configurationStore from '../store/ConfigurationStore'
 import { getTokenFromStore, verifyToken } from '../task/auth'
-import { getDailyReportByUserAndDate } from '../task/mysqlDailyReport'
-import { getProjectMembers, getProjectsWithReminderAtTime } from '../task/mysqlTaskStore'
+import { getDailyReportByUserAndDate } from '../task/pgDailyReport'
+import { getProjectMembers, getProjectsWithReminderAtTime } from '../task/pgTaskStore'
 
 /** Một user chỉ một toast mỗi lần khớp giờ nhắc (tránh N dự án cùng giờ → N thông báo giống nhau). */
 const lastSentKey = (userId: string, date: string, timeSlotHhMm: string) =>

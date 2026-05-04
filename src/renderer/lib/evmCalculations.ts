@@ -13,7 +13,7 @@
  *
  * AC man-day = tổng giờ đến mốc ÷ `hoursPerDay`.
  *
- * Đồng bộ DB (`schema.sql`): `evm_wbs_details.progress`, `evm_ac.percent_done`, rollup master `evm_wbs_master.progress` lưu tiến độ dạng 0…1; `mysqlEVMStore` chuẩn hoá đọc/ghi (kể legacy 0…100 ở WBS detail/master).
+ * Đồng bộ DB (`schema.sql`): `evm_wbs_details.progress`, `evm_ac.percent_done`, rollup master `evm_wbs_master.progress` lưu tiến độ dạng 0…1; `pgEVMStore` chuẩn hoá đọc/ghi (kể legacy 0…100 ở WBS detail/master).
  */
 import type { ACRow, EVMProject, WBSRow, WbsDayUnitRow } from 'shared/types/evm'
 

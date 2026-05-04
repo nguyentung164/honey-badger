@@ -11,6 +11,7 @@ function getElectronAppIsPackaged(): boolean {
   if (typeof __filename === 'string' && __filename.includes('app.asar')) return true
   return false
 }
+
 import { AI_FEATURE_SPOTBUGS_CHAT, IPC, PROMPT } from 'main/constants'
 import type { CommitActivityRepo } from 'main/ipc/dashboard'
 import type { Configuration, MailServerConfig, SupportFeedback, SVNResponse } from 'main/types/types'
@@ -502,6 +503,8 @@ declare global {
           priorityCodes?: string[]
           projectIds?: string[]
           dateRange?: { from: string; to?: string }
+          createdDateRange?: { from: string; to?: string }
+          updatedDateRange?: { from: string; to?: string }
           sortColumn?: string | null
           sortDirection?: 'asc' | 'desc'
           /** false = chỉ COUNT+SELECT trang (nhanh hơn khi đổi page/sort) */
@@ -530,7 +533,25 @@ declare global {
           priorityCodes?: string[]
           projectIds?: string[]
           dateRange?: { from: string; to?: string }
+          createdDateRange?: { from: string; to?: string }
+          updatedDateRange?: { from: string; to?: string }
         }) => Promise<{ status: string; data?: any[]; message?: string }>
+        listForManagementBoard: (params: {
+          search?: string
+          statusCodes?: string[]
+          assigneeUserIds?: string[]
+          typeCodes?: string[]
+          priorityCodes?: string[]
+          projectIds?: string[]
+          dateRange?: { from: string; to?: string }
+          createdDateRange?: { from: string; to?: string }
+          updatedDateRange?: { from: string; to?: string }
+        }) => Promise<{
+          status: string
+          data?: { tasks: any[]; total: number; truncated: boolean }
+          code?: string
+          message?: string
+        }>
         getManagementScopeMeta: () => Promise<{
           status: string
           data?: { hasUnassignedTask: boolean; assigneeIdsOnTasks: string[] }
@@ -538,19 +559,36 @@ declare global {
         }>
         getTask: (id: string) => Promise<{ status: string; data?: any; code?: string; message?: string }>
         create: (input: any) => Promise<{ status: string; data?: any; message?: string }>
-        updateStatus: (id: string, status: string) => Promise<{ status: string; message?: string }>
-        updateProgress: (id: string, progress: number) => Promise<{ status: string; message?: string }>
+        updateStatus: (id: string, status: string, version?: number) => Promise<{ status: string; message?: string; code?: string }>
+        updateProgress: (id: string, progress: number, version?: number) => Promise<{ status: string; message?: string; code?: string }>
         updateDates: (
           id: string,
-          dates: { planStartDate?: string; planEndDate?: string; actualStartDate?: string; actualEndDate?: string }
-        ) => Promise<{ status: string; message?: string }>
+          dates: { planStartDate?: string; planEndDate?: string; actualStartDate?: string; actualEndDate?: string },
+          version?: number
+        ) => Promise<{ status: string; message?: string; code?: string }>
         updateTask: (id: string, data: Record<string, unknown>) => Promise<{ status: string; code?: string; message?: string }>
         deleteTask: (id: string, version?: number) => Promise<{ status: string; code?: string; message?: string }>
         canEditTask: (taskId: string) => Promise<{ status: string; data?: { canEdit: boolean; canDelete: boolean }; message?: string }>
-        assign: (id: string, assigneeUserId: string | null) => Promise<{ status: string; message?: string }>
+        assign: (id: string, assigneeUserId: string | null, version?: number) => Promise<{ status: string; message?: string }>
+        listTaskChangeHistory: (taskId: string, limit?: number) => Promise<{
+          status: string
+          data?: Array<{
+            id: string
+            taskId: string
+            actorUserId: string | null
+            source: string
+            changes: Record<string, { from: unknown; to: unknown }>
+            createdAt: string
+          }>
+          message?: string
+        }>
+        bulkUpdateTasks: (payload: {
+          items: { id: string; version: number }[]
+          patch: { status?: string; priority?: string; assigneeUserId?: string | null }
+        }) => Promise<{ status: string; data?: { updatedIds: string[]; skippedIds: string[]; updatedCount: number }; message?: string }>
         checkOnedrive: () => Promise<{ ok: boolean; code?: string }>
         checkTaskApi: () => Promise<{ ok: boolean; code?: string; error?: string }>
-        checkTaskSchemaApplied: () => Promise<{ ok: true; applied: boolean } | { ok: false; code: 'TASK_DB_NOT_CONFIGURED' | 'TASK_DB_CHECK_FAILED'; error?: string }>
+        checkTaskSchemaApplied: () => Promise<{ ok: true; applied: boolean } | { ok: false; code: 'APP_DB_NOT_CONFIGURED' | 'APP_DB_CHECK_FAILED'; error?: string }>
         initSchema: () => Promise<{ recreated: boolean }>
         getProjects: () => Promise<{ status: string; data?: any; message?: string }>
         getProjectsForTaskUi: () => Promise<{ status: string; data?: any; message?: string }>
@@ -593,7 +631,7 @@ declare global {
         codingRule: {
           getForSelection: (sourceFolderPath: string) => Promise<{ status: string; data?: any; message?: string }>
           getGlobalOnly: () => Promise<{ status: string; data?: any; message?: string }>
-          getContent: (idOrName: string, options?: { sourceFolderPath?: string; userId?: string }) => Promise<{ status: string; data?: any; message?: string }>
+          getContent: (idOrName: string, options?: { sourceFolderPath?: string }) => Promise<{ status: string; data?: any; message?: string }>
           create: (input: { name: string; content: string; projectId?: string | null }) => Promise<{ status: string; data?: any; message?: string }>
           update: (id: string, input: { name?: string; content?: string }) => Promise<{ status: string; data?: any; message?: string }>
           delete: (id: string) => Promise<{ status: string; message?: string }>
@@ -658,15 +696,8 @@ declare global {
         repoRemove: (userId: string, id: string) => Promise<{ status: string; message?: string }>
         repoAutodetect: (userId: string, projectId: string) => Promise<{ status: string; data?: { added: any[]; skipped: any[] }; message?: string }>
         boardSkipBranchesGet: (userId: string, projectId: string) => Promise<{ status: string; data?: { lines: string[] }; message?: string }>
-        boardSkipBranchesSet: (
-          userId: string,
-          projectId: string,
-          lines: string[],
-        ) => Promise<{ status: string; message?: string }>
-        aiAssistChatGet: (
-          userId: string,
-          projectId: string,
-        ) => Promise<{ status: string; data?: { lines: unknown[] }; message?: string }>
+        boardSkipBranchesSet: (userId: string, projectId: string, lines: string[]) => Promise<{ status: string; message?: string }>
+        aiAssistChatGet: (userId: string, projectId: string) => Promise<{ status: string; data?: { lines: unknown[] }; message?: string }>
         aiAssistChatSave: (input: { userId: string; projectId: string; lines: unknown[] }) => Promise<{ status: string; message?: string }>
         templateList: (userId: string, projectId: string) => Promise<{ status: string; data?: any[]; message?: string }>
         templateUpsert: (input: {
@@ -697,17 +728,11 @@ declare global {
         trackedSyncFromGithub: (
           userId: string,
           projectId: string,
-          options?: { repoId?: string; trackedBranchId?: string },
+          options?: { repoId?: string; trackedBranchId?: string }
         ) => Promise<{ status: string; data?: { synced: number; branchesSynced?: number; errors: string[] }; message?: string }>
-        trackedPruneNotOnGithub: (input: {
-          userId: string
-          projectId: string
-          dryRun: boolean
-        }) => Promise<{
+        trackedPruneNotOnGithub: (input: { userId: string; projectId: string; dryRun: boolean }) => Promise<{
           status: string
-          data?:
-            | { wouldDelete: number; preview: Array<{ id: string; branchName: string; repoKey: string }>; errors: string[] }
-            | { deleted: number; errors: string[] }
+          data?: { wouldDelete: number; preview: Array<{ id: string; branchName: string; repoKey: string }>; errors: string[] } | { deleted: number; errors: string[] }
           message?: string
         }>
         onTrackedSyncProgress: (callback: (payload: { projectId: string; done: number; total: number; percent: number }) => void) => () => void
@@ -734,7 +759,13 @@ declare global {
           commitTitle?: string
           commitMessage?: string
         }) => Promise<{ status: string; data?: { merged: boolean; message?: string }; message?: string }>
-        prList: (input: { owner: string; repo: string; state?: 'open' | 'closed' | 'all'; base?: string; head?: string }) => Promise<{ status: string; data?: any[]; message?: string }>
+        prList: (input: {
+          owner: string
+          repo: string
+          state?: 'open' | 'closed' | 'all'
+          base?: string
+          head?: string
+        }) => Promise<{ status: string; data?: any[]; message?: string }>
         prGet: (input: { owner: string; repo: string; number: number }) => Promise<{ status: string; data?: any; message?: string }>
         prGetCommits: (input: { owner: string; repo: string; number: number }) => Promise<{ status: string; data?: any[]; message?: string }>
         prLocalMergeConflicts: (input: { repoId: string; prNumber: number; base: string; headSha: string }) => Promise<
@@ -854,13 +885,7 @@ declare global {
           }
           message?: string
         }>
-        githubDeleteRemoteBranch: (input: {
-          owner: string
-          repo: string
-          branch: string
-          repoId: string
-          trackedBranchId?: string
-        }) => Promise<{
+        githubDeleteRemoteBranch: (input: { owner: string; repo: string; branch: string; repoId: string; trackedBranchId?: string }) => Promise<{
           status: string
           message?: string
         }>
@@ -1147,8 +1172,7 @@ contextBridge.exposeInMainWorld('api', {
     push: (remote: string, branch?: string, commitQueueData?: Record<string, any>, cwd?: string, force?: boolean) =>
       ipcRenderer.invoke(IPC.GIT.PUSH, remote, branch, commitQueueData, cwd, force),
     pull: (remote: string, branch?: string, options?: { rebase?: boolean }, cwd?: string) => ipcRenderer.invoke(IPC.GIT.PULL, remote, branch, options, cwd),
-    fetch_update_local_branch: (remote: string, branch: string, cwd?: string) =>
-      ipcRenderer.invoke(IPC.GIT.FETCH_UPDATE_LOCAL_BRANCH, remote, branch, cwd),
+    fetch_update_local_branch: (remote: string, branch: string, cwd?: string) => ipcRenderer.invoke(IPC.GIT.FETCH_UPDATE_LOCAL_BRANCH, remote, branch, cwd),
     onPullStream: (callback: (chunk: string) => void) => {
       const handler = (_e: Electron.IpcRendererEvent, chunk: string) => callback(chunk)
       ipcRenderer.on(IPC.GIT.PULL_STREAM, handler)
@@ -1391,6 +1415,8 @@ contextBridge.exposeInMainWorld('api', {
       priorityCodes?: string[]
       projectIds?: string[]
       dateRange?: { from: string; to?: string }
+      createdDateRange?: { from: string; to?: string }
+      updatedDateRange?: { from: string; to?: string }
       sortColumn?: string | null
       sortDirection?: 'asc' | 'desc'
       includeFacets?: boolean
@@ -1403,7 +1429,20 @@ contextBridge.exposeInMainWorld('api', {
       priorityCodes?: string[]
       projectIds?: string[]
       dateRange?: { from: string; to?: string }
+      createdDateRange?: { from: string; to?: string }
+      updatedDateRange?: { from: string; to?: string }
     }) => ipcRenderer.invoke(IPC.TASK.LIST_FOR_MANAGEMENT_CHARTS, params),
+    listForManagementBoard: (params: {
+      search?: string
+      statusCodes?: string[]
+      assigneeUserIds?: string[]
+      typeCodes?: string[]
+      priorityCodes?: string[]
+      projectIds?: string[]
+      dateRange?: { from: string; to?: string }
+      createdDateRange?: { from: string; to?: string }
+      updatedDateRange?: { from: string; to?: string }
+    }) => ipcRenderer.invoke(IPC.TASK.LIST_FOR_MANAGEMENT_BOARD, params),
     getManagementScopeMeta: () => ipcRenderer.invoke(IPC.TASK.GET_MANAGEMENT_SCOPE_META),
     getTask: (id: string) => ipcRenderer.invoke(IPC.TASK.GET_TASK, id),
     create: (input: any) => ipcRenderer.invoke(IPC.TASK.CREATE, input),
@@ -1415,6 +1454,11 @@ contextBridge.exposeInMainWorld('api', {
     deleteTask: (id: string, version?: number) => ipcRenderer.invoke(IPC.TASK.DELETE_TASK, id, version),
     canEditTask: (taskId: string) => ipcRenderer.invoke(IPC.TASK.CAN_EDIT_TASK, taskId),
     assign: (id: string, assigneeUserId: string | null, version?: number) => ipcRenderer.invoke(IPC.TASK.ASSIGN, id, assigneeUserId, version),
+    listTaskChangeHistory: (taskId: string, limit?: number) => ipcRenderer.invoke(IPC.TASK.LIST_TASK_CHANGE_HISTORY, taskId, limit),
+    bulkUpdateTasks: (payload: {
+      items: { id: string; version: number }[]
+      patch: { status?: string; priority?: string; assigneeUserId?: string | null }
+    }) => ipcRenderer.invoke(IPC.TASK.BULK_UPDATE_TASKS, payload),
     checkOnedrive: () => ipcRenderer.invoke(IPC.TASK.CHECK_ONEDRIVE),
     checkTaskApi: () => ipcRenderer.invoke(IPC.TASK.CHECK_TASK_API),
     checkTaskSchemaApplied: () => ipcRenderer.invoke(IPC.TASK.CHECK_TASK_SCHEMA_APPLIED),
@@ -1434,7 +1478,7 @@ contextBridge.exposeInMainWorld('api', {
     codingRule: {
       getForSelection: (sourceFolderPath: string) => ipcRenderer.invoke(IPC.TASK.CODING_RULE_GET_FOR_SELECTION, sourceFolderPath),
       getGlobalOnly: () => ipcRenderer.invoke(IPC.TASK.CODING_RULE_GET_GLOBAL_ONLY),
-      getContent: (idOrName: string, options?: { sourceFolderPath?: string; userId?: string }) => ipcRenderer.invoke(IPC.TASK.CODING_RULE_GET_CONTENT, idOrName, options),
+          getContent: (idOrName: string, options?: { sourceFolderPath?: string }) => ipcRenderer.invoke(IPC.TASK.CODING_RULE_GET_CONTENT, idOrName, options),
       create: (input: { name: string; content: string; projectId?: string | null }) => ipcRenderer.invoke(IPC.TASK.CODING_RULE_CREATE, input),
       update: (id: string, input: { name?: string; content?: string }) => ipcRenderer.invoke(IPC.TASK.CODING_RULE_UPDATE, id, input),
       delete: (id: string) => ipcRenderer.invoke(IPC.TASK.CODING_RULE_DELETE, id),
@@ -1486,25 +1530,14 @@ contextBridge.exposeInMainWorld('api', {
     tokenRemove: () => ipcRenderer.invoke(IPC.PR.TOKEN_REMOVE),
     rateLimitGet: () => ipcRenderer.invoke(IPC.PR.RATE_LIMIT_GET),
     repoList: (userId: string, projectId: string) => ipcRenderer.invoke(IPC.PR.REPO_LIST, userId, projectId),
-    repoUpsert: (input: {
-      id?: string
-      userId: string
-      projectId: string
-      name: string
-      localPath?: string | null
-      remoteUrl: string
-      defaultBaseBranch?: string | null
-    }) => ipcRenderer.invoke(IPC.PR.REPO_UPSERT, toStructuredCloneable(input)),
+    repoUpsert: (input: { id?: string; userId: string; projectId: string; name: string; localPath?: string | null; remoteUrl: string; defaultBaseBranch?: string | null }) =>
+      ipcRenderer.invoke(IPC.PR.REPO_UPSERT, toStructuredCloneable(input)),
     repoRemove: (userId: string, id: string) => ipcRenderer.invoke(IPC.PR.REPO_REMOVE, userId, id),
     repoAutodetect: (userId: string, projectId: string) => ipcRenderer.invoke(IPC.PR.REPO_AUTODETECT, userId, projectId),
-    boardSkipBranchesGet: (userId: string, projectId: string) =>
-      ipcRenderer.invoke(IPC.PR.BOARD_SKIP_BRANCHES_GET, userId, projectId),
-    boardSkipBranchesSet: (userId: string, projectId: string, lines: string[]) =>
-      ipcRenderer.invoke(IPC.PR.BOARD_SKIP_BRANCHES_SET, userId, projectId, lines),
-    aiAssistChatGet: (userId: string, projectId: string) =>
-      ipcRenderer.invoke(IPC.PR.AI_ASSIST_CHAT_GET, userId, projectId),
-    aiAssistChatSave: (input: { userId: string; projectId: string; lines: unknown[] }) =>
-      ipcRenderer.invoke(IPC.PR.AI_ASSIST_CHAT_SAVE, toStructuredCloneable(input)),
+    boardSkipBranchesGet: (userId: string, projectId: string) => ipcRenderer.invoke(IPC.PR.BOARD_SKIP_BRANCHES_GET, userId, projectId),
+    boardSkipBranchesSet: (userId: string, projectId: string, lines: string[]) => ipcRenderer.invoke(IPC.PR.BOARD_SKIP_BRANCHES_SET, userId, projectId, lines),
+    aiAssistChatGet: (userId: string, projectId: string) => ipcRenderer.invoke(IPC.PR.AI_ASSIST_CHAT_GET, userId, projectId),
+    aiAssistChatSave: (input: { userId: string; projectId: string; lines: unknown[] }) => ipcRenderer.invoke(IPC.PR.AI_ASSIST_CHAT_SAVE, toStructuredCloneable(input)),
     templateList: (userId: string, projectId: string) => ipcRenderer.invoke(IPC.PR.TEMPLATE_LIST, userId, projectId),
     templateUpsert: (input: {
       id?: string
@@ -1518,26 +1551,15 @@ contextBridge.exposeInMainWorld('api', {
       headerGroupId?: number | null
     }) => ipcRenderer.invoke(IPC.PR.TEMPLATE_UPSERT, toStructuredCloneable(input)),
     templateDelete: (userId: string, id: string) => ipcRenderer.invoke(IPC.PR.TEMPLATE_DELETE, userId, id),
-    templateReorder: (userId: string, projectId: string, orderedIds: string[]) =>
-      ipcRenderer.invoke(IPC.PR.TEMPLATE_REORDER, userId, projectId, orderedIds),
+    templateReorder: (userId: string, projectId: string, orderedIds: string[]) => ipcRenderer.invoke(IPC.PR.TEMPLATE_REORDER, userId, projectId, orderedIds),
     templateSeedDefault: (userId: string, projectId: string) => ipcRenderer.invoke(IPC.PR.TEMPLATE_SEED_DEFAULT, userId, projectId),
     trackedList: (userId: string, projectId: string) => ipcRenderer.invoke(IPC.PR.TRACKED_LIST, userId, projectId),
-    trackedUpsert: (input: {
-      id?: string
-      userId: string
-      projectId: string
-      repoId: string
-      branchName: string
-      note?: string | null
-    }) => ipcRenderer.invoke(IPC.PR.TRACKED_UPSERT, toStructuredCloneable(input)),
-    trackedUpdateNote: (id: string, patch: { note?: string | null }) =>
-      ipcRenderer.invoke(IPC.PR.TRACKED_UPDATE_NOTE, id, toStructuredCloneable(patch)),
+    trackedUpsert: (input: { id?: string; userId: string; projectId: string; repoId: string; branchName: string; note?: string | null }) =>
+      ipcRenderer.invoke(IPC.PR.TRACKED_UPSERT, toStructuredCloneable(input)),
+    trackedUpdateNote: (id: string, patch: { note?: string | null }) => ipcRenderer.invoke(IPC.PR.TRACKED_UPDATE_NOTE, id, toStructuredCloneable(patch)),
     trackedDelete: (id: string) => ipcRenderer.invoke(IPC.PR.TRACKED_DELETE, id),
     trackedSyncFromGithub: (userId: string, projectId: string, options?: { repoId?: string; trackedBranchId?: string }) =>
-      ipcRenderer.invoke(
-        IPC.PR.TRACKED_SYNC_FROM_GITHUB,
-        toStructuredCloneable({ userId, projectId, syncScope: options }),
-      ),
+      ipcRenderer.invoke(IPC.PR.TRACKED_SYNC_FROM_GITHUB, toStructuredCloneable({ userId, projectId, syncScope: options })),
     trackedPruneNotOnGithub: (input: { userId: string; projectId: string; dryRun: boolean }) =>
       ipcRenderer.invoke(IPC.PR.TRACKED_PRUNE_NOT_ON_GITHUB, toStructuredCloneable(input)),
     onTrackedSyncProgress: (callback: (payload: { projectId: string; done: number; total: number; percent: number }) => void) => {
@@ -1570,56 +1592,37 @@ contextBridge.exposeInMainWorld('api', {
     }) => ipcRenderer.invoke(IPC.PR.PR_MERGE, toStructuredCloneable(input)),
     prList: (input: { owner: string; repo: string; state?: 'open' | 'closed' | 'all'; base?: string; head?: string }) =>
       ipcRenderer.invoke(IPC.PR.PR_LIST, toStructuredCloneable(input)),
-        prGet: (input: { owner: string; repo: string; number: number }) => ipcRenderer.invoke(IPC.PR.PR_GET, toStructuredCloneable(input)),
-        prGetCommits: (input: { owner: string; repo: string; number: number }) => ipcRenderer.invoke(IPC.PR.PR_GET_COMMITS, toStructuredCloneable(input)),
+    prGet: (input: { owner: string; repo: string; number: number }) => ipcRenderer.invoke(IPC.PR.PR_GET, toStructuredCloneable(input)),
+    prGetCommits: (input: { owner: string; repo: string; number: number }) => ipcRenderer.invoke(IPC.PR.PR_GET_COMMITS, toStructuredCloneable(input)),
     prLocalMergeConflicts: (input: { repoId: string; prNumber: number; base: string; headSha: string }) =>
       ipcRenderer.invoke(IPC.PR.PR_LOCAL_MERGE_CONFLICTS, toStructuredCloneable(input)),
-        prFilesList: (input: { owner: string; repo: string; number: number }) =>
-          ipcRenderer.invoke(IPC.PR.PR_FILES_LIST, toStructuredCloneable(input)),
-        prFileOverlap: (input: { items: { owner: string; repo: string; number: number }[] }) =>
-          ipcRenderer.invoke(IPC.PR.PR_FILE_OVERLAP, toStructuredCloneable(input)),
-        prIssueCommentsList: (input: { owner: string; repo: string; number: number }) =>
-          ipcRenderer.invoke(IPC.PR.PR_ISSUE_COMMENTS_LIST, toStructuredCloneable(input)),
-        prIssueCommentCreate: (input: { owner: string; repo: string; number: number; body: string }) =>
-          ipcRenderer.invoke(IPC.PR.PR_ISSUE_COMMENT_CREATE, toStructuredCloneable(input)),
-        prReviewApprove: (input: { owner: string; repo: string; number: number; headSha: string; body?: string }) =>
-          ipcRenderer.invoke(IPC.PR.PR_REVIEW_APPROVE, toStructuredCloneable(input)),
-    prMarkReady: (input: { owner: string; repo: string; number: number }) =>
-      ipcRenderer.invoke(IPC.PR.PR_MARK_READY, toStructuredCloneable(input)),
-    prMarkDraft: (input: { owner: string; repo: string; number: number }) =>
-      ipcRenderer.invoke(IPC.PR.PR_MARK_DRAFT, toStructuredCloneable(input)),
-    prClose: (input: { owner: string; repo: string; number: number }) =>
-      ipcRenderer.invoke(IPC.PR.PR_CLOSE, toStructuredCloneable(input)),
-    prReopen: (input: { owner: string; repo: string; number: number }) =>
-      ipcRenderer.invoke(IPC.PR.PR_REOPEN, toStructuredCloneable(input)),
+    prFilesList: (input: { owner: string; repo: string; number: number }) => ipcRenderer.invoke(IPC.PR.PR_FILES_LIST, toStructuredCloneable(input)),
+    prFileOverlap: (input: { items: { owner: string; repo: string; number: number }[] }) => ipcRenderer.invoke(IPC.PR.PR_FILE_OVERLAP, toStructuredCloneable(input)),
+    prIssueCommentsList: (input: { owner: string; repo: string; number: number }) => ipcRenderer.invoke(IPC.PR.PR_ISSUE_COMMENTS_LIST, toStructuredCloneable(input)),
+    prIssueCommentCreate: (input: { owner: string; repo: string; number: number; body: string }) =>
+      ipcRenderer.invoke(IPC.PR.PR_ISSUE_COMMENT_CREATE, toStructuredCloneable(input)),
+    prReviewApprove: (input: { owner: string; repo: string; number: number; headSha: string; body?: string }) =>
+      ipcRenderer.invoke(IPC.PR.PR_REVIEW_APPROVE, toStructuredCloneable(input)),
+    prMarkReady: (input: { owner: string; repo: string; number: number }) => ipcRenderer.invoke(IPC.PR.PR_MARK_READY, toStructuredCloneable(input)),
+    prMarkDraft: (input: { owner: string; repo: string; number: number }) => ipcRenderer.invoke(IPC.PR.PR_MARK_DRAFT, toStructuredCloneable(input)),
+    prClose: (input: { owner: string; repo: string; number: number }) => ipcRenderer.invoke(IPC.PR.PR_CLOSE, toStructuredCloneable(input)),
+    prReopen: (input: { owner: string; repo: string; number: number }) => ipcRenderer.invoke(IPC.PR.PR_REOPEN, toStructuredCloneable(input)),
     prRequestReviewers: (input: { owner: string; repo: string; number: number; reviewers: string[] }) =>
       ipcRenderer.invoke(IPC.PR.PR_REQUEST_REVIEWERS, toStructuredCloneable(input)),
-    repoListAssignees: (input: { owner: string; repo: string }) =>
-      ipcRenderer.invoke(IPC.PR.REPO_LIST_ASSIGNEES, toStructuredCloneable(input)),
+    repoListAssignees: (input: { owner: string; repo: string }) => ipcRenderer.invoke(IPC.PR.REPO_LIST_ASSIGNEES, toStructuredCloneable(input)),
     prUpdateBranch: (input: { owner: string; repo: string; number: number; expectedHeadSha?: string | null }) =>
       ipcRenderer.invoke(IPC.PR.PR_UPDATE_BRANCH, toStructuredCloneable(input)),
     branchListRemote: (input: { owner: string; repo: string }) => ipcRenderer.invoke(IPC.PR.BRANCH_LIST_REMOTE, toStructuredCloneable(input)),
     githubRemoteBranchesExist: (items: { id: string; owner: string; repo: string; branch: string }[]) =>
       ipcRenderer.invoke(IPC.PR.GITHUB_REMOTE_BRANCHES_EXIST, toStructuredCloneable(items)),
-    githubDeleteRemoteBranch: (input: {
-      owner: string
-      repo: string
-      branch: string
-      repoId: string
-      trackedBranchId?: string
-    }) => ipcRenderer.invoke(IPC.PR.GITHUB_DELETE_REMOTE_BRANCH, toStructuredCloneable(input)),
-    refCommitMessages: (input: { owner: string; repo: string; ref: string; maxCommits?: number }) =>
-      ipcRenderer.invoke(IPC.PR.REF_COMMIT_MESSAGES, toStructuredCloneable(input)),
-    branchLastCommitMessage: (input: { owner: string; repo: string; branch: string }) =>
-      ipcRenderer.invoke(IPC.PR.BRANCH_LAST_COMMIT_MESSAGE, toStructuredCloneable(input)),
-    localLastCommitMessage: (input: { cwd: string; branch?: string }) =>
-      ipcRenderer.invoke(IPC.PR.LOCAL_LAST_COMMIT_MESSAGE, toStructuredCloneable(input)),
-    branchCommits: (input: { owner: string; repo: string; branch: string; perPage?: number }) =>
-      ipcRenderer.invoke(IPC.PR.BRANCH_COMMITS, toStructuredCloneable(input)),
-    branchResetHard: (input: { repoId: string; branch: string; sha: string }) =>
-      ipcRenderer.invoke(IPC.PR.BRANCH_RESET_HARD, toStructuredCloneable(input)),
-    branchForcePush: (input: { repoId: string; branch: string }) =>
-      ipcRenderer.invoke(IPC.PR.BRANCH_FORCE_PUSH, toStructuredCloneable(input)),
+    githubDeleteRemoteBranch: (input: { owner: string; repo: string; branch: string; repoId: string; trackedBranchId?: string }) =>
+      ipcRenderer.invoke(IPC.PR.GITHUB_DELETE_REMOTE_BRANCH, toStructuredCloneable(input)),
+    refCommitMessages: (input: { owner: string; repo: string; ref: string; maxCommits?: number }) => ipcRenderer.invoke(IPC.PR.REF_COMMIT_MESSAGES, toStructuredCloneable(input)),
+    branchLastCommitMessage: (input: { owner: string; repo: string; branch: string }) => ipcRenderer.invoke(IPC.PR.BRANCH_LAST_COMMIT_MESSAGE, toStructuredCloneable(input)),
+    localLastCommitMessage: (input: { cwd: string; branch?: string }) => ipcRenderer.invoke(IPC.PR.LOCAL_LAST_COMMIT_MESSAGE, toStructuredCloneable(input)),
+    branchCommits: (input: { owner: string; repo: string; branch: string; perPage?: number }) => ipcRenderer.invoke(IPC.PR.BRANCH_COMMITS, toStructuredCloneable(input)),
+    branchResetHard: (input: { repoId: string; branch: string; sha: string }) => ipcRenderer.invoke(IPC.PR.BRANCH_RESET_HARD, toStructuredCloneable(input)),
+    branchForcePush: (input: { repoId: string; branch: string }) => ipcRenderer.invoke(IPC.PR.BRANCH_FORCE_PUSH, toStructuredCloneable(input)),
     automationList: (userId: string, repoId?: string) => ipcRenderer.invoke(IPC.PR.AUTOMATION_LIST, userId, repoId),
     automationUpsert: (input: {
       id?: string
@@ -1641,9 +1644,7 @@ contextBridge.exposeInMainWorld('api', {
       ipcRenderer.on(IPC.PR.EVENT_CHECKPOINT_UPDATED, handler)
       return () => ipcRenderer.removeListener(IPC.PR.EVENT_CHECKPOINT_UPDATED, handler)
     },
-    onAutomationFired: (
-      callback: (payload: { automationId: string; repoId: string; sourceBranch: string; from: string; to: string; prNumber: number; prUrl: string }) => void
-    ) => {
+    onAutomationFired: (callback: (payload: { automationId: string; repoId: string; sourceBranch: string; from: string; to: string; prNumber: number; prUrl: string }) => void) => {
       const handler = (_e: Electron.IpcRendererEvent, payload: any) => callback(payload)
       ipcRenderer.on(IPC.PR.EVENT_AUTOMATION_FIRED, handler)
       return () => ipcRenderer.removeListener(IPC.PR.EVENT_AUTOMATION_FIRED, handler)

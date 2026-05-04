@@ -67,7 +67,7 @@ export async function ensureUserStats(userId: string): Promise<UserStats> {
   const existing = await getUserStats(userId)
   if (existing) return existing
   await query(
-    'INSERT IGNORE INTO user_stats (user_id) VALUES (?)',
+    'INSERT INTO user_stats (user_id) VALUES (?) ON CONFLICT (user_id) DO NOTHING',
     [userId]
   )
   const stats = await getUserStats(userId)

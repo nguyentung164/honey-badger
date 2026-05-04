@@ -3,10 +3,11 @@
 import { format } from 'date-fns'
 import type { enUS, ja, vi } from 'date-fns/locale'
 import { Copy, MoreVertical, Pencil, Star, Trash2 } from 'lucide-react'
-import type { TaskType } from 'main/task/mysqlTaskStore'
+import type { TaskType } from 'main/task/pgTaskStore'
 import { memo } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Button } from '@/components/ui/button'
+import { Checkbox } from '@/components/ui/checkbox'
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from '@/components/ui/dropdown-menu'
 import { Progress } from '@/components/ui/progress'
 import { TableCell, TableRow } from '@/components/ui/table'
@@ -124,6 +125,10 @@ interface TaskTableRowProps {
   onToggleFavorite: (taskId: string) => void
   isFavorite: boolean
   visibleColumnIds?: string[]
+  bulkSelect?: {
+    checked: boolean
+    onToggle: () => void
+  }
 }
 
 function TaskTableRowComponent({
@@ -151,6 +156,7 @@ function TaskTableRowComponent({
   onToggleFavorite,
   isFavorite,
   visibleColumnIds = ['type', 'ticketId', 'project', 'title', 'assigneeUserId', 'status', 'priority', 'progress', 'planStartDate', 'planEndDate', 'actualStartDate', 'actualEndDate'],
+  bulkSelect,
 }: TaskTableRowProps) {
   const { t } = useTranslation()
   const dateDisplayPattern = getDateOnlyPattern(i18n.language)
@@ -194,8 +200,16 @@ function TaskTableRowComponent({
     <TableRow
       className={cn(getPriorityRowClass(priority, isDone), isDone && 'opacity-65', overdueBgClass, 'cursor-pointer hover:opacity-90')}
       style={getPriorityRowStyle?.(priority, isDone)}
-      onClick={() => onOpenDialog(task)}
+      onClick={e => {
+        if ((e.target as HTMLElement).closest('[data-task-bulk-check]')) return
+        onOpenDialog(task)
+      }}
     >
+      {bulkSelect ? (
+        <TableCell className="w-9 min-w-9 p-1 text-center align-middle" data-task-bulk-check onClick={e => e.stopPropagation()}>
+          <Checkbox checked={bulkSelect.checked} onCheckedChange={() => bulkSelect.onToggle()} aria-label={undefined} className="translate-y-[1px]" />
+        </TableCell>
+      ) : null}
       {rowNumber != null && (
         <TableCell className="text-center w-10 min-w-10 tabular-nums text-muted-foreground text-sm" onClick={e => e.stopPropagation()}>
           {rowNumber}
@@ -339,11 +353,11 @@ function TaskTableRowComponent({
               {String(task.source || 'in_app')
                 .toLowerCase()
                 .replace(/\s+/g, '_') !== 'redmine' && (
-                <DropdownMenuItem onClick={() => onCopy(task)}>
-                  <Copy className="h-4 w-4" />
-                  {t('taskManagement.makeCopy')}
-                </DropdownMenuItem>
-              )}
+                  <DropdownMenuItem onClick={() => onCopy(task)}>
+                    <Copy className="h-4 w-4" />
+                    {t('taskManagement.makeCopy')}
+                  </DropdownMenuItem>
+                )}
               <DropdownMenuItem onClick={() => onToggleFavorite(task.id)}>
                 <Star className={cn('h-4 w-4', isFavorite && 'fill-amber-400 text-amber-500')} />
                 {isFavorite ? t('taskManagement.unfavorite') : t('taskManagement.favorite')}
@@ -366,6 +380,8 @@ export const TaskTableRow = memo(TaskTableRowComponent, (prev, next) => {
   if (prev.rowNumber !== next.rowNumber) return false
   if (prev.task !== next.task) return false
   if (prev.visibleColumnIds !== next.visibleColumnIds) return false
+  if (prev.bulkSelect?.checked !== next.bulkSelect?.checked) return false
+  if (prev.bulkSelect?.onToggle !== next.bulkSelect?.onToggle) return false
   if (prev.isFavorite !== next.isFavorite) return false
   if (prev.locale !== next.locale) return false
   if (prev.getAssigneeDisplay !== next.getAssigneeDisplay) return false

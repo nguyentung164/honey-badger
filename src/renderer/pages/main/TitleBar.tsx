@@ -128,50 +128,6 @@ interface TitleBarProps {
   prManagerToolbarHostRef?: RefCallback<HTMLDivElement>
 }
 
-/** Cùng chiều cao với khung tab (ToggleGroup `h-[25px]`) bên cạnh. */
-const TITLE_BAR_CLOCK_BOX =
-  'rounded-md bg-muted! px-2 py-0 h-[25px] min-h-[25px] items-center justify-center text-[12px] font-medium text-foreground'
-
-/** 0 = chỉ VN, 1 = chỉ JP, 2 = cả hai — click xoay vòng */
-type TitleBarClockDisplayMode = 0 | 1 | 2
-
-function pickDateTimeParts(parts: Intl.DateTimeFormatPart[]) {
-  const pick = (type: Intl.DateTimeFormatPart['type']) => parts.find(p => p.type === type)?.value ?? ''
-  return pick
-}
-
-/** dd/MM/yyyy HH:mm:ss theo Asia/Ho_Chi_Minh (ICT, UTC+7) */
-function formatDateTimeVietnam(date: Date): string {
-  const parts = new Intl.DateTimeFormat('vi-VN', {
-    timeZone: 'Asia/Ho_Chi_Minh',
-    year: 'numeric',
-    month: '2-digit',
-    day: '2-digit',
-    hour: '2-digit',
-    minute: '2-digit',
-    second: '2-digit',
-    hour12: false,
-  }).formatToParts(date)
-  const pick = pickDateTimeParts(parts)
-  return `${pick('day')}/${pick('month')}/${pick('year')} ${pick('hour')}:${pick('minute')}:${pick('second')}`
-}
-
-/** yyyy/MM/dd HH:mm:ss theo Asia/Tokyo (JST, UTC+9) */
-function formatDateTimeJapan(date: Date): string {
-  const parts = new Intl.DateTimeFormat('ja-JP', {
-    timeZone: 'Asia/Tokyo',
-    year: 'numeric',
-    month: '2-digit',
-    day: '2-digit',
-    hour: '2-digit',
-    minute: '2-digit',
-    second: '2-digit',
-    hour12: false,
-  }).formatToParts(date)
-  const pick = pickDateTimeParts(parts)
-  return `${pick('year')}/${pick('month')}/${pick('day')} ${pick('hour')}:${pick('minute')}:${pick('second')}`
-}
-
 function TitleBarClockFlagVn({ size = 16 }: { size?: number }) {
   const h = Math.round((size * 2) / 3)
   return (
@@ -244,20 +200,12 @@ export const TitleBar = ({
   const [showAiUsageStats, setShowAiUsageStats] = useState(false)
   const [showHolidayCalendar, setShowHolidayCalendar] = useState(false)
   const [titleBarClock, setTitleBarClock] = useState(() => new Date())
-  const [titleBarClockMode, setTitleBarClockMode] = useState<TitleBarClockDisplayMode>(0)
 
   useEffect(() => {
     const tick = () => setTitleBarClock(new Date())
     const id = window.setInterval(tick, 1000)
     tick()
     return () => window.clearInterval(id)
-  }, [])
-
-  const titleBarIctClockText = formatDateTimeVietnam(titleBarClock)
-  const titleBarJstClockText = formatDateTimeJapan(titleBarClock)
-
-  const cycleTitleBarClockMode = useCallback(() => {
-    setTitleBarClockMode(m => ((m + 1) % 3) as TitleBarClockDisplayMode)
   }, [])
 
   const currentRank = achievementStats?.current_rank ?? 'newbie'
@@ -2168,57 +2116,15 @@ export const TitleBar = ({
       >
         {/* Left: logo + Workspace|Tasks (sát logo) + icon chỉ khi Workspace */}
         <div className="flex items-center h-full shrink-0 min-w-0 gap-0.5">
-          <div className="w-10 h-6 flex justify-center pt-1.5 pl-1 shrink-0">
-            <img src="logo.png" alt="icon" draggable="false" className="w-3.5 h-3.5 dark:brightness-130" />
-          </div>
-          <div className="flex shrink-0 items-center justify-center" style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties}>
+          <div className="w-10 h-6 flex justify-center pt-1.5 pl-1 shrink-0" style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties}>
             <Tooltip>
               <TooltipTrigger asChild>
                 <button
                   type="button"
-                  onClick={e => {
-                    e.stopPropagation()
-                    cycleTitleBarClockMode()
-                  }}
-                  className={cn(
-                    'hidden sm:inline-flex shrink-0 select-none cursor-pointer tabular-nums tracking-tight gap-x-1.5 whitespace-nowrap',
-                    'border-0 p-0 font-inherit focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1 focus-visible:ring-offset-[var(--main-bg)]',
-                    TITLE_BAR_CLOCK_BOX
-                  )}
-                  style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties}
-                  aria-label={
-                    titleBarClockMode === 0
-                      ? 'Giờ Việt Nam (ICT). Nhấn để chỉ hiện giờ Nhật (JST).'
-                      : titleBarClockMode === 1
-                        ? 'Giờ Nhật (JST). Nhấn để hiện cả ICT và JST.'
-                        : 'Giờ ICT và JST. Nhấn để chỉ hiện giờ Việt Nam.'
-                  }
+                  className="flex items-center justify-center p-0 border-0 bg-transparent cursor-default rounded-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1 focus-visible:ring-offset-[var(--main-bg)]"
+                  aria-label="Giờ Việt Nam (ICT) và Nhật Bản (JST) — di chuột để xem chi tiết"
                 >
-                  <time dateTime={titleBarClock.toISOString()} className="contents">
-                    {titleBarClockMode === 0 && (
-                      <>
-                        <TitleBarClockFlagVn />
-                        <span>{titleBarIctClockText}</span>
-                      </>
-                    )}
-                    {titleBarClockMode === 1 && (
-                      <>
-                        <TitleBarClockFlagJp />
-                        <span>{titleBarJstClockText}</span>
-                      </>
-                    )}
-                    {titleBarClockMode === 2 && (
-                      <>
-                        <TitleBarClockFlagVn />
-                        <span>{titleBarIctClockText}</span>
-                        <span className="text-muted-foreground font-normal" aria-hidden>
-                          ·
-                        </span>
-                        <TitleBarClockFlagJp />
-                        <span>{titleBarJstClockText}</span>
-                      </>
-                    )}
-                  </time>
+                  <img src="logo.png" alt="" draggable="false" className="w-3.5 h-3.5 dark:brightness-130 pointer-events-none" />
                 </button>
               </TooltipTrigger>
               <TooltipContent side="bottom" sideOffset={6} className="max-w-[min(320px,92vw)] bg-popover p-2 text-popover-foreground shadow-md">
@@ -2278,7 +2184,7 @@ export const TitleBar = ({
                     'transition-[color,transform,opacity,font-weight,text-decoration-thickness] duration-200 ease-out motion-reduce:transition-none',
                     'active:scale-[0.98] motion-reduce:active:scale-100',
                     'bg-transparent text-muted-foreground hover:bg-muted/60 hover:text-foreground',
-                    'data-[state=on]:bg-transparent data-[state=on]:hover:bg-transparent data-[state=on]:font-bold data-[state=on]:hover:font-bold',
+                    'data-[state=on]:bg-transparent data-[state=on]:hover:bg-transparent',
                     'data-[state=on]:text-emerald-600 data-[state=on]:hover:text-emerald-700 dark:data-[state=on]:text-emerald-400 dark:data-[state=on]:hover:text-emerald-300',
                     'data-[state=on]:underline data-[state=on]:decoration-emerald-600 data-[state=on]:decoration-2 data-[state=on]:underline-offset-[5px]',
                     'dark:data-[state=on]:decoration-emerald-400'
@@ -2295,7 +2201,7 @@ export const TitleBar = ({
                     'transition-[color,transform,opacity,font-weight,text-decoration-thickness] duration-200 ease-out motion-reduce:transition-none',
                     'active:scale-[0.98] motion-reduce:active:scale-100',
                     'bg-transparent text-muted-foreground hover:bg-muted/60 hover:text-foreground',
-                    'data-[state=on]:bg-transparent data-[state=on]:hover:bg-transparent data-[state=on]:font-bold data-[state=on]:hover:font-bold',
+                    'data-[state=on]:bg-transparent data-[state=on]:hover:bg-transparent',
                     'data-[state=on]:text-emerald-600 data-[state=on]:hover:text-emerald-700 dark:data-[state=on]:text-emerald-400 dark:data-[state=on]:hover:text-emerald-300',
                     'data-[state=on]:underline data-[state=on]:decoration-emerald-600 data-[state=on]:decoration-2 data-[state=on]:underline-offset-[5px]',
                     'dark:data-[state=on]:decoration-emerald-400'
@@ -2317,7 +2223,7 @@ export const TitleBar = ({
                       'transition-[color,transform,opacity,font-weight,text-decoration-thickness] duration-200 ease-out motion-reduce:transition-none',
                       'active:scale-[0.98] motion-reduce:active:scale-100',
                       'bg-transparent text-muted-foreground hover:bg-muted/60 hover:text-foreground',
-                      'data-[state=on]:bg-transparent data-[state=on]:hover:bg-transparent data-[state=on]:font-bold data-[state=on]:hover:font-bold',
+                      'data-[state=on]:bg-transparent data-[state=on]:hover:bg-transparent',
                       'data-[state=on]:text-emerald-600 data-[state=on]:hover:text-emerald-700 dark:data-[state=on]:text-emerald-400 dark:data-[state=on]:hover:text-emerald-300',
                       'data-[state=on]:underline data-[state=on]:decoration-emerald-600 data-[state=on]:decoration-2 data-[state=on]:underline-offset-[5px]',
                       'dark:data-[state=on]:decoration-emerald-400'

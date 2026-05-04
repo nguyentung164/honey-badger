@@ -1,49 +1,93 @@
 /**
  * Seed mock data for testing.
  * Plan: 3 projects (ECOM, CRM, Tiny), nhiều persona dev/PL (18 case QA). 1 năm ngày làm việc T2–T6.
- * Run: pnpm run seed:mock
+ * Run: pnpm run seed:mock (script package.json set SEED_RANDOM=12345 → data cố định mỗi lần)
  * Requires: schema applied, achievements table (seeded automatically when using env vars).
- * With env (standalone): TASK_DB_HOST TASK_DB_NAME TASK_DB_USER TASK_DB_PASSWORD
- * Reproducible: SEED_RANDOM=12345 pnpm run seed:mock  → cùng data mỗi lần chạy
+ * With env (standalone): APP_DB_HOST APP_DB_NAME APP_DB_USER APP_DB_PASSWORD [APP_DB_PORT] [APP_DB_TLS=auto|required|disabled] [APP_DB_SSL=true legacy] [APP_DB_PG_SCHEMA=tên schema PG, mặc định public].
+ * Tương thích cũ: TASK_DB_* cũng đọc được nếu chưa set APP_DB_*.
+ * Ngẫu nhiên mỗi lần: gọi tsx trực tiếp và không set SEED_RANDOM (hoặc unset biến đó).
  * RNG: _uuidRng (UUID v7 khi seed) + _globalRng (EVM, notif, pick sau loop) + userDayRng(user, dayIdx) (task/commit/snapshot theo ngày)
  * Without env: uses app ConfigurationStore (run from Electron).
  */
 
 import * as bcrypt from 'bcryptjs'
 import { addDays, addHours, differenceInCalendarDays, format, getDay, subMonths, subYears } from 'date-fns'
-import mysql from 'mysql2/promise'
+import { Pool } from 'pg'
 import { EVM_DEFAULT_PHASES } from 'shared/evmDefaults'
 import { v7 as uuidV7 } from 'uuid'
-import { ACHIEVEMENT_DEFINITIONS } from './achievementDefs'
+
+import { ACHIEVEMENT_DEFINITIONS } from './achievementSeed'
+import { sqlPlaceholdersToPg } from './db'
+
+function seedEnv(primary: string, fallback?: string): string {
+  const a = process.env[primary]
+  if (a != null && a !== '') return a
+  if (fallback) {
+    const b = process.env[fallback]
+    if (b != null && b !== '') return b
+  }
+  return ''
+}
+
+function getSslForSeed(): boolean | { rejectUnauthorized: boolean } {
+  const tls = seedEnv('APP_DB_TLS', 'TASK_DB_TLS').toLowerCase()
+  if (tls === 'disabled' || tls === 'off') return false
+  if (tls === 'required' || tls === 'on') return { rejectUnauthorized: false }
+  const host = seedEnv('APP_DB_HOST', 'TASK_DB_HOST')
+  if (/\bsupabase\.co\b|\bpooler\.supabase\.com\b/i.test(host)) {
+    return { rejectUnauthorized: false }
+  }
+  if (process.env.APP_DB_SSL === 'true' || process.env.TASK_DB_SSL === 'true') {
+    return { rejectUnauthorized: false }
+  }
+  return false
+}
 
 // ========== Config: use env or app config ==========
 
-const USE_ENV = !!(process.env.TASK_DB_HOST && process.env.TASK_DB_NAME)
+function getSeedPgSchema(): string {
+  const t = seedEnv('APP_DB_PG_SCHEMA', 'TASK_DB_PG_SCHEMA').trim()
+  return t !== '' ? t : 'public'
+}
 
-function getDbConfig(): { host: string; port: number; user: string; password: string; database: string } {
+const USE_ENV = !!(seedEnv('APP_DB_HOST', 'TASK_DB_HOST') && seedEnv('APP_DB_NAME', 'TASK_DB_NAME'))
+
+function seedDbPasswordFallback(): string {
+  if (process.env.APP_DB_PASSWORD !== undefined) return process.env.APP_DB_PASSWORD
+  if (process.env.TASK_DB_PASSWORD !== undefined) return process.env.TASK_DB_PASSWORD
+  return '123456'
+}
+
+function getDbConfig(): { host: string; port: number; user: string; password: string; database: string; ssl: boolean | { rejectUnauthorized: boolean } } {
+  const ssl = getSslForSeed()
   return {
-    host: process.env.TASK_DB_HOST || 'localhost',
-    port: Number(process.env.TASK_DB_PORT) || 3306,
-    user: process.env.TASK_DB_USER || 'root',
-    password: process.env.TASK_DB_PASSWORD ?? '123456',
-    database: process.env.TASK_DB_NAME || 'honey_badger',
+    host: seedEnv('APP_DB_HOST', 'TASK_DB_HOST') || 'localhost',
+    port: Number(seedEnv('APP_DB_PORT', 'TASK_DB_PORT')) || 5432,
+    user: seedEnv('APP_DB_USER', 'TASK_DB_USER') || 'postgres',
+    password: seedDbPasswordFallback(),
+    database: seedEnv('APP_DB_NAME', 'TASK_DB_NAME') || 'postgres',
+    ssl,
   }
 }
 
-let pool: mysql.Pool | null = null
+let pool: Pool | null = null
 
-async function getPool(): Promise<mysql.Pool> {
+async function getPool(): Promise<Pool> {
   if (!pool) {
     const config = getDbConfig()
-    pool = mysql.createPool({
+    const pgSchema = getSeedPgSchema()
+    if (!/^[a-zA-Z_][a-zA-Z0-9_]*$/.test(pgSchema)) {
+      throw new Error('APP_DB_PG_SCHEMA (hoặc TASK_DB_PG_SCHEMA) không hợp lệ: chỉ [a-zA-Z0-9_], đầu phải là chữ hoặc _.')
+    }
+    pool = new Pool({
       host: config.host,
       port: config.port,
       user: config.user,
       password: config.password,
       database: config.database,
-      charset: 'utf8mb4',
-      waitForConnections: true,
-      connectionLimit: 10,
+      ssl: config.ssl === false ? undefined : config.ssl,
+      max: 10,
+      options: `-c search_path=${pgSchema},public`,
     })
   }
   return pool
@@ -51,11 +95,12 @@ async function getPool(): Promise<mysql.Pool> {
 
 async function query<T = unknown>(sql: string, params?: unknown[]): Promise<T> {
   const p = await getPool()
-  const [rows] = await p.execute(sql, (params ?? []) as (string | number | boolean | Date | Buffer | null)[])
-  return rows as T
+  const { text, values } = sqlPlaceholdersToPg(sql, params)
+  const res = await p.query(text, values as [])
+  return res.rows as T
 }
 
-/** Gom nhiều row INSERT 1 lần - nhanh hơn từng dòng */
+/** Gom nhiều row INSERT 1 lần — tham số Postgres */
 const INSERT_BATCH_SIZE = 80
 function createBatchInserter<T extends unknown[]>(
   table: string,
@@ -66,7 +111,9 @@ function createBatchInserter<T extends unknown[]>(
 ) {
   const rows: T[] = []
   return {
-    add(row: T) { rows.push(row) },
+    add(row: T) {
+      rows.push(row)
+    },
     async flush() {
       if (rows.length === 0) return
       const valuesSql = rows.map(() => rowPlaceholder).join(', ')
@@ -83,18 +130,19 @@ type TxQuery = (sql: string, params?: unknown[]) => Promise<unknown>
 
 async function withTransaction<T>(fn: (tx: TxQuery) => Promise<T>): Promise<T> {
   const p = await getPool()
-  const conn = await p.getConnection()
+  const conn = await p.connect()
   const tx: TxQuery = async (sql: string, params?: unknown[]) => {
-    const [rows] = await conn.execute(sql, (params ?? []) as (string | number | boolean | Date | Buffer | null)[])
-    return rows
+    const { text, values } = sqlPlaceholdersToPg(sql, params)
+    const res = await conn.query(text, values as [])
+    return res.rows
   }
   try {
-    await conn.query('START TRANSACTION')
+    await conn.query('BEGIN')
     const result = await fn(tx)
     await conn.query('COMMIT')
     return result
   } catch (err) {
-    await conn.query('ROLLBACK').catch(() => { })
+    await conn.query('ROLLBACK').catch(() => {})
     throw err
   } finally {
     conn.release()
@@ -263,7 +311,7 @@ const EVM_MASTER_STATUSES_JSON = JSON.stringify([
   { code: 'rejected', name: 'Rejected' },
 ])
 
-/** Bước 10% — khớp mysqlEVMStore / EVM_Tool.txt. */
+/** Bước 10% — khớp pgEVMStore / EVM_Tool.txt. */
 const EVM_MASTER_PERCENT_DONE_OPTIONS_JSON = JSON.stringify([0, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1])
 
 const EVM_MASTER_PHASE_REPORT_NOTES_JSON = JSON.stringify({
@@ -321,7 +369,12 @@ function seedTaskTitlePrefix(typ: string): string {
   }
 }
 /** Plan: medium 50%, high 30%, low 15%, critical 5% */
-const TASK_PRIORITY_WEIGHTS: [string, number][] = [['medium', 50], ['high', 30], ['low', 15], ['critical', 5]]
+const TASK_PRIORITY_WEIGHTS: [string, number][] = [
+  ['medium', 50],
+  ['high', 30],
+  ['low', 15],
+  ['critical', 5],
+]
 const WORK_DESCRIPTIONS = [
   'Fix login validation bug, implement cart API',
   'Refactor payment module, add unit tests',
@@ -374,10 +427,7 @@ const TASK_DESC_STATUS_NOTES: Record<string, string[]> = {
   in_progress: ['Đang làm nhánh feature/task-*; PR draft sẽ mở sau khi có test cơ bản.'],
   in_review: ['Đã gửi PL review; chờ comment trước khi merge.', 'Build CI xanh; cần duyệt wording thông báo.'],
   fixed: ['Dev đã fix trên develop; chờ QA verify trên bản staging.', 'Đã cherry-pick sang nhánh hotfix.'],
-  feedback: [
-    'Khách/QA yêu cầu chỉnh lại hành vi nút Cancel; cập nhật mock trong Figma.',
-    'Cần làm rõ edge case timezone khi export báo cáo.',
-  ],
+  feedback: ['Khách/QA yêu cầu chỉnh lại hành vi nút Cancel; cập nhật mock trong Figma.', 'Cần làm rõ edge case timezone khi export báo cáo.'],
   cancelled: ['Hủy theo quyết định PO: ưu tiên sprint khác.', 'Trùng ticket #xxxx; đóng để tránh trùng công việc.'],
   done: ['Đã verify trên UAT và release note ghi nhận.', 'Merge develop; tag bản phát hành hôm nay.'],
 }
@@ -455,7 +505,7 @@ function deriveWbsActualDates(
   planEndStr: string,
   percentDone: number,
   status: string,
-  rnd: () => number,
+  rnd: () => number
 ): { actual_start_date: string | null; actual_end_date: string | null } {
   if (status === 'new') {
     return { actual_start_date: null, actual_end_date: null }
@@ -471,31 +521,11 @@ function deriveWbsActualDates(
 }
 
 const EVM_NON_CODE_PHASE_TASKS: Record<string, string[]> = {
-  sd: [
-    'Workshop thu thập yêu cầu & phạm vi release',
-    'Hoàn thiện checklist gate trước Basic Design',
-    'Stakeholder sign-off phạm vi tài liệu khởi đầu',
-  ],
-  bd: [
-    'Thiết kế luồng dữ liệu WBS → BAC/EV trong tool',
-    'Review mockup báo cáo EVM với PL / khách',
-    'Đặc tả API đồng bộ master dự án & assignee',
-  ],
-  dd: [
-    'Chi tiết hóa spec API & schema cho module EVM',
-    'Rà soát ước lượng BAC theo lưới ngày kế hoạch',
-    'Đồng bộ checklist coding standards với PL',
-  ],
-  it: [
-    'Kiểm thử hồi quy trên staging trước đóng sprint',
-    'Triển khai bản build UAT & smoke test chính',
-    'Rà soát log triển khai và checklist go-live',
-  ],
-  uat: [
-    'Kịch bản nghiệm thu UAT với đại diện khách hàng',
-    'Ghi nhận lỗi UAT & phân công fix trước bản gold',
-    'Đóng hạng mục UAT và ký biên bản nghiệm thu',
-  ],
+  sd: ['Workshop thu thập yêu cầu & phạm vi release', 'Hoàn thiện checklist gate trước Basic Design', 'Stakeholder sign-off phạm vi tài liệu khởi đầu'],
+  bd: ['Thiết kế luồng dữ liệu WBS → BAC/EV trong tool', 'Review mockup báo cáo EVM với PL / khách', 'Đặc tả API đồng bộ master dự án & assignee'],
+  dd: ['Chi tiết hóa spec API & schema cho module EVM', 'Rà soát ước lượng BAC theo lưới ngày kế hoạch', 'Đồng bộ checklist coding standards với PL'],
+  it: ['Kiểm thử hồi quy trên staging trước đóng sprint', 'Triển khai bản build UAT & smoke test chính', 'Rà soát log triển khai và checklist go-live'],
+  uat: ['Kịch bản nghiệm thu UAT với đại diện khách hàng', 'Ghi nhận lỗi UAT & phân công fix trước bản gold', 'Đóng hạng mục UAT và ký biên bản nghiệm thu'],
 }
 
 function pickEvmWbsTaskTitleForPhase(phase: string, rnd: () => number): string {
@@ -529,7 +559,7 @@ function deriveWbsProgressAndStatus(planEndDay: Date, anchorEnd: Date, rnd: () =
 }
 
 function lookupEvmWbsSegment(segments: EvmWbsSegment[], assigneeId: string, dateStr: string): EvmWbsSegment | undefined {
-  return segments.find((s) => s.assigneeId === assigneeId && dateStr >= s.planStart && dateStr <= s.planEnd)
+  return segments.find(s => s.assigneeId === assigneeId && dateStr >= s.planStart && dateStr <= s.planEnd)
 }
 
 /**
@@ -544,14 +574,14 @@ function generateRealisticEvmWbsForProject(
   bacScale: number,
   rnd: () => number,
   anchorForProgress: Date,
-  outSegments: EvmWbsSegment[],
+  outSegments: EvmWbsSegment[]
 ): EvmWbsGeneratedRow[] {
   const cal = getWorkingDays(rangeStart, rangeEnd)
   if (cal.length < 10) return []
 
   const minSeg = bacScale < 0.5 ? 3 : 5
   const maxSeg = bacScale < 0.5 ? 12 : 22
-  const toPlan = memberDevs.filter((d) => d.seedActivity !== 'none')
+  const toPlan = memberDevs.filter(d => d.seedActivity !== 'none')
   const planners = toPlan.length > 0 ? toPlan : memberDevs
 
   const rows: EvmWbsGeneratedRow[] = []
@@ -669,7 +699,7 @@ function effectiveJoinDate(dev: DevUser, endDate: Date, workingDays: Date[]): Da
 function joinDayIndex(dev: DevUser, endDate: Date, workingDays: Date[]): number {
   const jd = effectiveJoinDate(dev, endDate, workingDays)
   const jdStr = toDateStr(jd)
-  const idx = workingDays.findIndex((d) => toDateStr(d) >= jdStr)
+  const idx = workingDays.findIndex(d => toDateStr(d) >= jdStr)
   return Math.max(0, idx)
 }
 
@@ -685,7 +715,7 @@ function queueSeedDailyReport(
   reportDate: string,
   workDesc: string,
   commitsJson: string,
-  upsfId?: string | null,
+  upsfId?: string | null
 ) {
   pendingRows.push([reportId, userId, projectIdsJson, reportDate, workDesc, commitsJson])
   if (upsfId) pendingDrsf.push({ userId, reportDate, upsfId })
@@ -709,7 +739,7 @@ function defaultRoleP1(dev: DevUser, indexInP1: number): 'dev' | 'pl' {
  */
 function pickSeedTaskUpdatedById(rnd: () => number, status: string, assigneeId: string, projectPeerIds: string[]): string {
   const peers = [...new Set(projectPeerIds.filter(Boolean))]
-  const others = peers.filter((id) => id !== assigneeId)
+  const others = peers.filter(id => id !== assigneeId)
   if (others.length === 0) return assigneeId
   const r = rnd()
   if (status === 'in_review') {
@@ -848,11 +878,7 @@ function commitHourPrefsForDev(userId: string): { peak: number; nightP: number; 
 /**
  * Giờ commit: peak ± spread theo dev; night owl 18–21 theo nightP; thỉnh thoảng giờ muộn rải 15–19 (ít, không dồn 16–17).
  */
-function pickCommitHour(
-  commitIndex: number,
-  prefs: { peak: number; nightP: number; spread: number },
-  rnd: () => number,
-): number {
+function pickCommitHour(commitIndex: number, prefs: { peak: number; nightP: number; spread: number }, rnd: () => number): number {
   if (rnd() < prefs.nightP) return 18 + (commitIndex % 4)
   if (rnd() < 0.03) return randBetweenRng(rnd, 15, 19)
   const delta = randBetweenRng(rnd, -prefs.spread, prefs.spread + 1)
@@ -909,13 +935,7 @@ function progressForSimStatus(status: SimTaskStatus, rnd: () => number): number 
 /**
  * Ngày bắt đầu kế hoạch: trước hoặc trùng ngày bắt đầu thực tế, không sau plan_end, không trước joinDate (khi hợp lệ).
  */
-function planStartForSeedTask(
-  planEndStr: string,
-  actStart: string | null,
-  joinDate: Date,
-  status: SimTaskStatus,
-  rnd: () => number,
-): string {
+function planStartForSeedTask(planEndStr: string, actStart: string | null, joinDate: Date, status: SimTaskStatus, rnd: () => number): string {
   const peRaw = planEndStr.includes('T') ? (planEndStr.split('T')[0] ?? planEndStr) : planEndStr
   const pe = new Date(`${peRaw}T00:00:00`)
   pe.setHours(0, 0, 0, 0)
@@ -955,14 +975,13 @@ function planStartForSeedTask(
  * - cancelled: hủy trước khi làm hoặc dở dang; plan_end thường tương lai để tránh nhiễu “overdue” giả
  * - done: mix chu kỳ ngắn / trung / dài (feature epic vài tháng calendar, bug kẹt lâu)
  */
-function planTaskDates(opts: {
-  anchorDay: Date
-  status: SimTaskStatus
-  typ: string
-  joinDate: Date
-  lateTaskPercent: number
-  rnd: () => number
-}): { actStart: string | null; actEnd: string | null; planEnd: string; planStart: string; isLate: boolean } {
+function planTaskDates(opts: { anchorDay: Date; status: SimTaskStatus; typ: string; joinDate: Date; lateTaskPercent: number; rnd: () => number }): {
+  actStart: string | null
+  actEnd: string | null
+  planEnd: string
+  planStart: string
+  isLate: boolean
+} {
   const { anchorDay, status, typ, joinDate, lateTaskPercent, rnd } = opts
   const anchorStr = toDateStr(anchorDay)
 
@@ -1159,8 +1178,10 @@ const RANK_SCALE: Record<string, number> = {
 
 export async function main(): Promise<void> {
   if (!USE_ENV) {
-    console.error('Error: Khi chạy seed:mock ngoài Electron, phải set TASK_DB_HOST và TASK_DB_NAME.')
-    console.error('Ví dụ (PowerShell): $env:TASK_DB_HOST="localhost"; $env:TASK_DB_NAME="honey_badger"; $env:TASK_DB_USER="root"; $env:TASK_DB_PASSWORD=""; pnpm run seed:mock')
+    console.error('Error: Khi chạy seed:mock ngoài Electron, phải set APP_DB_HOST và APP_DB_NAME (hoặc TASK_DB_HOST / TASK_DB_NAME).')
+    console.error(
+      'Ví dụ (PowerShell): $env:APP_DB_HOST="localhost"; $env:APP_DB_PORT="5432"; $env:APP_DB_NAME="honey_badger"; $env:APP_DB_USER="postgres"; $env:APP_DB_PASSWORD="yourpass"; $env:APP_DB_TLS="disabled"; pnpm run seed:mock'
+    )
     process.exit(1)
   }
   const seedVal = process.env.SEED_RANDOM
@@ -1187,7 +1208,7 @@ export async function main(): Promise<void> {
   for (let i = 0; i < ACHIEVEMENT_DEFINITIONS.length; i += BATCH_SIZE) {
     const batch = ACHIEVEMENT_DEFINITIONS.slice(i, i + BATCH_SIZE)
     const valuesSql = batch.map(() => rowPlaceholder).join(', ')
-    const params = batch.flatMap((def) => [
+    const params = batch.flatMap(def => [
       def.code,
       def.category,
       def.tier,
@@ -1204,18 +1225,18 @@ export async function main(): Promise<void> {
     await query(
       `INSERT INTO achievements (code, category, tier, name, description, icon, xp_reward, is_repeatable, condition_type, condition_threshold, is_negative, sort_order)
        VALUES ${valuesSql}
-       ON DUPLICATE KEY UPDATE
-         category = VALUES(category),
-         tier = VALUES(tier),
-         name = VALUES(name),
-         description = VALUES(description),
-         icon = VALUES(icon),
-         xp_reward = VALUES(xp_reward),
-         is_repeatable = VALUES(is_repeatable),
-         condition_type = VALUES(condition_type),
-         condition_threshold = VALUES(condition_threshold),
-         is_negative = VALUES(is_negative),
-         sort_order = VALUES(sort_order)`,
+       ON CONFLICT (code) DO UPDATE SET
+         category = EXCLUDED.category,
+         tier = EXCLUDED.tier,
+         name = EXCLUDED.name,
+         description = EXCLUDED.description,
+         icon = EXCLUDED.icon,
+         xp_reward = EXCLUDED.xp_reward,
+         is_repeatable = EXCLUDED.is_repeatable,
+         condition_type = EXCLUDED.condition_type,
+         condition_threshold = EXCLUDED.condition_threshold,
+         is_negative = EXCLUDED.is_negative,
+         sort_order = EXCLUDED.sort_order`,
       params
     )
   }
@@ -1230,75 +1251,380 @@ export async function main(): Promise<void> {
 
   // 1. Users — mở rộng 18 case (xem console cuối main: bảng map case → user_code)
   const devsP1: DevUser[] = [
-    { id: randomUUID(), user_code: 'dev_legend', name: 'Legend Dev', email: 'dev.legend@company.com', profile: 'star', tenureMonths: 12, lateTaskPercent: 5, commitVariance: 'stable', targetRank: 'legend', roleP1: 'pl', roleP2: 'dev' },
-    { id: randomUUID(), user_code: 'dev_pl_split', name: 'Dev PL Split', email: 'dev.plsplit@company.com', profile: 'good', tenureMonths: 8, lateTaskPercent: 12, commitVariance: 'stable', targetRank: 'pro', roleP1: 'dev', roleP2: 'pl' },
-    { id: randomUUID(), user_code: 'dev_master', name: 'Master Dev', email: 'dev.master@company.com', profile: 'star', tenureMonths: 12, lateTaskPercent: 10, commitVariance: 'burst', targetRank: 'master' },
-    { id: randomUUID(), user_code: 'dev_expert', name: 'Expert Dev', email: 'dev.expert@company.com', profile: 'good', tenureMonths: 10, lateTaskPercent: 15, commitVariance: 'stable', targetRank: 'expert', reportStreakTailDays: 6 },
-    { id: randomUUID(), user_code: 'dev_pro', name: 'Pro Dev', email: 'dev.pro@company.com', profile: 'good', tenureMonths: 8, lateTaskPercent: 20, commitVariance: 'spiky', targetRank: 'pro', reportStreakTailDays: 7 },
-    { id: randomUUID(), user_code: 'dev_regular', name: 'Regular Dev', email: 'dev.regular@company.com', profile: 'average', tenureMonths: 6, lateTaskPercent: 25, commitVariance: 'stable', targetRank: 'regular', reportStreakTailDays: 5 },
-    { id: randomUUID(), user_code: 'dev_developer', name: 'Developer Dev', email: 'dev.developer@company.com', profile: 'average', tenureMonths: 4, lateTaskPercent: 30, commitVariance: 'burst', targetRank: 'developer' },
-    { id: randomUUID(), user_code: 'dev_contributor', name: 'Contributor Dev', email: 'dev.contributor@company.com', profile: 'below', tenureMonths: 3, lateTaskPercent: 40, commitVariance: 'spiky', targetRank: 'contributor' },
-    { id: randomUUID(), user_code: 'dev_newbie', name: 'Newbie Dev', email: 'dev.newbie@company.com', profile: 'bad', tenureMonths: 1, lateTaskPercent: 60, commitVariance: 'burst', targetRank: 'newbie' },
-    { id: randomUUID(), user_code: 'dev_3m_avg', name: 'Dev 3 Tháng', email: 'dev.3m@company.com', profile: 'average', tenureMonths: 3, lateTaskPercent: 35, commitVariance: 'spiky', targetRank: 'contributor' },
-    { id: randomUUID(), user_code: 'dev_6m_late', name: 'Dev Hay Trễ', email: 'dev.late@company.com', profile: 'below', tenureMonths: 6, lateTaskPercent: 55, commitVariance: 'burst', targetRank: 'developer' },
-    { id: randomUUID(), user_code: 'dev_terrible', name: 'Dev Terrible', email: 'dev.terrible@company.com', profile: 'terrible', tenureMonths: 2, lateTaskPercent: 85, commitVariance: 'burst', targetRank: 'newbie', neverReviewsOthers: true },
-    { id: randomUUID(), user_code: 'dev_perfect', name: 'Dev Perfect', email: 'dev.perfect@company.com', profile: 'star', tenureMonths: 12, lateTaskPercent: 0, commitVariance: 'stable', targetRank: 'legend' },
-    { id: randomUUID(), user_code: 'dev_streak_30', name: 'Dev Streak 30', email: 'dev.streak30@company.com', profile: 'good', tenureMonths: 6, lateTaskPercent: 12, commitVariance: 'stable', targetRank: 'regular', reportStreakTailDays: 30, forceReportStreakInStats: 30 },
-    { id: randomUUID(), user_code: 'dev_join_last_day', name: 'Dev Mới Cuối', email: 'dev.joinlast@company.com', profile: 'average', tenureMonths: 0, lateTaskPercent: 25, commitVariance: 'stable', targetRank: 'newbie', joinOnLastWorkingDay: true },
-    { id: randomUUID(), user_code: 'dev_commits_only', name: 'Dev Chỉ Commit', email: 'dev.commitonly@company.com', profile: 'good', tenureMonths: 4, lateTaskPercent: 20, commitVariance: 'stable', targetRank: 'developer', activityMode: 'commits_only' },
-    { id: randomUUID(), user_code: 'dev_tasks_only', name: 'Dev Chỉ Task', email: 'dev.taskonly@company.com', profile: 'average', tenureMonths: 4, lateTaskPercent: 25, commitVariance: 'stable', targetRank: 'developer', activityMode: 'tasks_only' },
-    { id: randomUUID(), user_code: 'dev_silent_tail', name: 'Dev Im Cuối Kỳ', email: 'dev.silenttail@company.com', profile: 'average', tenureMonths: 6, lateTaskPercent: 28, commitVariance: 'stable', targetRank: 'regular', noReportLastWorkingDays: 14 },
-    { id: randomUUID(), user_code: 'dev_streak_break', name: 'Dev Gãy Streak', email: 'dev.streakbreak@company.com', profile: 'good', tenureMonths: 5, lateTaskPercent: 15, commitVariance: 'stable', targetRank: 'pro', reportStreakTailDays: 25, breakReportSecondLastWorkingDay: true },
-    { id: randomUUID(), user_code: 'dev_never_report', name: 'Dev Không Report', email: 'dev.neverreport@company.com', profile: 'below', tenureMonths: 8, lateTaskPercent: 35, commitVariance: 'spiky', targetRank: 'developer', neverDailyReport: true },
+    {
+      id: randomUUID(),
+      user_code: 'dev_legend',
+      name: 'Legend Dev',
+      email: 'dev.legend@company.com',
+      profile: 'star',
+      tenureMonths: 12,
+      lateTaskPercent: 5,
+      commitVariance: 'stable',
+      targetRank: 'legend',
+      roleP1: 'pl',
+      roleP2: 'dev',
+    },
+    {
+      id: randomUUID(),
+      user_code: 'dev_pl_split',
+      name: 'Dev PL Split',
+      email: 'dev.plsplit@company.com',
+      profile: 'good',
+      tenureMonths: 8,
+      lateTaskPercent: 12,
+      commitVariance: 'stable',
+      targetRank: 'pro',
+      roleP1: 'dev',
+      roleP2: 'pl',
+    },
+    {
+      id: randomUUID(),
+      user_code: 'dev_master',
+      name: 'Master Dev',
+      email: 'dev.master@company.com',
+      profile: 'star',
+      tenureMonths: 12,
+      lateTaskPercent: 10,
+      commitVariance: 'burst',
+      targetRank: 'master',
+    },
+    {
+      id: randomUUID(),
+      user_code: 'dev_expert',
+      name: 'Expert Dev',
+      email: 'dev.expert@company.com',
+      profile: 'good',
+      tenureMonths: 10,
+      lateTaskPercent: 15,
+      commitVariance: 'stable',
+      targetRank: 'expert',
+      reportStreakTailDays: 6,
+    },
+    {
+      id: randomUUID(),
+      user_code: 'dev_pro',
+      name: 'Pro Dev',
+      email: 'dev.pro@company.com',
+      profile: 'good',
+      tenureMonths: 8,
+      lateTaskPercent: 20,
+      commitVariance: 'spiky',
+      targetRank: 'pro',
+      reportStreakTailDays: 7,
+    },
+    {
+      id: randomUUID(),
+      user_code: 'dev_regular',
+      name: 'Regular Dev',
+      email: 'dev.regular@company.com',
+      profile: 'average',
+      tenureMonths: 6,
+      lateTaskPercent: 25,
+      commitVariance: 'stable',
+      targetRank: 'regular',
+      reportStreakTailDays: 5,
+    },
+    {
+      id: randomUUID(),
+      user_code: 'dev_developer',
+      name: 'Developer Dev',
+      email: 'dev.developer@company.com',
+      profile: 'average',
+      tenureMonths: 4,
+      lateTaskPercent: 30,
+      commitVariance: 'burst',
+      targetRank: 'developer',
+    },
+    {
+      id: randomUUID(),
+      user_code: 'dev_contributor',
+      name: 'Contributor Dev',
+      email: 'dev.contributor@company.com',
+      profile: 'below',
+      tenureMonths: 3,
+      lateTaskPercent: 40,
+      commitVariance: 'spiky',
+      targetRank: 'contributor',
+    },
+    {
+      id: randomUUID(),
+      user_code: 'dev_newbie',
+      name: 'Newbie Dev',
+      email: 'dev.newbie@company.com',
+      profile: 'bad',
+      tenureMonths: 1,
+      lateTaskPercent: 60,
+      commitVariance: 'burst',
+      targetRank: 'newbie',
+    },
+    {
+      id: randomUUID(),
+      user_code: 'dev_3m_avg',
+      name: 'Dev 3 Tháng',
+      email: 'dev.3m@company.com',
+      profile: 'average',
+      tenureMonths: 3,
+      lateTaskPercent: 35,
+      commitVariance: 'spiky',
+      targetRank: 'contributor',
+    },
+    {
+      id: randomUUID(),
+      user_code: 'dev_6m_late',
+      name: 'Dev Hay Trễ',
+      email: 'dev.late@company.com',
+      profile: 'below',
+      tenureMonths: 6,
+      lateTaskPercent: 55,
+      commitVariance: 'burst',
+      targetRank: 'developer',
+    },
+    {
+      id: randomUUID(),
+      user_code: 'dev_terrible',
+      name: 'Dev Terrible',
+      email: 'dev.terrible@company.com',
+      profile: 'terrible',
+      tenureMonths: 2,
+      lateTaskPercent: 85,
+      commitVariance: 'burst',
+      targetRank: 'newbie',
+      neverReviewsOthers: true,
+    },
+    {
+      id: randomUUID(),
+      user_code: 'dev_perfect',
+      name: 'Dev Perfect',
+      email: 'dev.perfect@company.com',
+      profile: 'star',
+      tenureMonths: 12,
+      lateTaskPercent: 0,
+      commitVariance: 'stable',
+      targetRank: 'legend',
+    },
+    {
+      id: randomUUID(),
+      user_code: 'dev_streak_30',
+      name: 'Dev Streak 30',
+      email: 'dev.streak30@company.com',
+      profile: 'good',
+      tenureMonths: 6,
+      lateTaskPercent: 12,
+      commitVariance: 'stable',
+      targetRank: 'regular',
+      reportStreakTailDays: 30,
+      forceReportStreakInStats: 30,
+    },
+    {
+      id: randomUUID(),
+      user_code: 'dev_join_last_day',
+      name: 'Dev Mới Cuối',
+      email: 'dev.joinlast@company.com',
+      profile: 'average',
+      tenureMonths: 0,
+      lateTaskPercent: 25,
+      commitVariance: 'stable',
+      targetRank: 'newbie',
+      joinOnLastWorkingDay: true,
+    },
+    {
+      id: randomUUID(),
+      user_code: 'dev_commits_only',
+      name: 'Dev Chỉ Commit',
+      email: 'dev.commitonly@company.com',
+      profile: 'good',
+      tenureMonths: 4,
+      lateTaskPercent: 20,
+      commitVariance: 'stable',
+      targetRank: 'developer',
+      activityMode: 'commits_only',
+    },
+    {
+      id: randomUUID(),
+      user_code: 'dev_tasks_only',
+      name: 'Dev Chỉ Task',
+      email: 'dev.taskonly@company.com',
+      profile: 'average',
+      tenureMonths: 4,
+      lateTaskPercent: 25,
+      commitVariance: 'stable',
+      targetRank: 'developer',
+      activityMode: 'tasks_only',
+    },
+    {
+      id: randomUUID(),
+      user_code: 'dev_silent_tail',
+      name: 'Dev Im Cuối Kỳ',
+      email: 'dev.silenttail@company.com',
+      profile: 'average',
+      tenureMonths: 6,
+      lateTaskPercent: 28,
+      commitVariance: 'stable',
+      targetRank: 'regular',
+      noReportLastWorkingDays: 14,
+    },
+    {
+      id: randomUUID(),
+      user_code: 'dev_streak_break',
+      name: 'Dev Gãy Streak',
+      email: 'dev.streakbreak@company.com',
+      profile: 'good',
+      tenureMonths: 5,
+      lateTaskPercent: 15,
+      commitVariance: 'stable',
+      targetRank: 'pro',
+      reportStreakTailDays: 25,
+      breakReportSecondLastWorkingDay: true,
+    },
+    {
+      id: randomUUID(),
+      user_code: 'dev_never_report',
+      name: 'Dev Không Report',
+      email: 'dev.neverreport@company.com',
+      profile: 'below',
+      tenureMonths: 8,
+      lateTaskPercent: 35,
+      commitVariance: 'spiky',
+      targetRank: 'developer',
+      neverDailyReport: true,
+    },
   ]
   const devsP2Extra: DevUser[] = [
-    { id: randomUUID(), user_code: 'dev_p2_pro', name: 'P2 Pro', email: 'dev.p2.pro@company.com', profile: 'good', tenureMonths: 5, lateTaskPercent: 18, commitVariance: 'stable', targetRank: 'pro' },
-    { id: randomUUID(), user_code: 'dev_p2_newbie', name: 'P2 Mới', email: 'dev.p2.new@company.com', profile: 'bad', tenureMonths: 1, lateTaskPercent: 50, commitVariance: 'spiky', targetRank: 'newbie' },
+    {
+      id: randomUUID(),
+      user_code: 'dev_p2_pro',
+      name: 'P2 Pro',
+      email: 'dev.p2.pro@company.com',
+      profile: 'good',
+      tenureMonths: 5,
+      lateTaskPercent: 18,
+      commitVariance: 'stable',
+      targetRank: 'pro',
+    },
+    {
+      id: randomUUID(),
+      user_code: 'dev_p2_newbie',
+      name: 'P2 Mới',
+      email: 'dev.p2.new@company.com',
+      profile: 'bad',
+      tenureMonths: 1,
+      lateTaskPercent: 50,
+      commitVariance: 'spiky',
+      targetRank: 'newbie',
+    },
   ]
   const p2OnlyDevs: DevUser[] = [
-    { id: randomUUID(), user_code: 'dev_p2_streak', name: 'P2 Streak Only', email: 'dev.p2.streak@company.com', profile: 'good', tenureMonths: 4, lateTaskPercent: 18, commitVariance: 'stable', targetRank: 'developer', roleP2: 'dev', reportStreakTailDays: 7, forceReportStreakInStats: 7 },
+    {
+      id: randomUUID(),
+      user_code: 'dev_p2_streak',
+      name: 'P2 Streak Only',
+      email: 'dev.p2.streak@company.com',
+      profile: 'good',
+      tenureMonths: 4,
+      lateTaskPercent: 18,
+      commitVariance: 'stable',
+      targetRank: 'developer',
+      roleP2: 'dev',
+      reportStreakTailDays: 7,
+      forceReportStreakInStats: 7,
+    },
   ]
   const plOnlyUsers: DevUser[] = [
-    { id: randomUUID(), user_code: 'pl_pure', name: 'PL Thuần', email: 'pl.pure@company.com', profile: 'star', tenureMonths: 12, lateTaskPercent: 0, commitVariance: 'stable', targetRank: 'expert', seedActivity: 'none', roleP1: 'pl', roleP2: 'none' },
-    { id: randomUUID(), user_code: 'pl_p1_b', name: 'PL P1 Phụ', email: 'pl.p1b@company.com', profile: 'good', tenureMonths: 8, lateTaskPercent: 15, commitVariance: 'stable', targetRank: 'pro', seedActivity: 'none', roleP1: 'pl', roleP2: 'none' },
+    {
+      id: randomUUID(),
+      user_code: 'pl_pure',
+      name: 'PL Thuần',
+      email: 'pl.pure@company.com',
+      profile: 'star',
+      tenureMonths: 12,
+      lateTaskPercent: 0,
+      commitVariance: 'stable',
+      targetRank: 'expert',
+      seedActivity: 'none',
+      roleP1: 'pl',
+      roleP2: 'none',
+    },
+    {
+      id: randomUUID(),
+      user_code: 'pl_p1_b',
+      name: 'PL P1 Phụ',
+      email: 'pl.p1b@company.com',
+      profile: 'good',
+      tenureMonths: 8,
+      lateTaskPercent: 15,
+      commitVariance: 'stable',
+      targetRank: 'pro',
+      seedActivity: 'none',
+      roleP1: 'pl',
+      roleP2: 'none',
+    },
   ]
   const tinyTeamDevs: DevUser[] = [
-    { id: randomUUID(), user_code: 'tiny_pl', name: 'Tiny PL', email: 'tiny.pl@company.com', profile: 'good', tenureMonths: 6, lateTaskPercent: 10, commitVariance: 'stable', targetRank: 'pro', roleP2: 'none' },
-    { id: randomUUID(), user_code: 'tiny_dev_a', name: 'Tiny Dev A', email: 'tiny.a@company.com', profile: 'average', tenureMonths: 4, lateTaskPercent: 22, commitVariance: 'stable', targetRank: 'developer', roleP2: 'none' },
-    { id: randomUUID(), user_code: 'tiny_dev_b', name: 'Tiny Dev B', email: 'tiny.b@company.com', profile: 'average', tenureMonths: 4, lateTaskPercent: 24, commitVariance: 'burst', targetRank: 'developer', roleP2: 'none' },
+    {
+      id: randomUUID(),
+      user_code: 'tiny_pl',
+      name: 'Tiny PL',
+      email: 'tiny.pl@company.com',
+      profile: 'good',
+      tenureMonths: 6,
+      lateTaskPercent: 10,
+      commitVariance: 'stable',
+      targetRank: 'pro',
+      roleP2: 'none',
+    },
+    {
+      id: randomUUID(),
+      user_code: 'tiny_dev_a',
+      name: 'Tiny Dev A',
+      email: 'tiny.a@company.com',
+      profile: 'average',
+      tenureMonths: 4,
+      lateTaskPercent: 22,
+      commitVariance: 'stable',
+      targetRank: 'developer',
+      roleP2: 'none',
+    },
+    {
+      id: randomUUID(),
+      user_code: 'tiny_dev_b',
+      name: 'Tiny Dev B',
+      email: 'tiny.b@company.com',
+      profile: 'average',
+      tenureMonths: 4,
+      lateTaskPercent: 24,
+      commitVariance: 'burst',
+      targetRank: 'developer',
+      roleP2: 'none',
+    },
   ]
 
-  const plP2User = devsP1.find((u) => u.roleP2 === 'pl') ?? devsP1[0]
+  const plP2User = devsP1.find(u => u.roleP2 === 'pl') ?? devsP1[0]
   if (!plP2User) throw new Error('seedMockData: devsP1 rỗng')
   const coreP2Codes = new Set(['dev_legend', 'dev_master', 'dev_expert', 'dev_pro', 'dev_regular'])
-  const coreP2Row = devsP1.filter((u) => coreP2Codes.has(u.user_code))
-  const devsP2Ordered = [plP2User, ...coreP2Row.filter((u) => u.id !== plP2User.id)]
-  const devsP2 = [...devsP2Ordered, ...devsP2Extra, ...p2OnlyDevs].filter((u) => (u.roleP2 ?? 'dev') !== 'none')
+  const coreP2Row = devsP1.filter(u => coreP2Codes.has(u.user_code))
+  const devsP2Ordered = [plP2User, ...coreP2Row.filter(u => u.id !== plP2User.id)]
+  const devsP2 = [...devsP2Ordered, ...devsP2Extra, ...p2OnlyDevs].filter(u => (u.roleP2 ?? 'dev') !== 'none')
 
   const allSeedUsers: DevUser[] = [...devsP1, ...devsP2Extra, ...p2OnlyDevs, ...plOnlyUsers, ...tinyTeamDevs]
 
   const passwordHash = await bcrypt.hash(DEFAULT_PASSWORD, 10)
 
-  await withTransaction(async (tx) => {
+  await withTransaction(async tx => {
     for (const u of allSeedUsers) {
-      await tx(
-        'INSERT IGNORE INTO users (id, user_code, name, email, receive_commit_notification) VALUES (?, ?, ?, ?, TRUE)',
-        [u.id, u.user_code, u.name, u.email]
-      )
-      await tx(
-        'INSERT IGNORE INTO users_password (id, user_id, password_hash) VALUES (?, ?, ?)',
-        [randomUUID(), u.id, passwordHash]
-      )
+      await tx('INSERT INTO users (id, user_code, name, email, receive_commit_notification) VALUES (?, ?, ?, ?, TRUE) ON CONFLICT (user_code) DO NOTHING', [
+        u.id,
+        u.user_code,
+        u.name,
+        u.email,
+      ])
+      await tx('INSERT INTO users_password (id, user_id, password_hash) VALUES (?, ?, ?) ON CONFLICT (user_id) DO NOTHING', [randomUUID(), u.id, passwordHash])
     }
   })
-  // Đồng bộ id thực tế từ DB (INSERT IGNORE có thể bỏ qua khi user_code trùng → id trong memory != id trong DB)
-  const userCodes = allSeedUsers.map((u) => u.user_code)
+  // Đồng bộ id thực tế từ DB (ON CONFLICT DO NOTHING có thể bỏ qua khi user_code trùng → id trong memory != id trong DB)
+  const userCodes = allSeedUsers.map(u => u.user_code)
   const placeholders = userCodes.map(() => '?').join(',')
-  const rows = await query<{ id: string; user_code: string }[]>(
-    `SELECT id, user_code FROM users WHERE user_code IN (${placeholders})`,
-    userCodes
-  )
-  const idByCode = new Map((Array.isArray(rows) ? rows : []).map((r) => [r.user_code, r.id]))
+  const rows = await query<{ id: string; user_code: string }[]>(`SELECT id, user_code FROM users WHERE user_code IN (${placeholders})`, userCodes)
+  const idByCode = new Map((Array.isArray(rows) ? rows : []).map(r => [r.user_code, r.id]))
   for (const u of allSeedUsers) {
     const realId = idByCode.get(u.user_code)
     if (realId) u.id = realId
@@ -1312,56 +1638,43 @@ export async function main(): Promise<void> {
   const pathP3 = 'C:/workspace/tiny-team/repo'
 
   const reportDateStr = toDateStr(endDate)
-  const projectsCols =
-    'id, project_no, name, start_date, end_date, report_date, end_user, daily_report_reminder_time'
-  await query(
-    `INSERT INTO projects (${projectsCols}) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-    [
-      project1Id,
-      'ECOM',
-      'E-Commerce Platform',
-      toDateStr(startDate),
-      toDateStr(endDate),
-      reportDateStr,
-      'Retail Corp',
-      '17:00:00',
-    ],
-  )
-  await query(
-    `INSERT INTO projects (${projectsCols}) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-    [
-      project2Id,
-      'CRM',
-      'Internal CRM',
-      toDateStr(project2Start),
-      toDateStr(endDate),
-      reportDateStr,
-      'Internal',
-      '16:30:00',
-    ],
-  )
-  await query(
-    `INSERT INTO projects (${projectsCols}) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-    [
-      project3Id,
-      'TINY',
-      'Tiny Team',
-      toDateStr(startDate),
-      toDateStr(endDate),
-      reportDateStr,
-      'Internal',
-      null,
-    ],
-  )
+  const projectsCols = 'id, project_no, name, start_date, end_date, report_date, end_user, daily_report_reminder_time'
+  await query(`INSERT INTO projects (${projectsCols}) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`, [
+    project1Id,
+    'ECOM',
+    'E-Commerce Platform',
+    toDateStr(startDate),
+    toDateStr(endDate),
+    reportDateStr,
+    'Retail Corp',
+    '17:00:00',
+  ])
+  await query(`INSERT INTO projects (${projectsCols}) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`, [
+    project2Id,
+    'CRM',
+    'Internal CRM',
+    toDateStr(project2Start),
+    toDateStr(endDate),
+    reportDateStr,
+    'Internal',
+    '16:30:00',
+  ])
+  await query(`INSERT INTO projects (${projectsCols}) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`, [
+    project3Id,
+    'TINY',
+    'Tiny Team',
+    toDateStr(startDate),
+    toDateStr(endDate),
+    reportDateStr,
+    'Internal',
+    null,
+  ])
   console.log('Projects inserted')
 
   const seedEvmPhasesForProject = async (projId: string) => {
     let ord = 0
     for (const p of EVM_DEFAULT_PHASES) {
-      await query(
-        'INSERT IGNORE INTO evm_phases (project_id, code, name, sort_order) VALUES (?, ?, ?, ?)',
-        [projId, p.code, p.name, ord++]
-      )
+      await query('INSERT INTO evm_phases (project_id, code, name, sort_order) VALUES (?, ?, ?, ?) ON CONFLICT (project_id, code) DO NOTHING', [projId, p.code, p.name, ord++])
     }
   }
   await seedEvmPhasesForProject(project1Id)
@@ -1377,40 +1690,46 @@ export async function main(): Promise<void> {
 
   for (let i = 0; i < devsP1.length; i++) {
     const u = devsP1[i]
-    await query(
-      'INSERT IGNORE INTO user_project_roles (id, user_id, project_id, role) VALUES (?, ?, ?, ?)',
-      [randomUUID(), u.id, project1Id, defaultRoleP1(u, i)]
-    )
+    await query('INSERT INTO user_project_roles (id, user_id, project_id, role) VALUES (?, ?, ?, ?) ON CONFLICT (user_id, project_id_uk, role) DO NOTHING', [
+      randomUUID(),
+      u.id,
+      project1Id,
+      defaultRoleP1(u, i),
+    ])
     const upsId = randomUUID()
     upsfP1.push({ id: upsId, userId: u.id, projectId: project1Id, path: pathP1 })
   }
   for (const u of plOnlyUsers) {
-    await query(
-      'INSERT IGNORE INTO user_project_roles (id, user_id, project_id, role) VALUES (?, ?, ?, ?)',
-      [randomUUID(), u.id, project1Id, 'pl']
-    )
+    await query('INSERT INTO user_project_roles (id, user_id, project_id, role) VALUES (?, ?, ?, ?) ON CONFLICT (user_id, project_id_uk, role) DO NOTHING', [
+      randomUUID(),
+      u.id,
+      project1Id,
+      'pl',
+    ])
     const upsId = randomUUID()
     upsfP1.push({ id: upsId, userId: u.id, projectId: project1Id, path: pathP1 })
   }
   for (const up of upsfP1) {
     await query(
-      'INSERT IGNORE INTO user_project_source_folder (id, user_id, project_id, source_folder_path, source_folder_name) VALUES (?, ?, ?, ?, ?)',
+      'INSERT INTO user_project_source_folder (id, user_id, project_id, source_folder_path, source_folder_name) VALUES (?, ?, ?, ?, ?) ON CONFLICT (user_id, project_id, source_folder_path) DO NOTHING',
       [up.id, up.userId, up.projectId, up.path, 'ecom-repo']
     )
   }
 
   for (let i = 0; i < devsP2.length; i++) {
     const u = devsP2[i]
-    await query(
-      'INSERT IGNORE INTO user_project_roles (id, user_id, project_id, role) VALUES (?, ?, ?, ?)',
-      [randomUUID(), u.id, project2Id, i === 0 ? 'pl' : 'dev']
-    )
+    await query('INSERT INTO user_project_roles (id, user_id, project_id, role) VALUES (?, ?, ?, ?) ON CONFLICT (user_id, project_id_uk, role) DO NOTHING', [
+      randomUUID(),
+      u.id,
+      project2Id,
+      i === 0 ? 'pl' : 'dev',
+    ])
   }
   for (const u of devsP2) {
     const upsId = randomUUID()
     upsfP2.push({ id: upsId, userId: u.id, projectId: project2Id, path: pathP2 })
     await query(
-      'INSERT IGNORE INTO user_project_source_folder (id, user_id, project_id, source_folder_path, source_folder_name) VALUES (?, ?, ?, ?, ?)',
+      'INSERT INTO user_project_source_folder (id, user_id, project_id, source_folder_path, source_folder_name) VALUES (?, ?, ?, ?, ?) ON CONFLICT (user_id, project_id, source_folder_path) DO NOTHING',
       [upsId, u.id, project2Id, pathP2, 'crm-repo']
     )
   }
@@ -1418,79 +1737,72 @@ export async function main(): Promise<void> {
   for (let ti = 0; ti < tinyTeamDevs.length; ti++) {
     const u = tinyTeamDevs[ti]
     if (!u) continue
-    await query(
-      'INSERT IGNORE INTO user_project_roles (id, user_id, project_id, role) VALUES (?, ?, ?, ?)',
-      [randomUUID(), u.id, project3Id, ti === 0 ? 'pl' : 'dev']
-    )
+    await query('INSERT INTO user_project_roles (id, user_id, project_id, role) VALUES (?, ?, ?, ?) ON CONFLICT (user_id, project_id_uk, role) DO NOTHING', [
+      randomUUID(),
+      u.id,
+      project3Id,
+      ti === 0 ? 'pl' : 'dev',
+    ])
     const upsId = randomUUID()
     upsfP3.push({ id: upsId, userId: u.id, projectId: project3Id, path: pathP3 })
     await query(
-      'INSERT IGNORE INTO user_project_source_folder (id, user_id, project_id, source_folder_path, source_folder_name) VALUES (?, ?, ?, ?, ?)',
+      'INSERT INTO user_project_source_folder (id, user_id, project_id, source_folder_path, source_folder_name) VALUES (?, ?, ?, ?, ?) ON CONFLICT (user_id, project_id, source_folder_path) DO NOTHING',
       [upsId, u.id, project3Id, pathP3, 'tiny-repo']
     )
   }
   console.log('Roles & source folders inserted')
 
   await query(
-    'INSERT IGNORE INTO task_ticket_sequences (project_id, source, next_value) VALUES (?, ?, ?) ON DUPLICATE KEY UPDATE next_value = GREATEST(next_value, ?)',
-    [project1Id, 'in_app', 1, 1]
+    'INSERT INTO task_ticket_sequences (project_id, source, next_value) VALUES (?, ?, ?) ON CONFLICT (project_id, source) DO UPDATE SET next_value = GREATEST(task_ticket_sequences.next_value, EXCLUDED.next_value)',
+    [project1Id, 'in_app', 1]
   )
   await query(
-    'INSERT IGNORE INTO task_ticket_sequences (project_id, source, next_value) VALUES (?, ?, ?) ON DUPLICATE KEY UPDATE next_value = GREATEST(next_value, ?)',
-    [project2Id, 'in_app', 1, 1]
+    'INSERT INTO task_ticket_sequences (project_id, source, next_value) VALUES (?, ?, ?) ON CONFLICT (project_id, source) DO UPDATE SET next_value = GREATEST(task_ticket_sequences.next_value, EXCLUDED.next_value)',
+    [project2Id, 'in_app', 1]
   )
   await query(
-    'INSERT IGNORE INTO task_ticket_sequences (project_id, source, next_value) VALUES (?, ?, ?) ON DUPLICATE KEY UPDATE next_value = GREATEST(next_value, ?)',
-    [project3Id, 'in_app', 1, 1]
+    'INSERT INTO task_ticket_sequences (project_id, source, next_value) VALUES (?, ?, ?) ON CONFLICT (project_id, source) DO UPDATE SET next_value = GREATEST(task_ticket_sequences.next_value, EXCLUDED.next_value)',
+    [project3Id, 'in_app', 1]
   )
 
   // EVM master (assignee list không lưu đây — lấy từ user_project_roles)
-  const phasesJson = JSON.stringify(EVM_DEFAULT_PHASES.map((p) => ({ code: p.code, name: p.name })))
+  const phasesJson = JSON.stringify(EVM_DEFAULT_PHASES.map(p => ({ code: p.code, name: p.name })))
   const evmMasterUpsertSuffix =
-    ' ON DUPLICATE KEY UPDATE phases = VALUES(phases), statuses = VALUES(statuses), non_working_days = VALUES(non_working_days), hours_per_day = VALUES(hours_per_day), phase_report_notes = VALUES(phase_report_notes), assignee_report_notes = VALUES(assignee_report_notes), percent_done_options = VALUES(percent_done_options), issue_import_map = VALUES(issue_import_map)'
+    ' ON CONFLICT (project_id) DO UPDATE SET phases = EXCLUDED.phases, statuses = EXCLUDED.statuses, non_working_days = EXCLUDED.non_working_days, hours_per_day = EXCLUDED.hours_per_day, phase_report_notes = EXCLUDED.phase_report_notes, assignee_report_notes = EXCLUDED.assignee_report_notes, percent_done_options = EXCLUDED.percent_done_options, issue_import_map = EXCLUDED.issue_import_map'
   const evmMasterCols = `project_id, phases, statuses, non_working_days, hours_per_day, phase_report_notes, assignee_report_notes, percent_done_options, issue_import_map`
-  await query(
-    `INSERT INTO evm_master (${evmMasterCols}) VALUES (?, ?, ?, ?, ?, ?, ?, ?)${evmMasterUpsertSuffix}`,
-    [
-      project1Id,
-      phasesJson,
-      EVM_MASTER_STATUSES_JSON,
-      '[]',
-      8,
-      EVM_MASTER_PHASE_REPORT_NOTES_JSON,
-      sampleAssigneeReportNotesJson(devsP1),
-      EVM_MASTER_PERCENT_DONE_OPTIONS_JSON,
-      EVM_MASTER_ISSUE_IMPORT_MAP_JSON,
-    ],
-  )
-  await query(
-    `INSERT INTO evm_master (${evmMasterCols}) VALUES (?, ?, ?, ?, ?, ?, ?, ?)${evmMasterUpsertSuffix}`,
-    [
-      project2Id,
-      phasesJson,
-      EVM_MASTER_STATUSES_JSON,
-      '[]',
-      8,
-      EVM_MASTER_PHASE_REPORT_NOTES_JSON,
-      sampleAssigneeReportNotesJson(devsP2),
-      EVM_MASTER_PERCENT_DONE_OPTIONS_JSON,
-      EVM_MASTER_ISSUE_IMPORT_MAP_JSON,
-    ],
-  )
-  await query(
-    `INSERT INTO evm_master (${evmMasterCols}) VALUES (?, ?, ?, ?, ?, ?, ?, ?)${evmMasterUpsertSuffix}`,
-    [
-      project3Id,
-      phasesJson,
-      EVM_MASTER_STATUSES_JSON,
-      '[]',
-      7.5,
-      EVM_MASTER_PHASE_REPORT_NOTES_JSON,
-      sampleAssigneeReportNotesJson(tinyTeamDevs),
-      EVM_MASTER_PERCENT_DONE_OPTIONS_JSON,
-      EVM_MASTER_ISSUE_IMPORT_MAP_JSON,
-    ],
-  )
+  await query(`INSERT INTO evm_master (${evmMasterCols}) VALUES (?, ?::jsonb, ?::jsonb, ?::jsonb, ?, ?::jsonb, ?::jsonb, ?::jsonb, ?::jsonb)${evmMasterUpsertSuffix}`, [
+    project1Id,
+    phasesJson,
+    EVM_MASTER_STATUSES_JSON,
+    '[]',
+    8,
+    EVM_MASTER_PHASE_REPORT_NOTES_JSON,
+    sampleAssigneeReportNotesJson(devsP1),
+    EVM_MASTER_PERCENT_DONE_OPTIONS_JSON,
+    EVM_MASTER_ISSUE_IMPORT_MAP_JSON,
+  ])
+  await query(`INSERT INTO evm_master (${evmMasterCols}) VALUES (?, ?::jsonb, ?::jsonb, ?::jsonb, ?, ?::jsonb, ?::jsonb, ?::jsonb, ?::jsonb)${evmMasterUpsertSuffix}`, [
+    project2Id,
+    phasesJson,
+    EVM_MASTER_STATUSES_JSON,
+    '[]',
+    8,
+    EVM_MASTER_PHASE_REPORT_NOTES_JSON,
+    sampleAssigneeReportNotesJson(devsP2),
+    EVM_MASTER_PERCENT_DONE_OPTIONS_JSON,
+    EVM_MASTER_ISSUE_IMPORT_MAP_JSON,
+  ])
+  await query(`INSERT INTO evm_master (${evmMasterCols}) VALUES (?, ?::jsonb, ?::jsonb, ?::jsonb, ?, ?::jsonb, ?::jsonb, ?::jsonb, ?::jsonb)${evmMasterUpsertSuffix}`, [
+    project3Id,
+    phasesJson,
+    EVM_MASTER_STATUSES_JSON,
+    '[]',
+    7.5,
+    EVM_MASTER_PHASE_REPORT_NOTES_JSON,
+    sampleAssigneeReportNotesJson(tinyTeamDevs),
+    EVM_MASTER_PERCENT_DONE_OPTIONS_JSON,
+    EVM_MASTER_ISSUE_IMPORT_MAP_JSON,
+  ])
 
   const evmWbsSegmentsP1: EvmWbsSegment[] = []
   const evmWbsSegmentsP2: EvmWbsSegment[] = []
@@ -1538,8 +1850,7 @@ export async function main(): Promise<void> {
       const planStart = datesStart[0]
       const planEnd = datesEnd.length ? datesEnd[datesEnd.length - 1] : undefined
       if (planStart == null || planEnd == null) continue
-      const assigneePick =
-        gRows.map(r => r.assignee_user_id).find(a => a != null && String(a).trim() !== '') ?? first.assignee_user_id
+      const assigneePick = gRows.map(r => r.assignee_user_id).find(a => a != null && String(a).trim() !== '') ?? first.assignee_user_id
       const rollupBac = Math.round(gRows.reduce((s, r) => s + r.bac, 0) * 100) / 100
       const detailProgs = gRows.map(r => roundWbsDetailProgress01(r.percent_done))
       const rollupProgress = detailProgs.length ? Math.max(...detailProgs) : 0
@@ -1561,20 +1872,14 @@ export async function main(): Promise<void> {
           assigneePick ?? null,
           rollupBac,
           rollupProgress,
-        ],
+        ]
       )
 
-      const sortedGroup = [...gRows].sort(
-        (a, b) =>
-          a.plan_start_date.localeCompare(b.plan_start_date) || a.assignee_user_id.localeCompare(b.assignee_user_id),
-      )
+      const sortedGroup = [...gRows].sort((a, b) => a.plan_start_date.localeCompare(b.plan_start_date) || a.assignee_user_id.localeCompare(b.assignee_user_id))
       let detailNo = 1
       for (const r of sortedGroup) {
         const id = randomUUID()
-        const calDur = Math.max(
-          1,
-          differenceInCalendarDays(new Date(`${r.plan_end_date}T00:00:00`), new Date(`${r.plan_start_date}T00:00:00`)) + 1,
-        )
+        const calDur = Math.max(1, differenceInCalendarDays(new Date(`${r.plan_end_date}T00:00:00`), new Date(`${r.plan_start_date}T00:00:00`)) + 1)
         const estMd = Math.round((r.bac / HPD) * 100) / 100
         const effort = Math.round(r.bac * 100) / 100
         const wbsNote = insertRnd() < 0.22 ? pickRng(insertRnd, EVM_WBS_NOTE_SNIPPETS) : null
@@ -1604,31 +1909,19 @@ export async function main(): Promise<void> {
             effort,
             estMd,
             wbsNote,
-          ],
+          ]
         )
         detailNo++
       }
     }
   }
 
-  await insertEvmWbsGenerated(
-    project1Id,
-    generateRealisticEvmWbsForProject(project1Id, startDate, endDate, devsP1, 1, rndWbsP1, endDate, evmWbsSegmentsP1),
-  )
-  await insertEvmWbsGenerated(
-    project2Id,
-    generateRealisticEvmWbsForProject(project2Id, project2Start, endDate, devsP2, 1, rndWbsP2, endDate, evmWbsSegmentsP2),
-  )
-  await insertEvmWbsGenerated(
-    project3Id,
-    generateRealisticEvmWbsForProject(project3Id, startDate, endDate, tinyTeamDevs, 0.28, rndWbsP3, endDate, evmWbsSegmentsP3),
-  )
+  await insertEvmWbsGenerated(project1Id, generateRealisticEvmWbsForProject(project1Id, startDate, endDate, devsP1, 1, rndWbsP1, endDate, evmWbsSegmentsP1))
+  await insertEvmWbsGenerated(project2Id, generateRealisticEvmWbsForProject(project2Id, project2Start, endDate, devsP2, 1, rndWbsP2, endDate, evmWbsSegmentsP2))
+  await insertEvmWbsGenerated(project3Id, generateRealisticEvmWbsForProject(project3Id, startDate, endDate, tinyTeamDevs, 0.28, rndWbsP3, endDate, evmWbsSegmentsP3))
 
   const evmAiInsightSamples: [string, string][] = [
-    [
-      'EVM_EXPLAIN_METRICS',
-      '## EVM (mock seed)\n- **CPI** dao động quanh 0,95–1,02 trên Coding / IT.\n- **EV**: theo BAC dòng WBS; vài gói design trễ nhẹ so kế hoạch.',
-    ],
+    ['EVM_EXPLAIN_METRICS', '## EVM (mock seed)\n- **CPI** dao động quanh 0,95–1,02 trên Coding / IT.\n- **EV**: theo BAC dòng WBS; vài gói design trễ nhẹ so kế hoạch.'],
     [
       'EVM_SCHEDULE_RISK',
       '## Rủi ro lịch (mock)\n- Giai đoạn **IT/UAT** sát mốc go-live — nên giữ buffer 2–3 ngày làm việc.\n- **System/Basic Design** nhạy scope creep; sync lại WBS nếu đổi phạm vi.',
@@ -1638,10 +1931,13 @@ export async function main(): Promise<void> {
     const aiRnd = createSeededRng(hashToSeed(`evm-ai-insight-${projId}`))
     for (const [insightType, md] of evmAiInsightSamples) {
       if (aiRnd() < 0.08) continue
-      await query(
-        `INSERT INTO evm_ai_insight (id, project_id, insight_type, output_markdown, input_payload_json) VALUES (?, ?, ?, ?, ?)`,
-        [randomUUID(), projId, insightType, md, JSON.stringify({ source: 'seed:mock', version: 1 })],
-      )
+      await query(`INSERT INTO evm_ai_insight (id, project_id, insight_type, output_markdown, input_payload_json) VALUES (?, ?, ?, ?, ?)`, [
+        randomUUID(),
+        projId,
+        insightType,
+        md,
+        JSON.stringify({ source: 'seed:mock', version: 1 }),
+      ])
     }
   }
 
@@ -1690,17 +1986,32 @@ export async function main(): Promise<void> {
   )
   const batchCommits = createBatchInserter(
     'git_commit_queue',
-    ['commit_hash', 'commit_user', 'commit_time', 'commit_message', 'added_files', 'modified_files', 'deleted_files', 'has_check_coding_rule', 'has_check_spotbugs', 'branch_name', 'insertions', 'deletions', 'changes', 'source_folder_path'],
+    [
+      'commit_hash',
+      'commit_user',
+      'commit_time',
+      'commit_message',
+      'added_files',
+      'modified_files',
+      'deleted_files',
+      'has_check_coding_rule',
+      'has_check_spotbugs',
+      'branch_name',
+      'insertions',
+      'deletions',
+      'changes',
+      'source_folder_path',
+    ],
     '(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
     exec,
-    ' ON DUPLICATE KEY UPDATE commit_user=VALUES(commit_user)'
+    ' ON CONFLICT (commit_hash) DO UPDATE SET commit_user = EXCLUDED.commit_user'
   )
   const batchReviews = createBatchInserter(
     'commit_reviews',
     ['id', 'source_folder_path', 'commit_id', 'vcs_type', 'reviewed_at', 'reviewer_user_id', 'note'],
     '(?, ?, ?, ?, ?, ?, ?)',
     exec,
-    ' ON DUPLICATE KEY UPDATE reviewer_user_id=VALUES(reviewer_user_id)'
+    ' ON CONFLICT (source_folder_path, commit_id) DO UPDATE SET reviewer_user_id = EXCLUDED.reviewer_user_id'
   )
   const batchEvmAc = createBatchInserter(
     'evm_ac',
@@ -1747,7 +2058,7 @@ export async function main(): Promise<void> {
     ],
     '(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
     exec,
-    ' ON DUPLICATE KEY UPDATE commits_count=VALUES(commits_count), lines_inserted=VALUES(lines_inserted), lines_deleted=VALUES(lines_deleted), files_changed=VALUES(files_changed), commits_with_rule_check=VALUES(commits_with_rule_check), commits_with_spotbugs=VALUES(commits_with_spotbugs), commits_total_in_queue=VALUES(commits_total_in_queue), tasks_done=VALUES(tasks_done), tasks_done_on_time=VALUES(tasks_done_on_time), tasks_overdue_opened=VALUES(tasks_overdue_opened), reviews_done=VALUES(reviews_done), has_daily_report=VALUES(has_daily_report), evm_hours_logged=VALUES(evm_hours_logged)'
+    ' ON CONFLICT (user_id, snapshot_date) DO UPDATE SET commits_count = EXCLUDED.commits_count, lines_inserted = EXCLUDED.lines_inserted, lines_deleted = EXCLUDED.lines_deleted, files_changed = EXCLUDED.files_changed, commits_with_rule_check = EXCLUDED.commits_with_rule_check, commits_with_spotbugs = EXCLUDED.commits_with_spotbugs, commits_total_in_queue = EXCLUDED.commits_total_in_queue, tasks_done = EXCLUDED.tasks_done, tasks_done_on_time = EXCLUDED.tasks_done_on_time, tasks_overdue_opened = EXCLUDED.tasks_overdue_opened, reviews_done = EXCLUDED.reviews_done, has_daily_report = EXCLUDED.has_daily_report, evm_hours_logged = EXCLUDED.evm_hours_logged'
   )
   type DevAccum = {
     tasks: number
@@ -1771,9 +2082,24 @@ export async function main(): Promise<void> {
   }
   const devStatsAccum = new Map<string, DevAccum>()
   const defaultAccum = (): DevAccum => ({
-    tasks: 0, commits: 0, reports: 0, reviews: 0, onTime: 0, early: 0, late: 0,
-    bugDone: 0, featureDone: 0, criticalDone: 0, spotbugsClean: 0, spotbugsFails: 0,
-    pushes: 0, merges: 0, branches: 0, rebases: 0, filesCommitted: 0, insertions: 0,
+    tasks: 0,
+    commits: 0,
+    reports: 0,
+    reviews: 0,
+    onTime: 0,
+    early: 0,
+    late: 0,
+    bugDone: 0,
+    featureDone: 0,
+    criticalDone: 0,
+    spotbugsClean: 0,
+    spotbugsFails: 0,
+    pushes: 0,
+    merges: 0,
+    branches: 0,
+    rebases: 0,
+    filesCommitted: 0,
+    insertions: 0,
   })
   const initAccum = (id: string) => {
     if (!devStatsAccum.has(id)) devStatsAccum.set(id, defaultAccum())
@@ -1905,8 +2231,8 @@ export async function main(): Promise<void> {
       await query(
         `INSERT INTO daily_reports (id, user_id, project_ids, report_date, work_description, selected_commits)
          VALUES ${ph}
-         ON DUPLICATE KEY UPDATE work_description=VALUES(work_description)`,
-        chunk.flatMap((r) => [...r]),
+         ON CONFLICT (user_id, report_date) DO UPDATE SET work_description = EXCLUDED.work_description`,
+        chunk.flatMap(r => [...r])
       )
     }
     if (pendingDailyReportDrsf.length === 0) {
@@ -1917,25 +2243,18 @@ export async function main(): Promise<void> {
     for (const d of pendingDailyReportDrsf) {
       keys.add(`${d.userId}|${d.reportDate}`)
     }
-    const pairs = [...keys].map((k) => {
+    const pairs = [...keys].map(k => {
       const sep = k.indexOf('|')
       return { userId: k.slice(0, sep), reportDate: k.slice(sep + 1) }
     })
     const inPh = pairs.map(() => '(?,?)').join(',')
-    const flatParams = pairs.flatMap((p) => [p.userId, p.reportDate])
-    const idRowsRaw = (await query(
-      `SELECT id, user_id, report_date FROM daily_reports WHERE (user_id, report_date) IN (${inPh})`,
-      flatParams,
-    )) as unknown
+    const flatParams = pairs.flatMap(p => [p.userId, p.reportDate])
+    const idRowsRaw = (await query(`SELECT id, user_id, report_date FROM daily_reports WHERE (user_id, report_date) IN (${inPh})`, flatParams)) as unknown
     const idRows = idRowsRaw as { id: string; user_id: string; report_date: string | Date }[]
     const idByKey = new Map<string, string>()
     for (const r of idRows) {
       const rd =
-        typeof r.report_date === 'string'
-          ? r.report_date.includes('T')
-            ? (r.report_date.split('T')[0] ?? r.report_date)
-            : r.report_date
-          : toDateStr(r.report_date as Date)
+        typeof r.report_date === 'string' ? (r.report_date.includes('T') ? (r.report_date.split('T')[0] ?? r.report_date) : r.report_date) : toDateStr(r.report_date as Date)
       idByKey.set(`${r.user_id}|${rd}`, r.id)
     }
     const drsfRows: unknown[][] = []
@@ -1947,17 +2266,17 @@ export async function main(): Promise<void> {
       const ch = drsfRows.slice(i, i + INSERT_BATCH_SIZE)
       const ph2 = ch.map(() => '(?,?,?)').join(', ')
       await query(
-        `INSERT IGNORE INTO daily_report_source_folders (daily_report_id, user_project_source_folder_id, sort_order) VALUES ${ph2}`,
-        ch.flat(),
+        `INSERT INTO daily_report_source_folders (daily_report_id, user_project_source_folder_id, sort_order) VALUES ${ph2} ON CONFLICT (daily_report_id, user_project_source_folder_id) DO NOTHING`,
+        ch.flat()
       )
     }
     pendingDailyReportRows.length = 0
     pendingDailyReportDrsf.length = 0
   }
 
-  const taskUpdatePeersP1 = [...new Set([...devsP1.map((d) => d.id), ...plOnlyUsers.map((u) => u.id)])]
-  const taskUpdatePeersP2 = [...new Set(devsP2.map((d) => d.id))]
-  const taskUpdatePeersP3 = [...new Set(tinyTeamDevs.map((d) => d.id))]
+  const taskUpdatePeersP1 = [...new Set([...devsP1.map(d => d.id), ...plOnlyUsers.map(u => u.id)])]
+  const taskUpdatePeersP2 = [...new Set(devsP2.map(d => d.id))]
+  const taskUpdatePeersP3 = [...new Set(tinyTeamDevs.map(d => d.id))]
 
   for (let dayIdx = 0; dayIdx < workingDays.length; dayIdx++) {
     radarCommitDayDecision.clear()
@@ -1991,9 +2310,7 @@ export async function main(): Promise<void> {
       const baseTasks = taskFactor === 0 ? 0 : randBetweenRng(rnd, cfg.tasksPerDay[0], cfg.tasksPerDay[1])
       let numTasks = Math.max(0, Math.round(baseTasks * scale * rampUp * monFactor * taskFactor))
       if (dev.activityMode === 'commits_only') numTasks = 0
-      const statusWeightsFiltered = simTaskStatusWeights(cfg.donePercent, eff.inProgressBias).filter(
-        ([, w]) => Number(w) > 0,
-      ) as [string, number][]
+      const statusWeightsFiltered = simTaskStatusWeights(cfg.donePercent, eff.inProgressBias).filter(([, w]) => Number(w) > 0) as [string, number][]
 
       let doneToday = 0
       let onTimeDoneToday = 0
@@ -2027,12 +2344,7 @@ export async function main(): Promise<void> {
           else if (typ === 'feature') acc.featureDone++
           if (prio === 'critical') acc.criticalDone++
         }
-        const createdAtStr =
-          status === 'new' || (status === 'cancelled' && !actStart)
-            ? `${dateStr} 09:00:00`
-            : actStart
-              ? `${actStart} 09:30:00`
-              : `${dateStr} 09:00:00`
+        const createdAtStr = status === 'new' || (status === 'cancelled' && !actStart) ? `${dateStr} 09:00:00` : actStart ? `${actStart} 09:30:00` : `${dateStr} 09:00:00`
         batchTasks.add([
           taskId,
           project1Id,
@@ -2060,7 +2372,8 @@ export async function main(): Promise<void> {
       let numCommits: number
       if (commitFactor === 0) numCommits = 0
       else if (dev.commitVariance === 'stable') numCommits = Math.max(0, Math.round(baseCommits * scale * monFactor * commitFactor))
-      else if (dev.commitVariance === 'burst') numCommits = rnd() < 0.2 ? randBetweenRng(rnd, 0, 2) : Math.max(0, Math.round(baseCommits * scale * monFactor * commitFactor * (0.8 + rnd() * 0.5)))
+      else if (dev.commitVariance === 'burst')
+        numCommits = rnd() < 0.2 ? randBetweenRng(rnd, 0, 2) : Math.max(0, Math.round(baseCommits * scale * monFactor * commitFactor * (0.8 + rnd() * 0.5)))
       else numCommits = rnd() < 0.15 ? randBetweenRng(rnd, 0, 1) : Math.max(0, Math.round(baseCommits * scale * monFactor * commitFactor * (1 + rnd() * 1.5)))
       const commitDayJitter = 0.82 + rnd() * 0.28
       numCommits = Math.max(0, Math.round(numCommits * commitDayJitter))
@@ -2069,10 +2382,7 @@ export async function main(): Promise<void> {
       const radarDayKey = `${dev.id}-${dayIdx}`
       if (isWorkDayCommits && numCommits > 0) {
         if (!radarCommitDayDecision.has(radarDayKey)) {
-          const pNc = Math.min(
-            0.42,
-            Math.max(0.02, PROFILE_NO_COMMIT_DAY_P[dev.profile] + radarNoCommitBoost(dev.id)),
-          )
+          const pNc = Math.min(0.42, Math.max(0.02, PROFILE_NO_COMMIT_DAY_P[dev.profile] + radarNoCommitBoost(dev.id)))
           radarCommitDayDecision.set(radarDayKey, rnd() < pNc)
         }
         if (radarCommitDayDecision.get(radarDayKey)) numCommits = 0
@@ -2107,22 +2417,7 @@ export async function main(): Promise<void> {
           if (rnd() < 0.9) acc.spotbugsClean++
           else acc.spotbugsFails++
         }
-        batchCommits.add([
-          hash,
-          dev.email,
-          toDateTimeStr(commitTime),
-          msg,
-          '[]',
-          '[]',
-          '[]',
-          hasRule,
-          hasSpot,
-          null,
-          ins,
-          del,
-          chg,
-          pathP,
-        ])
+        batchCommits.add([hash, dev.email, toDateTimeStr(commitTime), msg, '[]', '[]', '[]', hasRule, hasSpot, null, ins, del, chg, pathP])
         await batchCommits.maybeFlush()
       }
       if (rnd() < 0.08) acc.pushes += randBetweenRng(rnd, 1, 3)
@@ -2134,7 +2429,7 @@ export async function main(): Promise<void> {
       const rawReview = Math.floor(commitsForDay.length * reviewRatio)
       const revCap = PROFILE_REVIEW_DAILY_CAP[dev.profile]
       const toReview = commitsForDay.slice(0, Math.min(rawReview, revCap))
-      const reviewers = devsP1.filter((d) => d.id !== dev.id && !isNoReviewReviewer(d))
+      const reviewers = devsP1.filter(d => d.id !== dev.id && !isNoReviewReviewer(d))
       if (reviewers.length > 0) {
         acc.reviews += toReview.length
         for (let r = 0; r < toReview.length; r++) {
@@ -2145,19 +2440,16 @@ export async function main(): Promise<void> {
           batchReviews.add([randomUUID(), pathP, rev.hash, 'git', toDateTimeStr(addHours(day, 16)), reviewer.id, 'OK'])
           await batchReviews.maybeFlush()
           let revSet = reviewedByUserDay.get(reviewer.id)
-          if (!revSet) { revSet = new Set<number>(); reviewedByUserDay.set(reviewer.id, revSet) }
+          if (!revSet) {
+            revSet = new Set<number>()
+            reviewedByUserDay.set(reviewer.id, revSet)
+          }
           revSet.add(dayIdx)
         }
       }
 
-      let doReport =
-        streakTailDay || (commitsForDay.length > 0 && rnd() * 100 < cfg.reportPercent)
-      if (
-        doReport &&
-        !streakTailDay &&
-        commitsForDay.length > 0 &&
-        rnd() < PROFILE_SKIP_REPORT_DESPITE_COMMITS_P[dev.profile]
-      ) {
+      let doReport = streakTailDay || (commitsForDay.length > 0 && rnd() * 100 < cfg.reportPercent)
+      if (doReport && !streakTailDay && commitsForDay.length > 0 && rnd() < PROFILE_SKIP_REPORT_DESPITE_COMMITS_P[dev.profile]) {
         doReport = false
       }
       if (dev.neverDailyReport) doReport = false
@@ -2176,7 +2468,7 @@ export async function main(): Promise<void> {
       }
       if (doReport) {
         const reportId = randomUUID()
-        const selectedCommits = commitsForDay.map((co) => ({
+        const selectedCommits = commitsForDay.map(co => ({
           revision: co.hash,
           message: co.msg,
           author: dev.email,
@@ -2192,7 +2484,7 @@ export async function main(): Promise<void> {
           dateStr,
           rnd() < 0.2 ? pickRng(rnd, REPORT_SHORT) : rnd() < 0.15 ? pickRng(rnd, REPORT_LONG) : pickRng(rnd, WORK_DESCRIPTIONS),
           JSON.stringify(selectedCommits),
-          upsf?.id ?? null,
+          upsf?.id ?? null
         )
       }
 
@@ -2203,8 +2495,7 @@ export async function main(): Promise<void> {
       let evmNote: string
       if (isOffDay) {
         evmPhaseP1 = activeWbsP1?.phase ?? pickEvmAcPhase(rnd)
-        evmNote =
-          dayType === 'business_trip' ? 'Công tác' : dayType === 'training' ? 'Training' : dayType === 'conference' ? 'Conference' : 'Nghỉ phép / Off'
+        evmNote = dayType === 'business_trip' ? 'Công tác' : dayType === 'training' ? 'Training' : dayType === 'conference' ? 'Conference' : 'Nghỉ phép / Off'
       } else if (activeWbsP1) {
         evmPhaseP1 = activeWbsP1.phase
         evmNote = activeWbsP1.task
@@ -2257,13 +2548,9 @@ export async function main(): Promise<void> {
       await batchSnapshots.maybeFlush()
     }
 
-    const onboardingDevs = devsP1.filter(
-      (d) =>
-        !isNoReviewReviewer(d) &&
-        (dayTypeByKey.get(`${d.id}-${dayIdx}`) ?? 'normal') === 'onboarding_support',
-    )
+    const onboardingDevs = devsP1.filter(d => !isNoReviewReviewer(d) && (dayTypeByKey.get(`${d.id}-${dayIdx}`) ?? 'normal') === 'onboarding_support')
     const dayCommits = committedByDay.get(dayIdx) ?? []
-    const unreviewed = dayCommits.filter((c) => !reviewedHashes.has(c.hash))
+    const unreviewed = dayCommits.filter(c => !reviewedHashes.has(c.hash))
     const rndOnboardDay = userDayRng(`onboarding-day-${dayIdx}`, dayIdx)
     for (const obDev of onboardingDevs) {
       const extraReviews = Math.min(randBetweenRng(rndOnboardDay, 2, 4), unreviewed.length)
@@ -2276,7 +2563,10 @@ export async function main(): Promise<void> {
         batchReviews.add([randomUUID(), c.path, c.hash, 'git', toDateTimeStr(addHours(day, 17)), obDev.id, 'OK'])
         await batchReviews.maybeFlush()
         let revSet = reviewedByUserDay.get(obDev.id)
-        if (!revSet) { revSet = new Set<number>(); reviewedByUserDay.set(obDev.id, revSet) }
+        if (!revSet) {
+          revSet = new Set<number>()
+          reviewedByUserDay.set(obDev.id, revSet)
+        }
         revSet.add(dayIdx)
       }
     }
@@ -2307,9 +2597,7 @@ export async function main(): Promise<void> {
         const baseTasksP2 = taskFactorP2 === 0 ? 0 : randBetweenRng(rndP2, cfg.tasksPerDay[0], cfg.tasksPerDay[1])
         let numTasksP2 = Math.max(0, Math.round(baseTasksP2 * scaleP2 * rampUpP2 * monFactorP2 * taskFactorP2))
         if (dev.activityMode === 'commits_only') numTasksP2 = 0
-        const statusWeightsP2 = simTaskStatusWeights(cfg.donePercent, effP2.inProgressBias).filter(
-          ([, w]) => Number(w) > 0,
-        ) as [string, number][]
+        const statusWeightsP2 = simTaskStatusWeights(cfg.donePercent, effP2.inProgressBias).filter(([, w]) => Number(w) > 0) as [string, number][]
         let doneTodayP2 = 0
         let onTimeDoneTodayP2 = 0
         let tasksOverdueOpenedTodayP2 = 0
@@ -2342,12 +2630,7 @@ export async function main(): Promise<void> {
             else if (typ === 'feature') acc.featureDone++
             if (prio === 'critical') acc.criticalDone++
           }
-          const createdAtP2 =
-            status === 'new' || (status === 'cancelled' && !actStart)
-              ? `${dateStr} 09:00:00`
-              : actStart
-                ? `${actStart} 09:30:00`
-                : `${dateStr} 09:00:00`
+          const createdAtP2 = status === 'new' || (status === 'cancelled' && !actStart) ? `${dateStr} 09:00:00` : actStart ? `${actStart} 09:30:00` : `${dateStr} 09:00:00`
           batchTasks.add([
             taskId,
             project2Id,
@@ -2375,7 +2658,8 @@ export async function main(): Promise<void> {
         let numCommitsP2: number
         if (commitFactorP2 === 0) numCommitsP2 = 0
         else if (dev.commitVariance === 'stable') numCommitsP2 = Math.max(0, Math.round(baseCommitsP2 * scaleP2 * monFactorP2 * commitFactorP2))
-        else if (dev.commitVariance === 'burst') numCommitsP2 = rndP2() < 0.2 ? randBetweenRng(rndP2, 0, 2) : Math.max(0, Math.round(baseCommitsP2 * scaleP2 * monFactorP2 * commitFactorP2 * (0.8 + rndP2() * 0.5)))
+        else if (dev.commitVariance === 'burst')
+          numCommitsP2 = rndP2() < 0.2 ? randBetweenRng(rndP2, 0, 2) : Math.max(0, Math.round(baseCommitsP2 * scaleP2 * monFactorP2 * commitFactorP2 * (0.8 + rndP2() * 0.5)))
         else numCommitsP2 = rndP2() < 0.15 ? randBetweenRng(rndP2, 0, 1) : Math.max(0, Math.round(baseCommitsP2 * scaleP2 * monFactorP2 * commitFactorP2 * (1 + rndP2() * 1.5)))
         const commitDayJitterP2 = 0.82 + rndP2() * 0.28
         numCommitsP2 = Math.max(0, Math.round(numCommitsP2 * commitDayJitterP2))
@@ -2386,10 +2670,7 @@ export async function main(): Promise<void> {
           if (radarCommitDayDecision.has(radarDayKeyP2)) {
             if (radarCommitDayDecision.get(radarDayKeyP2)) numCommitsP2 = 0
           } else {
-            const pNc = Math.min(
-              0.42,
-              Math.max(0.02, PROFILE_NO_COMMIT_DAY_P[dev.profile] + radarNoCommitBoost(dev.id)),
-            )
+            const pNc = Math.min(0.42, Math.max(0.02, PROFILE_NO_COMMIT_DAY_P[dev.profile] + radarNoCommitBoost(dev.id)))
             radarCommitDayDecision.set(radarDayKeyP2, rndP2() < pNc)
             if (radarCommitDayDecision.get(radarDayKeyP2)) numCommitsP2 = 0
           }
@@ -2420,22 +2701,7 @@ export async function main(): Promise<void> {
             if (rndP2() < 0.9) acc.spotbugsClean++
             else acc.spotbugsFails++
           }
-          batchCommits.add([
-            hash,
-            dev.email,
-            toDateTimeStr(commitTimeP2),
-            msg,
-            '[]',
-            '[]',
-            '[]',
-            hasRuleP2,
-            hasSpotP2,
-            null,
-            insP2,
-            delP2,
-            chgP2,
-            pathP,
-          ])
+          batchCommits.add([hash, dev.email, toDateTimeStr(commitTimeP2), msg, '[]', '[]', '[]', hasRuleP2, hasSpotP2, null, insP2, delP2, chgP2, pathP])
           await batchCommits.maybeFlush()
         }
         if (rndP2() < 0.08) acc.pushes += randBetweenRng(rndP2, 1, 3)
@@ -2447,7 +2713,7 @@ export async function main(): Promise<void> {
         const rawReviewP2 = Math.floor(commitsForDayP2.length * reviewRatioP2)
         const revCapP2 = PROFILE_REVIEW_DAILY_CAP[dev.profile]
         const toReviewP2 = commitsForDayP2.slice(0, Math.min(rawReviewP2, revCapP2))
-        const reviewersP2 = devsP2.filter((d) => d.id !== dev.id && !isNoReviewReviewer(d))
+        const reviewersP2 = devsP2.filter(d => d.id !== dev.id && !isNoReviewReviewer(d))
         if (reviewersP2.length > 0) {
           acc.reviews += toReviewP2.length
           for (let r = 0; r < toReviewP2.length; r++) {
@@ -2457,19 +2723,16 @@ export async function main(): Promise<void> {
             batchReviews.add([randomUUID(), pathP, rev.hash, 'git', toDateTimeStr(addHours(day, 16)), reviewer.id, 'OK'])
             await batchReviews.maybeFlush()
             let revSetP2 = reviewedByUserDay.get(reviewer.id)
-            if (!revSetP2) { revSetP2 = new Set<number>(); reviewedByUserDay.set(reviewer.id, revSetP2) }
+            if (!revSetP2) {
+              revSetP2 = new Set<number>()
+              reviewedByUserDay.set(reviewer.id, revSetP2)
+            }
             revSetP2.add(dayIdx)
           }
         }
 
-        let doReportP2 =
-          streakTailDayP2 || (commitsForDayP2.length > 0 && rndP2() * 100 < cfg.reportPercent)
-        if (
-          doReportP2 &&
-          !streakTailDayP2 &&
-          commitsForDayP2.length > 0 &&
-          rndP2() < PROFILE_SKIP_REPORT_DESPITE_COMMITS_P[dev.profile]
-        ) {
+        let doReportP2 = streakTailDayP2 || (commitsForDayP2.length > 0 && rndP2() * 100 < cfg.reportPercent)
+        if (doReportP2 && !streakTailDayP2 && commitsForDayP2.length > 0 && rndP2() < PROFILE_SKIP_REPORT_DESPITE_COMMITS_P[dev.profile]) {
           doReportP2 = false
         }
         if (dev.neverDailyReport) doReportP2 = false
@@ -2488,7 +2751,7 @@ export async function main(): Promise<void> {
         }
         if (doReportP2) {
           const reportId = randomUUID()
-          const selectedCommits = commitsForDayP2.map((co) => ({
+          const selectedCommits = commitsForDayP2.map(co => ({
             revision: co.hash,
             message: co.msg,
             author: dev.email,
@@ -2504,7 +2767,7 @@ export async function main(): Promise<void> {
             dateStr,
             rndP2() < 0.2 ? pickRng(rndP2, REPORT_SHORT) : rndP2() < 0.15 ? pickRng(rndP2, REPORT_LONG) : pickRng(rndP2, WORK_DESCRIPTIONS),
             JSON.stringify(selectedCommits),
-            upsf.id,
+            upsf.id
           )
         }
 
@@ -2515,8 +2778,7 @@ export async function main(): Promise<void> {
         let evmNoteP2: string
         if (isOffDayP2) {
           evmPhaseP2 = activeWbsP2?.phase ?? pickEvmAcPhase(rndP2)
-          evmNoteP2 =
-            dayTypeP2 === 'business_trip' ? 'Công tác' : dayTypeP2 === 'training' ? 'Training' : dayTypeP2 === 'conference' ? 'Conference' : 'Nghỉ / Off'
+          evmNoteP2 = dayTypeP2 === 'business_trip' ? 'Công tác' : dayTypeP2 === 'training' ? 'Training' : dayTypeP2 === 'conference' ? 'Conference' : 'Nghỉ / Off'
         } else if (activeWbsP2) {
           evmPhaseP2 = activeWbsP2.phase
           evmNoteP2 = activeWbsP2.task
@@ -2561,37 +2823,24 @@ export async function main(): Promise<void> {
             commits_with_rule_check, commits_with_spotbugs, commits_total_in_queue,
             tasks_done, tasks_done_on_time, tasks_overdue_opened, reviews_done, has_daily_report, evm_hours_logged
           ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-          ON DUPLICATE KEY UPDATE
-            commits_count=commits_count+?,
-            lines_inserted=lines_inserted+?,
-            lines_deleted=lines_deleted+?,
-            files_changed=files_changed+?,
-            commits_with_rule_check=commits_with_rule_check+?,
-            commits_with_spotbugs=commits_with_spotbugs+?,
-            commits_total_in_queue=commits_total_in_queue+?,
-            tasks_done=tasks_done+?,
-            tasks_done_on_time=tasks_done_on_time+?,
-            tasks_overdue_opened=tasks_overdue_opened+?,
-            reviews_done=reviews_done+?,
-            has_daily_report=GREATEST(has_daily_report,?),
-            evm_hours_logged=evm_hours_logged+?`,
+          ON CONFLICT (user_id, snapshot_date) DO UPDATE SET
+            commits_count = user_daily_snapshots.commits_count + EXCLUDED.commits_count,
+            lines_inserted = user_daily_snapshots.lines_inserted + EXCLUDED.lines_inserted,
+            lines_deleted = user_daily_snapshots.lines_deleted + EXCLUDED.lines_deleted,
+            files_changed = user_daily_snapshots.files_changed + EXCLUDED.files_changed,
+            commits_with_rule_check = user_daily_snapshots.commits_with_rule_check + EXCLUDED.commits_with_rule_check,
+            commits_with_spotbugs = user_daily_snapshots.commits_with_spotbugs + EXCLUDED.commits_with_spotbugs,
+            commits_total_in_queue = user_daily_snapshots.commits_total_in_queue + EXCLUDED.commits_total_in_queue,
+            tasks_done = user_daily_snapshots.tasks_done + EXCLUDED.tasks_done,
+            tasks_done_on_time = user_daily_snapshots.tasks_done_on_time + EXCLUDED.tasks_done_on_time,
+            tasks_overdue_opened = user_daily_snapshots.tasks_overdue_opened + EXCLUDED.tasks_overdue_opened,
+            reviews_done = user_daily_snapshots.reviews_done + EXCLUDED.reviews_done,
+            has_daily_report = (GREATEST(user_daily_snapshots.has_daily_report::int, EXCLUDED.has_daily_report::int))::boolean,
+            evm_hours_logged = user_daily_snapshots.evm_hours_logged + EXCLUDED.evm_hours_logged`,
           [
             randomUUID(),
             dev.id,
             dateStr,
-            numCommitsP2,
-            linesInsP2,
-            linesDelP2,
-            filesChgP2,
-            snapRuleP2,
-            snapSpotP2,
-            snapTotalCommitsP2,
-            snapDoneP2,
-            snapOnTimeP2,
-            snapOverdueP2,
-            toReviewP2.length,
-            hasReport,
-            evmHoursP2,
             numCommitsP2,
             linesInsP2,
             linesDelP2,
@@ -2634,9 +2883,7 @@ export async function main(): Promise<void> {
       const baseTasksT = taskFactorT === 0 ? 0 : randBetweenRng(rndT, cfgT.tasksPerDay[0], cfgT.tasksPerDay[1])
       let numTasksT = Math.max(0, Math.round(baseTasksT * scaleT * rampUpT * monFactorT * taskFactorT))
       if (dev.activityMode === 'commits_only') numTasksT = 0
-      const statusWeightsFilteredT = simTaskStatusWeights(cfgT.donePercent, effT.inProgressBias).filter(
-        ([, w]) => Number(w) > 0,
-      ) as [string, number][]
+      const statusWeightsFilteredT = simTaskStatusWeights(cfgT.donePercent, effT.inProgressBias).filter(([, w]) => Number(w) > 0) as [string, number][]
       let doneTodayT = 0
       let onTimeDoneTodayT = 0
       let tasksOverdueOpenedTodayT = 0
@@ -2668,12 +2915,7 @@ export async function main(): Promise<void> {
           else if (typ === 'feature') accT.featureDone++
           if (prio === 'critical') accT.criticalDone++
         }
-        const createdAtT =
-          status === 'new' || (status === 'cancelled' && !actStart)
-            ? `${dateStr} 09:00:00`
-            : actStart
-              ? `${actStart} 09:30:00`
-              : `${dateStr} 09:00:00`
+        const createdAtT = status === 'new' || (status === 'cancelled' && !actStart) ? `${dateStr} 09:00:00` : actStart ? `${actStart} 09:30:00` : `${dateStr} 09:00:00`
         batchTasks.add([
           taskId,
           project3Id,
@@ -2700,7 +2942,8 @@ export async function main(): Promise<void> {
       let numCommitsT: number
       if (commitFactorT === 0) numCommitsT = 0
       else if (dev.commitVariance === 'stable') numCommitsT = Math.max(0, Math.round(baseCommitsT * scaleT * monFactorT * commitFactorT))
-      else if (dev.commitVariance === 'burst') numCommitsT = rndT() < 0.2 ? randBetweenRng(rndT, 0, 2) : Math.max(0, Math.round(baseCommitsT * scaleT * monFactorT * commitFactorT * (0.8 + rndT() * 0.5)))
+      else if (dev.commitVariance === 'burst')
+        numCommitsT = rndT() < 0.2 ? randBetweenRng(rndT, 0, 2) : Math.max(0, Math.round(baseCommitsT * scaleT * monFactorT * commitFactorT * (0.8 + rndT() * 0.5)))
       else numCommitsT = rndT() < 0.15 ? randBetweenRng(rndT, 0, 1) : Math.max(0, Math.round(baseCommitsT * scaleT * monFactorT * commitFactorT * (1 + rndT() * 1.5)))
       numCommitsT = Math.max(0, Math.round(numCommitsT * (0.82 + rndT() * 0.28)))
       if (dev.activityMode === 'tasks_only') numCommitsT = 0
@@ -2742,28 +2985,13 @@ export async function main(): Promise<void> {
           if (rndT() < 0.9) accT.spotbugsClean++
           else accT.spotbugsFails++
         }
-        batchCommits.add([
-          hash,
-          dev.email,
-          toDateTimeStr(commitTimeT),
-          msg,
-          '[]',
-          '[]',
-          '[]',
-          hasRuleT,
-          hasSpotT,
-          null,
-          insT,
-          delT,
-          chgT,
-          pathT,
-        ])
+        batchCommits.add([hash, dev.email, toDateTimeStr(commitTimeT), msg, '[]', '[]', '[]', hasRuleT, hasSpotT, null, insT, delT, chgT, pathT])
         await batchCommits.maybeFlush()
       }
       const reviewRatioT = rndT() < 0.05 ? 0.6 : cfgT.reviewPercent / 100
       const rawRevT = Math.floor(commitsForDayT.length * reviewRatioT)
       const toReviewT = commitsForDayT.slice(0, Math.min(rawRevT, PROFILE_REVIEW_DAILY_CAP[dev.profile]))
-      const reviewersT = tinyTeamDevs.filter((d) => d.id !== dev.id && !isNoReviewReviewer(d))
+      const reviewersT = tinyTeamDevs.filter(d => d.id !== dev.id && !isNoReviewReviewer(d))
       if (reviewersT.length > 0) {
         accT.reviews += toReviewT.length
         for (let r = 0; r < toReviewT.length; r++) {
@@ -2774,18 +3002,15 @@ export async function main(): Promise<void> {
           batchReviews.add([randomUUID(), pathT, rev.hash, 'git', toDateTimeStr(addHours(day, 16)), reviewer.id, 'OK'])
           await batchReviews.maybeFlush()
           let rs = reviewedByUserDay.get(reviewer.id)
-          if (!rs) { rs = new Set<number>(); reviewedByUserDay.set(reviewer.id, rs) }
+          if (!rs) {
+            rs = new Set<number>()
+            reviewedByUserDay.set(reviewer.id, rs)
+          }
           rs.add(dayIdx)
         }
       }
-      let doReportT =
-        streakTailT || (commitsForDayT.length > 0 && rndT() * 100 < cfgT.reportPercent)
-      if (
-        doReportT &&
-        !streakTailT &&
-        commitsForDayT.length > 0 &&
-        rndT() < PROFILE_SKIP_REPORT_DESPITE_COMMITS_P[dev.profile]
-      ) {
+      let doReportT = streakTailT || (commitsForDayT.length > 0 && rndT() * 100 < cfgT.reportPercent)
+      if (doReportT && !streakTailT && commitsForDayT.length > 0 && rndT() < PROFILE_SKIP_REPORT_DESPITE_COMMITS_P[dev.profile]) {
         doReportT = false
       }
       if (dev.neverDailyReport) doReportT = false
@@ -2796,12 +3021,15 @@ export async function main(): Promise<void> {
       if (doReportT) {
         accT.reports++
         let rs = reportedByUserDay.get(dev.id)
-        if (!rs) { rs = new Set<number>(); reportedByUserDay.set(dev.id, rs) }
+        if (!rs) {
+          rs = new Set<number>()
+          reportedByUserDay.set(dev.id, rs)
+        }
         rs.add(dayIdx)
       }
       if (doReportT) {
         const reportIdT = randomUUID()
-        const selT = commitsForDayT.map((co) => ({
+        const selT = commitsForDayT.map(co => ({
           revision: co.hash,
           message: co.msg,
           author: dev.email,
@@ -2817,7 +3045,7 @@ export async function main(): Promise<void> {
           dateStr,
           rndT() < 0.2 ? pickRng(rndT, REPORT_SHORT) : pickRng(rndT, WORK_DESCRIPTIONS),
           JSON.stringify(selT),
-          upsfT.id,
+          upsfT.id
         )
       }
       const isOffT = taskFactorT === 0 && commitFactorT === 0
@@ -3024,46 +3252,31 @@ export async function main(): Promise<void> {
     )
   }
   if (plReviewTaskIds.length >= 2) {
-    await query(
-      `UPDATE tasks SET updated_at = DATE_SUB(NOW(), INTERVAL 4 DAY) WHERE id IN (?, ?)`,
-      [plReviewTaskIds[0], plReviewTaskIds[1]]
-    )
+    await query(`UPDATE tasks SET updated_at = NOW() - INTERVAL '4 days' WHERE id IN (?, ?)`, [plReviewTaskIds[0], plReviewTaskIds[1]])
   }
   console.log('PL review test tasks inserted (in_review, 2 long unreviewed)')
 
   // Task links & favorites (sample, after tasks inserted)
-  const taskIds = await query<{ id: string }[]>(
-    'SELECT id FROM tasks WHERE project_id = ? LIMIT 100',
-    [project1Id]
-  )
+  const taskIds = await query<{ id: string }[]>('SELECT id FROM tasks WHERE project_id = ? LIMIT 100', [project1Id])
   const tids = Array.isArray(taskIds) ? taskIds : []
   for (let i = 0; i < Math.min(30, tids.length - 1); i++) {
-    await query(
-      'INSERT IGNORE INTO task_links (id, from_task_id, to_task_id, link_type) VALUES (?, ?, ?, ?)',
-      [randomUUID(), tids[i]?.id, tids[i + 1]?.id, pick(['blocks', 'relates_to'])]
-    )
+    await query('INSERT INTO task_links (id, from_task_id, to_task_id, link_type) VALUES (?, ?, ?, ?) ON CONFLICT (from_task_id, to_task_id, link_type) DO NOTHING', [
+      randomUUID(),
+      tids[i]?.id,
+      tids[i + 1]?.id,
+      pick(['blocks', 'relates_to']),
+    ])
   }
   for (let i = 0; i < Math.min(25, tids.length); i++) {
     const dev = devsP1[i % devsP1.length]
-    await query(
-      'INSERT IGNORE INTO task_favorites (id, user_id, task_id) VALUES (?, ?, ?)',
-      [randomUUID(), dev.id, tids[i]?.id]
-    )
+    await query('INSERT INTO task_favorites (id, user_id, task_id) VALUES (?, ?, ?) ON CONFLICT (user_id, task_id) DO NOTHING', [randomUUID(), dev.id, tids[i]?.id])
   }
   console.log('Task links & favorites inserted')
 
-  const allDevs = [
-    ...new Map(
-      [...devsP1, ...devsP2, ...tinyTeamDevs]
-        .filter((d) => d.seedActivity !== 'none')
-        .map((d) => [d.id, d] as const),
-    ).values(),
-  ]
+  const allDevs = [...new Map([...devsP1, ...devsP2, ...tinyTeamDevs].filter(d => d.seedActivity !== 'none').map(d => [d.id, d] as const)).values()]
 
   // Task notifications (plan: ~30-50)
-  const allTaskIds = await query<{ id: string }[]>(
-    'SELECT id FROM tasks ORDER BY RAND() LIMIT 80'
-  )
+  const allTaskIds = await query<{ id: string }[]>('SELECT id FROM tasks ORDER BY random() LIMIT 80')
   const atids = Array.isArray(allTaskIds) ? allTaskIds : []
   const notifTypes = ['assign', 'done', 'review', 'feedback', 'deadline_today', 'deadline_tomorrow'] as const
   const nNotifs = randBetween(30, 50)
@@ -3080,47 +3293,27 @@ export async function main(): Promise<void> {
       deadline_tomorrow: 'Deadline ngày mai',
     }
     await query(
-      `INSERT IGNORE INTO task_notifications (id, target_user_id, type, title, body, task_id, is_read)
+      `INSERT INTO task_notifications (id, target_user_id, type, title, body, task_id, is_read)
        VALUES (?, ?, ?, ?, ?, ?, ?)`,
-      [
-        randomUUID(),
-        targetDev.id,
-        nt,
-        titles[nt] || nt,
-        'Nội dung thông báo mẫu.',
-        task?.id ?? null,
-        seedGlobalRand() > 0.5 ? 1 : 0,
-      ]
+      [randomUUID(), targetDev.id, nt, titles[nt] || nt, 'Nội dung thông báo mẫu.', task?.id ?? null, seedGlobalRand() > 0.5]
     )
   }
   for (let i = 0; i < randBetween(8, 15); i++) {
     const targetDev = pick(allDevs)
     const achCode = pick(['task_10', 'task_50', 'git_first_commit', 'report_first', 'review_first'])
     await query(
-      `INSERT IGNORE INTO task_notifications (id, target_user_id, type, title, body, task_id, is_read)
+      `INSERT INTO task_notifications (id, target_user_id, type, title, body, task_id, is_read)
        VALUES (?, ?, 'achievement_unlocked', ?, ?, NULL, ?)`,
-      [
-        randomUUID(),
-        targetDev.id,
-        `Achievement Unlocked: ${achCode}`,
-        JSON.stringify({ code: achCode, tier: 'bronze', xpReward: 20, earnedCount: 1 }),
-        seedGlobalRand() > 0.4 ? 1 : 0,
-      ]
+      [randomUUID(), targetDev.id, `Achievement Unlocked: ${achCode}`, JSON.stringify({ code: achCode, tier: 'bronze', xpReward: 20, earnedCount: 1 }), seedGlobalRand() > 0.4]
     )
   }
   for (let i = 0; i < randBetween(3, 6); i++) {
     const targetDev = pick(allDevs)
     const newRank = pick(['contributor', 'developer', 'regular', 'pro'])
     await query(
-      `INSERT IGNORE INTO task_notifications (id, target_user_id, type, title, body, task_id, is_read)
+      `INSERT INTO task_notifications (id, target_user_id, type, title, body, task_id, is_read)
        VALUES (?, ?, 'rank_up', ?, ?, NULL, ?)`,
-      [
-        randomUUID(),
-        targetDev.id,
-        `Rank Up! Bạn đã đạt rank ${newRank}`,
-        JSON.stringify({ newRank }),
-        seedGlobalRand() > 0.5 ? 1 : 0,
-      ]
+      [randomUUID(), targetDev.id, `Rank Up! Bạn đã đạt rank ${newRank}`, JSON.stringify({ newRank }), seedGlobalRand() > 0.5]
     )
   }
   console.log('Task notifications inserted (incl. achievement_unlocked, rank_up)')
@@ -3128,10 +3321,10 @@ export async function main(): Promise<void> {
   // 6. user_stats & user_achievements - XP từ data thực, rank từ RANK_CONFIG
   const lastDayIdx = workingDays.length - 1
   const computeReportStreak = (userId: string): number => {
-    const d = allDevs.find((x) => x.id === userId)
+    const d = allDevs.find(x => x.id === userId)
     if (d?.forceReportStreakInStats != null) return d.forceReportStreakInStats
     const reported = reportedByUserDay.get(userId)
-    if (!reported || !reported.has(lastDayIdx)) return 0
+    if (!reported?.has(lastDayIdx)) return 0
     let streak = 0
     for (let i = lastDayIdx; i >= 0 && reported.has(i); i--) streak++
     return streak
@@ -3170,22 +3363,64 @@ export async function main(): Promise<void> {
         total_files_committed, total_insertions, consecutive_no_report_days, consecutive_no_review_days,
         last_commit_date, last_review_date, last_report_date)
        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-       ON DUPLICATE KEY UPDATE
-        total_tasks_done=VALUES(total_tasks_done), total_tasks_created=VALUES(total_tasks_created), total_commits=VALUES(total_commits), total_reviews=VALUES(total_reviews), total_reports=VALUES(total_reports),
-        total_tasks_on_time=VALUES(total_tasks_on_time), total_tasks_early=VALUES(total_tasks_early), total_tasks_late=VALUES(total_tasks_late),
-        total_tasks_bug_done=VALUES(total_tasks_bug_done), total_tasks_feature_done=VALUES(total_tasks_feature_done), total_tasks_critical_done=VALUES(total_tasks_critical_done),
-        total_spotbugs_clean=VALUES(total_spotbugs_clean), total_spotbugs_fails=VALUES(total_spotbugs_fails),
-        total_pushes=VALUES(total_pushes), total_merges=VALUES(total_merges), total_branches_created=VALUES(total_branches_created), total_rebases=VALUES(total_rebases),
-        total_files_committed=VALUES(total_files_committed), total_insertions=VALUES(total_insertions),
-        consecutive_no_report_days=VALUES(consecutive_no_report_days), consecutive_no_review_days=VALUES(consecutive_no_review_days),
-        xp=VALUES(xp), current_rank=VALUES(current_rank), current_streak_days=VALUES(current_streak_days), current_report_streak_days=VALUES(current_report_streak_days), last_activity_date=VALUES(last_activity_date)`,
+       ON CONFLICT (user_id) DO UPDATE SET
+        total_tasks_done = EXCLUDED.total_tasks_done,
+        total_tasks_created = EXCLUDED.total_tasks_created,
+        total_commits = EXCLUDED.total_commits,
+        total_reviews = EXCLUDED.total_reviews,
+        total_reports = EXCLUDED.total_reports,
+        total_tasks_on_time = EXCLUDED.total_tasks_on_time,
+        total_tasks_early = EXCLUDED.total_tasks_early,
+        total_tasks_late = EXCLUDED.total_tasks_late,
+        total_tasks_bug_done = EXCLUDED.total_tasks_bug_done,
+        total_tasks_feature_done = EXCLUDED.total_tasks_feature_done,
+        total_tasks_critical_done = EXCLUDED.total_tasks_critical_done,
+        total_spotbugs_clean = EXCLUDED.total_spotbugs_clean,
+        total_spotbugs_fails = EXCLUDED.total_spotbugs_fails,
+        total_pushes = EXCLUDED.total_pushes,
+        total_merges = EXCLUDED.total_merges,
+        total_branches_created = EXCLUDED.total_branches_created,
+        total_rebases = EXCLUDED.total_rebases,
+        total_files_committed = EXCLUDED.total_files_committed,
+        total_insertions = EXCLUDED.total_insertions,
+        consecutive_no_report_days = EXCLUDED.consecutive_no_report_days,
+        consecutive_no_review_days = EXCLUDED.consecutive_no_review_days,
+        xp = EXCLUDED.xp,
+        current_rank = EXCLUDED.current_rank,
+        current_streak_days = EXCLUDED.current_streak_days,
+        current_report_streak_days = EXCLUDED.current_report_streak_days,
+        last_activity_date = EXCLUDED.last_activity_date`,
       [
-        dev.id, xp, rank, activityStreak, reportStreak, toDateStr(endDate),
-        TASKS_DONE, TASKS_DONE, COMMITS, REVIEWS, REPORTS,
-        acc.onTime, acc.early, acc.late, acc.bugDone, acc.featureDone, acc.criticalDone,
-        acc.spotbugsClean, acc.spotbugsFails, acc.pushes, acc.merges, acc.branches, acc.rebases,
-        acc.filesCommitted, acc.insertions, consecutiveNoReport, consecutiveNoReview,
-        toDateStr(endDate), toDateStr(endDate), toDateStr(endDate),
+        dev.id,
+        xp,
+        rank,
+        activityStreak,
+        reportStreak,
+        toDateStr(endDate),
+        TASKS_DONE,
+        TASKS_DONE,
+        COMMITS,
+        REVIEWS,
+        REPORTS,
+        acc.onTime,
+        acc.early,
+        acc.late,
+        acc.bugDone,
+        acc.featureDone,
+        acc.criticalDone,
+        acc.spotbugsClean,
+        acc.spotbugsFails,
+        acc.pushes,
+        acc.merges,
+        acc.branches,
+        acc.rebases,
+        acc.filesCommitted,
+        acc.insertions,
+        consecutiveNoReport,
+        consecutiveNoReview,
+        toDateStr(endDate),
+        toDateStr(endDate),
+        toDateStr(endDate),
       ]
     )
 
@@ -3204,7 +3439,8 @@ export async function main(): Promise<void> {
     ]
     for (const ach of achievementsToAward) {
       await query(
-        'INSERT IGNORE INTO user_achievements (id, user_id, achievement_code, earned_count, first_earned_at, last_earned_at) VALUES (?, ?, ?, 1, NOW(), NOW())',
+        `INSERT INTO user_achievements (id, user_id, achievement_code, earned_count, first_earned_at, last_earned_at) VALUES (?, ?, ?, 1, NOW(), NOW())
+         ON CONFLICT (user_id, achievement_code) DO NOTHING`,
         [randomUUID(), dev.id, ach.code]
       )
     }
@@ -3216,20 +3452,19 @@ export async function main(): Promise<void> {
     const nPins = randBetween(0, 2)
     const picked = new Set<string>()
     for (let i = 0; i < nPins; i++) {
-      const code = pick(badgeCodes.filter((c) => !picked.has(c)))
+      const code = pick(badgeCodes.filter(c => !picked.has(c)))
       picked.add(code)
-      await query(
-        'INSERT IGNORE INTO user_badge_display (user_id, achievement_code, display_order) VALUES (?, ?, ?)',
-        [dev.id, code, i]
-      )
+      await query('INSERT INTO user_badge_display (user_id, achievement_code, display_order) VALUES (?, ?, ?) ON CONFLICT (user_id, achievement_code) DO NOTHING', [
+        dev.id,
+        code,
+        i,
+      ])
     }
   }
   console.log('User badge display inserted (max 3 per user)')
 
   console.log('[Mock seed QA] Map case → user_code (18 scenarios)')
-  console.log(
-    '  Ghi chú QA: forceReportStreakInStats chỉ dùng khi build streak trong stats/UI mock; không tự đồng bộ với mọi chỗ đọc daily_reports thực tế nếu logic khác.',
-  )
+  console.log('  Ghi chú QA: forceReportStreakInStats chỉ dùng khi build streak trong stats/UI mock; không tự đồng bộ với mọi chỗ đọc daily_reports thực tế nếu logic khác.')
   console.log('  Case 16 (P2-only streak, dev_p2_streak) nằm trong mảng p2OnlyDevs — chỉ seed activity P2, không có vòng P1 cho user đó.')
   const qaLines = [
     '1,8 terrible/poor radar → dev_terrible',

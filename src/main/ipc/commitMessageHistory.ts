@@ -1,7 +1,7 @@
 import { ipcMain } from 'electron'
 import l from 'electron-log'
 import { IPC } from 'main/constants'
-import { addHistoryMessage, getHistoryMessages } from '../task/mysqlCommitMessageHistory'
+import { addHistoryMessage, getHistoryMessages } from '../task/pgCommitMessageHistory'
 
 export function registerCommitMessageHistoryIpcHandlers() {
   l.info('Registering CommitMessageHistory IPC Handlers...')

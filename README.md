@@ -72,7 +72,7 @@
 
 ### 7. Task Management
 
-- Quản lý tasks, projects, users (MySQL)
+- Quản lý tasks, projects, users (PostgreSQL / Supabase — DB dùng chung nhiều module)
 - Master data: statuses, priorities, types, sources
 - Sub-tasks, task links (blocks, blocked by, relates to, duplicates)
 - Copy task, Import Redmine CSV
@@ -101,7 +101,7 @@
 - TortoiseSVN (nếu dùng SVN) – bật tùy chọn "command-line" khi cài đặt
 - Git command-line (nếu dùng Git)
 - JRE 11+ (nếu dùng SpotBugs)
-- MySQL (nếu dùng Task Management)
+- PostgreSQL hoặc [Supabase](https://supabase.com/) (nếu dùng Task AI / Task Management và các module dùng chung DB ứng dụng)
 
 ## Cấu hình
 
@@ -110,7 +110,7 @@
 3. **Configuration:** Mail server (SMTP), Teams webhook, API keys (OpenAI/Claude/Google), Coding rules, External editor, Commit convention, Auto refresh, Start on login, Show notifications
 4. **Version Control:** Source folders, Git hooks, VCS users
 5. **Rules:** Coding rules (tùy chỉnh)
-6. **Integrations:** Mail server, OneDrive, Task DB (MySQL)
+6. **Integrations:** Mail server, OneDrive, kết nối PostgreSQL (Supabase / self-hosted) cho DB ứng dụng
 
 ## Giấy phép
 

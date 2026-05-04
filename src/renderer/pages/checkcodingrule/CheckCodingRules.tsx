@@ -164,8 +164,8 @@ export function CheckCodingRules() {
       const result = await window.api.openai.send_message(params)
       setAiFixResult(result)
     } catch (_error) {
-      toast.error('Lỗi khi gọi AI Fix')
-      setAiFixResult('Đã xảy ra lỗi khi phân tích. Vui lòng thử lại.')
+      toast.error(t('dialog.codingRules.ai.error'))
+      setAiFixResult(t('dialog.codingRules.ai.error'))
     } finally {
       setIsAIFixLoading(false)
     }

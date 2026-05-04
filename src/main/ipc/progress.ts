@@ -3,7 +3,7 @@ import l from 'electron-log'
 import { IPC } from 'main/constants'
 import { getTokenFromStore, verifyToken, type SessionData } from '../task/auth'
 import { canSessionViewTargetUser, filterUserIdsVisibleToSession } from '../task/progressAccess'
-import { getProjectsForTaskManagement, getTaskListVisibleProjectIds } from '../task/mysqlTaskStore'
+import { getProjectsForTaskManagement, getTaskListVisibleProjectIds } from '../task/pgTaskStore'
 import {
   getAllUsers,
   getHeatmapData,

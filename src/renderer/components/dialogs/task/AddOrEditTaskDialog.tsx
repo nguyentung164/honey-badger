@@ -27,6 +27,7 @@ import {
 } from 'lucide-react'
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
+import { TaskChangeHistorySection } from '@/components/dialogs/task/TaskChangeHistorySection'
 import { TaskDescriptionEditor } from '@/components/dialogs/task/TaskDescriptionEditor'
 import { TaskPickerCombobox } from '@/components/dialogs/task/TaskPickerCombobox'
 import {
@@ -350,7 +351,7 @@ export function AddOrEditTaskDialog({
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false)
   const [planStartDateOpen, setPlanStartDateOpen] = useState(false)
   const [planEndDateOpen, setPlanEndDateOpen] = useState(false)
-  const [children, setChildren] = useState<{ id: string; title: string; ticketId?: string }[]>([])
+  const [children, setChildren] = useState<{ id: string; title: string; ticketId?: string; version?: number }[]>([])
   const [links, setLinks] = useState<{
     outgoing: { id: string; toTaskId: string; linkType: string; toTitle?: string; toTicketId?: string }[]
     incoming: { id: string; fromTaskId: string; linkType: string; fromTitle?: string; fromTicketId?: string }[]
@@ -465,7 +466,14 @@ export function AddOrEditTaskDialog({
     try {
       const [childrenRes, linksRes] = await Promise.all([window.api.task.getTaskChildren(task.id), window.api.task.getTaskLinks(task.id)])
       if (childrenRes.status === 'success' && childrenRes.data) {
-        setChildren(childrenRes.data.map((c: any) => ({ id: c.id, title: c.title, ticketId: c.ticketId })))
+        setChildren(
+          childrenRes.data.map((c: { id: string; title: string; ticketId?: string; version?: number }) => ({
+            id: c.id,
+            title: c.title,
+            ticketId: c.ticketId,
+            version: typeof c.version === 'number' ? c.version : undefined,
+          }))
+        )
       }
       if (linksRes.status === 'success' && linksRes.data) {
         setLinks(linksRes.data)
@@ -577,6 +585,16 @@ export function AddOrEditTaskDialog({
   const projectOptions = useMemo(() => projects.map(p => ({ value: p.id, label: p.name })), [projects])
 
   const assigneeOptions = useMemo(() => [{ value: '_empty', label: '-' }, ...users.map(u => ({ value: u.id, label: `${u.name} (${u.userCode})` }))], [users])
+
+  const resolveUserLabelForHistory = useCallback(
+    (userId: string | null | undefined) => {
+      const id = userId?.trim()
+      if (!id) return t('taskManagement.historyUnassigned')
+      const u = users.find(x => x.id === id)
+      return u ? `${u.name} (${u.userCode})` : id
+    },
+    [users, t],
+  )
 
   const recordCreatedDisplay = useMemo(() => {
     if (!task) return { nameOut: '-', avatarSrc: null as string | null, initials: '?' }
@@ -1128,8 +1146,14 @@ export function AddOrEditTaskDialog({
                                   size="sm"
                                   className="h-8 min-h-8 min-w-8 w-8 shrink-0 p-0 text-destructive hover:text-destructive"
                                   onClick={async () => {
-                                    const res = await window.api.task.updateTask(c.id, { parentId: null })
+                                    const payload: Record<string, unknown> = { parentId: null }
+                                    if (c.version !== undefined) payload.version = c.version
+                                    const res = await window.api.task.updateTask(c.id, payload)
                                     if (res.status === 'success') {
+                                      loadRelations()
+                                      onRelationsChange?.()
+                                    } else if ((res as { code?: string }).code === 'VERSION_CONFLICT') {
+                                      toast.error(t('taskManagement.versionConflictError'))
                                       loadRelations()
                                       onRelationsChange?.()
                                     } else {
@@ -1166,10 +1190,22 @@ export function AddOrEditTaskDialog({
                               className="h-8 shrink-0 px-3 text-sm"
                               disabled={!addChildTaskId}
                               onClick={async () => {
-                                if (!addChildTaskId) return
-                                const res = await window.api.task.updateTask(addChildTaskId, { parentId: task.id })
+                                if (!addChildTaskId || !task) return
+                                const fresh = await window.api.task.getTask(addChildTaskId)
+                                if (fresh.status !== 'success' || !fresh.data) {
+                                  toast.error(fresh.message || t('taskManagement.updateError'))
+                                  return
+                                }
+                                const childVersion = (fresh.data as { version?: number }).version
+                                const payload: Record<string, unknown> = { parentId: task.id }
+                                if (childVersion !== undefined) payload.version = childVersion
+                                const res = await window.api.task.updateTask(addChildTaskId, payload)
                                 if (res.status === 'success') {
                                   setAddChildTaskId('')
+                                  loadRelations()
+                                  onRelationsChange?.()
+                                } else if ((res as { code?: string }).code === 'VERSION_CONFLICT') {
+                                  toast.error(t('taskManagement.versionConflictError'))
                                   loadRelations()
                                   onRelationsChange?.()
                                 } else {
@@ -1321,6 +1357,11 @@ export function AddOrEditTaskDialog({
                     </div>
                   </div>
                 </div>
+              </TaskDialogSection>
+            )}
+            {isEditMode && task && (
+              <TaskDialogSection title={t('taskManagement.dialogSectionHistory')}>
+                <TaskChangeHistorySection taskId={task.id} resolveUserLabel={resolveUserLabelForHistory} variant="embedded" />
               </TaskDialogSection>
             )}
           </div>

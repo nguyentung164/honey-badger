@@ -22,6 +22,9 @@ export type CommitInfo = {
   sourceFolderPath?: string
 }
 
+/** TLS cho kết nối PostgreSQL của ứng dụng (`pg`): auto = bật SSL trên Supabase (*.supabase.co), tắt trên localhost. */
+export type TaskDbTlsMode = 'auto' | 'required' | 'disabled'
+
 export type Configuration = {
   openaiApiKey?: string
   openaiModel?: string
@@ -41,6 +44,9 @@ export type Configuration = {
   dbUser?: string
   dbPassword?: string
   dbName?: string
+  /** Schema PostgreSQL (namespace), ví dụ honey_badger; mặc định trong app là public */
+  dbPgSchema?: string
+  dbTls?: TaskDbTlsMode
   startOnLogin?: boolean
   showNotifications?: boolean
   enableTeamsNotification?: boolean

@@ -34,21 +34,21 @@ export async function addToQueue(record: GitCommitQueueRecord): Promise<void> {
   const deletedFiles = JSON.stringify(record.deletedFiles ?? [])
   await query(
     `INSERT INTO git_commit_queue (commit_hash, commit_user, commit_time, commit_message, added_files, modified_files, deleted_files, has_check_coding_rule, has_check_spotbugs, branch_name, insertions, deletions, changes, source_folder_path)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-     ON DUPLICATE KEY UPDATE
-       commit_user = VALUES(commit_user),
-       commit_time = VALUES(commit_time),
-       commit_message = VALUES(commit_message),
-       added_files = VALUES(added_files),
-       modified_files = VALUES(modified_files),
-       deleted_files = VALUES(deleted_files),
-       has_check_coding_rule = VALUES(has_check_coding_rule),
-       has_check_spotbugs = VALUES(has_check_spotbugs),
-       branch_name = VALUES(branch_name),
-       insertions = VALUES(insertions),
-       deletions = VALUES(deletions),
-       changes = VALUES(changes),
-       source_folder_path = VALUES(source_folder_path)`,
+     VALUES (?, ?, ?, ?, ?::jsonb, ?::jsonb, ?::jsonb, ?, ?, ?, ?, ?, ?, ?)
+     ON CONFLICT (commit_hash) DO UPDATE SET
+       commit_user = EXCLUDED.commit_user,
+       commit_time = EXCLUDED.commit_time,
+       commit_message = EXCLUDED.commit_message,
+       added_files = EXCLUDED.added_files,
+       modified_files = EXCLUDED.modified_files,
+       deleted_files = EXCLUDED.deleted_files,
+       has_check_coding_rule = EXCLUDED.has_check_coding_rule,
+       has_check_spotbugs = EXCLUDED.has_check_spotbugs,
+       branch_name = EXCLUDED.branch_name,
+       insertions = EXCLUDED.insertions,
+       deletions = EXCLUDED.deletions,
+       changes = EXCLUDED.changes,
+       source_folder_path = EXCLUDED.source_folder_path`,
     [
       record.commitHash,
       record.commitUser,
@@ -57,8 +57,8 @@ export async function addToQueue(record: GitCommitQueueRecord): Promise<void> {
       addedFiles,
       modifiedFiles,
       deletedFiles,
-      record.hasCheckCodingRule ? 1 : 0,
-      record.hasCheckSpotbugs ? 1 : 0,
+      record.hasCheckCodingRule,
+      record.hasCheckSpotbugs,
       record.branchName ?? null,
       record.insertions ?? null,
       record.deletions ?? null,

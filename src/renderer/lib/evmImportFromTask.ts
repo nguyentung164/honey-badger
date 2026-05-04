@@ -3,7 +3,7 @@ import type { ACRow, WBSRow } from 'shared/types/evm'
 import { toYyyyMmDd } from '@/lib/dateUtils'
 import { workingDaysBetweenInclusive } from '@/lib/evmCalculations'
 
-/** Dữ liệu task tối thiểu IPC `task.getAll` trả về (khớp `Task` trong mysqlTaskStore). */
+/** Dữ liệu task tối thiểu IPC `task.getAll` trả về (khớp `Task` trong pgTaskStore). */
 export type TaskLikeForEvmImport = {
   id?: string
   title: string

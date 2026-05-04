@@ -3,7 +3,7 @@ import { githubClient } from '../git-hosting/github'
 import { hasGithubToken } from '../git-hosting/tokenStore'
 import { onPrMerged } from '../pr-automation/engine'
 import { hasDbConfig } from '../task/db'
-import { listPendingCheckpoints } from '../task/mysqlPrTrackingStore'
+import { listPendingCheckpoints } from '../task/pgPrTrackingStore'
 
 const POLL_INTERVAL_MS = 5 * 60 * 1000
 

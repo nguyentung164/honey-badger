@@ -102,6 +102,7 @@ makeAppWithSingleInstanceLock(async () => {
           migratePrTrackedBranchesDropAssigneeStatus,
           migratePrUserBoardSkipBranchesTable,
           migratePrAiAssistChatsTable,
+          migrateTaskChangeHistoryTable,
         } = await import('./task/taskDbPatches')
         await migratePrCheckpointGithubColumns().catch(() => {})
         await migratePrCheckpointTemplateHeaderGroup().catch(() => {})
@@ -109,6 +110,7 @@ makeAppWithSingleInstanceLock(async () => {
         await migratePrTrackedBranchesDropAssigneeStatus().catch(() => {})
         await migratePrUserBoardSkipBranchesTable().catch(() => {})
         await migratePrAiAssistChatsTable().catch(() => {})
+        await migrateTaskChangeHistoryTable().catch(() => {})
         const { startPrStatusSync } = await import('./scheduler/prStatusSync')
         startPrStatusSync()
       })()

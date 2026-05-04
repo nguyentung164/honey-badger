@@ -25,7 +25,7 @@ export const useHistoryStore = create<HistoryStore>((set, _get) => {
       try {
         const res = await window.api.commitMessageHistory.get()
         const messages = res.status === 'success' && res.data ? res.data : []
-        logger.info('Data retrieved from MySQL:', messages)
+        logger.info('Data retrieved from DB:', messages)
         set({ commitMessages: messages })
       } catch (error) {
         logger.error('Error when loading commit:', error)
@@ -44,7 +44,7 @@ export const useHistoryStore = create<HistoryStore>((set, _get) => {
         logger.info('Successfully added history')
         const res = await window.api.commitMessageHistory.get()
         const messages = res.status === 'success' && res.data ? res.data : []
-        logger.info('Data retrieved from MySQL:', messages)
+        logger.info('Data retrieved from DB:', messages)
         set({ commitMessages: messages })
         return true
       } catch (error) {

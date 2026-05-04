@@ -1,4 +1,5 @@
 import l from 'electron-log/renderer'
+import type { TaskDbTlsMode } from 'main/types/types'
 import { create } from 'zustand'
 
 export type CommitConventionMode = 'warn' | 'block'
@@ -29,6 +30,9 @@ type ConfigurationStore = {
   dbUser: string
   dbPassword: string
   dbName: string
+  /** PostgreSQL schema (namespace), không phải tên database */
+  dbPgSchema: string
+  dbTls: TaskDbTlsMode
   startOnLogin: boolean
   showNotifications: boolean
   playNotificationSound: boolean
@@ -50,7 +54,7 @@ type ConfigurationStore = {
   isConfigLoaded: boolean
   setFieldConfiguration: (
     key: keyof Omit<ConfigurationStore, 'setFieldConfiguration' | 'saveConfigurationConfig' | 'loadConfigurationConfig' | 'isConfigLoaded'>,
-    value: string | boolean | ApiProvider | CommitMessageDetailLevel | OpenAIReasoningEffort | string[] | 'manual' | 'byProject'
+    value: string | boolean | ApiProvider | CommitMessageDetailLevel | OpenAIReasoningEffort | TaskDbTlsMode | string[] | 'manual' | 'byProject'
   ) => void
   saveConfigurationConfig: (options?: { omitIntegrationFieldsForDisk?: boolean }) => Promise<void>
   loadConfigurationConfig: () => Promise<void>
@@ -58,7 +62,18 @@ type ConfigurationStore = {
 
 export type ConfigFieldKey = keyof Omit<ConfigurationStore, 'setFieldConfiguration' | 'saveConfigurationConfig' | 'loadConfigurationConfig' | 'isConfigLoaded'>
 
-const CONFIG_INTEGRATION_DISK_KEYS = new Set<string>(['oneDriveClientId', 'oneDriveClientSecret', 'oneDriveRefreshToken', 'dbHost', 'dbPort', 'dbUser', 'dbPassword', 'dbName'])
+const CONFIG_INTEGRATION_DISK_KEYS = new Set<string>([
+  'oneDriveClientId',
+  'oneDriveClientSecret',
+  'oneDriveRefreshToken',
+  'dbHost',
+  'dbPort',
+  'dbUser',
+  'dbPassword',
+  'dbName',
+  'dbPgSchema',
+  'dbTls',
+])
 
 export const useConfigurationStore = create<ConfigurationStore>((set, get) => ({
   openaiApiKey: '',
@@ -76,10 +91,12 @@ export const useConfigurationStore = create<ConfigurationStore>((set, get) => ({
   oneDriveClientSecret: '',
   oneDriveRefreshToken: '',
   dbHost: 'localhost',
-  dbPort: '3306',
-  dbUser: 'root',
+  dbPort: '5432',
+  dbUser: 'postgres',
   dbPassword: '',
-  dbName: 'honey_badger',
+  dbName: 'postgres',
+  dbPgSchema: 'public',
+  dbTls: 'auto' satisfies TaskDbTlsMode,
   startOnLogin: false,
   showNotifications: true,
   playNotificationSound: true,
@@ -125,6 +142,8 @@ export const useConfigurationStore = create<ConfigurationStore>((set, get) => ({
       dbUser: str(state.dbUser),
       dbPassword: str(state.dbPassword),
       dbName: str(state.dbName),
+      dbPgSchema: str(state.dbPgSchema),
+      dbTls: (state.dbTls === 'required' || state.dbTls === 'disabled' ? state.dbTls : 'auto') as TaskDbTlsMode,
       startOnLogin: state.startOnLogin ?? false,
       showNotifications: state.showNotifications ?? true,
       playNotificationSound: state.playNotificationSound ?? true,
@@ -147,7 +166,7 @@ export const useConfigurationStore = create<ConfigurationStore>((set, get) => ({
     if (options?.omitIntegrationFieldsForDisk) {
       const patchPayload = Object.fromEntries(Object.entries(configToSave).filter(([k]) => !CONFIG_INTEGRATION_DISK_KEYS.has(k))) as Omit<
         typeof configToSave,
-        'oneDriveClientId' | 'oneDriveClientSecret' | 'oneDriveRefreshToken' | 'dbHost' | 'dbPort' | 'dbUser' | 'dbPassword' | 'dbName'
+        'oneDriveClientId' | 'oneDriveClientSecret' | 'oneDriveRefreshToken' | 'dbHost' | 'dbPort' | 'dbUser' | 'dbPassword' | 'dbName' | 'dbPgSchema' | 'dbTls'
       >
       await window.api.configuration.patch(patchPayload)
       l.info('Configuration patched (integration fields unchanged on disk)')
@@ -177,6 +196,13 @@ export const useConfigurationStore = create<ConfigurationStore>((set, get) => ({
       if (!('gitleaksConfigPath' in data)) updates.gitleaksConfigPath = ''
       if (!('playNotificationSound' in data)) updates.playNotificationSound = true
       if (!('notificationSoundPath' in data)) updates.notificationSoundPath = ''
+      {
+        const t = updates.dbTls
+        if (!('dbTls' in data) || (t !== 'auto' && t !== 'required' && t !== 'disabled')) updates.dbTls = 'auto'
+      }
+      if (!('dbPgSchema' in data) || typeof (data as { dbPgSchema?: unknown }).dbPgSchema !== 'string') {
+        updates.dbPgSchema = 'public'
+      }
       set(updates as Partial<ConfigurationStore>)
       l.info('Configuration loaded, current versionControlSystem:', get().versionControlSystem)
     } catch (err) {

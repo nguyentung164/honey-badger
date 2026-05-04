@@ -47,12 +47,11 @@ export async function saveAnalysis(record: AIAnalysisRecord): Promise<void> {
   const analysisResult = JSON.stringify(record.analysisResult)
   await query(
     `INSERT INTO ai_analysis (source_folder_path, source_folder_name, analysis_date, analysis_result)
-     VALUES (?, ?, ?, ?)
-     ON DUPLICATE KEY UPDATE
-       source_folder_name = VALUES(source_folder_name),
-       analysis_date = VALUES(analysis_date),
-       analysis_result = VALUES(analysis_result),
-       updated_at = CURRENT_TIMESTAMP`,
+     VALUES (?, ?, ?, ?::jsonb)
+     ON CONFLICT (source_folder_path) DO UPDATE SET
+       source_folder_name = EXCLUDED.source_folder_name,
+       analysis_date = EXCLUDED.analysis_date,
+       analysis_result = EXCLUDED.analysis_result`,
     [record.sourceFolderPath, record.sourceFolderName, record.analysisDate, analysisResult]
   )
 }
@@ -80,9 +79,10 @@ export async function deleteAnalysis(sourceFolderPath: string): Promise<void> {
 
 export async function saveAnalysisHistory(record: AIAnalysisHistoryRecord): Promise<number> {
   const analysisResult = JSON.stringify(record.analysisResult)
-  const result = await query<{ insertId: number }>(
+  const rows = await query<{ id: number }[]>(
     `INSERT INTO ai_analysis_history (source_folder_path, source_folder_name, analysis_date, timestamp, total_commits, date_range, analysis_result)
-     VALUES (?, ?, ?, ?, ?, ?, ?)`,
+     VALUES (?, ?, ?, ?, ?, ?, ?::jsonb)
+     RETURNING id`,
     [
       record.sourceFolderPath,
       record.sourceFolderName,
@@ -93,7 +93,7 @@ export async function saveAnalysisHistory(record: AIAnalysisHistoryRecord): Prom
       analysisResult,
     ]
   )
-  return Number((result as { insertId?: number }).insertId) || 0
+  return Number(rows?.[0]?.id) || 0
 }
 
 export async function getAllHistory(): Promise<AIAnalysisHistoryRecord[]> {

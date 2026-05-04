@@ -6,7 +6,7 @@ import type SMTPTransport from 'nodemailer/lib/smtp-transport'
 import configurationStore from '../store/ConfigurationStore'
 import mailServerStore from '../store/MailServerStore'
 import { getTokenFromStore, verifyToken } from '../task/auth'
-import { getPlEmailsForProject, getProjectIdByUserAndPath } from '../task/mysqlTaskStore'
+import { getPlEmailsForProject, getProjectIdByUserAndPath } from '../task/pgTaskStore'
 
 function normalizePath(p: string): string {
   return path.normalize(path.resolve(p))

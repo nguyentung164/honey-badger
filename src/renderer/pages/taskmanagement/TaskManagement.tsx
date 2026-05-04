@@ -2,17 +2,22 @@
 
 import { format, subDays } from 'date-fns'
 import { enUS, ja, vi } from 'date-fns/locale'
+import type { TFunction } from 'i18next'
 import {
   AlertCircle,
+  AlignLeft,
   ArrowDown,
   ArrowUp,
   Bug,
+  CalendarRange,
   CheckCircle,
   Circle,
   Columns3,
   Eye,
   FileDown,
   Headphones,
+  Kanban,
+  LayoutList,
   ListTodo,
   Loader2,
   MessageCircle,
@@ -27,11 +32,12 @@ import {
   X,
   XCircle,
 } from 'lucide-react'
-import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from 'react'
-import { createPortal } from 'react-dom'
+import { type CSSProperties, lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { DateRange } from 'react-day-picker'
+import { createPortal } from 'react-dom'
 import { useTranslation } from 'react-i18next'
 import { useLocation, useNavigate } from 'react-router-dom'
+import { MANAGEMENT_BOARD_MAX_ROWS } from 'shared/constants'
 import { canViewTaskChartTab } from 'shared/mainShellView'
 import {
   AlertDialog,
@@ -46,17 +52,20 @@ import {
 import { Button } from '@/components/ui/button'
 import { Checkbox } from '@/components/ui/checkbox'
 import { Input } from '@/components/ui/input'
-import { TablePaginationBar } from '@/components/ui/table-pagination-bar'
+import { Label } from '@/components/ui/label'
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
-import { Table, TableBody, TableHead, TableHeader, TableRow } from '@/components/ui/table'
+import { ScrollArea } from '@/components/ui/scroll-area'
+import { Skeleton } from '@/components/ui/skeleton'
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
+import { TablePaginationBar } from '@/components/ui/table-pagination-bar'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
+import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import { DateRangePickerPopover } from '@/components/ui-elements/DateRangePickerPopover'
 import { GlowLoader } from '@/components/ui-elements/GlowLoader'
 import toast from '@/components/ui-elements/Toast'
 import i18n from '@/lib/i18n'
 import { cn, getContrastingColor, hexToRgba } from '@/lib/utils'
-import { useAppearanceStoreSelect } from '@/stores/useAppearanceStore'
 import { useTaskToolbarPortalTarget } from '@/pages/main/TaskToolbarPortalContext'
 import {
   PR_MANAGER_ACCENT_OUTLINE_BTN,
@@ -64,9 +73,34 @@ import {
   PR_MANAGER_ACCENT_OUTLINE_SURFACE,
   PR_MANAGER_ACCENT_TITLEBAR_SURFACE,
 } from '@/pages/prmanager/prManagerButtonStyles'
+import { useAppearanceStoreSelect } from '@/stores/useAppearanceStore'
 import { useTaskAuthStore } from '@/stores/useTaskAuthStore'
 import type { ChartTask } from './chartDataUtils'
+import { TaskBulkActionsBar } from './TaskBulkActionsBar'
+import { TaskCalendarView } from './TaskCalendarView'
+import { TaskGanttView } from './TaskGanttView'
+import { TaskKanbanBoard } from './TaskKanbanBoard'
+import { TaskSavedViewsPopover } from './TaskSavedViewsPopover'
 import { TaskTableRow, type TaskTableRowTask } from './TaskTableRow'
+import {
+  buildSavedViewSnapshot,
+  coerceTaskManagementPageSize,
+  isPersistedTaskView,
+  keysToDateRange,
+  loadSavedViewsFromStorage,
+  loadTaskManagementSessionActiveTab,
+  loadTaskManagementSessionSnapshot,
+  normalizeSnapshot,
+  sanitizeSortColumnKey,
+  sanitizeVisibleColumnIds,
+  saveSavedViewsToStorage,
+  saveTaskManagementSessionActiveTab,
+  saveTaskManagementSessionSnapshot,
+  snapshotsAreEqual,
+  snapshotsMatchAnySaved,
+  type TaskManagementSavedView,
+  type TaskManagementSavedViewSnapshot,
+} from './taskManagementSavedViews'
 
 type TaskFacetCounts = {
   status: Record<string, number>
@@ -108,6 +142,54 @@ const TASK_COLUMN_IDS = [
 
 const REQUIRED_COLUMN_IDS = ['type', 'ticketId', 'project', 'title', 'assigneeUserId', 'status', 'priority'] as const
 const VISIBLE_COLUMNS_STORAGE_KEY = 'task-management-visible-columns'
+const TASK_VIEW_STORAGE_KEY = 'task-management-task-view'
+
+type TaskManagementViewMode = 'table' | 'board' | 'gantt' | 'calendar'
+
+function TaskViewModeToggle({
+  value,
+  onValueChange,
+  disabled,
+  t,
+  className,
+}: {
+  value: TaskManagementViewMode
+  onValueChange: (v: TaskManagementViewMode) => void
+  disabled: boolean
+  t: TFunction
+  className?: string
+}) {
+  return (
+    <ToggleGroup
+      type="single"
+      value={value}
+      onValueChange={v => v && onValueChange(v as TaskManagementViewMode)}
+      variant="outline"
+      size="sm"
+      spacing={0}
+      disabled={disabled}
+      className={cn('h-6 shrink-0', className)}
+    >
+      <ToggleGroupItem value="table" className="h-5 gap-0.5 px-1.5 text-[10px]" title={t('taskManagement.viewTable')}>
+        <LayoutList className="h-3 w-3 shrink-0" />
+        <span className="hidden sm:inline">{t('taskManagement.viewTableShort')}</span>
+      </ToggleGroupItem>
+      <ToggleGroupItem value="board" className="h-5 gap-0.5 px-1.5 text-[10px]" title={t('taskManagement.viewBoard')}>
+        <Kanban className="h-3 w-3 shrink-0" />
+        <span className="hidden sm:inline">{t('taskManagement.viewBoardShort')}</span>
+      </ToggleGroupItem>
+      <ToggleGroupItem value="gantt" className="h-5 gap-0.5 px-1.5 text-[10px]" title={t('taskManagement.viewGantt')}>
+        <AlignLeft className="h-3 w-3 shrink-0" />
+        <span className="hidden sm:inline">{t('taskManagement.viewGanttShort')}</span>
+      </ToggleGroupItem>
+      <ToggleGroupItem value="calendar" className="h-5 gap-0.5 px-1.5 text-[10px]" title={t('taskManagement.viewCalendar')}>
+        <CalendarRange className="h-3 w-3 shrink-0" />
+        <span className="hidden sm:inline">{t('taskManagement.viewCalendarShort')}</span>
+      </ToggleGroupItem>
+    </ToggleGroup>
+  )
+}
+
 const AddOrEditTaskDialog = lazy(() => import('@/components/dialogs/task/AddOrEditTaskDialog').then(m => ({ default: m.AddOrEditTaskDialog })))
 const SettingsDialog = lazy(() => import('@/components/dialogs/app/SettingsDialog').then(m => ({ default: m.SettingsDialog })))
 const TaskCharts = lazy(() => import('./TaskCharts').then(m => ({ default: m.TaskCharts })))
@@ -168,6 +250,7 @@ function SortHeader({
   sortColumn,
   sortDirection,
   onSort,
+  disabled,
 }: {
   col: keyof Task
   label: string
@@ -175,15 +258,143 @@ function SortHeader({
   sortColumn: keyof Task | null
   sortDirection: 'asc' | 'desc'
   onSort: (col: keyof Task) => void
+  disabled?: boolean
 }) {
   return (
-    <TableHead className={cn('!text-[var(--table-header-fg)] cursor-pointer hover:bg-muted/50 select-none text-center', className)} onClick={() => onSort(col)}>
+    <TableHead
+      className={cn(
+        '!text-[var(--table-header-fg)] select-none text-center',
+        disabled ? 'cursor-not-allowed opacity-55 pointer-events-none' : 'cursor-pointer hover:bg-muted/50',
+        className
+      )}
+      onClick={() => {
+        if (disabled) return
+        onSort(col)
+      }}
+    >
       <div className="flex items-center justify-center gap-1">
         {label}
         {sortColumn === col && (sortDirection === 'asc' ? <ArrowUp className="h-3.5 w-3.5" /> : <ArrowDown className="h-3.5 w-3.5" />)}
       </div>
     </TableHead>
   )
+}
+
+/** Snapshot filter gửi API. PL/PM: facet + ngày đồng bộ ngay; text search chỉ khi bấm «Tìm kiếm». Admin/Dev: không dùng (filter trực tiếp). */
+interface AppliedMgmtFiltersSlice {
+  search: string
+  statusCodes: string[]
+  assigneeUserIds: string[]
+  typeCodes: string[]
+  priorityCodes: string[]
+  projectIds: string[]
+  dateFromKey: string | null
+  dateToKey: string | null
+  createdDateFromKey: string | null
+  createdDateToKey: string | null
+  updatedDateFromKey: string | null
+  updatedDateToKey: string | null
+}
+
+function dateRangeToOptionalApi(range: DateRange | undefined): { from: string; to: string } | undefined {
+  if (!range?.from) return undefined
+  const from = format(range.from, 'yyyy-MM-dd')
+  const to = range.to ? format(range.to, 'yyyy-MM-dd') : from
+  return { from, to }
+}
+
+function appliedSliceKeysToApi(fromKey: string | null, toKey: string | null): { from: string; to: string } | undefined {
+  if (!fromKey) return undefined
+  const to = (toKey ?? fromKey).slice(0, 10)
+  return { from: fromKey.slice(0, 10), to }
+}
+
+function buildAppliedMgmtFromDraft(
+  searchQuery: string,
+  statusFilter: string[],
+  assigneeFilter: string[],
+  typeFilter: string[],
+  priorityFilter: string[],
+  projectFilter: string[],
+  dateRange: DateRange | undefined,
+  createdDateRange: DateRange | undefined,
+  updatedDateRange: DateRange | undefined,
+): AppliedMgmtFiltersSlice {
+  let dateFromKey: string | null = null
+  let dateToKey: string | null = null
+  if (dateRange?.from) {
+    dateFromKey = format(dateRange.from, 'yyyy-MM-dd')
+    dateToKey = dateRange.to ? format(dateRange.to, 'yyyy-MM-dd') : dateFromKey
+  }
+  let createdDateFromKey: string | null = null
+  let createdDateToKey: string | null = null
+  if (createdDateRange?.from) {
+    createdDateFromKey = format(createdDateRange.from, 'yyyy-MM-dd')
+    createdDateToKey = createdDateRange.to ? format(createdDateRange.to, 'yyyy-MM-dd') : createdDateFromKey
+  }
+  let updatedDateFromKey: string | null = null
+  let updatedDateToKey: string | null = null
+  if (updatedDateRange?.from) {
+    updatedDateFromKey = format(updatedDateRange.from, 'yyyy-MM-dd')
+    updatedDateToKey = updatedDateRange.to ? format(updatedDateRange.to, 'yyyy-MM-dd') : updatedDateFromKey
+  }
+  return {
+    search: searchQuery.trim(),
+    statusCodes: [...statusFilter],
+    assigneeUserIds: [...assigneeFilter],
+    typeCodes: [...typeFilter],
+    priorityCodes: [...priorityFilter],
+    projectIds: [...projectFilter],
+    dateFromKey,
+    dateToKey,
+    createdDateFromKey,
+    createdDateToKey,
+    updatedDateFromKey,
+    updatedDateToKey,
+  }
+}
+
+function fingerprintAppliedMgmtFilters(s: AppliedMgmtFiltersSlice): string {
+  return JSON.stringify({
+    search: s.search,
+    statusCodes: [...s.statusCodes].sort(),
+    assigneeUserIds: [...s.assigneeUserIds].sort(),
+    typeCodes: [...s.typeCodes].sort(),
+    priorityCodes: [...s.priorityCodes].sort(),
+    projectIds: [...s.projectIds].sort(),
+    dateFromKey: s.dateFromKey,
+    dateToKey: s.dateToKey,
+    createdDateFromKey: s.createdDateFromKey,
+    createdDateToKey: s.createdDateToKey,
+    updatedDateFromKey: s.updatedDateFromKey,
+    updatedDateToKey: s.updatedDateToKey,
+  })
+}
+
+function appliedMgmtFromSavedViewSnapshot(snap: TaskManagementSavedViewSnapshot): AppliedMgmtFiltersSlice {
+  const base = {
+    search: snap.searchQuery.trim(),
+    statusCodes: [...snap.statusCodes],
+    assigneeUserIds: [...snap.assigneeUserIds],
+    typeCodes: [...snap.typeCodes],
+    priorityCodes: [...snap.priorityCodes],
+    projectIds: [...snap.projectIds],
+  }
+  const dateFromKey = snap.dateRangeAllTime ? null : snap.dateRangeFromKey
+  const dateToKey = snap.dateRangeAllTime ? null : (snap.dateRangeToKey ?? snap.dateRangeFromKey ?? null)
+  const createdDateFromKey = snap.createdRangeAllTime ? null : snap.createdRangeFromKey
+  const createdDateToKey = snap.createdRangeAllTime ? null : (snap.createdRangeToKey ?? snap.createdRangeFromKey ?? null)
+  const updatedDateFromKey = snap.updatedRangeAllTime ? null : snap.updatedRangeFromKey
+  const updatedDateToKey = snap.updatedRangeAllTime ? null : (snap.updatedRangeToKey ?? snap.updatedRangeFromKey ?? null)
+  return {
+    ...base,
+    dateFromKey,
+    dateToKey,
+    createdDateFromKey,
+    createdDateToKey,
+    updatedDateFromKey,
+    updatedDateToKey,
+  }
 }
 
 export function TaskManagement({ embedded = false }: { embedded?: boolean }) {
@@ -195,6 +406,25 @@ export function TaskManagement({ embedded = false }: { embedded?: boolean }) {
   const verifySession = useTaskAuthStore(s => s.verifySession)
   const showChartTab = Boolean(user && canViewTaskChartTab(user.role))
   const clearSession = useTaskAuthStore(s => s.clearSession)
+  /** Admin / PL / PM: swimlane Gantt + Kanban. */
+  const canManageTaskRowGrouping = useMemo(() => {
+    const r = user?.role
+    return r === 'admin' || r === 'pl' || r === 'pm'
+  }, [user?.role])
+  const requiresManualMgmtApply = useMemo(() => {
+    const r = (user?.role ?? '').toLowerCase()
+    return r === 'pl' || r === 'pm'
+  }, [user?.role])
+  const taskMgmtSessionScope = user?.id ?? 'guest'
+  const [appliedMgmtFilters, setAppliedMgmtFilters] = useState<AppliedMgmtFiltersSlice | null>(null)
+
+  useEffect(() => {
+    setAppliedMgmtFilters(null)
+  }, [user?.id])
+
+  useEffect(() => {
+    if (!requiresManualMgmtApply) setAppliedMgmtFilters(null)
+  }, [requiresManualMgmtApply])
   const [isAuthChecked, setIsAuthChecked] = useState(false)
   const [activeTab, setActiveTab] = useState<'tasks' | 'chart'>('tasks')
   const [tableTasks, setTableTasks] = useState<Task[]>([])
@@ -233,18 +463,50 @@ export function TaskManagement({ embedded = false }: { embedded?: boolean }) {
     const to = new Date()
     return { from: subDays(to, 29), to }
   })
-  const [datePickerOpen, setDatePickerOpen] = useState(false)
+  const [createdDateRange, setCreatedDateRange] = useState<DateRange | undefined>(undefined)
+  const [updatedDateRange, setUpdatedDateRange] = useState<DateRange | undefined>(undefined)
+  const [mgmtTimelinePickerOpen, setMgmtTimelinePickerOpen] = useState(false)
+  const [mgmtCreatedPickerOpen, setMgmtCreatedPickerOpen] = useState(false)
+  const [mgmtUpdatedPickerOpen, setMgmtUpdatedPickerOpen] = useState(false)
+  /** Tab biểu đồ chỉ cần khoảng timeline chính — tách state mở Popover tránh trùng Tasks. */
+  const [chartTimelinePickerOpen, setChartTimelinePickerOpen] = useState(false)
   const [statusFilterSearch, setStatusFilterSearch] = useState('')
   const [priorityFilterSearch, setPriorityFilterSearch] = useState('')
   const [typeFilterSearch, setTypeFilterSearch] = useState('')
   const [assigneeFilterSearch, setAssigneeFilterSearch] = useState('')
   const [projectFilterSearch, setProjectFilterSearch] = useState('')
   const [favoriteTaskIds, setFavoriteTaskIds] = useState<Set<string>>(new Set())
+  const [taskView, setTaskView] = useState<TaskManagementViewMode>(() => {
+    try {
+      const s = localStorage.getItem(TASK_VIEW_STORAGE_KEY)
+      if (s === 'table' || s === 'board' || s === 'gantt' || s === 'calendar') return s
+    } catch {
+      /* ignore */
+    }
+    return 'table'
+  })
+  const [boardTasks, setBoardTasks] = useState<Task[]>([])
+  const [boardTotal, setBoardTotal] = useState(0)
+  const [boardTruncated, setBoardTruncated] = useState(false)
+  const [boardLoading, setBoardLoading] = useState(false)
+  const [savedViews, setSavedViews] = useState<TaskManagementSavedView[]>([])
+  const [selectedTaskIds, setSelectedTaskIds] = useState(() => new Set<string>())
+  const boardManagementRequestIdRef = useRef(0)
+  /** Kéo Kanban thành công: vẫn refetch board theo listRevision nhưng không bật overlay loading cả vùng board. */
+  const skipBoardFullPageLoadingRef = useRef(false)
+  const skipPersistSavedViewsAfterHydrateRef = useRef(false)
+  const skipPersistSessionAfterHydrateRef = useRef(false)
   const listManagementRequestIdRef = useRef(0)
   const chartManagementRequestIdRef = useRef(0)
   const chartTasksRef = useRef<ChartTask[]>([])
   chartTasksRef.current = chartTasks
   const lastFacetsFiltersKeyRef = useRef<string | null>(null)
+  /** Kanban/Gantt/Lịch không gọi list bảng — dùng ref này để request facet cho popover filter. */
+  const managementFacetPopoverRequestIdRef = useRef(0)
+  const [pinnedSavedViewId, setPinnedSavedViewId] = useState<string | null>(null)
+  const [importUiPhase, setImportUiPhase] = useState<'idle' | 'prep' | 'run'>('idle')
+  const [bulkSkipDetail, setBulkSkipDetail] = useState<{ open: boolean; lines: string[] }>({ open: false, lines: [] })
+  const [importErrorDetail, setImportErrorDetail] = useState<{ open: boolean; text: string }>({ open: false, text: '' })
   const { center: taskToolbarPortalTarget, actions: taskToolbarActionsTarget } = useTaskToolbarPortalTarget()
   const [visibleColumnIds, setVisibleColumnIds] = useState<string[]>(() => {
     try {
@@ -273,7 +535,30 @@ export function TaskManagement({ embedded = false }: { embedded?: boolean }) {
   }, [visibleColumnIds])
 
   useEffect(() => {
-    if (isImporting) setDatePickerOpen(false)
+    try {
+      localStorage.setItem(TASK_VIEW_STORAGE_KEY, taskView)
+    } catch {
+      /* ignore */
+    }
+  }, [taskView])
+
+  useEffect(() => {
+    if (isImporting) {
+      setMgmtTimelinePickerOpen(false)
+      setMgmtCreatedPickerOpen(false)
+      setMgmtUpdatedPickerOpen(false)
+      setChartTimelinePickerOpen(false)
+    }
+  }, [isImporting])
+
+  useEffect(() => {
+    if (!isImporting) {
+      setImportUiPhase('idle')
+      return
+    }
+    setImportUiPhase('prep')
+    const tm = window.setTimeout(() => setImportUiPhase('run'), 450)
+    return () => window.clearTimeout(tm)
   }, [isImporting])
 
   useEffect(() => {
@@ -281,14 +566,192 @@ export function TaskManagement({ embedded = false }: { embedded?: boolean }) {
     return () => window.clearTimeout(id)
   }, [searchQuery])
 
+  /** PL/PM: đổi facet hoặc khoảng ngày → refetch ngay; giữ `search` đã áp cho API cho đến khi bấm «Tìm kiếm». */
   useEffect(() => {
+    if (!requiresManualMgmtApply) return
+    setAppliedMgmtFilters(prev =>
+      buildAppliedMgmtFromDraft(
+        prev ? prev.search : searchQuery.trim(),
+        statusFilter,
+        assigneeFilter,
+        typeFilter,
+        priorityFilter,
+        projectFilter,
+        dateRange,
+        createdDateRange,
+        updatedDateRange,
+      ),
+    )
     setTaskPage(1)
-  }, [debouncedSearch, statusFilter, assigneeFilter, typeFilter, priorityFilter, projectFilter, dateRange])
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- chỉ facet/ngày; không kéo typing search vào để tránh áp nhầm từng ký tự
+  }, [requiresManualMgmtApply, statusFilter, assigneeFilter, typeFilter, priorityFilter, projectFilter, dateRange, createdDateRange, updatedDateRange])
+
+  useEffect(() => {
+    if (requiresManualMgmtApply) return
+    setTaskPage(1)
+  }, [requiresManualMgmtApply, debouncedSearch, statusFilter, assigneeFilter, typeFilter, priorityFilter, projectFilter, dateRange, createdDateRange, updatedDateRange])
 
   const toggleColumnVisibility = useCallback((colId: string) => {
     if (REQUIRED_COLUMN_IDS.includes(colId as (typeof REQUIRED_COLUMN_IDS)[number])) return
     setVisibleColumnIds(prev => (prev.includes(colId) ? prev.filter(c => c !== colId) : [...prev, colId]))
   }, [])
+
+  const currentSavedSnapshot = useMemo(
+    () =>
+      buildSavedViewSnapshot({
+        searchQuery,
+        statusCodes: statusFilter,
+        assigneeUserIds: assigneeFilter,
+        typeCodes: typeFilter,
+        priorityCodes: priorityFilter,
+        projectIds: projectFilter,
+        dateRange,
+        createdDateRange,
+        updatedDateRange,
+        sortColumnKey: sortColumn as string | null,
+        sortDirection,
+        taskView,
+        pageSize,
+        visibleColumnIds,
+        taskColumnIds: TASK_COLUMN_IDS,
+        requiredColumnIds: REQUIRED_COLUMN_IDS,
+      }),
+    [searchQuery, statusFilter, assigneeFilter, typeFilter, priorityFilter, projectFilter, dateRange, createdDateRange, updatedDateRange, sortColumn, sortDirection, taskView, pageSize, visibleColumnIds]
+  )
+
+  const matchingSavedView = useMemo(() => snapshotsMatchAnySaved(savedViews, currentSavedSnapshot), [savedViews, currentSavedSnapshot])
+
+  const pinnedSavedViewDirty = useMemo(() => {
+    if (!pinnedSavedViewId) return false
+    const v = savedViews.find(x => x.id === pinnedSavedViewId)
+    if (!v) return false
+    return !snapshotsAreEqual(normalizeSnapshot(v.snapshot), normalizeSnapshot(currentSavedSnapshot))
+  }, [pinnedSavedViewId, savedViews, currentSavedSnapshot])
+
+  useEffect(() => {
+    if (!pinnedSavedViewId) return
+    if (!savedViews.some(x => x.id === pinnedSavedViewId)) setPinnedSavedViewId(null)
+  }, [savedViews, pinnedSavedViewId])
+
+  const hasNarrowingFilters = useMemo(() => {
+    const q =
+      requiresManualMgmtApply ? searchQuery.trim().length > 0 : debouncedSearch.trim().length > 0
+    return (
+      q ||
+      statusFilter.length > 0 ||
+      assigneeFilter.length > 0 ||
+      typeFilter.length > 0 ||
+      priorityFilter.length > 0 ||
+      projectFilter.length > 0 ||
+      Boolean(dateRange?.from) ||
+      Boolean(createdDateRange?.from) ||
+      Boolean(updatedDateRange?.from)
+    )
+  }, [
+    requiresManualMgmtApply,
+    searchQuery,
+    debouncedSearch,
+    statusFilter,
+    assigneeFilter,
+    typeFilter,
+    priorityFilter,
+    projectFilter,
+    dateRange?.from,
+    createdDateRange?.from,
+    updatedDateRange?.from,
+  ])
+
+  const reloadManagementLists = useCallback(() => setListRevision(r => r + 1), [])
+
+  const toastVersionConflict = useCallback(() => {
+    toast.error(t('taskManagement.versionConflictError'), {
+      actions: [{ label: t('taskManagement.toastReloadList'), onClick: () => reloadManagementLists() }],
+    })
+  }, [t, reloadManagementLists])
+
+  const applySavedSnapshot = useCallback(
+    (snap: TaskManagementSavedViewSnapshot) => {
+      setSearchQuery(snap.searchQuery)
+      setDebouncedSearch(snap.searchQuery)
+      setStatusFilter([...snap.statusCodes])
+      setAssigneeFilter([...snap.assigneeUserIds])
+      setTypeFilter([...snap.typeCodes])
+      setPriorityFilter([...snap.priorityCodes])
+      setProjectFilter([...snap.projectIds])
+      setDateRange(keysToDateRange(snap.dateRangeFromKey, snap.dateRangeToKey, snap.dateRangeAllTime))
+      setCreatedDateRange(keysToDateRange(snap.createdRangeFromKey, snap.createdRangeToKey, snap.createdRangeAllTime))
+      setUpdatedDateRange(keysToDateRange(snap.updatedRangeFromKey, snap.updatedRangeToKey, snap.updatedRangeAllTime))
+      const col = sanitizeSortColumnKey(snap.sortColumn)
+      setSortColumn(col ? (col as keyof Task) : null)
+      setSortDirection(snap.sortDirection)
+      setTaskView(isPersistedTaskView(snap.taskView) ? snap.taskView : 'table')
+      setPageSize(coerceTaskManagementPageSize(snap.pageSize))
+      setVisibleColumnIds(sanitizeVisibleColumnIds(snap.visibleColumnIds, TASK_COLUMN_IDS, REQUIRED_COLUMN_IDS))
+      setTaskPage(1)
+      if (requiresManualMgmtApply) {
+        setAppliedMgmtFilters(appliedMgmtFromSavedViewSnapshot(snap))
+      }
+    },
+    [requiresManualMgmtApply]
+  )
+
+  useEffect(() => {
+    if (user?.id) {
+      skipPersistSavedViewsAfterHydrateRef.current = true
+      setSavedViews(loadSavedViewsFromStorage(user.id))
+    } else {
+      setSavedViews([])
+    }
+    skipPersistSessionAfterHydrateRef.current = true
+    const sessionSnap = loadTaskManagementSessionSnapshot(taskMgmtSessionScope)
+    if (sessionSnap) applySavedSnapshot(sessionSnap)
+    const persistedTasksTab = loadTaskManagementSessionActiveTab(taskMgmtSessionScope)
+    if (persistedTasksTab === 'tasks' || (persistedTasksTab === 'chart' && showChartTab)) setActiveTab(persistedTasksTab)
+  }, [taskMgmtSessionScope, user?.id, applySavedSnapshot, showChartTab])
+
+  useEffect(() => {
+    if (!user?.id) return
+    if (skipPersistSavedViewsAfterHydrateRef.current) {
+      skipPersistSavedViewsAfterHydrateRef.current = false
+      return
+    }
+    saveSavedViewsToStorage(user.id, savedViews)
+  }, [user?.id, savedViews])
+
+  const clearNarrowingFilters = useCallback(() => {
+    setSearchQuery('')
+    setDebouncedSearch('')
+    setStatusFilter([])
+    setPriorityFilter([])
+    setTypeFilter([])
+    setAssigneeFilter([])
+    setProjectFilter([])
+    setDateRange(undefined)
+    setCreatedDateRange(undefined)
+    setUpdatedDateRange(undefined)
+    setTaskPage(1)
+    setMgmtTimelinePickerOpen(false)
+    setMgmtCreatedPickerOpen(false)
+    setMgmtUpdatedPickerOpen(false)
+    setChartTimelinePickerOpen(false)
+    if (requiresManualMgmtApply) {
+      setAppliedMgmtFilters(
+        buildAppliedMgmtFromDraft('', [], [], [], [], [], undefined, undefined, undefined),
+      )
+    }
+  }, [requiresManualMgmtApply])
+
+  useEffect(() => {
+    if (skipPersistSessionAfterHydrateRef.current) {
+      skipPersistSessionAfterHydrateRef.current = false
+      return
+    }
+    const id = window.setTimeout(() => {
+      saveTaskManagementSessionSnapshot(taskMgmtSessionScope, normalizeSnapshot(currentSavedSnapshot))
+      saveTaskManagementSessionActiveTab(taskMgmtSessionScope, activeTab === 'chart' ? 'chart' : 'tasks')
+    }, 200)
+    return () => window.clearTimeout(id)
+  }, [taskMgmtSessionScope, currentSavedSnapshot, activeTab])
 
   const handleWindow = (action: string) => {
     window.api.electron.send('window:action', action)
@@ -366,15 +829,18 @@ export function TaskManagement({ embedded = false }: { embedded?: boolean }) {
     if (!showChartTab && activeTab === 'chart') setActiveTab('tasks')
   }, [showChartTab, activeTab])
 
-  const openTaskDetailById = useCallback(async (taskId: string) => {
-    const res = await window.api.task.getTask(taskId)
-    if (res.status === 'success' && res.data) {
-      setEditingTaskInDialog(res.data as Task)
-      setShowTaskDialog(true)
-    } else {
-      toast.error(res.message || t('taskManagement.loadTasksFailed'))
-    }
-  }, [t])
+  const openTaskDetailById = useCallback(
+    async (taskId: string) => {
+      const res = await window.api.task.getTask(taskId)
+      if (res.status === 'success' && res.data) {
+        setEditingTaskInDialog(res.data as Task)
+        setShowTaskDialog(true)
+      } else {
+        toast.error(res.message || t('taskManagement.loadTasksFailed'))
+      }
+    },
+    [t]
+  )
 
   useEffect(() => {
     let cancelled = false
@@ -458,6 +924,8 @@ export function TaskManagement({ embedded = false }: { embedded?: boolean }) {
       if (res.status === 'success' && res.created !== undefined) {
         const created = res.created ?? 0
         const updated = res.updated ?? 0
+        const errLines = Array.isArray(res.errors) ? res.errors.filter((e): e is string => typeof e === 'string' && e.trim().length > 0) : []
+        const errText = errLines.join('\n')
         if (created > 0 || updated > 0) {
           if (created > 0 && updated > 0) {
             toast.success(t('taskManagement.importSuccessWithUpdate', { created, updated }))
@@ -466,13 +934,31 @@ export function TaskManagement({ embedded = false }: { embedded?: boolean }) {
           } else {
             toast.success(t('taskManagement.importSuccess', { count: created }))
           }
+          if (errLines.length > 0) {
+            toast.warning(t('taskManagement.importWarningsCount', { count: errLines.length }), {
+              actions: [
+                {
+                  label: t('taskManagement.importErrorViewLog'),
+                  onClick: () => setImportErrorDetail({ open: true, text: errText }),
+                },
+              ],
+            })
+          }
           await loadData()
         } else {
-          const msg = res.errors?.length ? res.errors.join('; ') : t('taskManagement.importError', { message: 'Không import được task nào' })
-          toast.error(msg)
+          const fallback = errText || t('taskManagement.importNothingApplied')
+          const msg = errLines.length ? errText : t('taskManagement.importError', { message: fallback })
+          if (errLines.length > 0) {
+            setImportErrorDetail({ open: true, text: errText })
+            toast.error(t('taskManagement.importError', { message: t('taskManagement.importErrorOpenLogHint') }))
+          } else {
+            toast.error(msg)
+          }
         }
       } else {
-        const msg = res.errors?.length ? res.errors.join('; ') : res.message || t('taskManagement.importError', { message: 'Unknown' })
+        const raw = res as { message?: string; errors?: unknown }
+        const errs = Array.isArray(raw.errors) ? raw.errors.filter((e): e is string => typeof e === 'string' && e.trim().length > 0) : []
+        const msg = errs.join('\n') || raw.message || 'Unknown'
         toast.error(t('taskManagement.importError', { message: msg }))
       }
     } catch (err) {
@@ -520,7 +1006,7 @@ export function TaskManagement({ embedded = false }: { embedded?: boolean }) {
       return { success: true }
     }
     if ((res as { code?: string }).code === 'VERSION_CONFLICT') {
-      toast.error(t('taskManagement.versionConflictError'))
+      toastVersionConflict()
       const freshRes = await window.api.task.getTask(id)
       if (freshRes.status === 'success' && freshRes.data) {
         setEditingTaskInDialog(freshRes.data as Task)
@@ -541,9 +1027,9 @@ export function TaskManagement({ embedded = false }: { embedded?: boolean }) {
       return { success: true }
     }
     if ((res as { code?: string }).code === 'VERSION_CONFLICT') {
+      toastVersionConflict()
       const freshRes = await window.api.task.getTask(id)
       if (freshRes.status === 'success' && freshRes.data) {
-        toast.error(t('taskManagement.versionConflictError'))
         if (editingTaskInDialog?.id === id) setEditingTaskInDialog(freshRes.data as Task)
         if (taskToDelete?.id === id) setTaskToDelete(freshRes.data as Task)
         loadData()
@@ -603,6 +1089,118 @@ export function TaskManagement({ embedded = false }: { embedded?: boolean }) {
     }
   }
 
+  const handleBoardMoveStatus = useCallback(
+    async (taskId: string, newStatus: string, version?: number) => {
+      const can = await window.api.task.canEditTask(taskId)
+      if (can.status !== 'success' || !can.data?.canEdit) {
+        toast.error(t('taskManagement.taskReadOnlyNoPermission'))
+        return
+      }
+      let previousSnapshot: Task[] = []
+      setBoardTasks(prev => {
+        previousSnapshot = prev
+        return prev.map(x => (x.id === taskId ? { ...x, status: newStatus } : x))
+      })
+      const res = await window.api.task.updateStatus(taskId, newStatus, version)
+      if (res.status === 'success') {
+        skipBoardFullPageLoadingRef.current = true
+        setListRevision(r => r + 1)
+        return
+      }
+      setBoardTasks(previousSnapshot)
+      if ((res as { code?: string }).code === 'VERSION_CONFLICT') toastVersionConflict()
+      else toast.error(res.message || t('taskManagement.updateError'))
+    },
+    [t, toastVersionConflict]
+  )
+
+  const handleUpdatePlanDates = useCallback(
+    async (taskId: string, planStartDate: string, planEndDate: string, version?: number) => {
+      const can = await window.api.task.canEditTask(taskId)
+      if (can.status !== 'success' || !can.data?.canEdit) {
+        toast.error(t('taskManagement.taskReadOnlyNoPermission'))
+        return false
+      }
+      let previousSnapshot: Task[] = []
+      setBoardTasks(prev => {
+        previousSnapshot = prev
+        return prev.map(x => (x.id === taskId ? { ...x, planStartDate, planEndDate } : x))
+      })
+      const res = await window.api.task.updateDates(taskId, { planStartDate, planEndDate }, version)
+      if (res.status === 'success') {
+        setListRevision(r => r + 1)
+        return true
+      }
+      setBoardTasks(previousSnapshot)
+      if ((res as { code?: string }).code === 'VERSION_CONFLICT') toastVersionConflict()
+      else toast.error(res.message || t('taskManagement.updateError'))
+      return false
+    },
+    [t, toastVersionConflict]
+  )
+
+  const toggleBulkTaskSelection = useCallback((taskId: string) => {
+    setSelectedTaskIds(prev => {
+      const next = new Set(prev)
+      if (next.has(taskId)) next.delete(taskId)
+      else next.add(taskId)
+      return next
+    })
+  }, [])
+
+  const handleBulkApply = useCallback(
+    async (patch: { status?: string; priority?: string; assigneeUserId?: string | null }) => {
+      const sourceRows = taskView === 'table' ? tableTasks : boardTasks
+      const items: { id: string; version: number }[] = []
+      for (const id of selectedTaskIds) {
+        const row = sourceRows.find(t => t.id === id)
+        if (row) items.push({ id: row.id, version: Number(row.version ?? 0) })
+      }
+      if (items.length === 0) {
+        toast.error(t('taskManagement.bulkNothingToApply'))
+        return
+      }
+      const summarizeSkipped = (ids: string[]) =>
+        ids.map(id => {
+          const row = sourceRows.find(t => t.id === id)
+          if (!row) return id
+          const tid = (row as TaskTableRowTask).ticketId?.trim()
+          return tid ? `${tid} — ${row.title ?? id}` : row.title || id
+        })
+      const res = await window.api.task.bulkUpdateTasks({ items, patch })
+      if (res.status === 'success' && res.data) {
+        const { updatedCount, skippedIds } = res.data
+        const lines = summarizeSkipped(skippedIds)
+        if (updatedCount > 0) {
+          toast.success(t('taskManagement.bulkSuccess', { count: updatedCount }))
+          setListRevision(r => r + 1)
+        }
+        if (skippedIds.length > 0 && updatedCount === 0) {
+          toast.error(t('taskManagement.bulkAllSkipped'), {
+            actions: [
+              {
+                label: t('taskManagement.bulkSkippedDetails'),
+                onClick: () => setBulkSkipDetail({ open: true, lines }),
+              },
+            ],
+          })
+        } else if (skippedIds.length > 0) {
+          toast.warning(t('taskManagement.bulkPartialSkip', { count: skippedIds.length }), {
+            actions: [
+              {
+                label: t('taskManagement.bulkSkippedDetails'),
+                onClick: () => setBulkSkipDetail({ open: true, lines }),
+              },
+            ],
+          })
+        }
+        return
+      }
+      toast.error((res as { message?: string }).message || t('taskManagement.updateError'))
+    },
+    [taskView, tableTasks, boardTasks, selectedTaskIds, t]
+  )
+
   const getAssigneeDisplay = useCallback(
     (assigneeUserId: string | null) => {
       if (!assigneeUserId) return '-'
@@ -612,47 +1210,183 @@ export function TaskManagement({ embedded = false }: { embedded?: boolean }) {
     [users]
   )
 
-  const taskListFiltersKey = useMemo(
-    () =>
-      JSON.stringify({
-        s: debouncedSearch,
-        st: [...statusFilter].sort(),
-        as: [...assigneeFilter].sort(),
-        ty: [...typeFilter].sort(),
-        pr: [...priorityFilter].sort(),
-        pj: [...projectFilter].sort(),
-        dr:
-          dateRange?.from != null
-            ? `${format(dateRange.from, 'yyyy-MM-dd')}|${dateRange.to ? format(dateRange.to, 'yyyy-MM-dd') : format(dateRange.from, 'yyyy-MM-dd')}`
-            : null,
-      }),
-    [debouncedSearch, statusFilter, assigneeFilter, typeFilter, priorityFilter, projectFilter, dateRange]
-  )
+  const mgmtApiFilters = useMemo(() => {
+    if (!requiresManualMgmtApply) {
+      const dateRangeApi =
+        dateRange?.from != null
+          ? {
+              from: format(dateRange.from, 'yyyy-MM-dd'),
+              to: dateRange.to ? format(dateRange.to, 'yyyy-MM-dd') : format(dateRange.from, 'yyyy-MM-dd'),
+            }
+          : undefined
+      return {
+        ready: true as const,
+        search: debouncedSearch.trim(),
+        statusCodes: statusFilter,
+        assigneeUserIds: assigneeFilter,
+        typeCodes: typeFilter,
+        priorityCodes: priorityFilter,
+        projectIds: projectFilter,
+        dateRangeApi,
+        createdDateRangeApi: dateRangeToOptionalApi(createdDateRange),
+        updatedDateRangeApi: dateRangeToOptionalApi(updatedDateRange),
+      }
+    }
+    if (appliedMgmtFilters === null) return { ready: false as const }
+    const dateRangeApi =
+      appliedMgmtFilters.dateFromKey != null
+        ? {
+            from: appliedMgmtFilters.dateFromKey,
+            to: appliedMgmtFilters.dateToKey ?? appliedMgmtFilters.dateFromKey,
+          }
+        : undefined
+    return {
+      ready: true as const,
+      search: appliedMgmtFilters.search,
+      statusCodes: appliedMgmtFilters.statusCodes,
+      assigneeUserIds: appliedMgmtFilters.assigneeUserIds,
+      typeCodes: appliedMgmtFilters.typeCodes,
+      priorityCodes: appliedMgmtFilters.priorityCodes,
+      projectIds: appliedMgmtFilters.projectIds,
+      dateRangeApi,
+      createdDateRangeApi: appliedSliceKeysToApi(
+        appliedMgmtFilters.createdDateFromKey,
+        appliedMgmtFilters.createdDateToKey,
+      ),
+      updatedDateRangeApi: appliedSliceKeysToApi(
+        appliedMgmtFilters.updatedDateFromKey,
+        appliedMgmtFilters.updatedDateToKey,
+      ),
+    }
+  }, [
+    requiresManualMgmtApply,
+    debouncedSearch,
+    statusFilter,
+    assigneeFilter,
+    typeFilter,
+    priorityFilter,
+    projectFilter,
+    dateRange,
+    createdDateRange,
+    updatedDateRange,
+    appliedMgmtFilters,
+  ])
+
+  const commitMgmtFiltersFromDraft = useCallback(() => {
+    if (!requiresManualMgmtApply) return
+    setAppliedMgmtFilters(
+      buildAppliedMgmtFromDraft(
+        searchQuery,
+        statusFilter,
+        assigneeFilter,
+        typeFilter,
+        priorityFilter,
+        projectFilter,
+        dateRange,
+        createdDateRange,
+        updatedDateRange,
+      ),
+    )
+    setTaskPage(1)
+  }, [
+    requiresManualMgmtApply,
+    searchQuery,
+    statusFilter,
+    assigneeFilter,
+    typeFilter,
+    priorityFilter,
+    projectFilter,
+    dateRange,
+    createdDateRange,
+    updatedDateRange,
+  ])
+
+  const mgmtSearchDirtyOrInitial = useMemo(() => {
+    if (!requiresManualMgmtApply) return false
+    const fpDraft = fingerprintAppliedMgmtFilters(
+      buildAppliedMgmtFromDraft(
+        searchQuery,
+        statusFilter,
+        assigneeFilter,
+        typeFilter,
+        priorityFilter,
+        projectFilter,
+        dateRange,
+        createdDateRange,
+        updatedDateRange,
+      ),
+    )
+    if (!appliedMgmtFilters) return true
+    return fpDraft !== fingerprintAppliedMgmtFilters(appliedMgmtFilters)
+  }, [
+    requiresManualMgmtApply,
+    searchQuery,
+    statusFilter,
+    assigneeFilter,
+    typeFilter,
+    priorityFilter,
+    projectFilter,
+    dateRange,
+    createdDateRange,
+    updatedDateRange,
+    appliedMgmtFilters,
+  ])
+
+  const reloadTaskMgmtMastersAndList = useCallback(() => {
+    void loadData()
+    setListRevision(r => r + 1)
+  }, [loadData])
+
+  const taskListFiltersKey = useMemo(() => {
+    if (!mgmtApiFilters.ready) return '__pending_mgmt__'
+    const f = mgmtApiFilters
+    return JSON.stringify({
+      s: f.search,
+      st: [...f.statusCodes].sort(),
+      as: [...f.assigneeUserIds].sort(),
+      ty: [...f.typeCodes].sort(),
+      pr: [...f.priorityCodes].sort(),
+      pj: [...f.projectIds].sort(),
+      dr: f.dateRangeApi?.from ? `${f.dateRangeApi.from}|${f.dateRangeApi.to ?? f.dateRangeApi.from}` : null,
+      dc: f.createdDateRangeApi?.from ? `${f.createdDateRangeApi.from}|${f.createdDateRangeApi.to ?? f.createdDateRangeApi.from}` : null,
+      du: f.updatedDateRangeApi?.from ? `${f.updatedDateRangeApi.from}|${f.updatedDateRangeApi.to ?? f.updatedDateRangeApi.from}` : null,
+    })
+  }, [mgmtApiFilters])
+
+  const bulkSelectionClearKey = useMemo(() => `${taskView}|${taskPage}|${taskListFiltersKey}|${listRevision}`, [taskView, taskPage, taskListFiltersKey, listRevision])
+
+  useEffect(() => {
+    setSelectedTaskIds(new Set())
+  }, [bulkSelectionClearKey])
 
   useEffect(() => {
     if (!isAuthChecked || isLoading || taskApiOk !== true) return
+    if (taskView !== 'table') return
+    if (!mgmtApiFilters.ready) {
+      setListLoading(false)
+      setTableTasks([])
+      setTotalCount(0)
+      setFacetCounts(null)
+      return
+    }
+    const f = mgmtApiFilters
     const requestId = ++listManagementRequestIdRef.current
     const includeFacets = lastFacetsFiltersKeyRef.current !== taskListFiltersKey
     void (async () => {
       setListLoading(true)
       try {
-        const dateRangeApi =
-          dateRange?.from != null
-            ? {
-                from: format(dateRange.from, 'yyyy-MM-dd'),
-                to: dateRange.to ? format(dateRange.to, 'yyyy-MM-dd') : format(dateRange.from, 'yyyy-MM-dd'),
-              }
-            : undefined
         const res = await window.api.task.listForManagement({
           page: taskPage,
           limit: pageSize,
-          search: debouncedSearch.trim() || undefined,
-          statusCodes: statusFilter.length ? statusFilter : undefined,
-          assigneeUserIds: assigneeFilter.length ? assigneeFilter : undefined,
-          typeCodes: typeFilter.length ? typeFilter : undefined,
-          priorityCodes: priorityFilter.length ? priorityFilter : undefined,
-          projectIds: projectFilter.length ? projectFilter : undefined,
-          dateRange: dateRangeApi,
+          search: f.search || undefined,
+          statusCodes: f.statusCodes.length ? f.statusCodes : undefined,
+          assigneeUserIds: f.assigneeUserIds.length ? f.assigneeUserIds : undefined,
+          typeCodes: f.typeCodes.length ? f.typeCodes : undefined,
+          priorityCodes: f.priorityCodes.length ? f.priorityCodes : undefined,
+          projectIds: f.projectIds.length ? f.projectIds : undefined,
+          dateRange: f.dateRangeApi,
+          createdDateRange: f.createdDateRangeApi,
+          updatedDateRange: f.updatedDateRangeApi,
           sortColumn,
           sortDirection,
           includeFacets,
@@ -698,43 +1432,91 @@ export function TaskManagement({ embedded = false }: { embedded?: boolean }) {
     taskApiOk,
     taskPage,
     pageSize,
-    debouncedSearch,
-    statusFilter,
-    assigneeFilter,
-    typeFilter,
-    priorityFilter,
-    projectFilter,
-    dateRange,
+    mgmtApiFilters,
     sortColumn,
     sortDirection,
     listRevision,
     taskListFiltersKey,
     t,
     clearSession,
+    taskView,
+  ])
+
+  /** Board/Gantt/Lịch: chỉ khi `taskView===table` mới fetch list bảng (+ facet) — các view khác vẫn cần facet counts trong popover. */
+  useEffect(() => {
+    if (!isAuthChecked || isLoading || taskApiOk !== true || activeTab !== 'tasks') return
+    if (taskView === 'table') return
+    if (!mgmtApiFilters.ready) {
+      setFacetCounts(null)
+      return
+    }
+    const f = mgmtApiFilters
+    const requestId = ++managementFacetPopoverRequestIdRef.current
+    void (async () => {
+      try {
+        const res = await window.api.task.listForManagement({
+          page: 1,
+          limit: 1,
+          search: f.search || undefined,
+          statusCodes: f.statusCodes.length ? f.statusCodes : undefined,
+          assigneeUserIds: f.assigneeUserIds.length ? f.assigneeUserIds : undefined,
+          typeCodes: f.typeCodes.length ? f.typeCodes : undefined,
+          priorityCodes: f.priorityCodes.length ? f.priorityCodes : undefined,
+          projectIds: f.projectIds.length ? f.projectIds : undefined,
+          dateRange: f.dateRangeApi,
+          createdDateRange: f.createdDateRangeApi,
+          updatedDateRange: f.updatedDateRangeApi,
+          sortColumn: null,
+          sortDirection: 'asc',
+          includeFacets: true,
+        })
+        if (requestId !== managementFacetPopoverRequestIdRef.current) return
+        if (res.status === 'error' && (res.code === 'UNAUTHORIZED' || res.code === 'FORBIDDEN')) return
+        if (res.status === 'success' && res.data?.facets) {
+          setFacetCounts(res.data.facets)
+          lastFacetsFiltersKeyRef.current = taskListFiltersKey
+        }
+      } catch {
+        /* bỏ qua — lần fetch sau hoặc tab bảng sẽ cập nhật */
+      }
+    })()
+    return () => {
+      managementFacetPopoverRequestIdRef.current += 1
+    }
+  }, [
+    isAuthChecked,
+    isLoading,
+    taskApiOk,
+    activeTab,
+    taskView,
+    mgmtApiFilters,
+    taskListFiltersKey,
+    listRevision,
   ])
 
   useEffect(() => {
     if (activeTab !== 'chart' || !isAuthChecked || taskApiOk !== true || isLoading) return
+    if (!mgmtApiFilters.ready) {
+      setChartTasks([])
+      setChartLoading(false)
+      return
+    }
+    const f = mgmtApiFilters
     const requestId = ++chartManagementRequestIdRef.current
     const blockChartOverlay = chartTasksRef.current.length === 0
     void (async () => {
       if (blockChartOverlay) setChartLoading(true)
       try {
-        const dateRangeApi =
-          dateRange?.from != null
-            ? {
-                from: format(dateRange.from, 'yyyy-MM-dd'),
-                to: dateRange.to ? format(dateRange.to, 'yyyy-MM-dd') : format(dateRange.from, 'yyyy-MM-dd'),
-              }
-            : undefined
         const res = await window.api.task.listForManagementCharts({
-          search: debouncedSearch.trim() || undefined,
-          statusCodes: statusFilter.length ? statusFilter : undefined,
-          assigneeUserIds: assigneeFilter.length ? assigneeFilter : undefined,
-          typeCodes: typeFilter.length ? typeFilter : undefined,
-          priorityCodes: priorityFilter.length ? priorityFilter : undefined,
-          projectIds: projectFilter.length ? projectFilter : undefined,
-          dateRange: dateRangeApi,
+          search: f.search || undefined,
+          statusCodes: f.statusCodes.length ? f.statusCodes : undefined,
+          assigneeUserIds: f.assigneeUserIds.length ? f.assigneeUserIds : undefined,
+          typeCodes: f.typeCodes.length ? f.typeCodes : undefined,
+          priorityCodes: f.priorityCodes.length ? f.priorityCodes : undefined,
+          projectIds: f.projectIds.length ? f.projectIds : undefined,
+          dateRange: f.dateRangeApi,
+          createdDateRange: f.createdDateRangeApi,
+          updatedDateRange: f.updatedDateRangeApi,
         })
         if (requestId !== chartManagementRequestIdRef.current) return
         if (res.status === 'success' && Array.isArray(res.data)) setChartTasks(res.data as ChartTask[])
@@ -748,18 +1530,79 @@ export function TaskManagement({ embedded = false }: { embedded?: boolean }) {
     return () => {
       chartManagementRequestIdRef.current += 1
     }
+  }, [activeTab, isAuthChecked, taskApiOk, isLoading, mgmtApiFilters, listRevision])
+
+  useEffect(() => {
+    if (!isAuthChecked || isLoading || taskApiOk !== true) return
+    if (activeTab !== 'tasks' || taskView === 'table') return
+    if (!mgmtApiFilters.ready) {
+      setBoardLoading(false)
+      setBoardTasks([])
+      setBoardTotal(0)
+      setBoardTruncated(false)
+      return
+    }
+    const f = mgmtApiFilters
+    const requestId = ++boardManagementRequestIdRef.current
+    void (async () => {
+      const skipFullPageLoad = skipBoardFullPageLoadingRef.current
+      skipBoardFullPageLoadingRef.current = false
+      if (!skipFullPageLoad) setBoardLoading(true)
+      try {
+        const res = await window.api.task.listForManagementBoard({
+          search: f.search || undefined,
+          statusCodes: f.statusCodes.length ? f.statusCodes : undefined,
+          assigneeUserIds: f.assigneeUserIds.length ? f.assigneeUserIds : undefined,
+          typeCodes: f.typeCodes.length ? f.typeCodes : undefined,
+          priorityCodes: f.priorityCodes.length ? f.priorityCodes : undefined,
+          projectIds: f.projectIds.length ? f.projectIds : undefined,
+          dateRange: f.dateRangeApi,
+          createdDateRange: f.createdDateRangeApi,
+          updatedDateRange: f.updatedDateRangeApi,
+        })
+        if (requestId !== boardManagementRequestIdRef.current) return
+        if (res.status === 'error' && (res.code === 'UNAUTHORIZED' || res.code === 'FORBIDDEN')) {
+          toast.error(t('taskManagement.tokenExpired'))
+          setTaskApiOk(false)
+          setBoardTasks([])
+          setBoardTotal(0)
+          setBoardTruncated(false)
+          clearSession()
+          return
+        }
+        if (res.status === 'success' && res.data) {
+          setBoardTasks(res.data.tasks as Task[])
+          setBoardTotal(res.data.total)
+          setBoardTruncated(Boolean(res.data.truncated))
+        } else {
+          setBoardTasks([])
+          setBoardTotal(0)
+          setBoardTruncated(false)
+        }
+      } catch {
+        if (requestId === boardManagementRequestIdRef.current) {
+          setBoardTasks([])
+          setBoardTotal(0)
+          setBoardTruncated(false)
+        }
+      } finally {
+        if (requestId === boardManagementRequestIdRef.current) setBoardLoading(false)
+      }
+    })()
+    return () => {
+      boardManagementRequestIdRef.current += 1
+    }
   }, [
     activeTab,
+    taskView,
     isAuthChecked,
-    taskApiOk,
     isLoading,
-    debouncedSearch,
-    statusFilter,
-    assigneeFilter,
-    typeFilter,
-    priorityFilter,
-    projectFilter,
-    dateRange,
+    taskApiOk,
+    mgmtApiFilters,
+    listRevision,
+    taskListFiltersKey,
+    t,
+    clearSession,
   ])
 
   const totalPages = Math.max(1, Math.ceil(totalCount / pageSize))
@@ -833,16 +1676,39 @@ export function TaskManagement({ embedded = false }: { embedded?: boolean }) {
       { code: 'support', name: t('taskManagement.typeSupport') },
       { code: 'task', name: t('taskManagement.typeTask') },
     ],
-    [t],
+    [t]
   )
   const getStatusLabel = (s: TaskStatus) => statuses.find(st => st.code === s)?.name ?? FALLBACK_STATUS[s] ?? s
 
-  const getPriorityLabel = (p: TaskPriority) => priorities.find(pr => pr.code === p)?.name ?? FALLBACK_PRIORITY[p] ?? p
+  const tableToolbarColSpan = 2 + visibleColumnIds.length + 1
 
-  const getTypeLabel = (ty?: TaskType) => {
+  const getPriorityLabel = useCallback(
+    (p: TaskPriority) => priorities.find(pr => pr.code === p)?.name ?? FALLBACK_PRIORITY[p] ?? p,
+    [priorities],
+  )
+
+  const getTypeLabel = useCallback((ty?: TaskType) => {
     if (!ty) return '-'
     return types.find(tp => tp.code === ty)?.name ?? FALLBACK_TYPE[ty] ?? ty
-  }
+  }, [types])
+
+  const bulkStatusComboOptions = useMemo(() => {
+    const rows = statuses.filter(s => s.is_active !== false)
+    if (rows.length > 0) return rows.map(s => ({ value: s.code, label: s.name }))
+    return (['new', 'in_progress', 'in_review', 'fixed', 'feedback', 'cancelled', 'done'] as TaskStatus[]).map(code => ({
+      value: code,
+      label: FALLBACK_STATUS[code] ?? code,
+    }))
+  }, [statuses, FALLBACK_STATUS])
+
+  const bulkPriorityComboOptions = useMemo(() => {
+    const rows = priorities.filter(p => p.is_active !== false)
+    if (rows.length > 0) return rows.map(p => ({ value: p.code, label: p.name }))
+    return (['critical', 'high', 'medium', 'low'] as TaskPriority[]).map(code => ({
+      value: code,
+      label: FALLBACK_PRIORITY[code] ?? code,
+    }))
+  }, [priorities, FALLBACK_PRIORITY])
 
   const locale = getDateFnsLocale(i18n.language)
 
@@ -853,11 +1719,11 @@ export function TaskManagement({ embedded = false }: { embedded?: boolean }) {
   )
   const typeColorMap = useMemo(() => Object.fromEntries(types.filter((t): t is typeof t & { color: string } => Boolean(t.color)).map(t => [t.code, t.color])), [types])
 
-  const getBadgeStyle = (code: string, colorMap: Record<string, string>): React.CSSProperties | undefined => {
+  const getBadgeStyle = useCallback((code: string, colorMap: Record<string, string>): React.CSSProperties | undefined => {
     const color = colorMap[code]
     if (!color) return undefined
     return { backgroundColor: color, color: getContrastingColor(color) }
-  }
+  }, [])
 
   const getPriorityRowStyle = (p: string, _isDone: boolean): React.CSSProperties | undefined => {
     const color = priorityColorMap[p]
@@ -951,7 +1817,7 @@ export function TaskManagement({ embedded = false }: { embedded?: boolean }) {
     return cn(base, active, colors, ring)
   }
 
-  const getPriorityIcon = (p: TaskPriority) => {
+  const getPriorityIcon = useCallback((p: TaskPriority) => {
     switch (p) {
       case 'critical':
         return <AlertCircle className="h-4 w-4 shrink-0" />
@@ -964,9 +1830,9 @@ export function TaskManagement({ embedded = false }: { embedded?: boolean }) {
       default:
         return null
     }
-  }
+  }, [])
 
-  const getTypeIcon = (ty: TaskType) => {
+  const getTypeIcon = useCallback((ty: TaskType) => {
     switch (ty) {
       case 'bug':
         return <Bug className="h-4 w-4 shrink-0" />
@@ -979,9 +1845,9 @@ export function TaskManagement({ embedded = false }: { embedded?: boolean }) {
       default:
         return null
     }
-  }
+  }, [])
 
-  const getTypeBadgeClass = (typeCode: string, isFilterActive?: boolean) => {
+  const getTypeBadgeClass = useCallback((typeCode: string, isFilterActive?: boolean) => {
     const base = 'flex items-center gap-1.5 px-2 py-1 rounded-md'
     const active = isFilterActive ? 'ring-1 ring-offset-1' : 'hover:opacity-90'
     const colorMap: Record<string, string> = {
@@ -999,7 +1865,55 @@ export function TaskManagement({ embedded = false }: { embedded?: boolean }) {
     }
     const ring = isFilterActive ? (ringMap[typeCode] ?? 'ring-slate-500/50') : ''
     return cn(base, active, colors, ring)
-  }
+  }, [])
+
+  const taskKanbanCardPropsBase = useMemo(
+    () => ({
+      getPriorityLabel,
+      getTypeLabel,
+      getPriorityIcon,
+      getTypeIcon,
+      getTypeBadgeClass,
+      getBadgeStyle,
+      priorityColorMap,
+      typeColorMap,
+      statusColorMap,
+    }),
+    [
+      getPriorityLabel,
+      getTypeLabel,
+      getPriorityIcon,
+      getTypeIcon,
+      getTypeBadgeClass,
+      getBadgeStyle,
+      priorityColorMap,
+      typeColorMap,
+      statusColorMap,
+    ],
+  )
+
+  const ganttFilterRange = useMemo(() => {
+    if (dateRange?.from == null) return undefined
+    return { from: dateRange.from, to: dateRange.to ?? dateRange.from }
+  }, [dateRange?.from, dateRange?.to])
+
+  const calendarToolbarMessages = useMemo(
+    () => ({
+      agenda: t('taskManagement.calendarAgenda'),
+      month: t('taskManagement.calendarMonth'),
+      week: t('taskManagement.calendarWeek'),
+      day: t('taskManagement.calendarDay'),
+      today: t('taskManagement.calendarToday'),
+      previous: t('taskManagement.calendarPrevious'),
+      next: t('taskManagement.calendarNext'),
+      toolbarViewLabel: t('taskManagement.calendarToolbarView'),
+      allDayCollapseAria: t('taskManagement.calendarAllDayCollapseAria'),
+      allDayExpandAria: t('taskManagement.calendarAllDayExpandAria'),
+      allDayCollapseLabel: t('taskManagement.calendarAllDayCollapseLabel'),
+      allDayExpandLabel: t('taskManagement.calendarAllDayExpandLabel'),
+    }),
+    [t]
+  )
 
   const rootHeightClass = embedded ? 'h-full min-h-0 flex-1' : 'h-screen'
 
@@ -1100,91 +2014,129 @@ export function TaskManagement({ embedded = false }: { embedded?: boolean }) {
         </AlertDialogContent>
       </AlertDialog>
 
+      <AlertDialog open={bulkSkipDetail.open} onOpenChange={open => setBulkSkipDetail(d => ({ ...d, open }))}>
+        <AlertDialogContent className="max-w-lg">
+          <AlertDialogHeader>
+            <AlertDialogTitle>{t('taskManagement.bulkSkippedDialogTitle')}</AlertDialogTitle>
+            <AlertDialogDescription asChild>
+              <div className="text-left text-sm text-foreground">
+                <ScrollArea className="max-h-[min(50vh,20rem)] rounded-md border border-border/80 p-2 mt-2">
+                  <ul className="space-y-1 pr-3 text-xs leading-relaxed font-mono">
+                    {bulkSkipDetail.lines.map((line, ix) => (
+                      <li key={`${line}-${ix}`}>{line}</li>
+                    ))}
+                  </ul>
+                </ScrollArea>
+              </div>
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter className="gap-2 sm:gap-2">
+            <AlertDialogCancel>{t('common.close')}</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={() => {
+                void navigator.clipboard.writeText(bulkSkipDetail.lines.join('\n'))
+              }}
+            >
+              {t('taskManagement.bulkSkippedDialogCopy')}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      <AlertDialog open={importErrorDetail.open} onOpenChange={open => setImportErrorDetail(d => ({ ...d, open }))}>
+        <AlertDialogContent className="max-w-lg">
+          <AlertDialogHeader>
+            <AlertDialogTitle>{t('taskManagement.importErrorLogTitle')}</AlertDialogTitle>
+            <AlertDialogDescription asChild>
+              <div className="text-left text-sm text-foreground">
+                <ScrollArea className="max-h-[min(50vh,22rem)] rounded-md border border-border/80 p-2 mt-2">
+                  <pre className="whitespace-pre-wrap break-words pr-3 text-xs leading-relaxed">{importErrorDetail.text}</pre>
+                </ScrollArea>
+              </div>
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter className="gap-2 sm:gap-2">
+            <AlertDialogCancel>{t('common.close')}</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={() => {
+                void navigator.clipboard.writeText(importErrorDetail.text)
+              }}
+            >
+              {t('taskManagement.importErrorCopyAll')}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
       {embedded && taskToolbarPortalTarget
         ? createPortal(
-            <div
-              className="flex items-center gap-2 min-w-0 h-full flex-wrap sm:flex-nowrap sm:justify-start"
-              style={{ WebkitAppRegion: 'no-drag' } as CSSProperties}
-            >
-              {showChartTab ? (
-                <TabsList className="h-6! p-0.5 rounded-md shrink-0">
-                  <TabsTrigger value="tasks" disabled={isImporting} className="h-5 px-2 text-xs data-[state=active]:shadow-none">
-                    {t('taskManagement.tabTasks')}
-                  </TabsTrigger>
-                  <TabsTrigger value="chart" disabled={isImporting} className="h-5 px-2 text-xs data-[state=active]:shadow-none">
-                    {t('taskManagement.tabChart')}
-                  </TabsTrigger>
-                </TabsList>
-              ) : null}
-              {(activeTab === 'tasks' || (showChartTab && activeTab === 'chart')) && (
-                <DateRangePickerPopover
-                  dateRange={dateRange}
-                  onDateRangeChange={setDateRange}
-                  open={datePickerOpen}
-                  onOpenChange={setDatePickerOpen}
-                  allTimeLabel={t('taskManagement.chartAllTime')}
-                  confirmLabel={t('common.confirm')}
-                  disabled={isImporting}
-                />
-              )}
-              <div className="flex items-center gap-1 shrink-0">
-                <Tooltip>
-                  <TooltipTrigger asChild>
-                    <Button
-                      variant="link"
-                      size="sm"
-                      onClick={loadData}
-                      disabled={isLoading || isImporting}
-                      className="shadow-none focus-visible:ring-0 focus-visible:ring-offset-0 hover:bg-muted rounded-sm h-[25px] w-[25px]"
-                    >
-                      <RefreshCw strokeWidth={1.25} absoluteStrokeWidth size={15} className={isLoading || isImporting ? 'animate-spin' : ''} />
-                    </Button>
-                  </TooltipTrigger>
-                  <TooltipContent>{t('common.refresh')}</TooltipContent>
-                </Tooltip>
-              </div>
-            </div>,
-            taskToolbarPortalTarget,
-          )
+          <div className="flex items-center gap-2 min-w-0 h-full flex-wrap sm:flex-nowrap sm:justify-start" style={{ WebkitAppRegion: 'no-drag' } as CSSProperties}>
+            {showChartTab ? (
+              <TabsList className="h-6! p-0.5 rounded-md shrink-0">
+                <TabsTrigger value="tasks" disabled={isImporting} className="h-5 px-2 text-xs data-[state=active]:shadow-none">
+                  {t('taskManagement.tabTasks')}
+                </TabsTrigger>
+                <TabsTrigger value="chart" disabled={isImporting} className="h-5 px-2 text-xs data-[state=active]:shadow-none">
+                  {t('taskManagement.tabChart')}
+                </TabsTrigger>
+              </TabsList>
+            ) : null}
+            {activeTab === 'tasks' && <TaskViewModeToggle value={taskView} onValueChange={setTaskView} disabled={isImporting || taskApiOk !== true} t={t} />}
+            <div className="flex items-center gap-1 shrink-0">
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button
+                    variant="link"
+                    size="sm"
+                    onClick={reloadTaskMgmtMastersAndList}
+                    disabled={isLoading || isImporting}
+                    className="shadow-none focus-visible:ring-0 focus-visible:ring-offset-0 hover:bg-muted rounded-sm h-[25px] w-[25px]"
+                  >
+                    <RefreshCw strokeWidth={1.25} absoluteStrokeWidth size={15} className={isLoading || isImporting ? 'animate-spin' : ''} />
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent>{t('common.refresh')}</TooltipContent>
+              </Tooltip>
+            </div>
+          </div>,
+          taskToolbarPortalTarget
+        )
         : null}
       {embedded && taskToolbarActionsTarget
         ? createPortal(
-            activeTab === 'tasks' ? (
-              <div
-                className="flex items-center gap-1 shrink-0 h-full"
-                style={{ WebkitAppRegion: 'no-drag' } as CSSProperties}
+          activeTab === 'tasks' ? (
+            <div className="flex items-center gap-1 shrink-0 h-full" style={{ WebkitAppRegion: 'no-drag' } as CSSProperties}>
+              <Button
+                variant="outline"
+                size="sm"
+                className={cn(PR_MANAGER_ACCENT_OUTLINE_BTN_COMPACT, PR_MANAGER_ACCENT_TITLEBAR_SURFACE)}
+                onClick={() => {
+                  if (projects.length === 0) {
+                    toast.error(t('taskManagement.createProjectFirst'))
+                    return
+                  }
+                  setEditingTaskInDialog(null)
+                  setShowTaskDialog(true)
+                }}
+                disabled={!taskApiOk || isLoading || isImporting}
               >
-                <Button
-                  variant="outline"
-                  size="sm"
-                  className={cn(PR_MANAGER_ACCENT_OUTLINE_BTN_COMPACT, PR_MANAGER_ACCENT_TITLEBAR_SURFACE)}
-                  onClick={() => {
-                    if (projects.length === 0) {
-                      toast.error(t('taskManagement.createProjectFirst'))
-                      return
-                    }
-                    setEditingTaskInDialog(null)
-                    setShowTaskDialog(true)
-                  }}
-                  disabled={!taskApiOk || isLoading || isImporting}
-                >
-                  <Plus className="h-3 w-3 shrink-0" />
-                  {t('taskManagement.createTask')}
-                </Button>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  className={cn(PR_MANAGER_ACCENT_OUTLINE_BTN_COMPACT, PR_MANAGER_ACCENT_TITLEBAR_SURFACE)}
-                  onClick={handleImportCsv}
-                  disabled={!taskApiOk || isLoading || isImporting}
-                >
-                  <FileDown className="h-3 w-3 shrink-0" />
-                  {t('taskManagement.importFromCsv')}
-                </Button>
-              </div>
-            ) : null,
-            taskToolbarActionsTarget,
-          )
+                <Plus className="h-3 w-3 shrink-0" />
+                {t('taskManagement.createTask')}
+              </Button>
+              <Button
+                variant="outline"
+                size="sm"
+                className={cn(PR_MANAGER_ACCENT_OUTLINE_BTN_COMPACT, PR_MANAGER_ACCENT_TITLEBAR_SURFACE)}
+                onClick={handleImportCsv}
+                disabled={!taskApiOk || isLoading || isImporting}
+              >
+                <FileDown className="h-3 w-3 shrink-0" />
+                {t('taskManagement.importFromCsv')}
+              </Button>
+            </div>
+          ) : null,
+          taskToolbarActionsTarget
+        )
         : null}
 
       {/* Toolbar cửa sổ Task riêng (không embedded) */}
@@ -1213,24 +2165,14 @@ export function TaskManagement({ embedded = false }: { embedded?: boolean }) {
                 </TabsTrigger>
               )}
             </TabsList>
-            {(activeTab === 'tasks' || (showChartTab && activeTab === 'chart')) && (
-              <DateRangePickerPopover
-                dateRange={dateRange}
-                onDateRangeChange={setDateRange}
-                open={datePickerOpen}
-                onOpenChange={setDatePickerOpen}
-                allTimeLabel={t('taskManagement.chartAllTime')}
-                confirmLabel={t('common.confirm')}
-                disabled={isImporting}
-              />
-            )}
+            {activeTab === 'tasks' && <TaskViewModeToggle value={taskView} onValueChange={setTaskView} disabled={isImporting || taskApiOk !== true} t={t} />}
             <div className="flex items-center gap-1 shrink-0" style={{ WebkitAppRegion: 'no-drag' } as CSSProperties}>
               <Tooltip>
                 <TooltipTrigger asChild>
                   <Button
                     variant="link"
                     size="sm"
-                    onClick={loadData}
+                    onClick={reloadTaskMgmtMastersAndList}
                     disabled={isLoading || isImporting}
                     className="shadow-none focus-visible:ring-0 focus-visible:ring-offset-0 hover:bg-muted rounded-sm h-[25px] w-[25px]"
                   >
@@ -1273,10 +2215,18 @@ export function TaskManagement({ embedded = false }: { embedded?: boolean }) {
                 </Button>
               </>
             )}
-            <button type="button" onClick={() => handleWindow('minimize')} className="w-10 h-8 flex items-center justify-center hover:bg-[var(--hover-bg)] hover:text-[var(--hover-fg)]">
+            <button
+              type="button"
+              onClick={() => handleWindow('minimize')}
+              className="w-10 h-8 flex items-center justify-center hover:bg-[var(--hover-bg)] hover:text-[var(--hover-fg)]"
+            >
               <Minus size={15.5} strokeWidth={1} absoluteStrokeWidth />
             </button>
-            <button type="button" onClick={() => handleWindow('maximize')} className="w-10 h-8 flex items-center justify-center hover:bg-[var(--hover-bg)] hover:text-[var(--hover-fg)]">
+            <button
+              type="button"
+              onClick={() => handleWindow('maximize')}
+              className="w-10 h-8 flex items-center justify-center hover:bg-[var(--hover-bg)] hover:text-[var(--hover-fg)]"
+            >
               <Square size={14.5} strokeWidth={1} absoluteStrokeWidth />
             </button>
             <button type="button" onClick={() => handleWindow('close')} className="w-10 h-8 flex items-center justify-center hover:bg-red-600 hover:text-white">
@@ -1297,25 +2247,135 @@ export function TaskManagement({ embedded = false }: { embedded?: boolean }) {
             </Button>
           </div>
         ) : isLoading || isImporting ? (
-          <div className="flex flex-col items-center justify-center flex-1 gap-3">
+          <div className="flex flex-col items-center justify-center flex-1 gap-3 px-6 text-center">
             <GlowLoader className="w-10 h-10" />
-            <p className="text-sm text-muted-foreground">{isImporting ? t('taskManagement.importingCsv') : null}</p>
+            {isImporting ? (
+              <>
+                <p className="text-sm font-medium text-foreground">{t('taskManagement.importingCsv')}</p>
+                <p className="text-xs text-muted-foreground max-w-sm">{importUiPhase === 'prep' ? t('taskManagement.importPhasePrep') : t('taskManagement.importPhaseRun')}</p>
+              </>
+            ) : null}
           </div>
         ) : (
           <>
             <TabsContent value="tasks" className="flex-1 flex flex-col min-h-0 mt-0">
-              <div className="flex items-center justify-between gap-2 shrink-0 mb-2 flex-wrap">
-                <div className="flex flex-wrap items-center gap-2">
-                  <div className="relative min-w-[200px] max-w-xs h-8">
-                    <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-                    <Input
-                      id="task-search-input"
-                      placeholder={t('taskManagement.searchPlaceholder')}
-                      value={searchQuery}
-                      onChange={e => setSearchQuery(e.target.value)}
-                      className="pl-8 h-8"
-                    />
+              <div className="shrink-0 flex flex-col gap-2 mb-2">
+                <div className="flex items-center justify-between gap-2 flex-wrap">
+                <div className="flex flex-wrap items-end gap-x-5 gap-y-2 flex-1 min-w-0">
+                  <div
+                    className={cn(
+                      'flex flex-col gap-1 min-w-0',
+                      requiresManualMgmtApply ? 'min-w-[220px] max-w-md flex-1' : 'min-w-[200px] max-w-xs shrink-0',
+                    )}
+                  >
+                    <Label
+                      htmlFor="task-search-input"
+                      className="text-[10px] font-normal text-muted-foreground leading-none whitespace-nowrap"
+                    >
+                      {t('taskManagement.toolbarSearchTitle')}
+                    </Label>
+                    <div className="flex items-center gap-1.5 h-8 w-full">
+                      <div className="relative min-w-0 flex-1 h-8">
+                      <Search className="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                      <Input
+                        id="task-search-input"
+                        placeholder={t('taskManagement.searchPlaceholder')}
+                        value={searchQuery}
+                        onChange={e => setSearchQuery(e.target.value)}
+                        onKeyDown={e => {
+                          if (!requiresManualMgmtApply) return
+                          if (e.key !== 'Enter') return
+                          e.preventDefault()
+                          commitMgmtFiltersFromDraft()
+                        }}
+                        className="pl-8 h-8"
+                      />
+                      </div>
+                      {requiresManualMgmtApply ? (
+                        <Tooltip>
+                          <TooltipTrigger asChild>
+                            <Button
+                              type="button"
+                              variant={mgmtSearchDirtyOrInitial ? 'default' : 'outline'}
+                              size="sm"
+                              className="h-8 shrink-0 px-3"
+                              onClick={commitMgmtFiltersFromDraft}
+                            >
+                              {t('taskManagement.mgmtApplySearch')}
+                            </Button>
+                          </TooltipTrigger>
+                          <TooltipContent side="bottom" className="max-w-xs text-left">
+                            {t('taskManagement.mgmtApplySearchTooltip')}
+                          </TooltipContent>
+                        </Tooltip>
+                      ) : null}
+                    </div>
                   </div>
+                  <div className="flex flex-wrap items-end gap-x-4 gap-y-2">
+                    <div className="flex min-w-0 shrink-0 flex-col gap-0.5">
+                      <span className="text-[10px] leading-none whitespace-nowrap text-muted-foreground">
+                        {t('taskManagement.mgmtDateTimelineLabel')}
+                      </span>
+                      <DateRangePickerPopover
+                        dateRange={dateRange}
+                        onDateRangeChange={setDateRange}
+                        open={mgmtTimelinePickerOpen}
+                        onOpenChange={setMgmtTimelinePickerOpen}
+                        allTimeLabel={t('taskManagement.chartAllTime')}
+                        confirmLabel={t('common.confirm')}
+                        disabled={isImporting}
+                        triggerClassName="h-8 min-h-8 max-w-[13rem] shrink-0"
+                      />
+                    </div>
+                    <div className="flex min-w-0 shrink-0 flex-col gap-0.5">
+                      <span className="text-[10px] leading-none whitespace-nowrap text-muted-foreground">
+                        {t('taskManagement.mgmtDateCreatedLabel')}
+                      </span>
+                      <DateRangePickerPopover
+                        dateRange={createdDateRange}
+                        onDateRangeChange={setCreatedDateRange}
+                        open={mgmtCreatedPickerOpen}
+                        onOpenChange={setMgmtCreatedPickerOpen}
+                        allTimeLabel={t('taskManagement.chartAllTime')}
+                        confirmLabel={t('common.confirm')}
+                        disabled={isImporting}
+                        triggerClassName="h-8 min-h-8 max-w-[13rem] shrink-0"
+                      />
+                    </div>
+                    <div className="flex min-w-0 shrink-0 flex-col gap-0.5">
+                      <span className="text-[10px] leading-none whitespace-nowrap text-muted-foreground">
+                        {t('taskManagement.mgmtDateUpdatedLabel')}
+                      </span>
+                      <DateRangePickerPopover
+                        dateRange={updatedDateRange}
+                        onDateRangeChange={setUpdatedDateRange}
+                        open={mgmtUpdatedPickerOpen}
+                        onOpenChange={setMgmtUpdatedPickerOpen}
+                        allTimeLabel={t('taskManagement.chartAllTime')}
+                        confirmLabel={t('common.confirm')}
+                        disabled={isImporting}
+                        triggerClassName="h-8 min-h-8 max-w-[13rem] shrink-0"
+                      />
+                    </div>
+                  </div>
+                  <div className="flex min-w-0 flex-col gap-0.5">
+                    <span className="text-[10px] font-normal leading-none whitespace-nowrap text-muted-foreground">
+                      {t('taskManagement.toolbarFiltersTitle')}
+                    </span>
+                    <div className="flex flex-wrap items-center gap-2">
+                  {user?.id ? (
+                    <TaskSavedViewsPopover
+                      variant={buttonVariant}
+                      disabled={isImporting || taskApiOk !== true}
+                      savedViews={savedViews}
+                      currentSnapshot={currentSavedSnapshot}
+                      activeSavedViewId={matchingSavedView?.id ?? null}
+                      pinnedViewDirty={pinnedSavedViewDirty}
+                      onChangeSavedViews={setSavedViews}
+                      onApplySnapshot={applySavedSnapshot}
+                      onSelectSavedViewItem={v => setPinnedSavedViewId(v.id)}
+                    />
+                  ) : null}
                   <Popover>
                     <PopoverTrigger asChild>
                       <Button variant={buttonVariant} size="sm" className="h-8 gap-1.5">
@@ -1664,227 +2724,474 @@ export function TaskManagement({ embedded = false }: { embedded?: boolean }) {
                       )}
                     </PopoverContent>
                   </Popover>
-                  {(statusFilter.length > 0 || priorityFilter.length > 0 || typeFilter.length > 0 || assigneeFilter.length > 0 || projectFilter.length > 0) && (
+                  {hasNarrowingFilters && (
                     <Button
-                      variant="ghost"
+                      variant="outline"
                       size="sm"
-                      className="h-8 gap-1.5 text-muted-foreground hover:text-foreground"
-                      onClick={() => {
-                        setStatusFilter([])
-                        setPriorityFilter([])
-                        setTypeFilter([])
-                        setAssigneeFilter([])
-                        setProjectFilter([])
-                      }}
+                      type="button"
+                      className="h-8 gap-1.5 shrink-0 border-destructive/80 bg-transparent text-destructive hover:bg-destructive/10 hover:text-destructive"
+                      onClick={() => clearNarrowingFilters()}
                     >
-                      <X className="h-3.5 w-3.5" />
+                      <X className="h-3.5 w-3.5 text-destructive" />
                       {t('taskManagement.filterReset')}
                     </Button>
                   )}
-                </div>
-                <Popover>
-                  <PopoverTrigger asChild>
-                    <Button variant={buttonVariant} size="sm" className="h-8 gap-1.5 shrink-0">
-                      <Columns3 className="h-3.5 w-3.5" />
-                      {t('taskManagement.columns', 'Columns')}
-                    </Button>
-                  </PopoverTrigger>
-                  <PopoverContent className="w-56 p-0" align="end">
-                    <div className="p-2 border-b">
-                      <span className="text-sm font-medium">{t('taskManagement.columns', 'Columns')}</span>
                     </div>
-                    <div className="max-h-[280px] overflow-y-auto p-1">
-                      {TASK_COLUMN_IDS.map(colId => {
-                        const labelMap: Record<string, string> = {
-                          type: t('taskManagement.type'),
-                          ticketId: t('taskManagement.ticketId'),
-                          project: t('taskManagement.project'),
-                          title: t('taskManagement.taskTitle'),
-                          assigneeUserId: t('taskManagement.assignee'),
-                          status: t('taskManagement.status'),
-                          priority: t('taskManagement.priority'),
-                          progress: t('taskManagement.progress'),
-                          planStartDate: t('taskManagement.planStartDate'),
-                          planEndDate: t('taskManagement.deadline'),
-                          actualStartDate: t('taskManagement.actualStartDate'),
-                          actualEndDate: t('taskManagement.actualCompletionDate'),
-                        }
-                        const label = labelMap[colId] ?? colId
-                        const isRequired = REQUIRED_COLUMN_IDS.includes(colId as (typeof REQUIRED_COLUMN_IDS)[number])
-                        return (
-                          <label
-                            key={colId}
-                            htmlFor={`col-vis-${colId}`}
-                            className={cn('flex items-center gap-2 px-2 py-1.5 rounded-md text-sm', isRequired ? 'cursor-default opacity-70' : 'cursor-pointer hover:bg-muted/80')}
-                          >
-                            <Checkbox
-                              id={`col-vis-${colId}`}
-                              checked={visibleColumnIds.includes(colId)}
-                              disabled={isRequired}
-                              onCheckedChange={() => toggleColumnVisibility(colId)}
-                            />
-                            <span className="flex-1">{label}</span>
-                          </label>
-                        )
+                  </div>
+                </div>
+                {taskView === 'table' && (
+                  <Popover>
+                      <PopoverTrigger asChild>
+                        <Button variant={buttonVariant} size="sm" className="h-8 gap-1.5 shrink-0">
+                          <Columns3 className="h-3.5 w-3.5" />
+                          {t('taskManagement.columns', 'Columns')}
+                        </Button>
+                      </PopoverTrigger>
+                      <PopoverContent className="w-56 p-0" align="end">
+                        <div className="p-2 border-b">
+                          <span className="text-sm font-medium">{t('taskManagement.columns', 'Columns')}</span>
+                        </div>
+                        <div className="max-h-[280px] overflow-y-auto p-1">
+                          {TASK_COLUMN_IDS.map(colId => {
+                            const labelMap: Record<string, string> = {
+                              type: t('taskManagement.type'),
+                              ticketId: t('taskManagement.ticketId'),
+                              project: t('taskManagement.project'),
+                              title: t('taskManagement.taskTitle'),
+                              assigneeUserId: t('taskManagement.assignee'),
+                              status: t('taskManagement.status'),
+                              priority: t('taskManagement.priority'),
+                              progress: t('taskManagement.progress'),
+                              planStartDate: t('taskManagement.planStartDate'),
+                              planEndDate: t('taskManagement.deadline'),
+                              actualStartDate: t('taskManagement.actualStartDate'),
+                              actualEndDate: t('taskManagement.actualCompletionDate'),
+                            }
+                            const label = labelMap[colId] ?? colId
+                            const isRequired = REQUIRED_COLUMN_IDS.includes(colId as (typeof REQUIRED_COLUMN_IDS)[number])
+                            return (
+                              <label
+                                key={colId}
+                                htmlFor={`col-vis-${colId}`}
+                                className={cn(
+                                  'flex items-center gap-2 px-2 py-1.5 rounded-md text-sm',
+                                  isRequired ? 'cursor-default opacity-70' : 'cursor-pointer hover:bg-muted/80'
+                                )}
+                              >
+                                <Checkbox
+                                  id={`col-vis-${colId}`}
+                                  checked={visibleColumnIds.includes(colId)}
+                                  disabled={isRequired}
+                                  onCheckedChange={() => toggleColumnVisibility(colId)}
+                                />
+                                <span className="flex-1">{label}</span>
+                              </label>
+                            )
+                          })}
+                        </div>
+                      </PopoverContent>
+                    </Popover>
+                )}
+              </div>
+              </div>
+              {selectedTaskIds.size > 0 ? (
+                <TaskBulkActionsBar
+                  count={selectedTaskIds.size}
+                  disabled={
+                    taskApiOk !== true ||
+                    isImporting ||
+                    listLoading ||
+                    (requiresManualMgmtApply && !mgmtApiFilters.ready)
+                  }
+                  variant={buttonVariant}
+                  statusOptions={bulkStatusComboOptions}
+                  priorityOptions={bulkPriorityComboOptions}
+                  assigneeOptions={assigneeOptions}
+                  onBulkApply={handleBulkApply}
+                  onClearSelection={() => setSelectedTaskIds(new Set())}
+                />
+              ) : null}
+              {taskView !== 'table' ? (
+                <div className="flex min-w-0 flex-1 min-h-0 flex-col gap-2 mt-1">
+                  {boardTruncated && (
+                    <div className="shrink-0 rounded-md border border-amber-500/35 bg-amber-500/10 px-3 py-2 text-xs text-foreground">
+                      {t('taskManagement.boardListTruncated', {
+                        shown: boardTasks.length,
+                        total: boardTotal,
+                        max: MANAGEMENT_BOARD_MAX_ROWS,
                       })}
                     </div>
-                  </PopoverContent>
-                </Popover>
-              </div>
-              {totalCount === 0 && !listLoading ? (
-                <div className="flex flex-col items-center justify-center flex-1 text-muted-foreground">
-                  <p>{t('taskManagement.noTasks')}</p>
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    onClick={() => {
-                      if (projects.length === 0) {
-                        toast.error(t('taskManagement.createProjectFirst'))
-                        return
-                      }
-                      setEditingTaskInDialog(null)
-                      setShowTaskDialog(true)
-                    }}
-                    className={cn('mt-2', PR_MANAGER_ACCENT_OUTLINE_BTN, PR_MANAGER_ACCENT_OUTLINE_SURFACE)}
-                  >
-                    <Plus className="h-3.5 w-3.5" />
-                    {t('taskManagement.createTask')}
+                  )}
+                  {!boardLoading && boardTotal > 0 && (taskView === 'board' || taskView === 'gantt' || taskView === 'calendar') ? (
+                    <p role="note" className="shrink-0 border-l-2 border-primary/30 pl-2.5 pr-1 text-[11px] leading-relaxed text-muted-foreground sm:text-xs">
+                      {taskView === 'board' ? t('taskManagement.viewHintBoard') : null}
+                      {taskView === 'gantt' ? t('taskManagement.viewHintGantt') : null}
+                      {taskView === 'calendar' ? t('taskManagement.viewHintCalendar') : null}
+                    </p>
+                  ) : null}
+                  {requiresManualMgmtApply && !mgmtApiFilters.ready ? (
+                    <div className="flex flex-col items-center justify-center flex-1 min-h-[280px] rounded-md border border-dashed border-border/80 bg-muted/20 px-6 py-12 text-center text-muted-foreground">
+                      <p className="font-medium text-foreground">{t('taskManagement.mgmtPendingTitle')}</p>
+                      <p className="mt-1 max-w-md text-sm">{t('taskManagement.mgmtPendingHint')}</p>
+                      <Button type="button" className={cn('mt-4', PR_MANAGER_ACCENT_OUTLINE_BTN, PR_MANAGER_ACCENT_OUTLINE_SURFACE)} variant="outline" size="sm" onClick={commitMgmtFiltersFromDraft}>
+                        {t('taskManagement.mgmtApplySearch')}
+                      </Button>
+                    </div>
+                  ) : boardLoading ? (
+                    <div className="flex flex-1 min-h-[280px] items-center justify-center">
+                      <GlowLoader className="w-10 h-10" />
+                    </div>
+                  ) : boardTotal === 0 ? (
+                    <div className="flex flex-col items-center justify-center flex-1 text-muted-foreground px-6 py-12 text-center">
+                      <p className="font-medium text-foreground">{hasNarrowingFilters ? t('taskManagement.emptyFilteredTitle') : t('taskManagement.noTasks')}</p>
+                      <p className="mt-1 max-w-md text-sm">{hasNarrowingFilters ? t('taskManagement.emptyFilteredHint') : t('taskManagement.emptyNoTasksHint')}</p>
+                      <div className="mt-4 flex flex-wrap justify-center gap-2">
+                        {hasNarrowingFilters ? (
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            type="button"
+                            className="border-destructive/80 bg-transparent text-destructive hover:bg-destructive/10 hover:text-destructive"
+                            onClick={() => clearNarrowingFilters()}
+                          >
+                            <X className="h-3.5 w-3.5 text-destructive" />
+                            {t('taskManagement.emptyClearFilters')}
+                          </Button>
+                        ) : null}
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          type="button"
+                          onClick={() => {
+                            if (projects.length === 0) {
+                              toast.error(t('taskManagement.createProjectFirst'))
+                              return
+                            }
+                            setEditingTaskInDialog(null)
+                            setShowTaskDialog(true)
+                          }}
+                          className={cn(PR_MANAGER_ACCENT_OUTLINE_BTN, PR_MANAGER_ACCENT_OUTLINE_SURFACE)}
+                        >
+                          <Plus className="h-3.5 w-3.5" />
+                          {t('taskManagement.createTask')}
+                        </Button>
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="flex-1 min-h-0 rounded-md border border-border/70 bg-background p-2 shadow-sm flex flex-col overflow-hidden min-w-0">
+                      {taskView === 'board' && (
+                        <TaskKanbanBoard
+                          tasks={boardTasks as unknown as TaskTableRowTask[]}
+                          statuses={statuses}
+                          statusColorMap={statusColorMap}
+                          onMoveTask={handleBoardMoveStatus}
+                          onOpenTask={handleOpenTaskRow}
+                          getAssigneeDisplay={getAssigneeDisplay}
+                          selectedTaskIds={selectedTaskIds}
+                          onToggleTaskSelect={toggleBulkTaskSelection}
+                          currentUserId={user?.id ?? null}
+                          cardPropsBase={taskKanbanCardPropsBase}
+                          disableSwimlanes={!canManageTaskRowGrouping}
+                        />
+                      )}
+                      {taskView === 'gantt' && (
+                        <TaskGanttView
+                          tasks={boardTasks as unknown as TaskTableRowTask[]}
+                          locale={locale}
+                          filterRange={ganttFilterRange}
+                          statusColorMap={statusColorMap}
+                          getAssigneeDisplay={getAssigneeDisplay}
+                          onSelectTask={handleOpenTaskRow}
+                          selectedTaskIds={selectedTaskIds}
+                          onToggleTaskSelect={toggleBulkTaskSelection}
+                          onUpdatePlanDates={handleUpdatePlanDates}
+                          disableRowGrouping={!canManageTaskRowGrouping}
+                          labels={{
+                            week: t('taskManagement.ganttScaleWeek'),
+                            month: t('taskManagement.ganttScaleMonth'),
+                            twoWeek: t('taskManagement.ganttScaleTwoWeek'),
+                            monthly: t('taskManagement.ganttScaleMonthly'),
+                            unscheduled: t('taskManagement.ganttUnscheduled'),
+                            zoom: t('taskManagement.ganttZoom'),
+                            emptyScheduled: t('taskManagement.ganttEmptyScheduled'),
+                            fitRange: t('taskManagement.ganttFitRange'),
+                            goToToday: t('taskManagement.ganttGoToToday'),
+                            todayMark: t('taskManagement.ganttTodayTooltip'),
+                            groupRows: t('taskManagement.ganttGroupRows'),
+                            groupingFlat: t('taskManagement.ganttGroupingFlat'),
+                            groupingByAssignee: t('taskManagement.ganttGroupingByAssignee'),
+                            groupingByProject: t('taskManagement.ganttGroupingByProject'),
+                            resizeLabelColumn: t('taskManagement.ganttResizeLabelColumn'),
+                          }}
+                        />
+                      )}
+                      {taskView === 'calendar' && (
+                        <TaskCalendarView
+                          tasks={boardTasks as unknown as TaskTableRowTask[]}
+                          language={i18n.language}
+                          messages={calendarToolbarMessages}
+                          statusColorMap={statusColorMap}
+                          onSelectTask={handleOpenTaskRow}
+                          selectedTaskIds={selectedTaskIds}
+                          onToggleTaskSelect={toggleBulkTaskSelection}
+                          unscheduledLabel={t('taskManagement.calendarNoPlanDates')}
+                          onUpdatePlanDates={handleUpdatePlanDates}
+                        />
+                      )}
+                    </div>
+                  )}
+                </div>
+              ) : requiresManualMgmtApply && !mgmtApiFilters.ready ? (
+                <div className="flex flex-col items-center justify-center flex-1 rounded-md border border-dashed border-border/80 bg-muted/20 px-6 py-12 text-center text-muted-foreground">
+                  <p className="font-medium text-foreground">{t('taskManagement.mgmtPendingTitle')}</p>
+                  <p className="mt-1 max-w-md text-sm">{t('taskManagement.mgmtPendingHint')}</p>
+                  <Button type="button" className={cn('mt-4', PR_MANAGER_ACCENT_OUTLINE_BTN, PR_MANAGER_ACCENT_OUTLINE_SURFACE)} variant="outline" size="sm" onClick={commitMgmtFiltersFromDraft}>
+                    {t('taskManagement.mgmtApplySearch')}
                   </Button>
+                </div>
+              ) : totalCount === 0 && !listLoading ? (
+                <div className="flex flex-col items-center justify-center flex-1 text-muted-foreground px-6 text-center">
+                  <p className="font-medium text-foreground">{hasNarrowingFilters ? t('taskManagement.emptyFilteredTitle') : t('taskManagement.noTasks')}</p>
+                  <p className="mt-1 max-w-md text-sm">{hasNarrowingFilters ? t('taskManagement.emptyFilteredHint') : t('taskManagement.emptyNoTasksHint')}</p>
+                  <div className="mt-4 flex flex-wrap justify-center gap-2">
+                    {hasNarrowingFilters ? (
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        type="button"
+                        className="border-destructive/80 bg-transparent text-destructive hover:bg-destructive/10 hover:text-destructive"
+                        onClick={() => clearNarrowingFilters()}
+                      >
+                        <X className="h-3.5 w-3.5 text-destructive" />
+                        {t('taskManagement.emptyClearFilters')}
+                      </Button>
+                    ) : null}
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      type="button"
+                      onClick={() => {
+                        if (projects.length === 0) {
+                          toast.error(t('taskManagement.createProjectFirst'))
+                          return
+                        }
+                        setEditingTaskInDialog(null)
+                        setShowTaskDialog(true)
+                      }}
+                      className={cn(PR_MANAGER_ACCENT_OUTLINE_BTN, PR_MANAGER_ACCENT_OUTLINE_SURFACE)}
+                    >
+                      <Plus className="h-3.5 w-3.5" />
+                      {t('taskManagement.createTask')}
+                    </Button>
+                  </div>
                 </div>
               ) : (
                 <div className="flex-1 min-h-0 border rounded-md overflow-hidden shadow-sm flex flex-col">
+                  {listLoading ? (
+                    <div className="h-1 w-full shrink-0 bg-primary/20" aria-hidden="true" title={t('taskManagement.tableLoading')}>
+                      <div className="h-full w-1/3 origin-left animate-pulse rounded-r bg-primary/60 motion-reduce:animate-none" />
+                    </div>
+                  ) : null}
                   <div className="relative flex min-h-0 flex-1 flex-col">
-                    {listLoading ? (
-                      <div
-                        className="pointer-events-auto absolute inset-0 z-20 flex items-center justify-center bg-background/75"
-                        aria-busy="true"
-                        aria-live="polite"
-                      >
+                    {listLoading && tableTasks.length > 0 ? (
+                      <div className="pointer-events-auto absolute inset-0 z-20 flex items-center justify-center bg-background/65" aria-busy="true" aria-live="polite">
                         <GlowLoader className="w-10 h-10" />
                       </div>
                     ) : null}
                     <div className="min-h-0 flex-1 overflow-auto overflow-x-auto">
-                    <Table className="w-max min-w-full">
-                      <TableHeader sticky>
-                        <TableRow>
-                          <TableHead className="!text-[var(--table-header-fg)] w-10 min-w-10 text-center tabular-nums">{t('taskManagement.rowNo')}</TableHead>
-                          {visibleColumnIds.includes('type') && (
-                            <SortHeader
-                              col="type"
-                              label={t('taskManagement.type')}
-                              className="w-[88px] min-w-[88px] max-w-[88px]"
-                              sortColumn={sortColumn}
-                              sortDirection={sortDirection}
-                              onSort={handleSortClick}
-                            />
-                          )}
-                          {visibleColumnIds.includes('ticketId') && (
-                            <SortHeader col="ticketId" label={t('taskManagement.ticketId')} sortColumn={sortColumn} sortDirection={sortDirection} onSort={handleSortClick} />
-                          )}
-                          {visibleColumnIds.includes('project') && (
-                            <SortHeader col="project" label={t('taskManagement.project')} sortColumn={sortColumn} sortDirection={sortDirection} onSort={handleSortClick} />
-                          )}
-                          {visibleColumnIds.includes('title') && (
-                            <SortHeader col="title" label={t('taskManagement.taskTitle')} sortColumn={sortColumn} sortDirection={sortDirection} onSort={handleSortClick} />
-                          )}
-                          {visibleColumnIds.includes('assigneeUserId') && (
-                            <SortHeader col="assigneeUserId" label={t('taskManagement.assignee')} sortColumn={sortColumn} sortDirection={sortDirection} onSort={handleSortClick} />
-                          )}
-                          {visibleColumnIds.includes('status') && (
-                            <SortHeader col="status" label={t('taskManagement.status')} sortColumn={sortColumn} sortDirection={sortDirection} onSort={handleSortClick} />
-                          )}
-                          {visibleColumnIds.includes('priority') && (
-                            <SortHeader col="priority" label={t('taskManagement.priority')} sortColumn={sortColumn} sortDirection={sortDirection} onSort={handleSortClick} />
-                          )}
-                          {visibleColumnIds.includes('progress') && (
-                            <SortHeader
-                              col="progress"
-                              label={t('taskManagement.progress')}
-                              className="min-w-[120px] w-[120px]"
-                              sortColumn={sortColumn}
-                              sortDirection={sortDirection}
-                              onSort={handleSortClick}
-                            />
-                          )}
-                          {visibleColumnIds.includes('planStartDate') && (
-                            <SortHeader
-                              col="planStartDate"
-                              label={t('taskManagement.planStartDate')}
-                              sortColumn={sortColumn}
-                              sortDirection={sortDirection}
-                              onSort={handleSortClick}
-                            />
-                          )}
-                          {visibleColumnIds.includes('planEndDate') && (
-                            <SortHeader col="planEndDate" label={t('taskManagement.deadline')} sortColumn={sortColumn} sortDirection={sortDirection} onSort={handleSortClick} />
-                          )}
-                          {visibleColumnIds.includes('actualStartDate') && (
-                            <SortHeader
-                              col="actualStartDate"
-                              label={t('taskManagement.actualStartDate')}
-                              sortColumn={sortColumn}
-                              sortDirection={sortDirection}
-                              onSort={handleSortClick}
-                            />
-                          )}
-                          {visibleColumnIds.includes('actualEndDate') && (
-                            <SortHeader
-                              col="actualEndDate"
-                              label={t('taskManagement.actualCompletionDate')}
-                              sortColumn={sortColumn}
-                              sortDirection={sortDirection}
-                              onSort={handleSortClick}
-                            />
-                          )}
-                          <TableHead className="!text-[var(--table-header-fg)] w-24 text-center">{t('taskManagement.actions')}</TableHead>
-                        </TableRow>
-                      </TableHeader>
-                      <TableBody>
-                        {tableTasks.map((task, idx) => {
-                          return (
-                            <TaskTableRow
-                              key={task.id}
-                              rowNumber={(taskPage - 1) * pageSize + idx + 1}
-                              task={task}
-                              getAssigneeDisplay={getAssigneeDisplay}
-                              getStatusLabel={getStatusLabel}
-                              getPriorityLabel={getPriorityLabel}
-                              getTypeLabel={getTypeLabel}
-                              getStatusIcon={getStatusIcon}
-                              getPriorityIcon={getPriorityIcon}
-                              getTypeIcon={getTypeIcon}
-                              getTypeBadgeClass={getTypeBadgeClass}
-                              getStatusBadgeClass={getStatusBadgeClass}
-                              getPriorityRowClass={getPriorityRowClass}
-                              statusColorMap={statusColorMap}
-                              priorityColorMap={priorityColorMap}
-                              typeColorMap={typeColorMap}
-                              getBadgeStyle={getBadgeStyle}
-                              getPriorityRowStyle={getPriorityRowStyle}
-                              locale={locale}
-                              onOpenDialog={handleOpenTaskRow}
-                              onDelete={handleDeleteTaskRow}
-                              onCopy={task => handleCopyTask(task as Task)}
-                              onToggleFavorite={handleToggleFavorite}
-                              isFavorite={favoriteTaskIds.has(task.id)}
-                              visibleColumnIds={visibleColumnIds}
-                            />
-                          )
-                        })}
-                      </TableBody>
-                    </Table>
+                      <Table className="w-max min-w-full">
+                        <TableHeader sticky>
+                          <TableRow>
+                            <TableHead className="!text-[var(--table-header-fg)] w-9 min-w-9 px-1 text-center">
+                              <Checkbox
+                                disabled={listLoading || tableTasks.length === 0}
+                                checked={tableTasks.length > 0 && tableTasks.every(t => selectedTaskIds.has(t.id))}
+                                onCheckedChange={v => {
+                                  const on = v === true
+                                  setSelectedTaskIds(prev => {
+                                    const next = new Set(prev)
+                                    for (const t of tableTasks) {
+                                      if (on) next.add(t.id)
+                                      else next.delete(t.id)
+                                    }
+                                    return next
+                                  })
+                                }}
+                                aria-label={t('taskManagement.bulkSelectPage')}
+                              />
+                            </TableHead>
+                            <TableHead className="!text-[var(--table-header-fg)] w-10 min-w-10 text-center tabular-nums">{t('taskManagement.rowNo')}</TableHead>
+                            {visibleColumnIds.includes('type') && (
+                              <SortHeader
+                                col="type"
+                                label={t('taskManagement.type')}
+                                className="w-[88px] min-w-[88px] max-w-[88px]"
+                                sortColumn={sortColumn}
+                                sortDirection={sortDirection}
+                                onSort={handleSortClick}
+                              />
+                            )}
+                            {visibleColumnIds.includes('ticketId') && (
+                              <SortHeader
+                                col="ticketId"
+                                label={t('taskManagement.ticketId')}
+                                sortColumn={sortColumn}
+                                sortDirection={sortDirection}
+                                onSort={handleSortClick}
+                              />
+                            )}
+                            {visibleColumnIds.includes('project') && (
+                              <SortHeader
+                                col="project"
+                                label={t('taskManagement.project')}
+                                sortColumn={sortColumn}
+                                sortDirection={sortDirection}
+                                onSort={handleSortClick}
+                              />
+                            )}
+                            {visibleColumnIds.includes('title') && (
+                              <SortHeader
+                                col="title"
+                                label={t('taskManagement.taskTitle')}
+                                sortColumn={sortColumn}
+                                sortDirection={sortDirection}
+                                onSort={handleSortClick}
+                              />
+                            )}
+                            {visibleColumnIds.includes('assigneeUserId') && (
+                              <SortHeader
+                                col="assigneeUserId"
+                                label={t('taskManagement.assignee')}
+                                sortColumn={sortColumn}
+                                sortDirection={sortDirection}
+                                onSort={handleSortClick}
+                              />
+                            )}
+                            {visibleColumnIds.includes('status') && (
+                              <SortHeader
+                                col="status"
+                                label={t('taskManagement.status')}
+                                sortColumn={sortColumn}
+                                sortDirection={sortDirection}
+                                onSort={handleSortClick}
+                              />
+                            )}
+                            {visibleColumnIds.includes('priority') && (
+                              <SortHeader
+                                col="priority"
+                                label={t('taskManagement.priority')}
+                                sortColumn={sortColumn}
+                                sortDirection={sortDirection}
+                                onSort={handleSortClick}
+                              />
+                            )}
+                            {visibleColumnIds.includes('progress') && (
+                              <SortHeader
+                                col="progress"
+                                label={t('taskManagement.progress')}
+                                className="min-w-[120px] w-[120px]"
+                                sortColumn={sortColumn}
+                                sortDirection={sortDirection}
+                                onSort={handleSortClick}
+                              />
+                            )}
+                            {visibleColumnIds.includes('planStartDate') && (
+                              <SortHeader
+                                col="planStartDate"
+                                label={t('taskManagement.planStartDate')}
+                                sortColumn={sortColumn}
+                                sortDirection={sortDirection}
+                                onSort={handleSortClick}
+                              />
+                            )}
+                            {visibleColumnIds.includes('planEndDate') && (
+                              <SortHeader
+                                col="planEndDate"
+                                label={t('taskManagement.deadline')}
+                                sortColumn={sortColumn}
+                                sortDirection={sortDirection}
+                                onSort={handleSortClick}
+                              />
+                            )}
+                            {visibleColumnIds.includes('actualStartDate') && (
+                              <SortHeader
+                                col="actualStartDate"
+                                label={t('taskManagement.actualStartDate')}
+                                sortColumn={sortColumn}
+                                sortDirection={sortDirection}
+                                onSort={handleSortClick}
+                              />
+                            )}
+                            {visibleColumnIds.includes('actualEndDate') && (
+                              <SortHeader
+                                col="actualEndDate"
+                                label={t('taskManagement.actualCompletionDate')}
+                                sortColumn={sortColumn}
+                                sortDirection={sortDirection}
+                                onSort={handleSortClick}
+                              />
+                            )}
+                            <TableHead className="!text-[var(--table-header-fg)] w-24 text-center">{t('taskManagement.actions')}</TableHead>
+                          </TableRow>
+                        </TableHeader>
+                        <TableBody>
+                          {listLoading && tableTasks.length === 0
+                            ? Array.from({ length: 8 }).map((_, ri) => (
+                              <TableRow key={`tbl-sk-${ri}`} aria-hidden>
+                                <TableCell colSpan={tableToolbarColSpan} className="py-3">
+                                  <Skeleton className="h-9 w-full max-w-4xl mx-auto rounded-md opacity-85" />
+                                </TableCell>
+                              </TableRow>
+                            ))
+                            : tableTasks.map((task, idx) => (
+                                  <TaskTableRow
+                                    key={task.id}
+                                    rowNumber={(taskPage - 1) * pageSize + idx + 1}
+                                    task={task}
+                                    getAssigneeDisplay={getAssigneeDisplay}
+                                    getStatusLabel={getStatusLabel}
+                                    getPriorityLabel={getPriorityLabel}
+                                    getTypeLabel={getTypeLabel}
+                                    getStatusIcon={getStatusIcon}
+                                    getPriorityIcon={getPriorityIcon}
+                                    getTypeIcon={getTypeIcon}
+                                    getTypeBadgeClass={getTypeBadgeClass}
+                                    getStatusBadgeClass={getStatusBadgeClass}
+                                    getPriorityRowClass={getPriorityRowClass}
+                                    statusColorMap={statusColorMap}
+                                    priorityColorMap={priorityColorMap}
+                                    typeColorMap={typeColorMap}
+                                    getBadgeStyle={getBadgeStyle}
+                                    getPriorityRowStyle={getPriorityRowStyle}
+                                    locale={locale}
+                                    onOpenDialog={handleOpenTaskRow}
+                                    onDelete={handleDeleteTaskRow}
+                                    onCopy={taskRow => handleCopyTask(taskRow as Task)}
+                                    onToggleFavorite={handleToggleFavorite}
+                                    isFavorite={favoriteTaskIds.has(task.id)}
+                                    visibleColumnIds={visibleColumnIds}
+                                    bulkSelect={{
+                                      checked: selectedTaskIds.has(task.id),
+                                      onToggle: () => toggleBulkTaskSelection(task.id),
+                                    }}
+                                  />
+                              ))}
+                        </TableBody>
+                      </Table>
                     </div>
                   </div>
-                  {totalCount > 0 && (
-                    <TablePaginationBar
-                      page={taskPage}
-                      totalPages={totalPages}
-                      totalItems={totalCount}
-                      pageSize={pageSize}
-                      onPageChange={setTaskPage}
-                      onPageSizeChange={setPageSize}
-                      pageSizeOptions={PAGE_SIZE_OPTIONS}
-                    />
+                  {taskView === 'table' && totalCount > 0 && (
+                    <div className="flex shrink-0 flex-col border-t border-border/70 bg-background">
+                      <TablePaginationBar
+                        page={taskPage}
+                        totalPages={totalPages}
+                        totalItems={totalCount}
+                        pageSize={pageSize}
+                        onPageChange={setTaskPage}
+                        onPageSizeChange={setPageSize}
+                        pageSizeOptions={PAGE_SIZE_OPTIONS}
+                      />
+                    </div>
                   )}
                 </div>
               )}
@@ -1892,21 +3199,58 @@ export function TaskManagement({ embedded = false }: { embedded?: boolean }) {
 
             {showChartTab && (
               <TabsContent value="chart" className="flex-1 flex flex-col min-h-0 mt-0">
-                <Suspense
-                  fallback={
-                    <div className="flex flex-1 min-h-[200px] items-center justify-center">
-                      <GlowLoader className="w-10 h-10" />
+                {requiresManualMgmtApply && !mgmtApiFilters.ready ? (
+                  <div className="flex flex-col items-center justify-center flex-1 min-h-[240px] rounded-md border border-dashed border-border/80 bg-muted/20 px-6 py-12 text-center text-muted-foreground">
+                    <p className="font-medium text-foreground">{t('taskManagement.mgmtPendingTitle')}</p>
+                    <p className="mt-1 max-w-md text-sm">{t('taskManagement.mgmtPendingHint')}</p>
+                    <Button type="button" className={cn('mt-4', PR_MANAGER_ACCENT_OUTLINE_BTN, PR_MANAGER_ACCENT_OUTLINE_SURFACE)} variant="outline" size="sm" onClick={commitMgmtFiltersFromDraft}>
+                      {t('taskManagement.mgmtApplySearch')}
+                    </Button>
+                  </div>
+                ) : (
+                  <>
+                    <div className="flex shrink-0 flex-wrap items-end gap-2 pb-2 mb-2 border-b border-border/70">
+                      <div className="flex min-w-0 flex-col gap-1">
+                        <span className="text-[10px] font-normal leading-none text-muted-foreground whitespace-nowrap">
+                          {t('taskManagement.mgmtDateTimelineLabel')}
+                        </span>
+                        <DateRangePickerPopover
+                          dateRange={dateRange}
+                          onDateRangeChange={setDateRange}
+                          open={chartTimelinePickerOpen}
+                          onOpenChange={setChartTimelinePickerOpen}
+                          allTimeLabel={t('taskManagement.chartAllTime')}
+                          confirmLabel={t('common.confirm')}
+                          disabled={isImporting}
+                          triggerClassName="h-8 min-h-8 max-w-[16rem]"
+                        />
+                      </div>
                     </div>
-                  }
-                >
-                  {chartLoading ? (
-                    <div className="flex flex-1 items-center justify-center text-muted-foreground gap-2">
-                      <Loader2 className="h-6 w-6 animate-spin" />
-                    </div>
-                  ) : (
-                    <TaskCharts tasks={chartTasks} users={users} statuses={statuses} priorities={priorities} types={types} dateRange={dateRange} />
-                  )}
-                </Suspense>
+                  <Suspense
+                    fallback={
+                      <div className="flex flex-1 min-h-[200px] items-center justify-center">
+                        <GlowLoader className="w-10 h-10" />
+                      </div>
+                    }
+                  >
+                    {chartLoading ? (
+                      <div className="flex flex-1 items-center justify-center text-muted-foreground gap-2">
+                        <Loader2 className="h-6 w-6 animate-spin" />
+                      </div>
+                    ) : (
+                      <TaskCharts
+                        tasks={chartTasks}
+                        users={users}
+                        statuses={statuses}
+                        priorities={priorities}
+                        types={types}
+                        dateRange={dateRange}
+                        persistSessionScope={taskMgmtSessionScope}
+                      />
+                    )}
+                  </Suspense>
+                  </>
+                )}
               </TabsContent>
             )}
           </>
