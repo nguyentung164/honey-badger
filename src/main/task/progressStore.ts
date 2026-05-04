@@ -227,7 +227,7 @@ async function aggregateSnapshotForRange(userId: string, from: string, to: strin
        SUM(tasks_done_on_time)                               AS tasks_done_on_time,
        SUM(tasks_overdue_opened)                             AS tasks_overdue_opened,
        SUM(reviews_done)                                     AS reviews_done,
-       SUM(has_daily_report)                                 AS has_daily_report_days,
+       SUM(has_daily_report::int)                            AS has_daily_report_days,
        SUM(commits_with_rule_check)                          AS commits_with_rule_check,
        SUM(commits_with_spotbugs)                            AS commits_with_spotbugs,
        SUM(commits_total_in_queue)                           AS commits_total_in_queue,
@@ -590,12 +590,12 @@ export async function getMonthlyHighlights(userId: string, yearMonth: string): P
   const [currRows, prevRows, bestDayRows, bestMonthRows, bestLineDayRows, trendRows, streakRows] = await Promise.all([
     query<Array<Record<string, number>>>(
       `SELECT SUM(commits_count) AS c, SUM(lines_inserted) AS li, SUM(lines_deleted) AS ld,
-              SUM(tasks_done) AS t, SUM(reviews_done) AS r, SUM(has_daily_report) AS d, COUNT(*) AS wd
+              SUM(tasks_done) AS t, SUM(reviews_done) AS r, SUM(has_daily_report::int) AS d, COUNT(*) AS wd
        FROM user_daily_snapshots WHERE user_id = ? AND snapshot_date::date BETWEEN ?::date AND ?::date`,
       [userId, s, e]
     ),
     query<Array<Record<string, number>>>(
-      `SELECT SUM(commits_count) AS c, SUM(tasks_done) AS t, SUM(reviews_done) AS r, SUM(has_daily_report) AS d
+      `SELECT SUM(commits_count) AS c, SUM(tasks_done) AS t, SUM(reviews_done) AS r, SUM(has_daily_report::int) AS d
        FROM user_daily_snapshots WHERE user_id = ? AND snapshot_date::date BETWEEN ?::date AND ?::date`,
       [userId, ps, pe]
     ),
@@ -1104,7 +1104,7 @@ export async function getTeamProgressSummaries(userIds: string[], from: string, 
       }>
     >(
       `SELECT user_id,
-       SUM(has_daily_report) AS report_days,
+       SUM(has_daily_report::int) AS report_days,
        COUNT(*) AS working_days,
        SUM(commits_with_rule_check) AS rule_checked,
        SUM(commits_with_spotbugs) AS spotbugs_checked,

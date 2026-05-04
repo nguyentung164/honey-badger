@@ -17,6 +17,7 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
 import toast from '@/components/ui-elements/Toast'
+import { cn } from '@/lib/utils'
 import { MAX_TASK_SAVED_VIEWS, normalizeSnapshot, type TaskManagementSavedView, type TaskManagementSavedViewSnapshot } from './taskManagementSavedViews'
 
 export function TaskSavedViewsPopover({
@@ -88,9 +89,12 @@ export function TaskSavedViewsPopover({
         <PopoverTrigger asChild>
           <Button
             type="button"
-            variant={variant}
+            variant="outline"
             size="sm"
-            className="h-8 shrink-0 gap-1.5 relative"
+            className={cn(
+              'h-8 shrink-0 gap-1.5 relative border-dashed border-primary/45 bg-muted/40 font-medium text-foreground shadow-none hover:bg-muted/55 dark:border-primary/35 dark:bg-muted/25 dark:hover:bg-muted/40',
+              disabled && 'pointer-events-none opacity-50',
+            )}
             disabled={disabled}
             title={pinnedViewDirty ? t('taskManagement.savedViewDirtyTooltip') : undefined}
           >

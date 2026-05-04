@@ -906,8 +906,10 @@ export const TitleBar = ({
     }
   }, [sourceFolder, isConfigLoaded, loadSourceFoldersForProject, user, isGuest])
 
-  // Detect branch changes khi window focus (app khác hoặc command line đã switch branch)
+  // Detect branch changes khi window focus — chỉ khi tab Workspace (vcs), tránh gọi Git khi đang Tasks/PR Manager
   useEffect(() => {
+    if (shellView !== 'vcs') return
+
     const handleWindowFocus = () => {
       logger.info('Window focused - checking for branch changes')
       checkBranchChanges()
@@ -915,8 +917,8 @@ export const TitleBar = ({
 
     window.addEventListener('focus', handleWindowFocus)
     return () => window.removeEventListener('focus', handleWindowFocus)
-    // gitContextPath trong deps để handler luôn check đúng repo đang active khi đổi tab
-  }, [versionControlSystem, gitContextPath])
+    // shellView + gitContextPath: chỉ subscribe khi Workspace; đổi repo/tab cập nhật handler
+  }, [versionControlSystem, gitContextPath, shellView])
 
   // Load SVN conflict status khi dùng SVN để chỉ hiện icon conflict khi có conflict
   useEffect(() => {

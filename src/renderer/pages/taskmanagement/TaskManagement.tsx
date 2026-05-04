@@ -144,6 +144,10 @@ const REQUIRED_COLUMN_IDS = ['type', 'ticketId', 'project', 'title', 'assigneeUs
 const VISIBLE_COLUMNS_STORAGE_KEY = 'task-management-visible-columns'
 const TASK_VIEW_STORAGE_KEY = 'task-management-task-view'
 
+/** Nút filter facet (Assignee, Project, Type, Status, Priority): đã chọn ít nhất một giá trị */
+const TASK_MGMT_FILTER_TRIGGER_ACTIVE =
+  'border-primary/55 bg-primary/[0.09] font-medium text-foreground shadow-sm dark:border-primary/45 dark:bg-primary/14'
+
 type TaskManagementViewMode = 'table' | 'board' | 'gantt' | 'calendar'
 
 function TaskViewModeToggle({
@@ -2378,7 +2382,11 @@ export function TaskManagement({ embedded = false }: { embedded?: boolean }) {
                   ) : null}
                   <Popover>
                     <PopoverTrigger asChild>
-                      <Button variant={buttonVariant} size="sm" className="h-8 gap-1.5">
+                      <Button
+                        variant={buttonVariant}
+                        size="sm"
+                        className={cn('h-8 gap-1.5', assigneeFilter.length > 0 && TASK_MGMT_FILTER_TRIGGER_ACTIVE)}
+                      >
                         <Plus className="h-3.5 w-3.5" />
                         {t('taskManagement.assignee')}
                         {assigneeFilter.length > 0 && <span className="text-muted-foreground">({assigneeFilter.length})</span>}
@@ -2429,7 +2437,11 @@ export function TaskManagement({ embedded = false }: { embedded?: boolean }) {
                   </Popover>
                   <Popover>
                     <PopoverTrigger asChild>
-                      <Button variant={buttonVariant} size="sm" className="h-8 gap-1.5">
+                      <Button
+                        variant={buttonVariant}
+                        size="sm"
+                        className={cn('h-8 gap-1.5', projectFilter.length > 0 && TASK_MGMT_FILTER_TRIGGER_ACTIVE)}
+                      >
                         <Plus className="h-3.5 w-3.5" />
                         {t('taskManagement.project')}
                         {projectFilter.length > 0 && <span className="text-muted-foreground">({projectFilter.length})</span>}
@@ -2480,7 +2492,11 @@ export function TaskManagement({ embedded = false }: { embedded?: boolean }) {
                   </Popover>
                   <Popover>
                     <PopoverTrigger asChild>
-                      <Button variant={buttonVariant} size="sm" className="h-8 gap-1.5">
+                      <Button
+                        variant={buttonVariant}
+                        size="sm"
+                        className={cn('h-8 gap-1.5', typeFilter.length > 0 && TASK_MGMT_FILTER_TRIGGER_ACTIVE)}
+                      >
                         <Plus className="h-3.5 w-3.5" />
                         {t('taskManagement.type')}
                         {typeFilter.length > 0 &&
@@ -2544,7 +2560,11 @@ export function TaskManagement({ embedded = false }: { embedded?: boolean }) {
                   </Popover>
                   <Popover>
                     <PopoverTrigger asChild>
-                      <Button variant={buttonVariant} size="sm" className="h-8 gap-1.5">
+                      <Button
+                        variant={buttonVariant}
+                        size="sm"
+                        className={cn('h-8 gap-1.5', statusFilter.length > 0 && TASK_MGMT_FILTER_TRIGGER_ACTIVE)}
+                      >
                         <Plus className="h-3.5 w-3.5" />
                         {t('taskManagement.status')}
                         {statusFilter.length > 0 &&
@@ -2632,7 +2652,11 @@ export function TaskManagement({ embedded = false }: { embedded?: boolean }) {
                   </Popover>
                   <Popover>
                     <PopoverTrigger asChild>
-                      <Button variant={buttonVariant} size="sm" className="h-8 gap-1.5">
+                      <Button
+                        variant={buttonVariant}
+                        size="sm"
+                        className={cn('h-8 gap-1.5', priorityFilter.length > 0 && TASK_MGMT_FILTER_TRIGGER_ACTIVE)}
+                      >
                         <Plus className="h-3.5 w-3.5" />
                         {t('taskManagement.priority')}
                         {priorityFilter.length > 0 &&
@@ -2822,13 +2846,6 @@ export function TaskManagement({ embedded = false }: { embedded?: boolean }) {
                       })}
                     </div>
                   )}
-                  {!boardLoading && boardTotal > 0 && (taskView === 'board' || taskView === 'gantt' || taskView === 'calendar') ? (
-                    <p role="note" className="shrink-0 border-l-2 border-primary/30 pl-2.5 pr-1 text-[11px] leading-relaxed text-muted-foreground sm:text-xs">
-                      {taskView === 'board' ? t('taskManagement.viewHintBoard') : null}
-                      {taskView === 'gantt' ? t('taskManagement.viewHintGantt') : null}
-                      {taskView === 'calendar' ? t('taskManagement.viewHintCalendar') : null}
-                    </p>
-                  ) : null}
                   {requiresManualMgmtApply && !mgmtApiFilters.ready ? (
                     <div className="flex flex-col items-center justify-center flex-1 min-h-[280px] rounded-md border border-dashed border-border/80 bg-muted/20 px-6 py-12 text-center text-muted-foreground">
                       <p className="font-medium text-foreground">{t('taskManagement.mgmtPendingTitle')}</p>
@@ -2837,11 +2854,11 @@ export function TaskManagement({ embedded = false }: { embedded?: boolean }) {
                         {t('taskManagement.mgmtApplySearch')}
                       </Button>
                     </div>
-                  ) : boardLoading ? (
+                  ) : boardLoading && boardTasks.length === 0 ? (
                     <div className="flex flex-1 min-h-[280px] items-center justify-center">
                       <GlowLoader className="w-10 h-10" />
                     </div>
-                  ) : boardTotal === 0 ? (
+                  ) : boardTotal === 0 && !boardLoading ? (
                     <div className="flex flex-col items-center justify-center flex-1 text-muted-foreground px-6 py-12 text-center">
                       <p className="font-medium text-foreground">{hasNarrowingFilters ? t('taskManagement.emptyFilteredTitle') : t('taskManagement.noTasks')}</p>
                       <p className="mt-1 max-w-md text-sm">{hasNarrowingFilters ? t('taskManagement.emptyFilteredHint') : t('taskManagement.emptyNoTasksHint')}</p>
@@ -2878,66 +2895,80 @@ export function TaskManagement({ embedded = false }: { embedded?: boolean }) {
                       </div>
                     </div>
                   ) : (
-                    <div className="flex-1 min-h-0 rounded-md border border-border/70 bg-background p-2 shadow-sm flex flex-col overflow-hidden min-w-0">
-                      {taskView === 'board' && (
-                        <TaskKanbanBoard
-                          tasks={boardTasks as unknown as TaskTableRowTask[]}
-                          statuses={statuses}
-                          statusColorMap={statusColorMap}
-                          onMoveTask={handleBoardMoveStatus}
-                          onOpenTask={handleOpenTaskRow}
-                          getAssigneeDisplay={getAssigneeDisplay}
-                          selectedTaskIds={selectedTaskIds}
-                          onToggleTaskSelect={toggleBulkTaskSelection}
-                          currentUserId={user?.id ?? null}
-                          cardPropsBase={taskKanbanCardPropsBase}
-                          disableSwimlanes={!canManageTaskRowGrouping}
-                        />
-                      )}
-                      {taskView === 'gantt' && (
-                        <TaskGanttView
-                          tasks={boardTasks as unknown as TaskTableRowTask[]}
-                          locale={locale}
-                          filterRange={ganttFilterRange}
-                          statusColorMap={statusColorMap}
-                          getAssigneeDisplay={getAssigneeDisplay}
-                          onSelectTask={handleOpenTaskRow}
-                          selectedTaskIds={selectedTaskIds}
-                          onToggleTaskSelect={toggleBulkTaskSelection}
-                          onUpdatePlanDates={handleUpdatePlanDates}
-                          disableRowGrouping={!canManageTaskRowGrouping}
-                          labels={{
-                            week: t('taskManagement.ganttScaleWeek'),
-                            month: t('taskManagement.ganttScaleMonth'),
-                            twoWeek: t('taskManagement.ganttScaleTwoWeek'),
-                            monthly: t('taskManagement.ganttScaleMonthly'),
-                            unscheduled: t('taskManagement.ganttUnscheduled'),
-                            zoom: t('taskManagement.ganttZoom'),
-                            emptyScheduled: t('taskManagement.ganttEmptyScheduled'),
-                            fitRange: t('taskManagement.ganttFitRange'),
-                            goToToday: t('taskManagement.ganttGoToToday'),
-                            todayMark: t('taskManagement.ganttTodayTooltip'),
-                            groupRows: t('taskManagement.ganttGroupRows'),
-                            groupingFlat: t('taskManagement.ganttGroupingFlat'),
-                            groupingByAssignee: t('taskManagement.ganttGroupingByAssignee'),
-                            groupingByProject: t('taskManagement.ganttGroupingByProject'),
-                            resizeLabelColumn: t('taskManagement.ganttResizeLabelColumn'),
-                          }}
-                        />
-                      )}
-                      {taskView === 'calendar' && (
-                        <TaskCalendarView
-                          tasks={boardTasks as unknown as TaskTableRowTask[]}
-                          language={i18n.language}
-                          messages={calendarToolbarMessages}
-                          statusColorMap={statusColorMap}
-                          onSelectTask={handleOpenTaskRow}
-                          selectedTaskIds={selectedTaskIds}
-                          onToggleTaskSelect={toggleBulkTaskSelection}
-                          unscheduledLabel={t('taskManagement.calendarNoPlanDates')}
-                          onUpdatePlanDates={handleUpdatePlanDates}
-                        />
-                      )}
+                    <div className="relative flex flex-1 min-h-0 flex-col rounded-md bg-background shadow-sm min-w-0 overflow-hidden">
+                      {boardLoading ? (
+                        <div
+                          className="absolute inset-0 z-10 flex items-center justify-center bg-background/55 backdrop-blur-[1px]"
+                          aria-busy
+                          aria-live="polite"
+                        >
+                          <GlowLoader className="w-10 h-10" />
+                        </div>
+                      ) : null}
+                      <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
+                        {taskView === 'board' && (
+                          <TaskKanbanBoard
+                            tasks={boardTasks as unknown as TaskTableRowTask[]}
+                            statuses={statuses}
+                            statusColorMap={statusColorMap}
+                            onMoveTask={handleBoardMoveStatus}
+                            onOpenTask={handleOpenTaskRow}
+                            getAssigneeDisplay={getAssigneeDisplay}
+                            selectedTaskIds={selectedTaskIds}
+                            onToggleTaskSelect={toggleBulkTaskSelection}
+                            currentUserId={user?.id ?? null}
+                            cardPropsBase={taskKanbanCardPropsBase}
+                            disableSwimlanes={!canManageTaskRowGrouping}
+                          />
+                        )}
+                        {taskView === 'gantt' && (
+                          <TaskGanttView
+                            tasks={boardTasks as unknown as TaskTableRowTask[]}
+                            locale={locale}
+                            language={i18n.language}
+                            filterRange={ganttFilterRange}
+                            statusColorMap={statusColorMap}
+                            getAssigneeDisplay={getAssigneeDisplay}
+                            onSelectTask={handleOpenTaskRow}
+                            selectedTaskIds={selectedTaskIds}
+                            onToggleTaskSelect={toggleBulkTaskSelection}
+                            onUpdatePlanDates={handleUpdatePlanDates}
+                            disableRowGrouping={!canManageTaskRowGrouping}
+                            labels={{
+                              week: t('taskManagement.ganttScaleWeek'),
+                              month: t('taskManagement.ganttScaleMonth'),
+                              twoWeek: t('taskManagement.ganttScaleTwoWeek'),
+                              monthly: t('taskManagement.ganttScaleMonthly'),
+                              unscheduled: t('taskManagement.ganttUnscheduled'),
+                              zoom: t('taskManagement.ganttZoom'),
+                              emptyScheduled: t('taskManagement.ganttEmptyScheduled'),
+                              fitRange: t('taskManagement.ganttFitRange'),
+                              goToToday: t('taskManagement.ganttGoToToday'),
+                              todayMark: t('taskManagement.ganttTodayTooltip'),
+                              groupRows: t('taskManagement.ganttGroupRows'),
+                              groupingFlat: t('taskManagement.ganttGroupingFlat'),
+                              groupingByAssignee: t('taskManagement.ganttGroupingByAssignee'),
+                              groupingByProject: t('taskManagement.ganttGroupingByProject'),
+                              resizeLabelColumn: t('taskManagement.ganttResizeLabelColumn'),
+                              gridBordersSwitch: t('taskManagement.ganttGridBordersSwitch'),
+                              gridBordersHelp: t('taskManagement.ganttGridBordersHelp'),
+                            }}
+                          />
+                        )}
+                        {taskView === 'calendar' && (
+                          <TaskCalendarView
+                            tasks={boardTasks as unknown as TaskTableRowTask[]}
+                            language={i18n.language}
+                            messages={calendarToolbarMessages}
+                            statusColorMap={statusColorMap}
+                            onSelectTask={handleOpenTaskRow}
+                            selectedTaskIds={selectedTaskIds}
+                            onToggleTaskSelect={toggleBulkTaskSelection}
+                            unscheduledLabel={t('taskManagement.calendarNoPlanDates')}
+                            onUpdatePlanDates={handleUpdatePlanDates}
+                          />
+                        )}
+                      </div>
                     </div>
                   )}
                 </div>

@@ -563,7 +563,7 @@ export function TaskCalendarView({
         .task-management-calendar .rbc-addons-dnd-resize-ns-icon { display: none; }
       `}</style>
 
-      <div className="min-h-0 min-w-0 flex-1 rounded-md border border-border/70 bg-card p-1.5 overflow-auto">
+      <div className="min-h-0 min-w-0 flex-1 rounded-md bg-card p-2 overflow-auto">
         <DragCalendar
           localizer={localizer}
           culture={culture}

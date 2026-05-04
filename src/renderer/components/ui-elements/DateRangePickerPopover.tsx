@@ -83,7 +83,7 @@ export function DateRangePickerPopover({
           disabled={disabled}
           title={triggerTitle}
           className={cn(
-            'inline-flex min-h-0 min-w-0 max-w-full items-center gap-1.5 px-2 text-xs font-normal justify-start text-left transition-all duration-200',
+            'inline-flex min-h-0 min-w-0 max-w-full items-center gap-1.5 px-2 font-normal justify-start text-left transition-all duration-200',
             !dateRange?.from && 'text-muted-foreground',
             triggerClassName ?? 'h-6',
           )}

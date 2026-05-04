@@ -32,7 +32,7 @@
     "lint:fix": "biome lint --write --no-errors-on-unmatched",
     "i18n:find-unused": "tsx scripts/find-unused-translation-keys.ts",
     "i18n:remove-unused": "tsx scripts/remove-unused-translation-keys.ts",
-    "seed:mock": "cross-env APP_DB_HOST=db.snmrjybbnyqchivvsolj.supabase.co APP_DB_PORT=5432 APP_DB_NAME=postgres APP_DB_USER=postgres APP_DB_PASSWORD=BRKIpkkEnvbNQoFA SEED_RANDOM=1 tsx src/main/task/seedMockDataRun.ts"
+    "seed:mock": "cross-env APP_DB_HOST=xxx APP_DB_PORT=1234 APP_DB_NAME=postgres APP_DB_USER=postgres APP_DB_PASSWORD=xxx SEED_RANDOM=1 tsx src/main/task/seedMockDataRun.ts"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.88.0",
