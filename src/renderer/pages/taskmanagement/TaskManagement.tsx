@@ -1219,9 +1219,9 @@ export function TaskManagement({ embedded = false }: { embedded?: boolean }) {
       const dateRangeApi =
         dateRange?.from != null
           ? {
-              from: format(dateRange.from, 'yyyy-MM-dd'),
-              to: dateRange.to ? format(dateRange.to, 'yyyy-MM-dd') : format(dateRange.from, 'yyyy-MM-dd'),
-            }
+            from: format(dateRange.from, 'yyyy-MM-dd'),
+            to: dateRange.to ? format(dateRange.to, 'yyyy-MM-dd') : format(dateRange.from, 'yyyy-MM-dd'),
+          }
           : undefined
       return {
         ready: true as const,
@@ -1240,9 +1240,9 @@ export function TaskManagement({ embedded = false }: { embedded?: boolean }) {
     const dateRangeApi =
       appliedMgmtFilters.dateFromKey != null
         ? {
-            from: appliedMgmtFilters.dateFromKey,
-            to: appliedMgmtFilters.dateToKey ?? appliedMgmtFilters.dateFromKey,
-          }
+          from: appliedMgmtFilters.dateFromKey,
+          to: appliedMgmtFilters.dateToKey ?? appliedMgmtFilters.dateFromKey,
+        }
         : undefined
     return {
       ready: true as const,
@@ -2265,312 +2265,348 @@ export function TaskManagement({ embedded = false }: { embedded?: boolean }) {
             <TabsContent value="tasks" className="flex-1 flex flex-col min-h-0 mt-0">
               <div className="shrink-0 flex flex-col gap-2 mb-2">
                 <div className="flex items-center justify-between gap-2 flex-wrap">
-                <div className="flex flex-wrap items-end gap-x-5 gap-y-2 flex-1 min-w-0">
-                  <div
-                    className={cn(
-                      'flex flex-col gap-1 min-w-0',
-                      requiresManualMgmtApply ? 'min-w-[220px] max-w-md flex-1' : 'min-w-[200px] max-w-xs shrink-0',
-                    )}
-                  >
-                    <Label
-                      htmlFor="task-search-input"
-                      className="text-[10px] font-normal text-muted-foreground leading-none whitespace-nowrap"
+                  <div className="flex flex-wrap items-end gap-x-5 gap-y-2 flex-1 min-w-0">
+                    <div
+                      className={cn(
+                        'flex flex-col gap-1 min-w-0',
+                        requiresManualMgmtApply ? 'min-w-[220px] max-w-md flex-1' : 'min-w-[200px] max-w-xs shrink-0',
+                      )}
                     >
-                      {t('taskManagement.toolbarSearchTitle')}
-                    </Label>
-                    <div className="flex items-center gap-1.5 h-8 w-full">
-                      <div className="relative min-w-0 flex-1 h-8">
-                      <Search className="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-                      <Input
-                        id="task-search-input"
-                        placeholder={t('taskManagement.searchPlaceholder')}
-                        value={searchQuery}
-                        onChange={e => setSearchQuery(e.target.value)}
-                        onKeyDown={e => {
-                          if (!requiresManualMgmtApply) return
-                          if (e.key !== 'Enter') return
-                          e.preventDefault()
-                          commitMgmtFiltersFromDraft()
-                        }}
-                        className="pl-8 h-8"
-                      />
-                      </div>
-                      {requiresManualMgmtApply ? (
-                        <Tooltip>
-                          <TooltipTrigger asChild>
-                            <Button
-                              type="button"
-                              variant={mgmtSearchDirtyOrInitial ? 'default' : 'outline'}
-                              size="sm"
-                              className="h-8 shrink-0 px-3"
-                              onClick={commitMgmtFiltersFromDraft}
-                            >
-                              {t('taskManagement.mgmtApplySearch')}
-                            </Button>
-                          </TooltipTrigger>
-                          <TooltipContent side="bottom" className="max-w-xs text-left">
-                            {t('taskManagement.mgmtApplySearchTooltip')}
-                          </TooltipContent>
-                        </Tooltip>
-                      ) : null}
-                    </div>
-                  </div>
-                  <div className="flex flex-wrap items-end gap-x-4 gap-y-2">
-                    <div className="flex min-w-0 shrink-0 flex-col gap-0.5">
-                      <span className="text-[10px] leading-none whitespace-nowrap text-muted-foreground">
-                        {t('taskManagement.mgmtDateTimelineLabel')}
-                      </span>
-                      <DateRangePickerPopover
-                        dateRange={dateRange}
-                        onDateRangeChange={setDateRange}
-                        open={mgmtTimelinePickerOpen}
-                        onOpenChange={setMgmtTimelinePickerOpen}
-                        allTimeLabel={t('taskManagement.chartAllTime')}
-                        confirmLabel={t('common.confirm')}
-                        disabled={isImporting}
-                        triggerClassName="h-8 min-h-8 max-w-[13rem] shrink-0"
-                      />
-                    </div>
-                    <div className="flex min-w-0 shrink-0 flex-col gap-0.5">
-                      <span className="text-[10px] leading-none whitespace-nowrap text-muted-foreground">
-                        {t('taskManagement.mgmtDateCreatedLabel')}
-                      </span>
-                      <DateRangePickerPopover
-                        dateRange={createdDateRange}
-                        onDateRangeChange={setCreatedDateRange}
-                        open={mgmtCreatedPickerOpen}
-                        onOpenChange={setMgmtCreatedPickerOpen}
-                        allTimeLabel={t('taskManagement.chartAllTime')}
-                        confirmLabel={t('common.confirm')}
-                        disabled={isImporting}
-                        triggerClassName="h-8 min-h-8 max-w-[13rem] shrink-0"
-                      />
-                    </div>
-                    <div className="flex min-w-0 shrink-0 flex-col gap-0.5">
-                      <span className="text-[10px] leading-none whitespace-nowrap text-muted-foreground">
-                        {t('taskManagement.mgmtDateUpdatedLabel')}
-                      </span>
-                      <DateRangePickerPopover
-                        dateRange={updatedDateRange}
-                        onDateRangeChange={setUpdatedDateRange}
-                        open={mgmtUpdatedPickerOpen}
-                        onOpenChange={setMgmtUpdatedPickerOpen}
-                        allTimeLabel={t('taskManagement.chartAllTime')}
-                        confirmLabel={t('common.confirm')}
-                        disabled={isImporting}
-                        triggerClassName="h-8 min-h-8 max-w-[13rem] shrink-0"
-                      />
-                    </div>
-                  </div>
-                  <div className="flex min-w-0 flex-col gap-0.5">
-                    <span className="text-[10px] font-normal leading-none whitespace-nowrap text-muted-foreground">
-                      {t('taskManagement.toolbarFiltersTitle')}
-                    </span>
-                    <div className="flex flex-wrap items-center gap-2">
-                  {user?.id ? (
-                    <TaskSavedViewsPopover
-                      variant={buttonVariant}
-                      disabled={isImporting || taskApiOk !== true}
-                      savedViews={savedViews}
-                      currentSnapshot={currentSavedSnapshot}
-                      activeSavedViewId={matchingSavedView?.id ?? null}
-                      pinnedViewDirty={pinnedSavedViewDirty}
-                      onChangeSavedViews={setSavedViews}
-                      onApplySnapshot={applySavedSnapshot}
-                      onSelectSavedViewItem={v => setPinnedSavedViewId(v.id)}
-                    />
-                  ) : null}
-                  <Popover>
-                    <PopoverTrigger asChild>
-                      <Button
-                        variant={buttonVariant}
-                        size="sm"
-                        className={cn('h-8 gap-1.5', assigneeFilter.length > 0 && TASK_MGMT_FILTER_TRIGGER_ACTIVE)}
+                      <Label
+                        htmlFor="task-search-input"
+                        className="text-[10px] font-normal text-muted-foreground leading-none whitespace-nowrap"
                       >
-                        <Plus className="h-3.5 w-3.5" />
-                        {t('taskManagement.assignee')}
-                        {assigneeFilter.length > 0 && <span className="text-muted-foreground">({assigneeFilter.length})</span>}
-                      </Button>
-                    </PopoverTrigger>
-                    <PopoverContent className="w-64 p-0" align="start">
-                      <div className="p-2 border-b">
-                        <div className="relative">
-                          <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                        {t('taskManagement.toolbarSearchTitle')}
+                      </Label>
+                      <div className="flex items-center gap-1.5 h-8 w-full">
+                        <div className="relative min-w-0 flex-1 h-8">
+                          <Search className="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
                           <Input
-                            placeholder={t('taskManagement.assignee')}
-                            value={assigneeFilterSearch}
-                            onChange={e => setAssigneeFilterSearch(e.target.value)}
+                            id="task-search-input"
+                            placeholder={t('taskManagement.searchPlaceholder')}
+                            value={searchQuery}
+                            onChange={e => setSearchQuery(e.target.value)}
+                            onKeyDown={e => {
+                              if (!requiresManualMgmtApply) return
+                              if (e.key !== 'Enter') return
+                              e.preventDefault()
+                              commitMgmtFiltersFromDraft()
+                            }}
                             className="pl-8 h-8"
                           />
                         </div>
-                      </div>
-                      <div className="max-h-[240px] overflow-y-auto p-1">
-                        {assigneeOptionsForFilter
-                          .filter(opt => !assigneeFilterSearch.trim() || opt.label.toLowerCase().includes(assigneeFilterSearch.trim().toLowerCase()))
-                          .map(opt => (
-                            <label
-                              htmlFor={`assignee-filter-${opt.value}`}
-                              key={opt.value}
-                              className="flex items-center gap-2 px-2 py-1.5 rounded-md cursor-pointer hover:bg-muted/80 text-sm"
-                            >
-                              <Checkbox
-                                id={`assignee-filter-${opt.value}`}
-                                checked={assigneeFilter.includes(opt.value)}
-                                onCheckedChange={checked => {
-                                  setAssigneeFilter(prev => (checked ? [...prev, opt.value] : prev.filter(c => c !== opt.value)))
-                                }}
-                              />
-                              <span className="flex-1">{opt.label}</span>
-                              <span className="text-muted-foreground text-xs">{assigneeCounts[opt.value] ?? 0}</span>
-                            </label>
-                          ))}
-                      </div>
-                      {assigneeFilter.length > 0 && (
-                        <div className="p-2 border-t">
-                          <Button variant="ghost" size="sm" className="w-full h-8 text-xs" onClick={() => setAssigneeFilter([])}>
-                            <X className="h-3.5 w-3.5 mr-1" />
-                            {t('taskManagement.clearFilters')}
-                          </Button>
-                        </div>
-                      )}
-                    </PopoverContent>
-                  </Popover>
-                  <Popover>
-                    <PopoverTrigger asChild>
-                      <Button
-                        variant={buttonVariant}
-                        size="sm"
-                        className={cn('h-8 gap-1.5', projectFilter.length > 0 && TASK_MGMT_FILTER_TRIGGER_ACTIVE)}
-                      >
-                        <Plus className="h-3.5 w-3.5" />
-                        {t('taskManagement.project')}
-                        {projectFilter.length > 0 && <span className="text-muted-foreground">({projectFilter.length})</span>}
-                      </Button>
-                    </PopoverTrigger>
-                    <PopoverContent className="w-64 p-0" align="start">
-                      <div className="p-2 border-b">
-                        <div className="relative">
-                          <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-                          <Input
-                            placeholder={t('taskManagement.project')}
-                            value={projectFilterSearch}
-                            onChange={e => setProjectFilterSearch(e.target.value)}
-                            className="pl-8 h-8"
-                          />
-                        </div>
-                      </div>
-                      <div className="max-h-[240px] overflow-y-auto p-1">
-                        {projects
-                          .filter(p => !projectFilterSearch.trim() || p.name.toLowerCase().includes(projectFilterSearch.trim().toLowerCase()))
-                          .map(p => (
-                            <label
-                              htmlFor={`project-filter-${p.id}`}
-                              key={p.id}
-                              className="flex items-center gap-2 px-2 py-1.5 rounded-md cursor-pointer hover:bg-muted/80 text-sm"
-                            >
-                              <Checkbox
-                                id={`project-filter-${p.id}`}
-                                checked={projectFilter.includes(p.id)}
-                                onCheckedChange={checked => {
-                                  setProjectFilter(prev => (checked ? [...prev, p.id] : prev.filter(c => c !== p.id)))
-                                }}
-                              />
-                              <span className="flex-1">{p.name}</span>
-                              <span className="text-muted-foreground text-xs">{projectCounts[p.id] ?? 0}</span>
-                            </label>
-                          ))}
-                      </div>
-                      {projectFilter.length > 0 && (
-                        <div className="p-2 border-t">
-                          <Button variant="ghost" size="sm" className="w-full h-8 text-xs" onClick={() => setProjectFilter([])}>
-                            <X className="h-3.5 w-3.5 mr-1" />
-                            {t('taskManagement.clearFilters')}
-                          </Button>
-                        </div>
-                      )}
-                    </PopoverContent>
-                  </Popover>
-                  <Popover>
-                    <PopoverTrigger asChild>
-                      <Button
-                        variant={buttonVariant}
-                        size="sm"
-                        className={cn('h-8 gap-1.5', typeFilter.length > 0 && TASK_MGMT_FILTER_TRIGGER_ACTIVE)}
-                      >
-                        <Plus className="h-3.5 w-3.5" />
-                        {t('taskManagement.type')}
-                        {typeFilter.length > 0 &&
-                          (types.length > 0 ? types : fallbackTypeItems)
-                            .filter(tp => typeFilter.includes(tp.code))
-                            .map(tp => (
-                              <span
-                                key={tp.code}
-                                className={cn(
-                                  'inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-xs font-medium',
-                                  !typeColorMap[tp.code] && getTypeBadgeClass(tp.code, false)
-                                )}
-                                style={getBadgeStyle(tp.code, typeColorMap)}
+                        {requiresManualMgmtApply ? (
+                          <Tooltip>
+                            <TooltipTrigger asChild>
+                              <Button
+                                type="button"
+                                variant={mgmtSearchDirtyOrInitial ? 'default' : 'outline'}
+                                size="sm"
+                                className="h-8 shrink-0 px-3"
+                                onClick={commitMgmtFiltersFromDraft}
                               >
-                                {getTypeIcon(tp.code)}
-                                {tp.name}
-                              </span>
-                            ))}
-                      </Button>
-                    </PopoverTrigger>
-                    <PopoverContent className="w-64 p-0" align="start">
-                      <div className="p-2 border-b">
-                        <div className="relative">
-                          <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-                          <Input placeholder={t('taskManagement.type')} value={typeFilterSearch} onChange={e => setTypeFilterSearch(e.target.value)} className="pl-8 h-8" />
-                        </div>
+                                {t('taskManagement.mgmtApplySearch')}
+                              </Button>
+                            </TooltipTrigger>
+                            <TooltipContent side="bottom" className="max-w-xs text-left">
+                              {t('taskManagement.mgmtApplySearchTooltip')}
+                            </TooltipContent>
+                          </Tooltip>
+                        ) : null}
                       </div>
-                      <div className="max-h-[240px] overflow-y-auto p-1">
-                        {(types.length > 0 ? types : fallbackTypeItems)
-                          .filter(tp => !typeFilterSearch.trim() || tp.name.toLowerCase().includes(typeFilterSearch.trim().toLowerCase()))
-                          .map(tp => (
-                            <label
-                              htmlFor={`type-filter-${tp.code}`}
-                              key={tp.code}
-                              className={cn('flex items-center gap-2 px-2 py-1.5 rounded-md cursor-pointer hover:bg-muted/80 text-sm text-left justify-start')}
+                    </div>
+                    <div className="flex flex-wrap items-end gap-x-4 gap-y-2">
+                      <div className="flex min-w-0 shrink-0 flex-col gap-0.5">
+                        <span className="text-[10px] leading-none whitespace-nowrap text-muted-foreground">
+                          {t('taskManagement.mgmtDateTimelineLabel')}
+                        </span>
+                        <DateRangePickerPopover
+                          dateRange={dateRange}
+                          onDateRangeChange={setDateRange}
+                          open={mgmtTimelinePickerOpen}
+                          onOpenChange={setMgmtTimelinePickerOpen}
+                          allTimeLabel={t('taskManagement.chartAllTime')}
+                          confirmLabel={t('common.confirm')}
+                          disabled={isImporting}
+                          triggerClassName="h-8 min-h-8 max-w-[13rem] shrink-0"
+                        />
+                      </div>
+                      <div className="flex min-w-0 shrink-0 flex-col gap-0.5">
+                        <span className="text-[10px] leading-none whitespace-nowrap text-muted-foreground">
+                          {t('taskManagement.mgmtDateCreatedLabel')}
+                        </span>
+                        <DateRangePickerPopover
+                          dateRange={createdDateRange}
+                          onDateRangeChange={setCreatedDateRange}
+                          open={mgmtCreatedPickerOpen}
+                          onOpenChange={setMgmtCreatedPickerOpen}
+                          allTimeLabel={t('taskManagement.chartAllTime')}
+                          confirmLabel={t('common.confirm')}
+                          disabled={isImporting}
+                          triggerClassName="h-8 min-h-8 max-w-[13rem] shrink-0"
+                        />
+                      </div>
+                      <div className="flex min-w-0 shrink-0 flex-col gap-0.5">
+                        <span className="text-[10px] leading-none whitespace-nowrap text-muted-foreground">
+                          {t('taskManagement.mgmtDateUpdatedLabel')}
+                        </span>
+                        <DateRangePickerPopover
+                          dateRange={updatedDateRange}
+                          onDateRangeChange={setUpdatedDateRange}
+                          open={mgmtUpdatedPickerOpen}
+                          onOpenChange={setMgmtUpdatedPickerOpen}
+                          allTimeLabel={t('taskManagement.chartAllTime')}
+                          confirmLabel={t('common.confirm')}
+                          disabled={isImporting}
+                          triggerClassName="h-8 min-h-8 max-w-[13rem] shrink-0"
+                        />
+                      </div>
+                    </div>
+                    <div className="flex min-w-0 flex-col gap-0.5">
+                      <span className="text-[10px] font-normal leading-none whitespace-nowrap text-muted-foreground">
+                        {t('taskManagement.toolbarFiltersTitle')}
+                      </span>
+                      <div className="flex flex-wrap items-center gap-2">
+                        {user?.id ? (
+                          <TaskSavedViewsPopover
+                            variant={buttonVariant}
+                            disabled={isImporting || taskApiOk !== true}
+                            savedViews={savedViews}
+                            currentSnapshot={currentSavedSnapshot}
+                            activeSavedViewId={matchingSavedView?.id ?? null}
+                            pinnedViewDirty={pinnedSavedViewDirty}
+                            onChangeSavedViews={setSavedViews}
+                            onApplySnapshot={applySavedSnapshot}
+                            onSelectSavedViewItem={v => setPinnedSavedViewId(v.id)}
+                          />
+                        ) : null}
+                        <Popover>
+                          <PopoverTrigger asChild>
+                            <Button
+                              variant={buttonVariant}
+                              size="sm"
+                              className={cn('h-8 gap-1.5', assigneeFilter.length > 0 && TASK_MGMT_FILTER_TRIGGER_ACTIVE)}
                             >
-                              <Checkbox
-                                id={`type-filter-${tp.code}`}
-                                checked={typeFilter.includes(tp.code)}
-                                onCheckedChange={checked => {
-                                  setTypeFilter(prev => (checked ? [...prev, tp.code] : prev.filter(c => c !== tp.code)))
-                                }}
-                              />
-                              <span className={cn('flex items-center gap-2 flex-1 [&_svg]:shrink-0', TYPE_FILTER_COLOR[tp.code] ?? 'text-foreground')}>
-                                {getTypeIcon(tp.code)}
-                                {tp.name}
-                              </span>
-                              <span className="text-muted-foreground text-xs shrink-0">{typeCounts[tp.code] ?? 0}</span>
-                            </label>
-                          ))}
-                      </div>
-                      {typeFilter.length > 0 && (
-                        <div className="p-2 border-t">
-                          <Button variant="ghost" size="sm" className="w-full h-8 text-xs" onClick={() => setTypeFilter([])}>
-                            <X className="h-3.5 w-3.5 mr-1" />
-                            {t('taskManagement.clearFilters')}
-                          </Button>
-                        </div>
-                      )}
-                    </PopoverContent>
-                  </Popover>
-                  <Popover>
-                    <PopoverTrigger asChild>
-                      <Button
-                        variant={buttonVariant}
-                        size="sm"
-                        className={cn('h-8 gap-1.5', statusFilter.length > 0 && TASK_MGMT_FILTER_TRIGGER_ACTIVE)}
-                      >
-                        <Plus className="h-3.5 w-3.5" />
-                        {t('taskManagement.status')}
-                        {statusFilter.length > 0 &&
-                          statusFilter.map(code => {
-                            const s = (
-                              statuses.length > 0
+                              <Plus className="h-3.5 w-3.5" />
+                              {t('taskManagement.assignee')}
+                              {assigneeFilter.length > 0 && <span className="text-muted-foreground">({assigneeFilter.length})</span>}
+                            </Button>
+                          </PopoverTrigger>
+                          <PopoverContent className="w-64 p-0" align="start">
+                            <div className="p-2 border-b">
+                              <div className="relative">
+                                <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                                <Input
+                                  placeholder={t('taskManagement.assignee')}
+                                  value={assigneeFilterSearch}
+                                  onChange={e => setAssigneeFilterSearch(e.target.value)}
+                                  className="pl-8 h-8"
+                                />
+                              </div>
+                            </div>
+                            <div className="max-h-[240px] overflow-y-auto p-1">
+                              {assigneeOptionsForFilter
+                                .filter(opt => !assigneeFilterSearch.trim() || opt.label.toLowerCase().includes(assigneeFilterSearch.trim().toLowerCase()))
+                                .map(opt => (
+                                  <label
+                                    htmlFor={`assignee-filter-${opt.value}`}
+                                    key={opt.value}
+                                    className="flex items-center gap-2 px-2 py-1.5 rounded-md cursor-pointer hover:bg-muted/80 text-sm"
+                                  >
+                                    <Checkbox
+                                      id={`assignee-filter-${opt.value}`}
+                                      checked={assigneeFilter.includes(opt.value)}
+                                      onCheckedChange={checked => {
+                                        setAssigneeFilter(prev => (checked ? [...prev, opt.value] : prev.filter(c => c !== opt.value)))
+                                      }}
+                                    />
+                                    <span className="flex-1">{opt.label}</span>
+                                    <span className="text-muted-foreground text-xs">{assigneeCounts[opt.value] ?? 0}</span>
+                                  </label>
+                                ))}
+                            </div>
+                            {assigneeFilter.length > 0 && (
+                              <div className="p-2 border-t">
+                                <Button variant="ghost" size="sm" className="w-full h-8 text-xs" onClick={() => setAssigneeFilter([])}>
+                                  <X className="h-3.5 w-3.5 mr-1" />
+                                  {t('taskManagement.clearFilters')}
+                                </Button>
+                              </div>
+                            )}
+                          </PopoverContent>
+                        </Popover>
+                        <Popover>
+                          <PopoverTrigger asChild>
+                            <Button
+                              variant={buttonVariant}
+                              size="sm"
+                              className={cn('h-8 gap-1.5', projectFilter.length > 0 && TASK_MGMT_FILTER_TRIGGER_ACTIVE)}
+                            >
+                              <Plus className="h-3.5 w-3.5" />
+                              {t('taskManagement.project')}
+                              {projectFilter.length > 0 && <span className="text-muted-foreground">({projectFilter.length})</span>}
+                            </Button>
+                          </PopoverTrigger>
+                          <PopoverContent className="w-64 p-0" align="start">
+                            <div className="p-2 border-b">
+                              <div className="relative">
+                                <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                                <Input
+                                  placeholder={t('taskManagement.project')}
+                                  value={projectFilterSearch}
+                                  onChange={e => setProjectFilterSearch(e.target.value)}
+                                  className="pl-8 h-8"
+                                />
+                              </div>
+                            </div>
+                            <div className="max-h-[240px] overflow-y-auto p-1">
+                              {projects
+                                .filter(p => !projectFilterSearch.trim() || p.name.toLowerCase().includes(projectFilterSearch.trim().toLowerCase()))
+                                .map(p => (
+                                  <label
+                                    htmlFor={`project-filter-${p.id}`}
+                                    key={p.id}
+                                    className="flex items-center gap-2 px-2 py-1.5 rounded-md cursor-pointer hover:bg-muted/80 text-sm"
+                                  >
+                                    <Checkbox
+                                      id={`project-filter-${p.id}`}
+                                      checked={projectFilter.includes(p.id)}
+                                      onCheckedChange={checked => {
+                                        setProjectFilter(prev => (checked ? [...prev, p.id] : prev.filter(c => c !== p.id)))
+                                      }}
+                                    />
+                                    <span className="flex-1">{p.name}</span>
+                                    <span className="text-muted-foreground text-xs">{projectCounts[p.id] ?? 0}</span>
+                                  </label>
+                                ))}
+                            </div>
+                            {projectFilter.length > 0 && (
+                              <div className="p-2 border-t">
+                                <Button variant="ghost" size="sm" className="w-full h-8 text-xs" onClick={() => setProjectFilter([])}>
+                                  <X className="h-3.5 w-3.5 mr-1" />
+                                  {t('taskManagement.clearFilters')}
+                                </Button>
+                              </div>
+                            )}
+                          </PopoverContent>
+                        </Popover>
+                        <Popover>
+                          <PopoverTrigger asChild>
+                            <Button
+                              variant={buttonVariant}
+                              size="sm"
+                              className={cn('h-8 gap-1.5', typeFilter.length > 0 && TASK_MGMT_FILTER_TRIGGER_ACTIVE)}
+                            >
+                              <Plus className="h-3.5 w-3.5" />
+                              {t('taskManagement.type')}
+                              {typeFilter.length > 0 &&
+                                (types.length > 0 ? types : fallbackTypeItems)
+                                  .filter(tp => typeFilter.includes(tp.code))
+                                  .map(tp => (
+                                    <span
+                                      key={tp.code}
+                                      className={cn(
+                                        'inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-xs font-medium',
+                                        !typeColorMap[tp.code] && getTypeBadgeClass(tp.code, false)
+                                      )}
+                                      style={getBadgeStyle(tp.code, typeColorMap)}
+                                    >
+                                      {getTypeIcon(tp.code)}
+                                      {tp.name}
+                                    </span>
+                                  ))}
+                            </Button>
+                          </PopoverTrigger>
+                          <PopoverContent className="w-64 p-0" align="start">
+                            <div className="p-2 border-b">
+                              <div className="relative">
+                                <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                                <Input placeholder={t('taskManagement.type')} value={typeFilterSearch} onChange={e => setTypeFilterSearch(e.target.value)} className="pl-8 h-8" />
+                              </div>
+                            </div>
+                            <div className="max-h-[240px] overflow-y-auto p-1">
+                              {(types.length > 0 ? types : fallbackTypeItems)
+                                .filter(tp => !typeFilterSearch.trim() || tp.name.toLowerCase().includes(typeFilterSearch.trim().toLowerCase()))
+                                .map(tp => (
+                                  <label
+                                    htmlFor={`type-filter-${tp.code}`}
+                                    key={tp.code}
+                                    className={cn('flex items-center gap-2 px-2 py-1.5 rounded-md cursor-pointer hover:bg-muted/80 text-sm text-left justify-start')}
+                                  >
+                                    <Checkbox
+                                      id={`type-filter-${tp.code}`}
+                                      checked={typeFilter.includes(tp.code)}
+                                      onCheckedChange={checked => {
+                                        setTypeFilter(prev => (checked ? [...prev, tp.code] : prev.filter(c => c !== tp.code)))
+                                      }}
+                                    />
+                                    <span className={cn('flex items-center gap-2 flex-1 [&_svg]:shrink-0', TYPE_FILTER_COLOR[tp.code] ?? 'text-foreground')}>
+                                      {getTypeIcon(tp.code)}
+                                      {tp.name}
+                                    </span>
+                                    <span className="text-muted-foreground text-xs shrink-0">{typeCounts[tp.code] ?? 0}</span>
+                                  </label>
+                                ))}
+                            </div>
+                            {typeFilter.length > 0 && (
+                              <div className="p-2 border-t">
+                                <Button variant="ghost" size="sm" className="w-full h-8 text-xs" onClick={() => setTypeFilter([])}>
+                                  <X className="h-3.5 w-3.5 mr-1" />
+                                  {t('taskManagement.clearFilters')}
+                                </Button>
+                              </div>
+                            )}
+                          </PopoverContent>
+                        </Popover>
+                        <Popover>
+                          <PopoverTrigger asChild>
+                            <Button
+                              variant={buttonVariant}
+                              size="sm"
+                              className={cn('h-8 gap-1.5', statusFilter.length > 0 && TASK_MGMT_FILTER_TRIGGER_ACTIVE)}
+                            >
+                              <Plus className="h-3.5 w-3.5" />
+                              {t('taskManagement.status')}
+                              {statusFilter.length > 0 &&
+                                statusFilter.map(code => {
+                                  const s = (
+                                    statuses.length > 0
+                                      ? statuses
+                                      : [
+                                        { code: 'new', name: t('taskManagement.statusNew') },
+                                        { code: 'in_progress', name: t('taskManagement.statusInProgress') },
+                                        { code: 'in_review', name: t('taskManagement.statusInReview') },
+                                        { code: 'fixed', name: t('taskManagement.statusFixed') },
+                                        { code: 'feedback', name: t('taskManagement.statusFeedback') },
+                                        { code: 'cancelled', name: t('taskManagement.statusCancelled') },
+                                        { code: 'done', name: t('taskManagement.statusDone') },
+                                      ]
+                                  ).find(st => st.code === code)
+                                  return s ? (
+                                    <span
+                                      key={code}
+                                      className={cn(
+                                        'inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-xs font-medium',
+                                        !statusColorMap[code] && getStatusBadgeClass(code, false)
+                                      )}
+                                      style={getBadgeStyle(code, statusColorMap)}
+                                    >
+                                      {getStatusIcon(code)}
+                                      {s.name}
+                                    </span>
+                                  ) : null
+                                })}
+                            </Button>
+                          </PopoverTrigger>
+                          <PopoverContent className="w-64 p-0" align="start">
+                            <div className="p-2 border-b">
+                              <div className="relative">
+                                <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                                <Input placeholder={t('taskManagement.status')} value={statusFilterSearch} onChange={e => setStatusFilterSearch(e.target.value)} className="pl-8 h-8" />
+                              </div>
+                            </div>
+                            <div className="max-h-[240px] overflow-y-auto p-1">
+                              {(statuses.length > 0
                                 ? statuses
                                 : [
                                   { code: 'new', name: t('taskManagement.statusNew') },
@@ -2581,190 +2617,154 @@ export function TaskManagement({ embedded = false }: { embedded?: boolean }) {
                                   { code: 'cancelled', name: t('taskManagement.statusCancelled') },
                                   { code: 'done', name: t('taskManagement.statusDone') },
                                 ]
-                            ).find(st => st.code === code)
-                            return s ? (
-                              <span
-                                key={code}
-                                className={cn(
-                                  'inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-xs font-medium',
-                                  !statusColorMap[code] && getStatusBadgeClass(code, false)
-                                )}
-                                style={getBadgeStyle(code, statusColorMap)}
-                              >
-                                {getStatusIcon(code)}
-                                {s.name}
-                              </span>
-                            ) : null
-                          })}
-                      </Button>
-                    </PopoverTrigger>
-                    <PopoverContent className="w-64 p-0" align="start">
-                      <div className="p-2 border-b">
-                        <div className="relative">
-                          <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-                          <Input placeholder={t('taskManagement.status')} value={statusFilterSearch} onChange={e => setStatusFilterSearch(e.target.value)} className="pl-8 h-8" />
-                        </div>
-                      </div>
-                      <div className="max-h-[240px] overflow-y-auto p-1">
-                        {(statuses.length > 0
-                          ? statuses
-                          : [
-                            { code: 'new', name: t('taskManagement.statusNew') },
-                            { code: 'in_progress', name: t('taskManagement.statusInProgress') },
-                            { code: 'in_review', name: t('taskManagement.statusInReview') },
-                            { code: 'fixed', name: t('taskManagement.statusFixed') },
-                            { code: 'feedback', name: t('taskManagement.statusFeedback') },
-                            { code: 'cancelled', name: t('taskManagement.statusCancelled') },
-                            { code: 'done', name: t('taskManagement.statusDone') },
-                          ]
-                        )
-                          .filter(s => !statusFilterSearch.trim() || s.name.toLowerCase().includes(statusFilterSearch.trim().toLowerCase()))
-                          .map(s => (
-                            <label
-                              htmlFor={`status-filter-${s.code}`}
-                              key={s.code}
-                              className={cn('flex items-center gap-2 px-2 py-1.5 rounded-md cursor-pointer hover:bg-muted/80 text-sm text-left justify-start')}
+                              )
+                                .filter(s => !statusFilterSearch.trim() || s.name.toLowerCase().includes(statusFilterSearch.trim().toLowerCase()))
+                                .map(s => (
+                                  <label
+                                    htmlFor={`status-filter-${s.code}`}
+                                    key={s.code}
+                                    className={cn('flex items-center gap-2 px-2 py-1.5 rounded-md cursor-pointer hover:bg-muted/80 text-sm text-left justify-start')}
+                                  >
+                                    <Checkbox
+                                      id={`status-filter-${s.code}`}
+                                      checked={statusFilter.includes(s.code)}
+                                      onCheckedChange={checked => {
+                                        setStatusFilter(prev => (checked ? [...prev, s.code] : prev.filter(c => c !== s.code)))
+                                      }}
+                                    />
+                                    <span className={cn('flex items-center gap-2 flex-1 [&_svg]:shrink-0', STATUS_FILTER_COLOR[s.code] ?? 'text-foreground')}>
+                                      {getStatusIcon(s.code)}
+                                      {s.name}
+                                    </span>
+                                    <span className="text-muted-foreground text-xs shrink-0">{statusCounts[s.code] ?? 0}</span>
+                                  </label>
+                                ))}
+                            </div>
+                            {statusFilter.length > 0 && (
+                              <div className="p-2 border-t">
+                                <Button variant="ghost" size="sm" className="w-full h-8 text-xs" onClick={() => setStatusFilter([])}>
+                                  <X className="h-3.5 w-3.5 mr-1" />
+                                  {t('taskManagement.clearFilters')}
+                                </Button>
+                              </div>
+                            )}
+                          </PopoverContent>
+                        </Popover>
+                        <Popover>
+                          <PopoverTrigger asChild>
+                            <Button
+                              variant={buttonVariant}
+                              size="sm"
+                              className={cn('h-8 gap-1.5', priorityFilter.length > 0 && TASK_MGMT_FILTER_TRIGGER_ACTIVE)}
                             >
-                              <Checkbox
-                                id={`status-filter-${s.code}`}
-                                checked={statusFilter.includes(s.code)}
-                                onCheckedChange={checked => {
-                                  setStatusFilter(prev => (checked ? [...prev, s.code] : prev.filter(c => c !== s.code)))
-                                }}
-                              />
-                              <span className={cn('flex items-center gap-2 flex-1 [&_svg]:shrink-0', STATUS_FILTER_COLOR[s.code] ?? 'text-foreground')}>
-                                {getStatusIcon(s.code)}
-                                {s.name}
-                              </span>
-                              <span className="text-muted-foreground text-xs shrink-0">{statusCounts[s.code] ?? 0}</span>
-                            </label>
-                          ))}
-                      </div>
-                      {statusFilter.length > 0 && (
-                        <div className="p-2 border-t">
-                          <Button variant="ghost" size="sm" className="w-full h-8 text-xs" onClick={() => setStatusFilter([])}>
-                            <X className="h-3.5 w-3.5 mr-1" />
-                            {t('taskManagement.clearFilters')}
+                              <Plus className="h-3.5 w-3.5" />
+                              {t('taskManagement.priority')}
+                              {priorityFilter.length > 0 &&
+                                (priorities.length > 0
+                                  ? priorities
+                                  : [
+                                    { code: 'critical', name: t('taskManagement.priorityCritical') },
+                                    { code: 'high', name: t('taskManagement.priorityHigh') },
+                                    { code: 'medium', name: t('taskManagement.priorityMedium') },
+                                    { code: 'low', name: t('taskManagement.priorityLow') },
+                                  ]
+                                )
+                                  .filter(p => priorityFilter.includes(p.code))
+                                  .map(p => (
+                                    <span
+                                      key={p.code}
+                                      className={cn(
+                                        'inline-flex items-center gap-1.5 px-2 py-1 rounded-md text-xs font-medium',
+                                        !priorityColorMap[p.code] &&
+                                        (p.code === 'critical'
+                                          ? 'bg-red-500/25 text-red-700 dark:text-red-400'
+                                          : p.code === 'high'
+                                            ? 'bg-orange-500/25 text-orange-700 dark:text-orange-400'
+                                            : p.code === 'medium'
+                                              ? 'bg-sky-500/20 text-sky-700 dark:text-sky-400'
+                                              : p.code === 'low'
+                                                ? 'bg-emerald-500/25 text-emerald-700 dark:text-emerald-400'
+                                                : '')
+                                      )}
+                                      style={getBadgeStyle(p.code, priorityColorMap)}
+                                    >
+                                      {getPriorityIcon(p.code)}
+                                      {p.name}
+                                    </span>
+                                  ))}
+                            </Button>
+                          </PopoverTrigger>
+                          <PopoverContent className="w-64 p-0" align="start">
+                            <div className="p-2 border-b">
+                              <div className="relative">
+                                <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                                <Input
+                                  placeholder={t('taskManagement.priority')}
+                                  value={priorityFilterSearch}
+                                  onChange={e => setPriorityFilterSearch(e.target.value)}
+                                  className="pl-8 h-8"
+                                />
+                              </div>
+                            </div>
+                            <div className="max-h-[240px] overflow-y-auto p-1">
+                              {(priorities.length > 0
+                                ? priorities
+                                : [
+                                  { code: 'critical', name: t('taskManagement.priorityCritical') },
+                                  { code: 'high', name: t('taskManagement.priorityHigh') },
+                                  { code: 'medium', name: t('taskManagement.priorityMedium') },
+                                  { code: 'low', name: t('taskManagement.priorityLow') },
+                                ]
+                              )
+                                .filter(p => !priorityFilterSearch.trim() || p.name.toLowerCase().includes(priorityFilterSearch.trim().toLowerCase()))
+                                .map(p => (
+                                  <label
+                                    htmlFor={`priority-filter-${p.code}`}
+                                    key={p.code}
+                                    className={cn('flex items-center gap-2 px-2 py-1.5 rounded-md cursor-pointer hover:bg-muted/80 text-sm text-left justify-start')}
+                                  >
+                                    <Checkbox
+                                      id={`priority-filter-${p.code}`}
+                                      checked={priorityFilter.includes(p.code)}
+                                      onCheckedChange={checked => {
+                                        setPriorityFilter(prev => (checked ? [...prev, p.code] : prev.filter(c => c !== p.code)))
+                                      }}
+                                    />
+                                    <span className={cn('flex items-center gap-2 flex-1 [&_svg]:shrink-0', PRIORITY_FILTER_COLOR[p.code] ?? 'text-foreground')}>
+                                      {getPriorityIcon(p.code)}
+                                      {p.name}
+                                    </span>
+                                    <span className="text-muted-foreground text-xs shrink-0">{priorityCounts[p.code] ?? 0}</span>
+                                  </label>
+                                ))}
+                            </div>
+                            {priorityFilter.length > 0 && (
+                              <div className="p-2 border-t">
+                                <Button variant="ghost" size="sm" className="w-full h-8 text-xs" onClick={() => setPriorityFilter([])}>
+                                  <X className="h-3.5 w-3.5 mr-1" />
+                                  {t('taskManagement.clearFilters')}
+                                </Button>
+                              </div>
+                            )}
+                          </PopoverContent>
+                        </Popover>
+                        {hasNarrowingFilters && (
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            type="button"
+                            className="h-8 gap-1.5 shrink-0 border-destructive/80 bg-transparent text-destructive hover:bg-destructive/10 hover:text-destructive"
+                            onClick={() => clearNarrowingFilters()}
+                          >
+                            <X className="h-3.5 w-3.5 text-destructive" />
+                            {t('taskManagement.filterReset')}
                           </Button>
-                        </div>
-                      )}
-                    </PopoverContent>
-                  </Popover>
-                  <Popover>
-                    <PopoverTrigger asChild>
-                      <Button
-                        variant={buttonVariant}
-                        size="sm"
-                        className={cn('h-8 gap-1.5', priorityFilter.length > 0 && TASK_MGMT_FILTER_TRIGGER_ACTIVE)}
-                      >
-                        <Plus className="h-3.5 w-3.5" />
-                        {t('taskManagement.priority')}
-                        {priorityFilter.length > 0 &&
-                          (priorities.length > 0
-                            ? priorities
-                            : [
-                              { code: 'critical', name: t('taskManagement.priorityCritical') },
-                              { code: 'high', name: t('taskManagement.priorityHigh') },
-                              { code: 'medium', name: t('taskManagement.priorityMedium') },
-                              { code: 'low', name: t('taskManagement.priorityLow') },
-                            ]
-                          )
-                            .filter(p => priorityFilter.includes(p.code))
-                            .map(p => (
-                              <span
-                                key={p.code}
-                                className={cn(
-                                  'inline-flex items-center gap-1.5 px-2 py-1 rounded-md text-xs font-medium',
-                                  !priorityColorMap[p.code] &&
-                                  (p.code === 'critical'
-                                    ? 'bg-red-500/25 text-red-700 dark:text-red-400'
-                                    : p.code === 'high'
-                                      ? 'bg-orange-500/25 text-orange-700 dark:text-orange-400'
-                                      : p.code === 'medium'
-                                        ? 'bg-sky-500/20 text-sky-700 dark:text-sky-400'
-                                        : p.code === 'low'
-                                          ? 'bg-emerald-500/25 text-emerald-700 dark:text-emerald-400'
-                                          : '')
-                                )}
-                                style={getBadgeStyle(p.code, priorityColorMap)}
-                              >
-                                {getPriorityIcon(p.code)}
-                                {p.name}
-                              </span>
-                            ))}
-                      </Button>
-                    </PopoverTrigger>
-                    <PopoverContent className="w-64 p-0" align="start">
-                      <div className="p-2 border-b">
-                        <div className="relative">
-                          <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-                          <Input
-                            placeholder={t('taskManagement.priority')}
-                            value={priorityFilterSearch}
-                            onChange={e => setPriorityFilterSearch(e.target.value)}
-                            className="pl-8 h-8"
-                          />
-                        </div>
+                        )}
                       </div>
-                      <div className="max-h-[240px] overflow-y-auto p-1">
-                        {(priorities.length > 0
-                          ? priorities
-                          : [
-                            { code: 'critical', name: t('taskManagement.priorityCritical') },
-                            { code: 'high', name: t('taskManagement.priorityHigh') },
-                            { code: 'medium', name: t('taskManagement.priorityMedium') },
-                            { code: 'low', name: t('taskManagement.priorityLow') },
-                          ]
-                        )
-                          .filter(p => !priorityFilterSearch.trim() || p.name.toLowerCase().includes(priorityFilterSearch.trim().toLowerCase()))
-                          .map(p => (
-                            <label
-                              htmlFor={`priority-filter-${p.code}`}
-                              key={p.code}
-                              className={cn('flex items-center gap-2 px-2 py-1.5 rounded-md cursor-pointer hover:bg-muted/80 text-sm text-left justify-start')}
-                            >
-                              <Checkbox
-                                id={`priority-filter-${p.code}`}
-                                checked={priorityFilter.includes(p.code)}
-                                onCheckedChange={checked => {
-                                  setPriorityFilter(prev => (checked ? [...prev, p.code] : prev.filter(c => c !== p.code)))
-                                }}
-                              />
-                              <span className={cn('flex items-center gap-2 flex-1 [&_svg]:shrink-0', PRIORITY_FILTER_COLOR[p.code] ?? 'text-foreground')}>
-                                {getPriorityIcon(p.code)}
-                                {p.name}
-                              </span>
-                              <span className="text-muted-foreground text-xs shrink-0">{priorityCounts[p.code] ?? 0}</span>
-                            </label>
-                          ))}
-                      </div>
-                      {priorityFilter.length > 0 && (
-                        <div className="p-2 border-t">
-                          <Button variant="ghost" size="sm" className="w-full h-8 text-xs" onClick={() => setPriorityFilter([])}>
-                            <X className="h-3.5 w-3.5 mr-1" />
-                            {t('taskManagement.clearFilters')}
-                          </Button>
-                        </div>
-                      )}
-                    </PopoverContent>
-                  </Popover>
-                  {hasNarrowingFilters && (
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      type="button"
-                      className="h-8 gap-1.5 shrink-0 border-destructive/80 bg-transparent text-destructive hover:bg-destructive/10 hover:text-destructive"
-                      onClick={() => clearNarrowingFilters()}
-                    >
-                      <X className="h-3.5 w-3.5 text-destructive" />
-                      {t('taskManagement.filterReset')}
-                    </Button>
-                  )}
                     </div>
                   </div>
-                </div>
-                {taskView === 'table' && (
-                  <Popover>
+                  {taskView === 'table' && (
+                    <Popover>
                       <PopoverTrigger asChild>
                         <Button variant={buttonVariant} size="sm" className="h-8 gap-1.5 shrink-0">
                           <Columns3 className="h-3.5 w-3.5" />
@@ -2815,8 +2815,8 @@ export function TaskManagement({ embedded = false }: { embedded?: boolean }) {
                         </div>
                       </PopoverContent>
                     </Popover>
-                )}
-              </div>
+                  )}
+                </div>
               </div>
               {selectedTaskIds.size > 0 ? (
                 <TaskBulkActionsBar
@@ -2929,6 +2929,12 @@ export function TaskManagement({ embedded = false }: { embedded?: boolean }) {
                             filterRange={ganttFilterRange}
                             statusColorMap={statusColorMap}
                             getAssigneeDisplay={getAssigneeDisplay}
+                            getStatusLabel={getStatusLabel}
+                            getPriorityLabel={getPriorityLabel}
+                            getStatusIcon={getStatusIcon}
+                            getPriorityIcon={getPriorityIcon}
+                            getStatusToneClass={code => STATUS_FILTER_COLOR[code] ?? 'text-foreground'}
+                            getPriorityToneClass={code => PRIORITY_FILTER_COLOR[code] ?? 'text-foreground'}
                             onSelectTask={handleOpenTaskRow}
                             selectedTaskIds={selectedTaskIds}
                             onToggleTaskSelect={toggleBulkTaskSelection}
@@ -3175,38 +3181,38 @@ export function TaskManagement({ embedded = false }: { embedded?: boolean }) {
                               </TableRow>
                             ))
                             : tableTasks.map((task, idx) => (
-                                  <TaskTableRow
-                                    key={task.id}
-                                    rowNumber={(taskPage - 1) * pageSize + idx + 1}
-                                    task={task}
-                                    getAssigneeDisplay={getAssigneeDisplay}
-                                    getStatusLabel={getStatusLabel}
-                                    getPriorityLabel={getPriorityLabel}
-                                    getTypeLabel={getTypeLabel}
-                                    getStatusIcon={getStatusIcon}
-                                    getPriorityIcon={getPriorityIcon}
-                                    getTypeIcon={getTypeIcon}
-                                    getTypeBadgeClass={getTypeBadgeClass}
-                                    getStatusBadgeClass={getStatusBadgeClass}
-                                    getPriorityRowClass={getPriorityRowClass}
-                                    statusColorMap={statusColorMap}
-                                    priorityColorMap={priorityColorMap}
-                                    typeColorMap={typeColorMap}
-                                    getBadgeStyle={getBadgeStyle}
-                                    getPriorityRowStyle={getPriorityRowStyle}
-                                    locale={locale}
-                                    onOpenDialog={handleOpenTaskRow}
-                                    onDelete={handleDeleteTaskRow}
-                                    onCopy={taskRow => handleCopyTask(taskRow as Task)}
-                                    onToggleFavorite={handleToggleFavorite}
-                                    isFavorite={favoriteTaskIds.has(task.id)}
-                                    visibleColumnIds={visibleColumnIds}
-                                    bulkSelect={{
-                                      checked: selectedTaskIds.has(task.id),
-                                      onToggle: () => toggleBulkTaskSelection(task.id),
-                                    }}
-                                  />
-                              ))}
+                              <TaskTableRow
+                                key={task.id}
+                                rowNumber={(taskPage - 1) * pageSize + idx + 1}
+                                task={task}
+                                getAssigneeDisplay={getAssigneeDisplay}
+                                getStatusLabel={getStatusLabel}
+                                getPriorityLabel={getPriorityLabel}
+                                getTypeLabel={getTypeLabel}
+                                getStatusIcon={getStatusIcon}
+                                getPriorityIcon={getPriorityIcon}
+                                getTypeIcon={getTypeIcon}
+                                getTypeBadgeClass={getTypeBadgeClass}
+                                getStatusBadgeClass={getStatusBadgeClass}
+                                getPriorityRowClass={getPriorityRowClass}
+                                statusColorMap={statusColorMap}
+                                priorityColorMap={priorityColorMap}
+                                typeColorMap={typeColorMap}
+                                getBadgeStyle={getBadgeStyle}
+                                getPriorityRowStyle={getPriorityRowStyle}
+                                locale={locale}
+                                onOpenDialog={handleOpenTaskRow}
+                                onDelete={handleDeleteTaskRow}
+                                onCopy={taskRow => handleCopyTask(taskRow as Task)}
+                                onToggleFavorite={handleToggleFavorite}
+                                isFavorite={favoriteTaskIds.has(task.id)}
+                                visibleColumnIds={visibleColumnIds}
+                                bulkSelect={{
+                                  checked: selectedTaskIds.has(task.id),
+                                  onToggle: () => toggleBulkTaskSelection(task.id),
+                                }}
+                              />
+                            ))}
                         </TableBody>
                       </Table>
                     </div>
@@ -3257,29 +3263,29 @@ export function TaskManagement({ embedded = false }: { embedded?: boolean }) {
                         />
                       </div>
                     </div>
-                  <Suspense
-                    fallback={
-                      <div className="flex flex-1 min-h-[200px] items-center justify-center">
-                        <GlowLoader className="w-10 h-10" />
-                      </div>
-                    }
-                  >
-                    {chartLoading ? (
-                      <div className="flex flex-1 items-center justify-center text-muted-foreground gap-2">
-                        <Loader2 className="h-6 w-6 animate-spin" />
-                      </div>
-                    ) : (
-                      <TaskCharts
-                        tasks={chartTasks}
-                        users={users}
-                        statuses={statuses}
-                        priorities={priorities}
-                        types={types}
-                        dateRange={dateRange}
-                        persistSessionScope={taskMgmtSessionScope}
-                      />
-                    )}
-                  </Suspense>
+                    <Suspense
+                      fallback={
+                        <div className="flex flex-1 min-h-[200px] items-center justify-center">
+                          <GlowLoader className="w-10 h-10" />
+                        </div>
+                      }
+                    >
+                      {chartLoading ? (
+                        <div className="flex flex-1 items-center justify-center text-muted-foreground gap-2">
+                          <Loader2 className="h-6 w-6 animate-spin" />
+                        </div>
+                      ) : (
+                        <TaskCharts
+                          tasks={chartTasks}
+                          users={users}
+                          statuses={statuses}
+                          priorities={priorities}
+                          types={types}
+                          dateRange={dateRange}
+                          persistSessionScope={taskMgmtSessionScope}
+                        />
+                      )}
+                    </Suspense>
                   </>
                 )}
               </TabsContent>

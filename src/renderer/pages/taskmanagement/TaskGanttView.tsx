@@ -1,9 +1,11 @@
 'use client'
 
 import type { Locale } from 'date-fns'
-import { addDays, addMonths, differenceInCalendarDays, format, getISOWeek, startOfDay, startOfMonth } from 'date-fns'
+import { addDays, addMonths, differenceInCalendarDays, format, getDay, getISOWeek, startOfDay, startOfMonth } from 'date-fns'
 import { Briefcase, Layers, Users } from 'lucide-react'
+import type { ReactNode } from 'react'
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
+import { useTranslation } from 'react-i18next'
 import { Button } from '@/components/ui/button'
 import { Checkbox } from '@/components/ui/checkbox'
 import { Label } from '@/components/ui/label'
@@ -11,7 +13,6 @@ import { Switch } from '@/components/ui/switch'
 import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group'
 import { parseLocalDate, toYyyyMmDd } from '@/lib/dateUtils'
 import { cn } from '@/lib/utils'
-import { useTranslation } from 'react-i18next'
 import type { TaskTableRowTask } from './TaskTableRow'
 import { taskStatusBarStyle } from './taskStatusVisual'
 
@@ -44,6 +45,12 @@ const LS_GANTT_GRID_BORDERS = 'honey_badger.taskGantt.gridBorders.v1'
 const DEFAULT_GANTT_LABEL_W = 216
 const MIN_GANTT_LABEL_W = 160
 const MAX_GANTT_LABEL_W = 520
+
+/** Cột meta cố định (px) — sau Task Name. */
+const GANTT_COL_ASSIGNEE_W = 128
+const GANTT_COL_STATUS_W = 96
+const GANTT_COL_PRIORITY_W = 84
+const GANTT_LEFT_META_FIXED_W = GANTT_COL_ASSIGNEE_W + GANTT_COL_STATUS_W + GANTT_COL_PRIORITY_W
 
 type GanttRowGrouping = 'flat' | 'assignee' | 'project'
 
@@ -203,12 +210,7 @@ function calendarSpanInclusive(a: Date, b: Date): number {
  * - Week / 2 tuần: lưới theo cột 7 ngày (trùng tick), không mỗi ngày.
  * - Month (monthly): lưới theo đầu tháng (trùng tick), thêm mép trái/phải.
  */
-function ganttVerticalGridLeftPx(
-  scale: TaskGanttScale,
-  start: Date,
-  totalDays: number,
-  pixelPerDay: number
-): number[] {
+function ganttVerticalGridLeftPx(scale: TaskGanttScale, start: Date, totalDays: number, pixelPerDay: number): number[] {
   const chartW = totalDays * pixelPerDay
   const s0 = startOfDay(start)
   const acc = new Set<number>()
@@ -244,6 +246,19 @@ function ganttVerticalGridLeftPx(
     .sort((a, b) => a - b)
 }
 
+/** Cột theo lịch (Thứ 7 / CN) — trục X: left = dayIndex * pixelPerDay. */
+function ganttWeekendColumnRects(start: Date, totalDays: number, pixelPerDay: number): { left: number; width: number }[] {
+  const s0 = startOfDay(start)
+  const rects: { left: number; width: number }[] = []
+  for (let i = 0; i < totalDays; i++) {
+    const dow = getDay(addDays(s0, i))
+    if (dow === 0 || dow === 6) {
+      rects.push({ left: i * pixelPerDay, width: pixelPerDay })
+    }
+  }
+  return rects
+}
+
 export function TaskGanttView({
   tasks,
   locale,
@@ -256,6 +271,12 @@ export function TaskGanttView({
   statusColorMap,
   onUpdatePlanDates,
   getAssigneeDisplay,
+  getStatusLabel,
+  getPriorityLabel,
+  getStatusIcon,
+  getPriorityIcon,
+  getStatusToneClass,
+  getPriorityToneClass,
   disableRowGrouping = false,
 }: {
   tasks: TaskTableRowTask[]
@@ -270,6 +291,13 @@ export function TaskGanttView({
   statusColorMap?: Record<string, string>
   onUpdatePlanDates?: (taskId: string, planStartDate: string, planEndDate: string, version?: number) => Promise<boolean>
   getAssigneeDisplay?: (assigneeUserId: string | null) => string
+  getStatusLabel: (status: string) => string
+  getPriorityLabel: (priority: string) => string
+  getStatusIcon: (status: string) => ReactNode
+  getPriorityIcon: (priority: string) => ReactNode
+  /** Màu chữ + icon (vd. filter status trong TaskManagement — không badge nền). */
+  getStatusToneClass: (code: string) => string
+  getPriorityToneClass: (code: string) => string
   /** Admin / PL / PM — khi false: luôn flat, ẩn nhóm hàng */
   disableRowGrouping?: boolean
 }) {
@@ -280,6 +308,9 @@ export function TaskGanttView({
   const [labelColumnWidth, setLabelColumnWidth] = useState(() => loadGanttLabelWidth())
   const [showGridBorders, setShowGridBorders] = useState(() => loadGanttGridBorders())
   const pixelPerDay = ganttPixelPerDay(scale)
+
+  const taskNameColumnWidth = labelColumnWidth
+  const leftBlockWidth = taskNameColumnWidth + GANTT_LEFT_META_FIXED_W
 
   const persistGridBorders = useCallback((on: boolean) => {
     setShowGridBorders(on)
@@ -302,20 +333,20 @@ export function TaskGanttView({
   const chromeFlashTimeoutRef = useRef(0)
   const [timelineChromeFlash, setTimelineChromeFlash] = useState(false)
 
-  const onLabelResizePointerDown = useCallback((e: React.PointerEvent<HTMLButtonElement>) => {
-    e.preventDefault()
-    e.stopPropagation()
-    labelResizeDragRef.current = { pointerId: e.pointerId, startX: e.clientX, startW: labelColumnWidth }
-    e.currentTarget.setPointerCapture(e.pointerId)
-  }, [labelColumnWidth])
+  const onLabelResizePointerDown = useCallback(
+    (e: React.PointerEvent<HTMLButtonElement>) => {
+      e.preventDefault()
+      e.stopPropagation()
+      labelResizeDragRef.current = { pointerId: e.pointerId, startX: e.clientX, startW: labelColumnWidth }
+      e.currentTarget.setPointerCapture(e.pointerId)
+    },
+    [labelColumnWidth]
+  )
 
   const onLabelResizePointerMove = useCallback((e: React.PointerEvent<HTMLButtonElement>) => {
     const ctx = labelResizeDragRef.current
     if (!ctx || e.pointerId !== ctx.pointerId) return
-    const next = Math.min(
-      MAX_GANTT_LABEL_W,
-      Math.max(MIN_GANTT_LABEL_W, Math.round(ctx.startW + (e.clientX - ctx.startX)))
-    )
+    const next = Math.min(MAX_GANTT_LABEL_W, Math.max(MIN_GANTT_LABEL_W, Math.round(ctx.startW + (e.clientX - ctx.startX))))
     setLabelColumnWidth(next)
   }, [])
 
@@ -328,10 +359,7 @@ export function TaskGanttView({
     } catch {
       /* ignore */
     }
-    const next = Math.min(
-      MAX_GANTT_LABEL_W,
-      Math.max(MIN_GANTT_LABEL_W, Math.round(ctx.startW + (e.clientX - ctx.startX)))
-    )
+    const next = Math.min(MAX_GANTT_LABEL_W, Math.max(MIN_GANTT_LABEL_W, Math.round(ctx.startW + (e.clientX - ctx.startX))))
     setLabelColumnWidth(next)
     saveGanttLabelWidth(next)
   }, [])
@@ -402,8 +430,7 @@ export function TaskGanttView({
       for (let d = startOfMonth(start); d < endExclusive; d = addMonths(d, 1)) {
         const dayIndex = differenceInCalendarDays(d, start)
         if (dayIndex < 0 || dayIndex > totalDays) continue
-        const line1 =
-          uiLang === 'ja' ? format(d, 'yyyy/MM', { locale }) : format(d, 'MM/yyyy', { locale })
+        const line1 = uiLang === 'ja' ? format(d, 'yyyy/MM', { locale }) : format(d, 'MM/yyyy', { locale })
         raw.push({ d, left: dayIndex * pixelPerDay, line1 })
       }
       if (raw.length === 0) {
@@ -444,9 +471,11 @@ export function TaskGanttView({
     })
   }, [start, totalDays, pixelPerDay, scale, locale, language, t])
 
-  const verticalGridLeftPx = useMemo(
-    () => ganttVerticalGridLeftPx(scale, start, totalDays, pixelPerDay),
-    [scale, start, totalDays, pixelPerDay]
+  const verticalGridLeftPx = useMemo(() => ganttVerticalGridLeftPx(scale, start, totalDays, pixelPerDay), [scale, start, totalDays, pixelPerDay])
+
+  const weekendColumnRects = useMemo(
+    () => ganttWeekendColumnRects(start, totalDays, pixelPerDay),
+    [start, totalDays, pixelPerDay]
   )
 
   const flashTimelineChrome = useCallback(() => {
@@ -464,12 +493,11 @@ export function TaskGanttView({
     (pixelInTimeline: number) => {
       const el = outerScrollRef.current
       if (!el) return
-      const target = Math.max(0, labelColumnWidth + pixelInTimeline - Math.max(80, el.clientWidth / 3))
+      const target = Math.max(0, leftBlockWidth + pixelInTimeline - Math.max(80, el.clientWidth / 3))
       const startLeft = el.scrollLeft
       const delta = target - startLeft
 
-      const noHorizontalMotion =
-        Math.abs(delta) < 1 || el.scrollWidth <= el.clientWidth + 2
+      const noHorizontalMotion = Math.abs(delta) < 1 || el.scrollWidth <= el.clientWidth + 2
 
       if (noHorizontalMotion) {
         flashTimelineChrome()
@@ -478,7 +506,7 @@ export function TaskGanttView({
 
       el.scrollTo({ left: target, top: el.scrollTop, behavior: 'smooth' })
     },
-    [labelColumnWidth, flashTimelineChrome]
+    [leftBlockWidth, flashTimelineChrome]
   )
 
   scrollToChartPixelRef.current = scrollToChartPixel
@@ -559,11 +587,7 @@ export function TaskGanttView({
             {(labels.gridBordersSwitch || labels.gridBordersHelp) && (
               <div className="flex items-center gap-2 border-border/60 sm:border-l sm:pl-3">
                 {labels.gridBordersSwitch ? (
-                  <Label
-                    htmlFor="task-gantt-grid-borders"
-                    className="cursor-pointer whitespace-nowrap text-xs text-muted-foreground"
-                    title={labels.gridBordersHelp}
-                  >
+                  <Label htmlFor="task-gantt-grid-borders" className="cursor-pointer whitespace-nowrap text-xs text-muted-foreground" title={labels.gridBordersHelp}>
                     {labels.gridBordersSwitch}
                   </Label>
                 ) : null}
@@ -617,7 +641,7 @@ export function TaskGanttView({
         {scheduled.length === 0 ? (
           <div className="p-4 text-muted-foreground text-sm">{labels.emptyScheduled}</div>
         ) : (
-          <div className="relative inline-block min-w-max bg-background/30" style={{ width: labelColumnWidth + chartWidth }}>
+          <div className="relative inline-block min-w-max bg-background/30" style={{ width: leftBlockWidth + chartWidth }}>
             <div
               className={cn(
                 'sticky top-0 z-40 flex bg-muted/90',
@@ -625,28 +649,65 @@ export function TaskGanttView({
               )}
               style={{ height: HEADER_H }}
             >
-              <div className="sticky left-0 z-[41] shrink-0 bg-muted/95 backdrop-blur-sm relative" style={{ width: labelColumnWidth }}>
-                <button
-                  type="button"
-                  tabIndex={-1}
-                  aria-label={labels.resizeLabelColumn ?? 'Resize label column'}
-                  title={labels.resizeLabelColumn ?? 'Resize label column'}
-                  className="absolute inset-y-0 right-0 z-[2] w-2 cursor-col-resize touch-none border-0 bg-transparent p-0 hover:bg-primary/15 active:bg-primary/25"
-                  onPointerDown={onLabelResizePointerDown}
-                  onPointerMove={onLabelResizePointerMove}
-                  onPointerUp={onLabelResizePointerEnd}
-                  onPointerCancel={onLabelResizePointerEnd}
-                />
+              <div
+                className="sticky left-0 z-[41] flex shrink-0 flex-row items-stretch bg-muted/95 backdrop-blur-sm"
+                style={{ width: leftBlockWidth }}
+              >
+                <div
+                  className="relative flex shrink-0 items-center justify-center border-r border-border/50 px-1"
+                  style={{ width: taskNameColumnWidth }}
+                >
+                  <span className="max-w-full truncate text-[9px] font-semibold uppercase tracking-wide text-muted-foreground">
+                    {t('taskManagement.taskTitle')}
+                  </span>
+                  <button
+                    type="button"
+                    tabIndex={-1}
+                    aria-label={labels.resizeLabelColumn ?? 'Resize label column'}
+                    title={labels.resizeLabelColumn ?? 'Resize label column'}
+                    className="absolute inset-y-0 right-0 z-[2] w-2 cursor-col-resize touch-none border-0 bg-transparent p-0 hover:bg-primary/15 active:bg-primary/25"
+                    onPointerDown={onLabelResizePointerDown}
+                    onPointerMove={onLabelResizePointerMove}
+                    onPointerUp={onLabelResizePointerEnd}
+                    onPointerCancel={onLabelResizePointerEnd}
+                  />
+                </div>
+                <div
+                  className="flex shrink-0 items-center justify-center border-r border-border/50 px-1"
+                  style={{ width: GANTT_COL_ASSIGNEE_W }}
+                >
+                  <span className="max-w-full truncate text-[9px] font-semibold uppercase tracking-wide text-muted-foreground">
+                    {t('taskManagement.assignee')}
+                  </span>
+                </div>
+                <div
+                  className="flex shrink-0 items-center justify-center border-r border-border/50 px-1"
+                  style={{ width: GANTT_COL_STATUS_W }}
+                >
+                  <span className="max-w-full truncate text-[9px] font-semibold uppercase tracking-wide text-muted-foreground">
+                    {t('taskManagement.status')}
+                  </span>
+                </div>
+                <div className="flex shrink-0 items-center justify-center px-1" style={{ width: GANTT_COL_PRIORITY_W }}>
+                  <span className="max-w-full truncate text-[9px] font-semibold uppercase tracking-wide text-muted-foreground">
+                    {t('taskManagement.priority')}
+                  </span>
+                </div>
               </div>
               <div className="relative shrink-0 text-[10px] text-muted-foreground" style={{ width: chartWidth }}>
+                <div aria-hidden className="pointer-events-none absolute inset-0 z-0 overflow-hidden">
+                  {weekendColumnRects.map((r, i) => (
+                    <div
+                      key={`hdr-wk-${r.left}-${i}`}
+                      className="absolute top-0 bottom-0 bg-slate-500/[0.11] dark:bg-slate-400/[0.05]"
+                      style={{ left: r.left, width: r.width }}
+                    />
+                  ))}
+                </div>
                 {showGridBorders ? (
                   <div aria-hidden className="pointer-events-none absolute inset-0 z-[1] overflow-hidden">
                     {verticalGridLeftPx.map(left => (
-                      <div
-                        key={left}
-                        className="absolute top-0 bottom-0 w-px bg-border/85 dark:bg-border/70"
-                        style={{ left }}
-                      />
+                      <div key={left} className="absolute top-0 bottom-0 w-px bg-border/85 dark:bg-border/70" style={{ left }} />
                     ))}
                   </div>
                 ) : null}
@@ -667,17 +728,9 @@ export function TaskGanttView({
 
             <div className={cn('relative flex flex-col', showGridBorders ? 'bg-border/30' : 'bg-border/20')}>
               {showGridBorders ? (
-                <div
-                  aria-hidden
-                  className="pointer-events-none absolute top-0 bottom-0 z-[1]"
-                  style={{ left: labelColumnWidth, width: chartWidth }}
-                >
+                <div aria-hidden className="pointer-events-none absolute top-0 bottom-0 z-[1]" style={{ left: leftBlockWidth, width: chartWidth }}>
                   {verticalGridLeftPx.map(left => (
-                    <div
-                      key={left}
-                      className="absolute top-0 bottom-0 w-px bg-border/85 dark:bg-border/70"
-                      style={{ left }}
-                    />
+                    <div key={left} className="absolute top-0 bottom-0 w-px bg-border/85 dark:bg-border/70" style={{ left }} />
                   ))}
                 </div>
               ) : null}
@@ -689,15 +742,23 @@ export function TaskGanttView({
                         'flex min-w-max shrink-0 items-stretch bg-muted/70',
                         showGridBorders ? 'relative z-[2] divide-x divide-border/60 border-b border-b-border/60' : 'divide-x divide-border/50 border-b border-b-border/50'
                       )}
-                      style={{ width: labelColumnWidth + chartWidth }}
+                      style={{ width: leftBlockWidth + chartWidth }}
                     >
                       <div
                         className="sticky left-0 z-[25] flex shrink-0 items-center bg-muted/80 px-2 py-1 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground backdrop-blur-sm"
-                        style={{ width: labelColumnWidth }}
+                        style={{ width: leftBlockWidth }}
                       >
                         {group.title}
                       </div>
-                      <div className="min-h-[28px] flex-1 bg-muted/40" aria-hidden />
+                      <div className="relative min-h-[28px] flex-1 overflow-hidden bg-muted/40" aria-hidden>
+                        {weekendColumnRects.map((r, i) => (
+                          <div
+                            key={`grp-wk-${r.left}-${i}`}
+                            className="pointer-events-none absolute top-0 bottom-0 bg-sky-500/[0.14] dark:bg-sky-400/[0.18]"
+                            style={{ left: r.left, width: r.width }}
+                          />
+                        ))}
+                      </div>
                     </div>
                   ) : null}
                   {group.tasks.map(task => (
@@ -707,28 +768,28 @@ export function TaskGanttView({
                       start={start}
                       pixelPerDay={pixelPerDay}
                       chartWidth={chartWidth}
+                      weekendColumnRects={weekendColumnRects}
                       statusColorMap={statusColorMap}
                       selectedTaskIds={selectedTaskIds}
                       onToggleTaskSelect={onToggleTaskSelect}
                       onOpenTask={() => onSelectTask(task)}
                       onUpdatePlanDates={onUpdatePlanDates}
-                      labelColumnWidth={labelColumnWidth}
+                      taskNameColumnWidth={taskNameColumnWidth}
+                      getAssigneeDisplay={getAssigneeDisplay}
+                      getStatusLabel={getStatusLabel}
+                      getPriorityLabel={getPriorityLabel}
+                      getStatusIcon={getStatusIcon}
+                      getPriorityIcon={getPriorityIcon}
+                      getStatusToneClass={getStatusToneClass}
+                      getPriorityToneClass={getPriorityToneClass}
                       showGridBorders={showGridBorders}
                     />
                   ))}
                 </div>
               ))}
               {showTodayLine ? (
-                <div
-                  className="pointer-events-none absolute inset-y-0 z-[18]"
-                  style={{ left: labelColumnWidth, width: chartWidth }}
-                  aria-hidden
-                >
-                  <div
-                    className="absolute top-0 bottom-0 w-px bg-rose-600/95"
-                    style={{ left: todayPxCenter }}
-                    title={labels.todayMark}
-                  />
+                <div className="pointer-events-none absolute inset-y-0 z-[18]" style={{ left: leftBlockWidth, width: chartWidth }} aria-hidden>
+                  <div className="absolute top-0 bottom-0 w-px bg-rose-600/95" style={{ left: todayPxCenter }} title={labels.todayMark} />
                 </div>
               ) : null}
             </div>
@@ -776,24 +837,40 @@ function GanttTaskRow({
   start,
   pixelPerDay,
   chartWidth,
+  weekendColumnRects,
   statusColorMap,
   selectedTaskIds,
   onToggleTaskSelect,
   onOpenTask,
   onUpdatePlanDates,
-  labelColumnWidth,
+  taskNameColumnWidth,
+  getAssigneeDisplay,
+  getStatusLabel,
+  getPriorityLabel,
+  getStatusIcon,
+  getPriorityIcon,
+  getStatusToneClass,
+  getPriorityToneClass,
   showGridBorders,
 }: {
   task: TaskTableRowTask
   start: Date
   pixelPerDay: number
   chartWidth: number
+  weekendColumnRects: { left: number; width: number }[]
   statusColorMap?: Record<string, string>
   selectedTaskIds?: Set<string>
   onToggleTaskSelect?: (taskId: string) => void
   onOpenTask: () => void
   onUpdatePlanDates?: (taskId: string, planStartDate: string, planEndDate: string, version?: number) => Promise<boolean>
-  labelColumnWidth: number
+  taskNameColumnWidth: number
+  getAssigneeDisplay?: (assigneeUserId: string | null) => string
+  getStatusLabel: (status: string) => string
+  getPriorityLabel: (priority: string) => string
+  getStatusIcon: (status: string) => ReactNode
+  getPriorityIcon: (priority: string) => ReactNode
+  getStatusToneClass: (code: string) => string
+  getPriorityToneClass: (code: string) => string
   showGridBorders: boolean
 }) {
   const sRaw = parsePlanDate(task.planStartDate)
@@ -891,45 +968,100 @@ function GanttTaskRow({
 
   const barTint = taskStatusBarStyle(statusColorMap?.[task.status])
   const canDrag = Boolean(onUpdatePlanDates)
+  const rowSelected = Boolean(selectedTaskIds?.has(task.id))
+  const leftBlockWidth = taskNameColumnWidth + GANTT_LEFT_META_FIXED_W
+  const assigneeText = getAssigneeDisplay?.(task.assigneeUserId) ?? (task.assigneeUserId?.trim() ? task.assigneeUserId : '—')
+  const displayStatus = task.status
+  const priority = (task.priority ?? 'medium') as string
+  const statusLabel = getStatusLabel(displayStatus)
+  const priorityLabel = getPriorityLabel(priority)
 
   return (
     <div
       className={cn(
         'relative flex min-h-[36px] w-full shrink-0 items-stretch hover:bg-muted/25',
+        rowSelected && 'bg-primary/[0.11] hover:bg-primary/[0.14] dark:bg-primary/15 dark:hover:bg-primary/[0.18]',
         showGridBorders
-          ? 'z-[2] divide-x divide-border/60 border-b border-b-border/60 bg-transparent'
-          : 'divide-x divide-border/40 border-b border-b-border/[0.12] bg-background/97'
+          ? cn('z-[2] divide-x divide-border/60 border-b border-b-border/60', rowSelected ? 'bg-primary/[0.09] dark:bg-primary/12' : 'bg-transparent')
+          : !rowSelected && 'divide-x divide-border/40 border-b border-b-border/[0.12] bg-transparent',
+        rowSelected && !showGridBorders && 'divide-x divide-border/40 border-b border-b-border/[0.12]'
       )}
     >
-      <div className="sticky left-0 z-20 flex min-w-0 shrink-0 items-center gap-1 bg-background/95 px-1.5 py-1 backdrop-blur-sm" style={{ width: labelColumnWidth }}>
-        {onToggleTaskSelect ? (
-          <Checkbox
-            checked={selectedTaskIds?.has(task.id) ?? false}
-            onCheckedChange={() => onToggleTaskSelect(task.id)}
-            className="h-4 w-4 shrink-0"
-            aria-label={`Select ${task.title || 'task'}`}
-          />
-        ) : null}
-        <button
-          type="button"
-          className="min-w-0 flex-1 truncate text-left text-xs font-medium leading-tight text-foreground underline-offset-2 hover:underline"
-          title={task.title}
-          onClick={onOpenTask}
-        >
-          {task.title || '—'}
-        </button>
+      <div
+        className={cn(
+          'sticky left-0 z-20 flex shrink-0 flex-row items-stretch divide-x divide-border/40 backdrop-blur-sm',
+          rowSelected ? 'divide-border/25 bg-transparent' : 'bg-background/95'
+        )}
+        style={{ width: leftBlockWidth }}
+      >
+        <div className="flex min-w-0 shrink-0 items-center gap-1 px-1.5 py-1" style={{ width: taskNameColumnWidth }}>
+          {onToggleTaskSelect ? (
+            <Checkbox
+              checked={selectedTaskIds?.has(task.id) ?? false}
+              onCheckedChange={() => onToggleTaskSelect(task.id)}
+              className="h-4 w-4 shrink-0"
+              aria-label={`Select ${task.title || 'task'}`}
+            />
+          ) : null}
+          <button
+            type="button"
+            className="min-w-0 flex-1 truncate text-left text-xs font-medium leading-tight text-foreground underline-offset-2 hover:underline"
+            title={task.title}
+            onClick={onOpenTask}
+          >
+            {task.title || '—'}
+          </button>
+        </div>
+        <div className="flex min-w-0 shrink-0 items-center px-1.5 py-1" style={{ width: GANTT_COL_ASSIGNEE_W }} title={assigneeText}>
+          <span className="truncate text-xs text-muted-foreground">{assigneeText}</span>
+        </div>
+        <div className="flex min-w-0 shrink-0 items-center px-1.5 py-1" style={{ width: GANTT_COL_STATUS_W }} title={statusLabel}>
+          <span
+            className={cn(
+              'flex min-w-0 max-w-full items-center gap-1.5 text-xs leading-tight [&_svg]:shrink-0',
+              getStatusToneClass(displayStatus)
+            )}
+          >
+            <span className="[&_svg]:h-3.5 [&_svg]:w-3.5" aria-hidden>
+              {getStatusIcon(displayStatus)}
+            </span>
+            <span className="min-w-0 flex-1 truncate font-medium">{statusLabel}</span>
+          </span>
+        </div>
+        <div className="flex min-w-0 shrink-0 items-center px-1.5 py-1" style={{ width: GANTT_COL_PRIORITY_W }} title={priorityLabel}>
+          <span
+            className={cn(
+              'flex min-w-0 max-w-full items-center gap-1.5 text-xs leading-tight [&_svg]:shrink-0',
+              getPriorityToneClass(priority)
+            )}
+          >
+            <span className="[&_svg]:h-3.5 [&_svg]:w-3.5" aria-hidden>
+              {getPriorityIcon(priority)}
+            </span>
+            <span className="min-w-0 flex-1 truncate font-medium">{priorityLabel}</span>
+          </span>
+        </div>
       </div>
 
       <div
-        className={cn('relative flex min-h-[36px] min-w-0', showGridBorders && 'border-r border-r-border/55 bg-muted/15')}
+        className={cn('relative flex min-h-[36px] min-w-0 bg-transparent', showGridBorders && 'border-r border-r-border/55')}
         style={{ width: chartWidth }}
       >
-        <div className="relative my-2 h-[26px] w-full shrink-0" style={{ width: chartWidth }}>
+        <div aria-hidden className="pointer-events-none absolute inset-0 z-[1] overflow-hidden">
+          {weekendColumnRects.map((r, i) => (
+            <div
+              key={`row-wk-${task.id}-${r.left}-${i}`}
+              className="absolute top-0 bottom-0 bg-slate-500/[0.11] dark:bg-slate-400/[0.05]"
+              style={{ left: r.left, width: r.width }}
+            />
+          ))}
+        </div>
+        <div className="relative z-[2] my-[0.15rem] h-[26px] w-full shrink-0" style={{ width: chartWidth }}>
           <div
             role="presentation"
             className={cn(
-              'absolute top-0 z-[3] flex h-[26px] min-w-[8px] select-none rounded border-none! text-[11px] font-medium text-foreground',
-              !barTint && 'border-primary/45 bg-primary/25'
+              'absolute top-0 z-[3] flex h-[32px] min-w-[8px] select-none rounded text-[11px] font-medium text-foreground',
+              !barTint && 'border border-primary/45 bg-primary/25'
             )}
             style={{
               left: leftPx,
@@ -951,7 +1083,10 @@ function GanttTaskRow({
             {/* biome-ignore lint/a11y/noStaticElementInteractions: Gantt timeline bar drag */}
             <div
               role="presentation"
-              className={cn('min-w-0 flex-1 cursor-default truncate px-1 leading-[26px]', canDrag && 'cursor-grab active:cursor-grabbing')}
+              className={cn(
+                'min-w-0 flex-1 cursor-default truncate px-1 leading-[26px]',
+                canDrag && 'cursor-grab active:cursor-grabbing'
+              )}
               onPointerDown={e => canDrag && beginDrag('move', e)}
               onDoubleClick={onOpenTask}
             />
