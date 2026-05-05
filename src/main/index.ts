@@ -103,6 +103,7 @@ makeAppWithSingleInstanceLock(async () => {
           migratePrUserBoardSkipBranchesTable,
           migratePrAiAssistChatsTable,
           migrateTaskChangeHistoryTable,
+          migrateUserDailySnapshotsUniqueConstraint,
         } = await import('./task/taskDbPatches')
         await migratePrCheckpointGithubColumns().catch(() => { })
         await migratePrCheckpointTemplateHeaderGroup().catch(() => { })
@@ -111,6 +112,7 @@ makeAppWithSingleInstanceLock(async () => {
         await migratePrUserBoardSkipBranchesTable().catch(() => { })
         await migratePrAiAssistChatsTable().catch(() => { })
         await migrateTaskChangeHistoryTable().catch(() => { })
+        await migrateUserDailySnapshotsUniqueConstraint().catch(() => { })
         const { startPrStatusSync } = await import('./scheduler/prStatusSync')
         startPrStatusSync()
       })()

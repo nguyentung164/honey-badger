@@ -433,6 +433,21 @@ export async function applyPullRequestToCheckpoints(args: {
       trackedBranchId: tracked.id,
       templateId: mergeTplId,
     })
+  } else if (mergeTplId) {
+    // Branch có thể bị xóa/tạo lại cùng tên: reset merge_* cũ để UI không giữ trạng thái merged của PR trước.
+    await upsertBranchCheckpoint({
+      trackedBranchId: tracked.id,
+      templateId: mergeTplId,
+      isDone: false,
+      prNumber: null,
+      prUrl: null,
+      mergedAt: null,
+      mergedBy: null,
+    })
+    broadcast(IPC.PR.EVENT_CHECKPOINT_UPDATED, {
+      trackedBranchId: tracked.id,
+      templateId: mergeTplId,
+    })
   }
 }
 

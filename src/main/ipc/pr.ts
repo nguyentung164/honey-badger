@@ -486,6 +486,23 @@ export function registerPrIpcHandlers(): void {
       }
 
       const pairKey = (head: string, base: string) => `${head.trim().toLowerCase()}\0${base.trim().toLowerCase()}`
+      const prRank = (p: PullRequestSummary): number => {
+        // Cùng head/base: luôn ưu tiên PR còn mở để tránh giữ PR cũ đã merged/closed khi branch được tạo lại.
+        return p.state === 'open' ? 1 : 0
+      }
+      const prUpdatedAtMs = (p: PullRequestSummary): number => {
+        const ms = new Date(p.updatedAt).getTime()
+        return Number.isFinite(ms) ? ms : 0
+      }
+      const shouldReplaceBestPr = (current: PullRequestSummary, next: PullRequestSummary): boolean => {
+        const rankCur = prRank(current)
+        const rankNext = prRank(next)
+        if (rankNext !== rankCur) return rankNext > rankCur
+        const tCur = prUpdatedAtMs(current)
+        const tNext = prUpdatedAtMs(next)
+        if (tNext !== tCur) return tNext > tCur
+        return next.number > current.number
+      }
 
       let reposDone = 0
       sendProgress(0)
@@ -517,9 +534,7 @@ export function registerPrIpcHandlers(): void {
                 if (!ex) {
                   best.set(k, pr)
                 } else {
-                  const tNew = new Date(pr.updatedAt).getTime()
-                  const tOld = new Date(ex.updatedAt).getTime()
-                  if (tNew > tOld) best.set(k, pr)
+                  if (shouldReplaceBestPr(ex, pr)) best.set(k, pr)
                 }
               }
             }

@@ -1,6 +1,35 @@
 import { randomUuidV7 } from 'shared/randomUuidV7'
 import { query } from './db'
 
+const booleanColumnTypeCache = new Map<string, boolean>()
+
+async function isBooleanColumn(tableName: string, columnName: string, fallback = true): Promise<boolean> {
+  const key = `${tableName}.${columnName}`
+  if (booleanColumnTypeCache.has(key)) return booleanColumnTypeCache.get(key) as boolean
+  try {
+    const rows = await query<{ data_type?: string }>(
+      `SELECT data_type
+       FROM information_schema.columns
+       WHERE table_schema = current_schema()
+         AND table_name = ?
+         AND column_name = ?
+       LIMIT 1`,
+      [tableName, columnName]
+    )
+    const dataType = String(rows?.[0]?.data_type ?? '').toLowerCase()
+    const isBool = dataType === 'boolean'
+    booleanColumnTypeCache.set(key, isBool)
+    return isBool
+  } catch {
+    booleanColumnTypeCache.set(key, fallback)
+    return fallback
+  }
+}
+
+function toDbBoolValue(value: boolean, useBoolean: boolean): boolean | number {
+  return useBoolean ? value : value ? 1 : 0
+}
+
 export interface PrRepo {
   id: string
   userId: string
@@ -298,6 +327,8 @@ export async function upsertCheckpointTemplate(input: {
   /** Truyền `null` để xóa màu nhóm; bỏ qua field này để giữ giá trị DB khi cập nhật. */
   headerGroupId?: number | null
 }): Promise<PrCheckpointTemplate> {
+  const isActiveBoolean = await isBooleanColumn('pr_checkpoint_templates', 'is_active')
+  const isActiveValue = toDbBoolValue(input.isActive ?? true, isActiveBoolean)
   const existing = await query<any[]>('SELECT id FROM pr_checkpoint_templates WHERE user_id = ? AND project_id = ? AND code = ? LIMIT 1', [
     input.userId,
     input.projectId,
@@ -310,7 +341,7 @@ export async function upsertCheckpointTemplate(input: {
         input.label,
         input.targetBranch ?? null,
         input.sortOrder ?? 0,
-        input.isActive ?? true,
+        isActiveValue,
         normalizeHeaderGroupId(input.headerGroupId),
         id,
       ])
@@ -319,7 +350,7 @@ export async function upsertCheckpointTemplate(input: {
         input.label,
         input.targetBranch ?? null,
         input.sortOrder ?? 0,
-        input.isActive ?? true,
+        isActiveValue,
         id,
       ])
     }
@@ -338,7 +369,7 @@ export async function upsertCheckpointTemplate(input: {
       input.label,
       input.targetBranch ?? null,
       input.sortOrder ?? 0,
-      input.isActive ?? true,
+      isActiveValue,
       normalizeHeaderGroupId(input.headerGroupId ?? null),
     ]
   )
@@ -392,20 +423,28 @@ export async function listTrackedBranches(userId: string, projectId: string): Pr
   if (!branchRows || branchRows.length === 0) return []
   const ids = branchRows.map(r => r.id)
   const placeholders = ids.map(() => '?').join(',')
-  const cpRows = await query<any[]>(`SELECT * FROM pr_branch_checkpoints WHERE tracked_branch_id IN (${placeholders})`, ids)
-  const cpMap = new Map<string, PrBranchCheckpoint[]>()
+  const cpRows = await query<any[]>(
+    `SELECT * FROM pr_branch_checkpoints
+     WHERE tracked_branch_id IN (${placeholders})
+     ORDER BY updated_at DESC, id DESC`,
+    ids
+  )
+  const cpMap = new Map<string, Map<string, PrBranchCheckpoint>>()
   for (const cp of cpRows ?? []) {
     const mapped = mapCheckpoint(cp)
-    const arr = cpMap.get(mapped.trackedBranchId) ?? []
-    arr.push(mapped)
-    cpMap.set(mapped.trackedBranchId, arr)
+    const byTemplate = cpMap.get(mapped.trackedBranchId) ?? new Map<string, PrBranchCheckpoint>()
+    // Nếu DB từng có record trùng (tracked_branch_id + template_id), giữ record mới nhất theo ORDER BY.
+    if (!byTemplate.has(mapped.templateId)) {
+      byTemplate.set(mapped.templateId, mapped)
+    }
+    cpMap.set(mapped.trackedBranchId, byTemplate)
   }
   return branchRows.map(r => ({
     ...mapTracked(r),
     repoName: r.repo_name,
     repoOwner: r.repo_owner,
     repoRepo: r.repo_repo,
-    checkpoints: cpMap.get(r.id) ?? [],
+    checkpoints: [...(cpMap.get(r.id)?.values() ?? [])],
   }))
 }
 
@@ -448,9 +487,9 @@ export async function upsertTrackedBranch(input: {
   }
   const id = input.id ?? randomUuidV7()
   await query(
-    `INSERT INTO pr_tracked_branches (id, user_id, project_id, repo_id, branch_name, note)
-     VALUES (?, ?, ?, ?, ?, ?)`,
-    [id, uid, input.projectId, input.repoId, input.branchName, input.note ?? null]
+    `INSERT INTO pr_tracked_branches (id, user_id, project_id, repo_id, branch_name, note, version)
+     VALUES (?, ?, ?, ?, ?, ?, ?)`,
+    [id, uid, input.projectId, input.repoId, input.branchName, input.note ?? null, 1]
   )
   const row = await getTrackedBranchById(id)
   if (!row) throw new Error('Branch not created')
@@ -463,6 +502,8 @@ export async function updateTrackedBranchNote(id: string, patch: { note?: string
 }
 
 export async function deleteTrackedBranch(id: string): Promise<void> {
+  // Tương thích DB cũ chưa có ON DELETE CASCADE cho fk_pr_bc_branch.
+  await query('DELETE FROM pr_branch_checkpoints WHERE tracked_branch_id = ?', [id])
   await query('DELETE FROM pr_tracked_branches WHERE id = ?', [id])
 }
 
@@ -475,6 +516,7 @@ export async function deleteTrackedBranchesByIds(ids: string[]): Promise<number>
   for (let i = 0; i < ids.length; i += TRACKED_DELETE_IDS_CHUNK) {
     const chunk = ids.slice(i, i + TRACKED_DELETE_IDS_CHUNK)
     const ph = chunk.map(() => '?').join(',')
+    await query(`DELETE FROM pr_branch_checkpoints WHERE tracked_branch_id IN (${ph})`, chunk)
     const res = await query<{ affectedRows?: number }>(`DELETE FROM pr_tracked_branches WHERE id IN (${ph})`, chunk)
     total += res?.affectedRows ?? 0
   }
@@ -508,30 +550,54 @@ export async function upsertBranchCheckpoint(input: {
   ghPrAssignees?: Array<{ login: string; id: number; avatarUrl?: string | null }> | null
   ghPrLabels?: Array<{ name: string; color: string }> | null
 }): Promise<PrBranchCheckpoint> {
+  const isDoneBoolean = await isBooleanColumn('pr_branch_checkpoints', 'is_done')
+  const ghPrDraftBoolean = await isBooleanColumn('pr_branch_checkpoints', 'gh_pr_draft')
+  const ghPrMergedBoolean = await isBooleanColumn('pr_branch_checkpoints', 'gh_pr_merged')
+  const isDoneCast = isDoneBoolean ? 'boolean' : 'smallint'
+  const ghPrDraftCast = ghPrDraftBoolean ? 'boolean' : 'smallint'
+  const ghPrMergedCast = ghPrMergedBoolean ? 'boolean' : 'smallint'
   const checkpointUserId = await resolveUserIdFromTrackedBranch(input.trackedBranchId)
   if (!checkpointUserId) throw new Error('upsertBranchCheckpoint: tracked branch missing user_id')
 
   const assigneesJson = 'ghPrAssignees' in input && input.ghPrAssignees != null ? JSON.stringify(input.ghPrAssignees) : null
   const labelsJson = 'ghPrLabels' in input && input.ghPrLabels != null ? JSON.stringify(input.ghPrLabels) : null
   const updatedAtDb = 'ghPrUpdatedAt' in input ? toMysqlDateTime(input.ghPrUpdatedAt ?? null) : null
-  const existing = await query<any[]>('SELECT id FROM pr_branch_checkpoints WHERE tracked_branch_id = ? AND template_id = ? LIMIT 1', [input.trackedBranchId, input.templateId])
+  const existing = await query<any[]>(
+    `SELECT id
+     FROM pr_branch_checkpoints
+     WHERE tracked_branch_id = ? AND template_id = ?
+     ORDER BY updated_at DESC, id DESC`,
+    [input.trackedBranchId, input.templateId]
+  )
   if (existing?.[0]) {
     const id = existing[0].id
+    if (existing.length > 1) {
+      const staleIds = existing.slice(1).map(r => r.id).filter(Boolean)
+      if (staleIds.length > 0) {
+        const stalePh = staleIds.map(() => '?').join(',')
+        await query(`DELETE FROM pr_branch_checkpoints WHERE id IN (${stalePh})`, staleIds)
+      }
+    }
     /** Khi key không có trong payload: null → COALESCE giữ giá trị cột. Boolean native cho PostgreSQL. */
-    const ghDraftUpd = 'ghPrDraft' in input ? (input.ghPrDraft == null ? null : Boolean(input.ghPrDraft)) : null
-    const ghMergedUpd = 'ghPrMerged' in input ? (input.ghPrMerged == null ? null : Boolean(input.ghPrMerged)) : null
+    const ghDraftUpd = 'ghPrDraft' in input ? (input.ghPrDraft == null ? null : toDbBoolValue(Boolean(input.ghPrDraft), ghPrDraftBoolean)) : null
+    const ghMergedUpd = 'ghPrMerged' in input ? (input.ghPrMerged == null ? null : toDbBoolValue(Boolean(input.ghPrMerged), ghPrMergedBoolean)) : null
+    const isDoneUpd = 'isDone' in input ? (input.isDone == null ? null : toDbBoolValue(Boolean(input.isDone), isDoneBoolean)) : null
+    const hasPrNumber = 'prNumber' in input
+    const hasPrUrl = 'prUrl' in input
+    const hasMergedAt = 'mergedAt' in input
+    const hasMergedBy = 'mergedBy' in input
 
     await query(
       `UPDATE pr_branch_checkpoints
        SET user_id = COALESCE(?::varchar(36), user_id),
-           is_done = COALESCE(?::boolean, is_done),
-           pr_number = COALESCE(?::integer, pr_number),
-           pr_url = COALESCE(?::varchar(500), pr_url),
-           merged_at = COALESCE(?::timestamptz, merged_at),
-           merged_by = COALESCE(?::varchar(255), merged_by),
-           gh_pr_draft = COALESCE(?::boolean, gh_pr_draft),
+           is_done = COALESCE(?::${isDoneCast}, is_done),
+           pr_number = CASE WHEN ?::boolean THEN ?::integer ELSE pr_number END,
+           pr_url = CASE WHEN ?::boolean THEN ?::varchar(500) ELSE pr_url END,
+           merged_at = CASE WHEN ?::boolean THEN ?::timestamptz ELSE merged_at END,
+           merged_by = CASE WHEN ?::boolean THEN ?::varchar(255) ELSE merged_by END,
+           gh_pr_draft = COALESCE(?::${ghPrDraftCast}, gh_pr_draft),
            gh_pr_state = COALESCE(?::varchar(20), gh_pr_state),
-           gh_pr_merged = COALESCE(?::boolean, gh_pr_merged),
+           gh_pr_merged = COALESCE(?::${ghPrMergedCast}, gh_pr_merged),
            gh_pr_author = COALESCE(?::varchar(255), gh_pr_author),
            gh_pr_title = COALESCE(?::varchar(500), gh_pr_title),
            gh_pr_updated_at = COALESCE(?::timestamptz, gh_pr_updated_at),
@@ -544,10 +610,14 @@ export async function upsertBranchCheckpoint(input: {
        WHERE id = ?::varchar(36)`,
       [
         checkpointUserId,
-        input.isDone ?? null,
+        isDoneUpd,
+        hasPrNumber,
         input.prNumber ?? null,
+        hasPrUrl,
         input.prUrl ?? null,
+        hasMergedAt,
         input.mergedAt ?? null,
+        hasMergedBy,
         input.mergedBy ?? null,
         ghDraftUpd,
         'ghPrState' in input ? input.ghPrState : null,
@@ -568,16 +638,17 @@ export async function upsertBranchCheckpoint(input: {
     return mapCheckpoint(row)
   }
   const id = randomUuidV7()
-  const ghDraftIns = 'ghPrDraft' in input ? (input.ghPrDraft == null ? null : Boolean(input.ghPrDraft)) : null
-  const ghMergedIns = 'ghPrMerged' in input ? (input.ghPrMerged == null ? null : Boolean(input.ghPrMerged)) : null
+  const ghDraftIns = 'ghPrDraft' in input ? (input.ghPrDraft == null ? null : toDbBoolValue(Boolean(input.ghPrDraft), ghPrDraftBoolean)) : null
+  const ghMergedIns = 'ghPrMerged' in input ? (input.ghPrMerged == null ? null : toDbBoolValue(Boolean(input.ghPrMerged), ghPrMergedBoolean)) : null
+  const isDoneIns = toDbBoolValue(input.isDone ?? false, isDoneBoolean)
   await query(
     `INSERT INTO pr_branch_checkpoints
        (id, user_id, tracked_branch_id, template_id, is_done, pr_number, pr_url, merged_at, merged_by,
         gh_pr_draft, gh_pr_state, gh_pr_merged, gh_pr_author,
         gh_pr_title, gh_pr_updated_at, gh_pr_additions, gh_pr_deletions,
         gh_pr_changed_files, gh_pr_mergeable_state, gh_pr_assignees, gh_pr_labels)
-     VALUES (?::varchar(36), ?::varchar(36), ?::varchar(36), ?::varchar(36), ?::boolean, ?::integer, ?::varchar(500), ?::timestamptz, ?::varchar(255),
-             ?::boolean, ?::varchar(20), ?::boolean, ?::varchar(255),
+     VALUES (?::varchar(36), ?::varchar(36), ?::varchar(36), ?::varchar(36), ?::${isDoneCast}, ?::integer, ?::varchar(500), ?::timestamptz, ?::varchar(255),
+             ?::${ghPrDraftCast}, ?::varchar(20), ?::${ghPrMergedCast}, ?::varchar(255),
              ?::varchar(500), ?::timestamptz, ?::integer, ?::integer,
              ?::integer, ?::varchar(50), ?::jsonb, ?::jsonb)`,
     [
@@ -585,7 +656,7 @@ export async function upsertBranchCheckpoint(input: {
       checkpointUserId,
       input.trackedBranchId,
       input.templateId,
-      input.isDone ?? false,
+      isDoneIns,
       input.prNumber ?? null,
       input.prUrl ?? null,
       input.mergedAt ?? null,
@@ -640,12 +711,14 @@ export async function listCheckpointKeysForRepoPr(owner: string, repo: string, p
 
 /** T\u1ea5t c\u1ea3 checkpoint \u0111ang m\u1edf (is_done=false v\u00e0 c\u00f3 pr_number) \u2014 d\u00f9ng cho scheduler sync. */
 export async function listPendingCheckpoints(): Promise<Array<PrBranchCheckpoint & { repoId: string; owner: string; repo: string; branchName: string; projectId: string }>> {
+  const isDoneBoolean = await isBooleanColumn('pr_branch_checkpoints', 'is_done')
+  const pendingWhere = isDoneBoolean ? 'bc.is_done = FALSE' : 'COALESCE(bc.is_done, 0) = 0'
   const rows = await query<any[]>(
     `SELECT bc.*, b.repo_id, b.branch_name, b.project_id, r.owner, r.repo
      FROM pr_branch_checkpoints bc
      JOIN pr_tracked_branches b ON b.id = bc.tracked_branch_id
      JOIN pr_repos r ON r.id = b.repo_id
-     WHERE bc.is_done = FALSE AND bc.pr_number IS NOT NULL`
+     WHERE ${pendingWhere} AND bc.pr_number IS NOT NULL`
   )
   return (rows ?? []).map(r => ({
     ...mapCheckpoint(r),
@@ -667,7 +740,9 @@ export async function listAutomations(userId: string, repoId?: string): Promise<
 }
 
 export async function listAutomationsForTrigger(repoId: string, triggerEvent: string): Promise<PrAutomation[]> {
-  const rows = await query<any[]>('SELECT * FROM pr_automations WHERE repo_id = ? AND trigger_event = ? AND is_active = TRUE', [repoId, triggerEvent])
+  const isActiveBoolean = await isBooleanColumn('pr_automations', 'is_active')
+  const activeWhere = isActiveBoolean ? 'is_active = TRUE' : 'COALESCE(is_active, 0) = 1'
+  const rows = await query<any[]>(`SELECT * FROM pr_automations WHERE repo_id = ? AND trigger_event = ? AND ${activeWhere}`, [repoId, triggerEvent])
   return (rows ?? []).map(mapAutomation)
 }
 
@@ -684,6 +759,8 @@ export async function upsertAutomation(input: {
   prBodyTemplate?: string | null
   isActive?: boolean
 }): Promise<PrAutomation> {
+  const isActiveBoolean = await isBooleanColumn('pr_automations', 'is_active')
+  const isActiveValue = toDbBoolValue(input.isActive ?? true, isActiveBoolean)
   const uid = await resolveUserIdForRepo(input.repoId)
   if (!uid) throw new Error('upsertAutomation: repo missing user_id')
 
@@ -701,7 +778,7 @@ export async function upsertAutomation(input: {
         input.nextTarget ?? null,
         input.prTitleTemplate ?? null,
         input.prBodyTemplate ?? null,
-        input.isActive ?? true,
+        isActiveValue,
         input.id,
       ]
     )
@@ -725,7 +802,7 @@ export async function upsertAutomation(input: {
       input.nextTarget ?? null,
       input.prTitleTemplate ?? null,
       input.prBodyTemplate ?? null,
-      input.isActive ?? true,
+      isActiveValue,
     ]
   )
   const row = (await query<any[]>('SELECT * FROM pr_automations WHERE id = ?', [id]))?.[0]
@@ -737,7 +814,8 @@ export async function deleteAutomation(id: string): Promise<void> {
 }
 
 export async function setAutomationActive(id: string, isActive: boolean): Promise<void> {
-  await query('UPDATE pr_automations SET is_active = ? WHERE id = ?', [isActive, id])
+  const isActiveBoolean = await isBooleanColumn('pr_automations', 'is_active')
+  await query('UPDATE pr_automations SET is_active = ? WHERE id = ?', [toDbBoolValue(isActive, isActiveBoolean), id])
 }
 
 // ========== USER BOARD SKIP BRANCHES (PR Board filter — per user per project) ==========

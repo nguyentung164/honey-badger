@@ -402,3 +402,63 @@ export async function migrateTaskChangeHistoryTable(): Promise<void> {
   }
   taskChangeHistoryTableMigrationDone = true
 }
+
+let userDailySnapshotsUniqueConstraintMigrationDone = false
+
+export async function migrateUserDailySnapshotsUniqueConstraint(): Promise<void> {
+  if (userDailySnapshotsUniqueConstraintMigrationDone || !hasDbConfig()) return
+
+  const hasConstraint = async (): Promise<boolean> => {
+    const rows = await query(
+      `SELECT 1 FROM information_schema.table_constraints
+       WHERE table_schema = current_schema()
+         AND table_name = 'user_daily_snapshots'
+         AND constraint_name = 'uk_uds_user_date'
+         AND constraint_type = 'UNIQUE'
+       LIMIT 1`,
+    )
+    return Array.isArray(rows) && rows.length > 0
+  }
+
+  const hasTable = async (): Promise<boolean> => {
+    const rows = await query(
+      `SELECT 1 FROM information_schema.tables
+       WHERE table_schema = current_schema()
+         AND table_name = 'user_daily_snapshots'
+       LIMIT 1`,
+    )
+    return Array.isArray(rows) && rows.length > 0
+  }
+
+  try {
+    if (!(await hasTable())) {
+      userDailySnapshotsUniqueConstraintMigrationDone = true
+      return
+    }
+    if (await hasConstraint()) {
+      userDailySnapshotsUniqueConstraintMigrationDone = true
+      return
+    }
+
+    // Keep one newest row per (user_id, snapshot_date) before adding UNIQUE.
+    await query(
+      `WITH ranked AS (
+         SELECT ctid,
+                ROW_NUMBER() OVER (
+                  PARTITION BY user_id, snapshot_date
+                  ORDER BY updated_at DESC NULLS LAST, created_at DESC NULLS LAST, id DESC
+                ) AS rn
+         FROM user_daily_snapshots
+       )
+       DELETE FROM user_daily_snapshots uds
+       USING ranked r
+       WHERE uds.ctid = r.ctid AND r.rn > 1`,
+    )
+
+    await query('ALTER TABLE user_daily_snapshots ADD CONSTRAINT uk_uds_user_date UNIQUE (user_id, snapshot_date)')
+  } catch (e) {
+    l.error('[db] migrateUserDailySnapshotsUniqueConstraint failed', e)
+    return
+  }
+  userDailySnapshotsUniqueConstraintMigrationDone = true
+}

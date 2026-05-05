@@ -166,6 +166,11 @@ function rowHasAnyPrNumber(row: TrackedBranchRow, activeTemplates: PrCheckpointT
   return false
 }
 
+/** Row đã có bất kỳ checkpoint PR nào để giữ lịch sử hiển thị dù head ref trên remote đã biến mất. */
+function rowHasAnyPrHistory(row: TrackedBranchRow): boolean {
+  return row.checkpoints.some(cp => cp.prNumber != null)
+}
+
 /** AND: mọi cột pr_* được lọc hẹp đều phải có PR khớp; cột bật đủ 4 trạng thái = không ràng buộc cột đó. OR: ít nhất một cột có PR khớp. */
 type PrGhAdvancedCombineMode = 'and' | 'or'
 
@@ -1061,7 +1066,7 @@ export function PrBoard({ projectId, userId, repos, templates, tracked, loading,
   const remoteFilteredRows = useMemo(() => {
     if (!onlyExistingOnRemote) return searchRows
     if (!remoteExistMap) return []
-    return searchRows.filter(r => remoteExistMap[r.id] === true)
+    return searchRows.filter(r => remoteExistMap[r.id] === true || rowHasAnyPrHistory(r))
   }, [searchRows, onlyExistingOnRemote, remoteExistMap])
 
   /** Cùng tập nhánh với `remoteFilteredRows` (đồng bộ count filter GitHub / Advanced với bảng). */
@@ -2828,7 +2833,8 @@ export function PrBoard({ projectId, userId, repos, templates, tracked, loading,
         <AlertDialogContent className="max-h-[min(90vh,32rem)] gap-4 overflow-hidden sm:max-w-lg">
           <AlertDialogHeader>
             <AlertDialogTitle>{t('prManager.board.pruneStaleDialogTitle', { count: pruneStalePreview?.wouldDelete ?? 0 })}</AlertDialogTitle>
-            <AlertDialogDescription className="flex max-h-[min(60vh,22rem)] flex-col gap-3 overflow-hidden text-left">
+            <AlertDialogDescription asChild>
+              <div className="text-muted-foreground text-sm flex max-h-[min(60vh,22rem)] flex-col gap-3 overflow-hidden text-left">
               <span>{t('prManager.board.pruneStaleDialogIntro')}</span>
               {pruneStalePreview != null && pruneStalePreview.preview.length > 0 ? (
                 <ul className="max-h-36 shrink-0 overflow-auto rounded border border-border/60 bg-muted/30 px-3 py-2 font-mono text-xs leading-relaxed">
@@ -2852,6 +2858,7 @@ export function PrBoard({ projectId, userId, repos, templates, tracked, loading,
                   </ul>
                 </div>
               ) : null}
+              </div>
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
