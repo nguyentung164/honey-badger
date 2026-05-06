@@ -55,6 +55,7 @@ import {
   getTask,
   getTaskChildren,
   getTaskLinks,
+  getTaskLinksBulk,
   getTaskListVisibleProjectIds,
   getTasksForSession,
   getUserProjectSourceFolderMappings,
@@ -1275,6 +1276,20 @@ export function registerTaskIpcHandlers() {
         return { status: 'success' as const, data }
       } catch (error: any) {
         l.error('task:get-task-links error:', error)
+        return { status: 'error' as const, message: error?.message ?? String(error) }
+      }
+    })
+  )
+
+  ipcMain.handle(
+    IPC.TASK.GET_TASK_LINKS_BULK,
+    withAuthFromStore(async (_event, _session, taskIds: string[]) => {
+      try {
+        if (!Array.isArray(taskIds) || taskIds.length === 0) return { status: 'success' as const, data: [] }
+        const data = await getTaskLinksBulk(taskIds)
+        return { status: 'success' as const, data }
+      } catch (error: any) {
+        l.error('task:get-task-links-bulk error:', error)
         return { status: 'error' as const, message: error?.message ?? String(error) }
       }
     })

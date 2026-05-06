@@ -366,16 +366,48 @@ export async function migrateTaskChangeHistoryTable(): Promise<void> {
 
 let taskWorkloadOverridesTableMigrationDone = false
 
-/** Tạo bảng `task_workload_overrides` để lưu override hours theo (project, user, date) cho Workload section của Task Gantt. */
+/** Đổi tên bảng cũ + thêm `actual_work_hours`; chạy trước migrateTaskWorkloadOverridesTable. */
+export async function migrateProjectUserDailyWorkload(): Promise<void> {
+  if (!hasDbConfig()) return
+  try {
+    const rows = await query<{ table_name: string }>(
+      `SELECT table_name FROM information_schema.tables
+       WHERE table_schema = current_schema()
+         AND table_name IN ('task_workload_overrides', 'project_user_daily_workload')`
+    )
+    const names = new Set((rows ?? []).map(r => r.table_name))
+    const hasOld = names.has('task_workload_overrides')
+    const hasNew = names.has('project_user_daily_workload')
+    if (hasOld && !hasNew) {
+      await query('ALTER TABLE task_workload_overrides RENAME TO project_user_daily_workload')
+    }
+    const rows2 = await query<{ table_name: string }>(
+      `SELECT table_name FROM information_schema.tables
+       WHERE table_schema = current_schema() AND table_name = 'project_user_daily_workload' LIMIT 1`
+    )
+    if (!Array.isArray(rows2) || rows2.length === 0) return
+
+    await query('ALTER TABLE project_user_daily_workload ADD COLUMN IF NOT EXISTS actual_work_hours DECIMAL(6,2) NULL')
+    await query('DROP INDEX IF EXISTS idx_workload_proj_date')
+    await query('DROP INDEX IF EXISTS idx_workload_proj_user')
+    await query('CREATE INDEX IF NOT EXISTS idx_pudw_proj_date ON project_user_daily_workload(project_id, work_date)')
+    await query('CREATE INDEX IF NOT EXISTS idx_pudw_proj_user ON project_user_daily_workload(project_id, user_id)')
+  } catch (e) {
+    l.error('[db] migrateProjectUserDailyWorkload failed', e)
+  }
+}
+
+/** Tạo bảng `project_user_daily_workload` (actual + override hours) nếu chưa có. */
 export async function migrateTaskWorkloadOverridesTable(): Promise<void> {
   if (taskWorkloadOverridesTableMigrationDone || !hasDbConfig()) return
   try {
     await query(`
-CREATE TABLE IF NOT EXISTS task_workload_overrides (
+CREATE TABLE IF NOT EXISTS project_user_daily_workload (
   id VARCHAR(36) PRIMARY KEY,
   project_id VARCHAR(36) NOT NULL,
   user_id VARCHAR(36) NOT NULL,
   work_date DATE NOT NULL,
+  actual_work_hours DECIMAL(6,2) NULL,
   override_hours DECIMAL(6,2) NULL,
   note TEXT NULL,
   version INT NOT NULL DEFAULT 1,
@@ -383,10 +415,10 @@ CREATE TABLE IF NOT EXISTS task_workload_overrides (
   updated_by VARCHAR(36) NULL,
   created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
   updated_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
-  CONSTRAINT uk_workload_proj_user_date UNIQUE (project_id, user_id, work_date)
+  CONSTRAINT uk_pudw_proj_user_date UNIQUE (project_id, user_id, work_date)
 )`)
-    await query('CREATE INDEX IF NOT EXISTS idx_workload_proj_date ON task_workload_overrides(project_id, work_date)')
-    await query('CREATE INDEX IF NOT EXISTS idx_workload_proj_user ON task_workload_overrides(project_id, user_id)')
+    await query('CREATE INDEX IF NOT EXISTS idx_pudw_proj_date ON project_user_daily_workload(project_id, work_date)')
+    await query('CREATE INDEX IF NOT EXISTS idx_pudw_proj_user ON project_user_daily_workload(project_id, user_id)')
   } catch (e) {
     l.error('[db] migrateTaskWorkloadOverridesTable failed', e)
     return
@@ -452,4 +484,21 @@ export async function migrateUserDailySnapshotsUniqueConstraint(): Promise<void>
     return
   }
   userDailySnapshotsUniqueConstraintMigrationDone = true
+}
+
+let taskTypesMilestoneMigrationDone = false
+
+/** Thêm loại task milestone (FK tasks.type → task_types.code). Idempotent. */
+export async function migrateTaskTypesAddMilestone(): Promise<void> {
+  if (taskTypesMilestoneMigrationDone || !hasDbConfig()) return
+  try {
+    await query(
+      `INSERT INTO task_types (code, name, sort_order, color) VALUES ('milestone', 'Milestone', 5, '#f59e0b')
+       ON CONFLICT (code) DO NOTHING`
+    )
+  } catch (e) {
+    l.error('[db] migrateTaskTypesAddMilestone failed', e)
+    return
+  }
+  taskTypesMilestoneMigrationDone = true
 }

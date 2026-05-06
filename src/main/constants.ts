@@ -313,6 +313,7 @@ export const IPC = {
     GET_TASK_CHILDREN: 'task:get-task-children',
     CREATE_TASK_CHILD: 'task:create-task-child',
     GET_TASK_LINKS: 'task:get-task-links',
+    GET_TASK_LINKS_BULK: 'task:get-task-links-bulk',
     CREATE_TASK_LINK: 'task:create-task-link',
     DELETE_TASK_LINK: 'task:delete-task-link',
     NOTIFICATION: 'task:notification',

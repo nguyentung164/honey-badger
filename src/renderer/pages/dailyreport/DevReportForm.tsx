@@ -198,6 +198,8 @@ export function DevReportForm({ initialReportDate, initialProjectId, initialProj
   const [isLoadingProjects, setIsLoadingProjects] = useState(false)
   const [displayFolderList, setDisplayFolderList] = useState<{ id: string; name: string; path: string }[]>([])
   const [isLoadingFolders, setIsLoadingFolders] = useState(false)
+  /** Giờ làm thực tế theo project (string để giữ ô trống) — lưu qua daily report → project_user_daily_workload */
+  const [hoursPerProject, setHoursPerProject] = useState<Record<string, string>>({})
 
   const loadSourceFolders = useCallback(async () => {
     await loadSourceFolderConfig()
@@ -206,6 +208,19 @@ export function DevReportForm({ initialReportDate, initialProjectId, initialProj
   useEffect(() => {
     loadSourceFolders()
   }, [loadSourceFolders])
+
+  useEffect(() => {
+    setHoursPerProject(prev => {
+      const next: Record<string, string> = { ...prev }
+      for (const id of projectIds) {
+        if (!(id in next)) next[id] = ''
+      }
+      for (const k of Object.keys(next)) {
+        if (!projectIds.includes(k)) delete next[k]
+      }
+      return next
+    })
+  }, [projectIds])
 
   const loadProjects = useCallback(async () => {
     setIsLoadingProjects(true)
@@ -344,6 +359,13 @@ export function DevReportForm({ initialReportDate, initialProjectId, initialProj
         setWorkDescription(res.data.workDescription || '')
         const ids = res.data.projectIds && res.data.projectIds.length > 0 ? res.data.projectIds : res.data.projectId ? [res.data.projectId] : []
         setProjectIds(ids)
+        const hp = (res.data as { hoursPerProject?: Record<string, number> }).hoursPerProject
+        const nextHours: Record<string, string> = {}
+        for (const id of ids) {
+          const v = hp?.[id]
+          nextHours[id] = v != null && Number.isFinite(Number(v)) ? String(v) : ''
+        }
+        setHoursPerProject(nextHours)
         const sf = (res.data.selectedSourceFolders ?? []) as { id: string; path: string; name?: string }[]
         if (sf.length > 0) {
           setSavedSourceFolderIds(sf.map(x => x.id))
@@ -364,6 +386,7 @@ export function DevReportForm({ initialReportDate, initialProjectId, initialProj
       } else {
         setHasExistingReport(false)
         setProjectIds([])
+        setHoursPerProject({})
         savedSelectedCommitsRef.current = []
         setSavedCommits([])
         setSavedSourceFolderIds([])
@@ -372,6 +395,7 @@ export function DevReportForm({ initialReportDate, initialProjectId, initialProj
     } catch {
       setHasExistingReport(false)
       setProjectIds([])
+      setHoursPerProject({})
       savedSelectedCommitsRef.current = []
       setSavedCommits([])
       setSavedSourceFolderIds([])
@@ -540,6 +564,24 @@ export function DevReportForm({ initialReportDate, initialProjectId, initialProj
       toast.error(t('dailyReport.selectAtLeastOneProject', 'Chọn ít nhất một project'))
       return
     }
+    const hoursPayload: Record<string, number | null> = {}
+    for (const pid of projectIds) {
+      const raw = (hoursPerProject[pid] ?? '').trim().replace(',', '.')
+      if (raw === '') {
+        hoursPayload[pid] = null
+        continue
+      }
+      const n = Number(raw)
+      if (!Number.isFinite(n) || n < 0) {
+        toast.error(t('dailyReport.actualWorkHoursInvalid', 'Số giờ không hợp lệ (0–24).'))
+        return
+      }
+      if (n > 24) {
+        toast.error(t('dailyReport.actualWorkHoursInvalid', 'Số giờ không hợp lệ (0–24).'))
+        return
+      }
+      hoursPayload[pid] = Math.round(n * 100) / 100
+    }
     setIsSaving(true)
     try {
       const selectedCommits = savedCommits.map(c => {
@@ -557,6 +599,7 @@ export function DevReportForm({ initialReportDate, initialProjectId, initialProj
         reportDate,
         projectIds,
         selectedUserProjectSourceFolderIds: orderedIds,
+        hoursPerProject: hoursPayload,
       })
       if (res.status === 'success') {
         toast.success(t('dailyReport.saveSuccess'))
@@ -685,6 +728,35 @@ export function DevReportForm({ initialReportDate, initialProjectId, initialProj
           )}
         </Button>
       </div>
+
+      {projectIds.length > 0 && (
+        <div className="rounded-xl border bg-muted/30 px-3 py-2 space-y-2 shrink-0">
+          <Label className="text-xs font-semibold">{t('dailyReport.actualWorkHoursLabel', 'Giờ làm việc thực tế (theo project)')}</Label>
+          <div className="flex flex-wrap gap-3">
+            {projectIds.map(pid => {
+              const label = projects.find(p => p.id === pid)?.name ?? pid
+              return (
+                <div key={pid} className="flex items-center gap-2 min-w-0">
+                  <span className="text-xs text-muted-foreground max-w-[140px] truncate shrink-0" title={label}>
+                    {label}
+                  </span>
+                  <Input
+                    type="number"
+                    min={0}
+                    max={24}
+                    step={0.25}
+                    className="h-8 w-[4.5rem] text-xs tabular-nums"
+                    disabled={isReadOnly}
+                    placeholder={t('dailyReport.actualWorkHoursPlaceholder', 'h')}
+                    value={hoursPerProject[pid] ?? ''}
+                    onChange={e => setHoursPerProject(prev => ({ ...prev, [pid]: e.target.value }))}
+                  />
+                </div>
+              )
+            })}
+          </div>
+        </div>
+      )}
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         {/* Column 1: Source folder + Work description */}

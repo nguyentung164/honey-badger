@@ -1,5 +1,5 @@
 import { randomUuidV7 } from 'shared/randomUuidV7'
-import { hasDbConfig, query } from './db'
+import { hasDbConfig, query, validatedPgSchemaName } from './db'
 
 const DEFAULT_UNREAD_LIMIT = 50
 let isReadColumnIsBoolean: boolean | null = null
@@ -31,13 +31,15 @@ export interface TaskNotificationRow {
 async function detectIsReadColumnType(): Promise<boolean> {
   if (isReadColumnIsBoolean !== null) return isReadColumnIsBoolean
   try {
+    const schema = validatedPgSchemaName()
     const rows = await query<{ data_type?: string }>(
       `SELECT data_type
        FROM information_schema.columns
-       WHERE table_schema = current_schema()
+       WHERE table_schema = $1
          AND table_name = 'task_notifications'
          AND column_name = 'is_read'
-       LIMIT 1`
+       LIMIT 1`,
+      [schema]
     )
     const dataType = rows?.[0]?.data_type?.toLowerCase() ?? ''
     isReadColumnIsBoolean = dataType === 'boolean'
@@ -73,8 +75,8 @@ export async function insertTaskNotification(
 export async function getUnreadByUserId(userId: string, limit = DEFAULT_UNREAD_LIMIT): Promise<TaskNotificationRow[]> {
   if (!hasDbConfig()) return []
   const limitVal = Math.max(1, Math.min(limit, 100))
-  const useBoolean = await detectIsReadColumnType()
-  const unreadWhere = useBoolean ? 'is_read = FALSE' : 'COALESCE(is_read, 0) = 0'
+  // Một biểu thức duy nhất cho PG: boolean hoặc legacy 0/1 (cast → boolean), tránh COALESCE(bool, 0).
+  const unreadWhere = '(NOT COALESCE(is_read::boolean, false))'
   const rows = await query(
     `SELECT id, target_user_id, type, title, body, task_id, is_read, created_at
      FROM task_notifications

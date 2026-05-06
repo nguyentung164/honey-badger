@@ -2,7 +2,7 @@
 
 import { useVirtualizer } from '@tanstack/react-virtual'
 import { eachDayOfInterval, format, isSameWeek } from 'date-fns'
-import { useMemo, useRef } from 'react'
+import { type CSSProperties, useMemo, useRef } from 'react'
 import { useTranslation } from 'react-i18next'
 import { parseLocalDate, toYyyyMmDd } from '@/lib/dateUtils'
 import {
@@ -47,6 +47,15 @@ function groupConsecutiveDaysByWeek(days: Date[]): Date[][] {
 function weekBandLabel(first: Date, last: Date): string {
   return `${format(first, 'M/d')} - ${format(last, 'M/d')}`
 }
+
+const H = EVM_SCHEDULE_TIMELINE_HEADER_ROW_PX
+
+const RES_PIN_HEADER_CELL =
+  'box-border border-solid border-border/80 bg-muted text-foreground text-center text-sm font-semibold leading-tight flex items-center justify-center px-1 py-1'
+
+const PIN_NO_W = '2.5rem'
+const PIN_ASSIGNEE_W = '9rem'
+const PIN_BAC_W = '4.5rem'
 
 export function ResourceUsageTab() {
   const { t } = useTranslation()
@@ -181,15 +190,24 @@ export function ResourceUsageTab() {
 
   const dayTimelinePx = projectDays.length * EVM_SCHEDULE_DAY_COL_PX
 
+  const tableScrollMinWidth = `calc(${PIN_NO_W} + ${PIN_ASSIGNEE_W} + ${PIN_BAC_W} + ${dayTimelinePx}px)`
+
+  const resourcePinnedHeaderGridStyle = useMemo(
+    (): CSSProperties => ({
+      display: 'grid',
+      gridTemplateColumns: `${PIN_NO_W} ${PIN_ASSIGNEE_W} ${PIN_BAC_W}`,
+      gridTemplateRows: `repeat(3, ${H}px)`,
+      width: resourceLeadingPinnedPx,
+      minWidth: resourceLeadingPinnedPx,
+      minHeight: EVM_SCHEDULE_TIMELINE_HEADER_3_ROWS_PX,
+      boxSizing: 'border-box',
+    }),
+    [resourceLeadingPinnedPx],
+  )
+
   if (!project.id) {
     return <p className="p-4 text-muted-foreground text-sm">{t('evm.ganttNoProject')}</p>
   }
-
-  const pinNoW = '2.5rem'
-  const pinAssigneeW = '9rem'
-  const pinBacW = '4.5rem'
-  const pinLeftBac = `calc(${pinNoW} + ${pinAssigneeW})`
-  const tableScrollMinWidth = `calc(${pinNoW} + ${pinAssigneeW} + ${pinBacW} + ${dayTimelinePx}px)`
 
   return (
     <div className="flex h-full min-h-0 flex-col gap-3 overflow-hidden p-4">
@@ -202,183 +220,130 @@ export function ResourceUsageTab() {
           className="min-h-0 flex-1 overflow-auto rounded-md bg-muted/5 [overflow-anchor:none]"
         >
           <div
-            className="sticky top-0 z-[35] bg-muted shadow-[0_1px_0_0_var(--border)]"
+            className="sticky top-0 z-[35] flex shrink-0 bg-muted shadow-[0_1px_0_0_var(--border)]"
             style={{ width: tableScrollMinWidth, minWidth: tableScrollMinWidth }}
           >
-            <table
-              className="border-separate border-spacing-0 text-sm"
-              style={{ width: tableScrollMinWidth, tableLayout: 'fixed' }}
-            >
-              <colgroup>
-                <col style={{ minWidth: pinNoW, width: pinNoW }} />
-                <col style={{ minWidth: pinAssigneeW, width: pinAssigneeW }} />
-                <col style={{ minWidth: pinBacW, width: pinBacW }} />
-                <col style={{ minWidth: dayTimelinePx, width: dayTimelinePx }} />
-              </colgroup>
-              <thead className="bg-muted">
-                <tr className="bg-muted">
-                  <th
-                    rowSpan={3}
-                    className={cn(
-                      'sticky left-0 z-40 box-border border-t border-l border-r border-b border-solid border-border/80 bg-muted px-1 py-1 text-center align-middle text-foreground text-sm font-semibold',
-                    )}
-                    style={{ minWidth: pinNoW, width: pinNoW, maxWidth: pinNoW, minHeight: EVM_SCHEDULE_TIMELINE_HEADER_3_ROWS_PX }}
+            <div className="sticky left-0 z-40 shrink-0 bg-muted" style={{ width: resourceLeadingPinnedPx }}>
+              <div className="text-sm" style={resourcePinnedHeaderGridStyle}>
+                <div
+                  className={cn(RES_PIN_HEADER_CELL, 'border-t border-l border-r border-b')}
+                  style={{ gridRow: '1 / 4', gridColumn: '1 / 2' }}
+                >
+                  {t('evm.tableNo')}
+                </div>
+                <div className={cn(RES_PIN_HEADER_CELL, 'border-t border-r border-b')} style={{ gridRow: '1 / 4', gridColumn: '2 / 3' }}>
+                  {t('evm.tableAssignee')}
+                </div>
+                <div className={cn(RES_PIN_HEADER_CELL, 'border-t border-r border-b')} style={{ gridRow: '1 / 4', gridColumn: '3 / 4' }}>
+                  {t('evm.kpiBAC')} (MD)
+                </div>
+              </div>
+            </div>
+            <div className="flex min-w-0 flex-1 flex-col bg-muted" style={{ width: dayTimelinePx, minWidth: dayTimelinePx }}>
+              <div
+                className="box-border flex h-full min-h-0 w-full shrink-0 flex-row border-t border-r border-b border-solid border-border/80"
+                style={{ height: H, minHeight: H, width: dayTimelinePx }}
+              >
+                {weekBands.map((band, bi) => (
+                  <div
+                    key={bi}
+                    className="flex h-full shrink-0 items-center justify-center border-r border-solid border-border/80 px-0 py-0 text-center text-foreground text-xs font-semibold leading-tight whitespace-nowrap last:border-r-0"
+                    style={{ width: band.len * EVM_SCHEDULE_DAY_COL_PX }}
                   >
-                    {t('evm.tableNo')}
-                  </th>
-                  <th
-                    rowSpan={3}
-                    className={cn(
-                      'sticky z-40 box-border border-t border-r border-b border-solid border-border/80 bg-muted px-1 py-1 text-center align-middle text-foreground text-sm font-semibold',
-                    )}
-                    style={{
-                      left: pinNoW,
-                      minWidth: pinAssigneeW,
-                      width: pinAssigneeW,
-                      minHeight: EVM_SCHEDULE_TIMELINE_HEADER_3_ROWS_PX,
-                    }}
-                  >
-                    {t('evm.tableAssignee')}
-                  </th>
-                  <th
-                    rowSpan={3}
-                    className={cn(
-                      'sticky z-40 box-border border-t border-r border-b border-solid border-border/80 bg-muted px-1 py-1 text-center align-middle text-foreground text-sm font-semibold',
-                    )}
-                    style={{ left: pinLeftBac, minWidth: pinBacW, width: pinBacW, minHeight: EVM_SCHEDULE_TIMELINE_HEADER_3_ROWS_PX }}
-                  >
-                    {t('evm.kpiBAC')} (MD)
-                  </th>
-                  <th
-                    className="box-border border-t border-r border-b border-solid border-border/80 bg-muted p-0 align-stretch"
-                    style={{
-                      minWidth: dayTimelinePx,
-                      width: dayTimelinePx,
-                      height: EVM_SCHEDULE_TIMELINE_HEADER_ROW_PX,
-                    }}
-                  >
-                    <div
-                      className="flex h-full min-h-0 w-full flex-row"
-                      style={{ width: dayTimelinePx, minHeight: EVM_SCHEDULE_TIMELINE_HEADER_ROW_PX }}
-                    >
-                      {weekBands.map((band, bi) => (
-                        <div
-                          key={bi}
-                          className="flex h-full shrink-0 items-center justify-center border-r border-solid border-border/80 px-0 py-0 text-center text-foreground text-xs font-semibold leading-tight whitespace-nowrap last:border-r-0"
-                          style={{ width: band.len * EVM_SCHEDULE_DAY_COL_PX }}
-                        >
-                          {band.label}
-                        </div>
-                      ))}
-                    </div>
-                  </th>
-                </tr>
-                <tr>
-                  <th
-                    className="box-border border-r border-b border-solid border-border/80 bg-muted p-0 align-stretch"
-                    style={{
-                      minWidth: dayTimelinePx,
-                      width: dayTimelinePx,
-                      height: EVM_SCHEDULE_TIMELINE_HEADER_ROW_PX,
-                    }}
-                  >
-                    <div
-                      className="relative box-border h-full min-h-0"
-                      style={{
-                        width: colVirtualizer.getTotalSize(),
-                        minHeight: EVM_SCHEDULE_TIMELINE_HEADER_ROW_PX,
-                        height: EVM_SCHEDULE_TIMELINE_HEADER_ROW_PX,
-                      }}
-                    >
-                      {colVirtualizer.getVirtualItems().map(vc => {
-                        const meta = dayColMeta[vc.index]
-                        const pd = projectDays[vc.index]
-                        if (!meta || !pd) return null
-                        return (
-                          <div
-                            key={vc.key}
-                            className={cn(
-                              'absolute top-0 box-border flex h-full items-center justify-center border-r border-solid border-border/80 px-0 py-0 text-center text-foreground text-sm font-semibold tabular-nums last:border-r-0',
-                              meta.isWeekend && 'bg-zinc-400/25 dark:bg-zinc-600/35',
-                              !meta.isWeekend && 'bg-muted',
-                              meta.isReport && 'bg-amber-200/90 dark:bg-amber-900/45',
-                            )}
-                            style={{ left: vc.start - resourceLeadingPinnedPx, width: vc.size }}
-                            title={meta.isReport ? t('evm.resourceGridReportCol') : meta.ds}
-                          >
-                            {format(pd, 'd')}
-                          </div>
-                        )
-                      })}
-                    </div>
-                  </th>
-                </tr>
-                <tr>
-                  <th
-                    className="box-border border-r border-b border-solid border-border/80 bg-muted p-0 align-stretch"
-                    style={{
-                      minWidth: dayTimelinePx,
-                      width: dayTimelinePx,
-                      height: EVM_SCHEDULE_TIMELINE_HEADER_ROW_PX,
-                    }}
-                  >
-                    <div
-                      className="relative box-border h-full min-h-0"
-                      style={{
-                        width: colVirtualizer.getTotalSize(),
-                        minHeight: EVM_SCHEDULE_TIMELINE_HEADER_ROW_PX,
-                        height: EVM_SCHEDULE_TIMELINE_HEADER_ROW_PX,
-                      }}
-                    >
-                      {colVirtualizer.getVirtualItems().map(vc => {
-                        const d = projectDays[vc.index]
-                        const meta = dayColMeta[vc.index]
-                        if (!d || !meta) return null
-                        return (
-                          <div
-                            key={vc.key}
-                            className={cn(
-                              'absolute top-0 box-border flex h-full items-center justify-center border-r border-solid border-border/80 px-0 py-0 text-center text-foreground text-xs font-semibold last:border-r-0',
-                              meta.isWeekend && 'bg-zinc-400/25 dark:bg-zinc-600/35',
-                              !meta.isWeekend && 'bg-muted',
-                              meta.isReport && 'bg-amber-200/90 dark:bg-amber-900/45',
-                            )}
-                            style={{ left: vc.start - resourceLeadingPinnedPx, width: vc.size }}
-                          >
-                            {WEEK_LETTERS[d.getDay()]}
-                          </div>
-                        )
-                      })}
-                    </div>
-                  </th>
-                </tr>
-              </thead>
-            </table>
+                    {band.label}
+                  </div>
+                ))}
+              </div>
+              <div
+                className="relative box-border shrink-0 border-r border-b border-solid border-border/80 bg-muted"
+                style={{
+                  width: dayTimelinePx,
+                  height: H,
+                  minHeight: H,
+                }}
+              >
+                <div
+                  className="relative h-full min-h-0 w-full"
+                  style={{
+                    width: colVirtualizer.getTotalSize(),
+                    height: H,
+                    minHeight: H,
+                  }}
+                >
+                  {colVirtualizer.getVirtualItems().map(vc => {
+                    const meta = dayColMeta[vc.index]
+                    const pd = projectDays[vc.index]
+                    if (!meta || !pd) return null
+                    return (
+                      <div
+                        key={vc.key}
+                        className={cn(
+                          'absolute top-0 box-border flex h-full items-center justify-center border-r border-solid border-border/80 px-0 py-0 text-center text-foreground text-sm font-semibold tabular-nums last:border-r-0',
+                          meta.isWeekend && 'bg-zinc-400/25 dark:bg-zinc-600/35',
+                          !meta.isWeekend && 'bg-muted',
+                          meta.isReport && 'bg-amber-200/90 dark:bg-amber-900/45',
+                        )}
+                        style={{ left: vc.start - resourceLeadingPinnedPx, width: vc.size, height: '100%' }}
+                        title={meta.isReport ? t('evm.resourceGridReportCol') : meta.ds}
+                      >
+                        {format(pd, 'd')}
+                      </div>
+                    )
+                  })}
+                </div>
+              </div>
+              <div
+                className="relative box-border shrink-0 border-r border-b border-solid border-border/80 bg-muted text-sm"
+                style={{
+                  width: dayTimelinePx,
+                  height: H,
+                  minHeight: H,
+                }}
+              >
+                <div
+                  className="relative h-full min-h-0 w-full"
+                  style={{
+                    width: colVirtualizer.getTotalSize(),
+                    height: H,
+                    minHeight: H,
+                  }}
+                >
+                  {colVirtualizer.getVirtualItems().map(vc => {
+                    const d = projectDays[vc.index]
+                    const meta = dayColMeta[vc.index]
+                    if (!d || !meta) return null
+                    return (
+                      <div
+                        key={vc.key}
+                        className={cn(
+                          'absolute top-0 box-border flex h-full items-center justify-center border-r border-solid border-border/80 px-0 py-0 text-center text-foreground text-xs font-semibold last:border-r-0',
+                          meta.isWeekend && 'bg-zinc-400/25 dark:bg-zinc-600/35',
+                          !meta.isWeekend && 'bg-muted',
+                          meta.isReport && 'bg-amber-200/90 dark:bg-amber-900/45',
+                        )}
+                        style={{ left: vc.start - resourceLeadingPinnedPx, width: vc.size, height: '100%' }}
+                      >
+                        {WEEK_LETTERS[d.getDay()]}
+                      </div>
+                    )
+                  })}
+                </div>
+              </div>
+            </div>
           </div>
 
-          <table
-            className="border-separate border-spacing-0 text-sm"
-            style={{ display: 'block', width: tableScrollMinWidth, minWidth: tableScrollMinWidth }}
-          >
-            <colgroup>
-              <col style={{ minWidth: pinNoW, width: pinNoW }} />
-              <col style={{ minWidth: pinAssigneeW, width: pinAssigneeW }} />
-              <col style={{ minWidth: pinBacW, width: pinBacW }} />
-              <col style={{ minWidth: dayTimelinePx, width: dayTimelinePx }} />
-            </colgroup>
-            <tbody
-              className="relative block"
+          <div className="text-sm" style={{ width: tableScrollMinWidth, minWidth: tableScrollMinWidth }}>
+            <div
+              className="relative"
               style={{
                 width: tableScrollMinWidth,
                 ...(assigneeCodes.length === 0 ? undefined : { height: rowVirtualizer.getTotalSize() }),
               }}
             >
               {assigneeCodes.length === 0 ? (
-                <tr style={{ display: 'table', width: '100%', tableLayout: 'fixed' }}>
-                  <td colSpan={4} className="box-border border-t border-l border-r border-b border-solid border-border/60 px-2 py-6 text-center text-muted-foreground">
-                    {t('evm.resourceGridNoAssignees')}
-                  </td>
-                </tr>
+                <div className="box-border flex w-full border-t border-l border-r border-b border-solid border-border/60 px-2 py-6 text-center text-muted-foreground">
+                  {t('evm.resourceGridNoAssignees')}
+                </div>
               ) : (
                 rowVirtualizer.getVirtualItems().map(vr => {
                   const code = assigneeCodes[vr.index]
@@ -386,49 +351,55 @@ export function ResourceUsageTab() {
                   const rowIdx = vr.index
                   const arr = hoursByAssignee.get(code)
                   return (
-                    <tr
+                    <div
                       key={code}
-                      className="hover:bg-muted"
+                      className="hover:bg-muted absolute left-0 flex w-full"
                       style={{
-                        display: 'table',
-                        position: 'absolute',
                         top: vr.start,
-                        left: 0,
-                        width: '100%',
-                        tableLayout: 'fixed',
                         height: vr.size,
-                        boxSizing: 'border-box',
+                        minHeight: vr.size,
                       }}
                     >
-                      <td
+                      <div
                         className={cn(
-                          'sticky z-10 box-border border-l border-r border-b border-solid border-border/55 px-1 py-0.5 text-center text-sm tabular-nums',
+                          'sticky left-0 z-10 flex shrink-0 items-stretch self-stretch border-solid border-border/55',
                           rowIdx % 2 === 1 ? 'bg-muted' : 'bg-background',
                         )}
-                        style={{ left: 0, minWidth: pinNoW, width: pinNoW }}
+                        style={{ width: resourceLeadingPinnedPx, minWidth: resourceLeadingPinnedPx }}
                       >
-                        {rowIdx + 1}
-                      </td>
-                      <td
-                        className={cn(
-                          'sticky z-10 max-w-[9rem] truncate box-border border-r border-b border-solid border-border/55 px-1 py-0.5 text-sm font-medium',
-                          rowIdx % 2 === 1 ? 'bg-muted' : 'bg-background',
-                        )}
-                        style={{ left: pinNoW, minWidth: pinAssigneeW, width: pinAssigneeW }}
-                        title={evmAssigneeDisplayName(master, code, assigneeNameFromWbs.get(code) ?? null)}
+                        <div
+                          className={cn(
+                            'box-border flex shrink-0 items-center justify-center border-l border-r border-b border-solid px-1 py-0.5 text-center text-sm tabular-nums',
+                            rowIdx % 2 === 1 ? 'bg-muted' : 'bg-background',
+                          )}
+                          style={{ width: PIN_NO_W, minWidth: PIN_NO_W, maxWidth: PIN_NO_W }}
+                        >
+                          {rowIdx + 1}
+                        </div>
+                        <div
+                          className={cn(
+                            'box-border max-w-[9rem] shrink-0 truncate border-r border-b border-solid px-1 py-0.5 text-sm font-medium',
+                            rowIdx % 2 === 1 ? 'bg-muted' : 'bg-background',
+                          )}
+                          style={{ width: PIN_ASSIGNEE_W, minWidth: PIN_ASSIGNEE_W }}
+                          title={evmAssigneeDisplayName(master, code, assigneeNameFromWbs.get(code) ?? null)}
+                        >
+                          {evmAssigneeDisplayName(master, code, assigneeNameFromWbs.get(code) ?? null)}
+                        </div>
+                        <div
+                          className={cn(
+                            'box-border shrink-0 border-r border-b border-solid px-1 py-0.5 text-right text-sm tabular-nums',
+                            rowIdx % 2 === 1 ? 'bg-muted' : 'bg-background',
+                          )}
+                          style={{ width: PIN_BAC_W, minWidth: PIN_BAC_W }}
+                        >
+                          {(bacByAssignee.get(code) ?? 0).toFixed(1)}
+                        </div>
+                      </div>
+                      <div
+                        className="relative shrink-0 self-stretch border-r border-b border-solid border-border/50"
+                        style={{ minWidth: dayTimelinePx, width: dayTimelinePx }}
                       >
-                        {evmAssigneeDisplayName(master, code, assigneeNameFromWbs.get(code) ?? null)}
-                      </td>
-                      <td
-                        className={cn(
-                          'sticky z-10 box-border border-r border-b border-solid border-border/55 px-1 py-0.5 text-right text-sm tabular-nums',
-                          rowIdx % 2 === 1 ? 'bg-muted' : 'bg-background',
-                        )}
-                        style={{ left: pinLeftBac, minWidth: pinBacW, width: pinBacW }}
-                      >
-                        {(bacByAssignee.get(code) ?? 0).toFixed(1)}
-                      </td>
-                      <td className="box-border border-r border-b border-solid border-border/50 p-0 align-stretch" style={{ minWidth: dayTimelinePx, width: dayTimelinePx }}>
                         <div className="relative" style={{ width: colVirtualizer.getTotalSize(), height: vr.size }}>
                           {colVirtualizer.getVirtualItems().map(vc => {
                             const meta = dayColMeta[vc.index]
@@ -447,7 +418,7 @@ export function ResourceUsageTab() {
                                   meta.isReport && 'ring-1 ring-inset ring-amber-400/70 dark:ring-amber-600/50',
                                   overload && 'bg-red-500/25 font-medium text-destructive dark:bg-red-950/45',
                                 )}
-                                style={{ left: vc.start - resourceLeadingPinnedPx, width: vc.size }}
+                                style={{ left: vc.start - resourceLeadingPinnedPx, width: vc.size, height: '100%' }}
                                 title={overload ? t('evm.resourceOverloadDay', { hours: hpd }) : undefined}
                               >
                                 {show}
@@ -455,13 +426,13 @@ export function ResourceUsageTab() {
                             )
                           })}
                         </div>
-                      </td>
-                    </tr>
+                      </div>
+                    </div>
                   )
                 })
               )}
-            </tbody>
-          </table>
+            </div>
+          </div>
         </div>
       )}
     </div>

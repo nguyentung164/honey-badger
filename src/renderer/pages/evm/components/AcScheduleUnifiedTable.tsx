@@ -2,7 +2,15 @@
 
 import { useVirtualizer } from '@tanstack/react-virtual'
 import { eachDayOfInterval, format, isSameWeek } from 'date-fns'
-import { type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import {
+  type CSSProperties,
+  type ReactNode,
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from 'react'
 import { useTranslation } from 'react-i18next'
 import type { EVMMaster, EVMProject, WBSRow } from 'shared/types/evm'
 import { Button } from '@/components/ui/button'
@@ -10,7 +18,6 @@ import { Combobox } from '@/components/ui/combobox'
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
-import { TableRow } from '@/components/ui/table'
 import toast from '@/components/ui-elements/Toast'
 import { formatDateDisplay, parseLocalDate, toYyyyMmDd } from '@/lib/dateUtils'
 import {
@@ -44,29 +51,41 @@ const WEEK_LETTERS = ['S', 'M', 'T', 'W', 'T', 'F', 'S'] as const
 /** Cùng khối cột cố định với WBS Schedule (Excel). */
 const PIN_W = [40, 72, 88, 88, 160, 88, 88, 88, 88, 48, 96] as const
 const DAY_COL_PX = EVM_SCHEDULE_DAY_COL_PX
-
-function pinLeft(colIndex: number): number {
-  let s = 0
-  for (let j = 0; j < colIndex; j++) {
-    const w = PIN_W[j]
-    if (w !== undefined) s += w
-  }
-  return s
-}
-
-function pinWidth(from: number, to: number): number {
-  let s = 0
-  for (let j = from; j < to && j < PIN_W.length; j++) {
-    const w = PIN_W[j]
-    if (w !== undefined) s += w
-  }
-  return s
-}
-
 const PIN_TOTAL = PIN_W.reduce((a, b) => a + b, 0)
-/** Với border-separate: chỉ r+b (+ t/l ở mép bảng) để không dày gấp đôi giữa hai ô. */
-const AC_STICKY_TH_BASE =
-  'sticky z-40 box-border border-solid border-border/80 bg-muted text-foreground text-center align-middle text-sm font-semibold leading-tight'
+const PIN_GRID_TEMPLATE_COLS = PIN_W.map(w => `${w}px`).join(' ')
+const H = EVM_SCHEDULE_TIMELINE_HEADER_ROW_PX
+
+const AC_HEADER_CELL =
+  'box-border border-solid border-border/80 bg-muted text-foreground text-center text-sm font-semibold leading-tight flex items-center justify-center px-1 py-1'
+
+function acHeaderCellBorder(colIndex: number, row: 'top' | 'mid' | 'bot') {
+  const l = colIndex === 0 ? 'border-l' : ''
+  const t = row === 'top' ? 'border-t' : ''
+  return cn(l, t, 'border-r border-b')
+}
+
+function acBodyCellBorder(colIndex: number) {
+  return colIndex === 0 ? 'border-l border-r border-b' : 'border-r border-b'
+}
+
+function acBodyCell(colIndex: number, rowParity: number, className: string, children: ReactNode, title?: string) {
+  const bg = rowParity % 2 === 1 ? 'bg-muted' : 'bg-background'
+  const w = PIN_W[colIndex] ?? 40
+  return (
+    <div
+      className={cn(
+        'box-border shrink-0 border-solid border-border/55 px-1 py-0.5 text-sm flex items-center justify-center min-h-0 overflow-hidden',
+        acBodyCellBorder(colIndex),
+        bg,
+        className,
+      )}
+      style={{ width: w, minWidth: w, maxWidth: colIndex === 4 ? 160 : w }}
+      title={title}
+    >
+      {children}
+    </div>
+  )
+}
 
 function groupConsecutiveDaysByWeek(days: Date[]): Date[][] {
   if (days.length === 0) return []
@@ -114,97 +133,6 @@ function computeProjectDaysAndWeekBands(project: EVMProject): {
   } catch {
     return { projectDays: [], weekBands: [] }
   }
-}
-
-function stickyTh(colIndex: number, className: string, children: ReactNode, rowSpan?: number) {
-  const edge = colIndex === 0 ? 'border-t border-l border-r border-b' : 'border-t border-r border-b'
-  return (
-    <th
-      rowSpan={rowSpan}
-      className={cn(AC_STICKY_TH_BASE, 'px-1 py-1', edge, className)}
-      style={{
-        left: pinLeft(colIndex),
-        top: 0,
-        width: PIN_W[colIndex],
-        minWidth: PIN_W[colIndex],
-        maxWidth: colIndex === 4 ? 160 : PIN_W[colIndex],
-      }}
-    >
-      <span
-        className="flex items-center justify-center gap-0.5"
-        style={{ minHeight: (rowSpan ?? 1) * EVM_SCHEDULE_TIMELINE_HEADER_ROW_PX }}
-      >
-        {children}
-      </span>
-    </th>
-  )
-}
-
-function acPinColSpanTh(fromCol: number, span: number, children: ReactNode) {
-  return (
-    <th
-      colSpan={span}
-      className={cn(AC_STICKY_TH_BASE, 'border-t border-r border-b')}
-      style={{
-        left: pinLeft(fromCol),
-        width: pinWidth(fromCol, fromCol + span),
-        minWidth: pinWidth(fromCol, fromCol + span),
-      }}
-    >
-      <span
-        className="flex items-center justify-center gap-0.5 text-center leading-tight"
-        style={{ minHeight: EVM_SCHEDULE_TIMELINE_HEADER_ROW_PX }}
-      >
-        {children}
-      </span>
-    </th>
-  )
-}
-
-function acDetailTh(colIndex: number, className: string, children: ReactNode, spanRows: number = 1) {
-  return (
-    <th
-      rowSpan={spanRows > 1 ? spanRows : undefined}
-      className={cn(AC_STICKY_TH_BASE, 'border-r border-b px-1 py-0.5', className)}
-      style={{
-        left: pinLeft(colIndex),
-        width: PIN_W[colIndex],
-        minWidth: PIN_W[colIndex],
-        maxWidth: colIndex === 4 ? 160 : PIN_W[colIndex],
-      }}
-    >
-      <span
-        className="flex items-center justify-center gap-0.5"
-        style={{ minHeight: spanRows * EVM_SCHEDULE_TIMELINE_HEADER_ROW_PX }}
-      >
-        {children}
-      </span>
-    </th>
-  )
-}
-
-function stickyTd(colIndex: number, rowParity: number, className: string, children: ReactNode, title?: string) {
-  const bg = rowParity % 2 === 1 ? 'bg-muted' : 'bg-background'
-  const edge = colIndex === 0 ? 'border-l border-r border-b' : 'border-r border-b'
-  return (
-    <td
-      className={cn(
-        'sticky z-10 box-border border-solid border-border/55 px-1 py-0.5 text-sm',
-        edge,
-        bg,
-        className,
-      )}
-      style={{
-        left: pinLeft(colIndex),
-        width: PIN_W[colIndex],
-        minWidth: PIN_W[colIndex],
-        maxWidth: colIndex === 4 ? 160 : PIN_W[colIndex],
-      }}
-      title={title}
-    >
-      {children}
-    </td>
-  )
 }
 
 export function AcScheduleUnifiedTable() {
@@ -303,6 +231,18 @@ export function AcScheduleUnifiedTable() {
 
   const tableMinWidth = PIN_TOTAL + dayTimelinePx
 
+  const pinnedHeaderGridStyle = useMemo(
+    (): CSSProperties => ({
+      display: 'grid',
+      gridTemplateColumns: PIN_GRID_TEMPLATE_COLS,
+      gridTemplateRows: `repeat(3, ${H}px)`,
+      width: PIN_TOTAL,
+      minWidth: PIN_TOTAL,
+      boxSizing: 'border-box',
+    }),
+    [],
+  )
+
   const saveEdit = useCallback(
     async (updates: {
       actualStartDate: string | null
@@ -347,169 +287,211 @@ export function AcScheduleUnifiedTable() {
         ref={scrollRef}
         className="min-h-0 flex-1 overflow-auto rounded-md bg-muted/5 [overflow-anchor:none]"
       >
-        {/** Header: bảng `table-layout` bình thường trong `sticky` — `display:block` + tbody absolute phá sticky trên `th`. */}
+        {/** Header: div grid + timeline (không dùng `<table>` để sticky/ghim khớp TaskGanttView). */}
         <div
-          className="sticky top-0 z-[35] bg-muted shadow-[0_1px_0_0_var(--border)]"
+          className="sticky top-0 z-[35] flex shrink-0 bg-muted shadow-[0_1px_0_0_var(--border)]"
           style={{ width: tableMinWidth, minWidth: tableMinWidth }}
         >
-          <table
-            className="border-separate border-spacing-0 text-sm"
-            style={{ width: tableMinWidth, tableLayout: 'fixed' }}
-          >
-            <colgroup>
-              {PIN_W.map((w, i) => (
-                <col key={i} style={{ width: w, minWidth: w }} />
+          <div className="sticky left-0 z-40 shrink-0 bg-muted" style={{ width: PIN_TOTAL }}>
+            <div className="text-sm" style={pinnedHeaderGridStyle}>
+              <div
+                className={cn(AC_HEADER_CELL, 'tabular-nums', acHeaderCellBorder(0, 'top'))}
+                style={{ gridRow: '1 / 4', gridColumn: '1 / 2' }}
+              >
+                {t('evm.tableNo')}
+              </div>
+              <div
+                className={cn(AC_HEADER_CELL, 'whitespace-normal', acHeaderCellBorder(1, 'top'))}
+                style={{ gridRow: '1 / 4', gridColumn: '2 / 3' }}
+              >
+                {t('evm.tablePhase')}
+              </div>
+              <div
+                className={cn(AC_HEADER_CELL, 'whitespace-normal', acHeaderCellBorder(2, 'top'))}
+                style={{ gridRow: '1 / 4', gridColumn: '3 / 4' }}
+              >
+                {t('evm.tableCategory')}
+              </div>
+              <div
+                className={cn(AC_HEADER_CELL, 'whitespace-normal', acHeaderCellBorder(3, 'top'))}
+                style={{ gridRow: '1 / 4', gridColumn: '4 / 5' }}
+              >
+                {t('evm.tableFeature')}
+              </div>
+              <div
+                className={cn(AC_HEADER_CELL, 'whitespace-normal', acHeaderCellBorder(4, 'top'))}
+                style={{ gridRow: '1 / 4', gridColumn: '5 / 6' }}
+              >
+                {t('evm.acColTask')}
+              </div>
+              <div className={cn(AC_HEADER_CELL, 'border-t border-r border-b')} style={{ gridRow: '1 / 2', gridColumn: '6 / 8' }}>
+                {t('evm.wbsSchedulePlanGroup')}
+              </div>
+              <div className={cn(AC_HEADER_CELL, 'border-t border-r border-b')} style={{ gridRow: '1 / 2', gridColumn: '8 / 10' }}>
+                {t('evm.wbsScheduleActualGroup')}
+              </div>
+              <div
+                className={cn(AC_HEADER_CELL, 'tabular-nums', acHeaderCellBorder(9, 'top'))}
+                style={{ gridRow: '1 / 4', gridColumn: '10 / 11' }}
+              >
+                {t('evm.wbsSchedulePctDone')}
+              </div>
+              <div
+                className={cn(AC_HEADER_CELL, 'whitespace-normal', acHeaderCellBorder(10, 'top'))}
+                style={{ gridRow: '1 / 4', gridColumn: '11 / 12' }}
+              >
+                {t('evm.tableAssignee')}
+              </div>
+              <div
+                className={cn(
+                  AC_HEADER_CELL,
+                  'whitespace-nowrap tabular-nums',
+                  acHeaderCellBorder(5, 'mid'),
+                )}
+                style={{ gridRow: '2 / 4', gridColumn: '6 / 7' }}
+              >
+                {t('evm.planStart')}
+              </div>
+              <div
+                className={cn(
+                  AC_HEADER_CELL,
+                  'whitespace-nowrap tabular-nums',
+                  acHeaderCellBorder(6, 'mid'),
+                )}
+                style={{ gridRow: '2 / 4', gridColumn: '7 / 8' }}
+              >
+                {t('evm.planEnd')}
+              </div>
+              <div
+                className={cn(
+                  AC_HEADER_CELL,
+                  'whitespace-nowrap tabular-nums',
+                  acHeaderCellBorder(7, 'mid'),
+                )}
+                style={{ gridRow: '2 / 4', gridColumn: '8 / 9' }}
+              >
+                {t('evm.actualStart')}
+              </div>
+              <div
+                className={cn(
+                  AC_HEADER_CELL,
+                  'whitespace-nowrap tabular-nums',
+                  acHeaderCellBorder(8, 'mid'),
+                )}
+                style={{ gridRow: '2 / 4', gridColumn: '9 / 10' }}
+              >
+                {t('evm.actualEnd')}
+              </div>
+            </div>
+          </div>
+          <div className="flex min-w-0 flex-1 flex-col bg-muted" style={{ width: dayTimelinePx, minWidth: dayTimelinePx }}>
+            <div
+              className="box-border flex h-full min-h-0 w-full shrink-0 flex-row border-t border-r border-b border-solid border-border/80"
+              style={{ height: H, minHeight: H, width: dayTimelinePx }}
+            >
+              {weekBands.map((band, bi) => (
+                <div
+                  key={bi}
+                  className="flex h-full shrink-0 items-center justify-center border-r border-solid border-border/80 px-0 py-0 text-center text-foreground text-xs font-semibold leading-tight whitespace-nowrap last:border-r-0"
+                  style={{ width: band.len * DAY_COL_PX }}
+                >
+                  {band.label}
+                </div>
               ))}
-              <col style={{ minWidth: dayTimelinePx, width: dayTimelinePx }} />
-            </colgroup>
-            <thead className="bg-muted">
-              <TableRow className="bg-muted/40">
-                {stickyTh(0, 'tabular-nums', t('evm.tableNo'), 3)}
-                {stickyTh(1, 'whitespace-normal', t('evm.tablePhase'), 3)}
-                {stickyTh(2, 'whitespace-normal', t('evm.tableCategory'), 3)}
-                {stickyTh(3, 'whitespace-normal', t('evm.tableFeature'), 3)}
-                {stickyTh(4, 'whitespace-normal', t('evm.acColTask'), 3)}
-                {acPinColSpanTh(5, 2, t('evm.wbsSchedulePlanGroup'))}
-                {acPinColSpanTh(7, 2, t('evm.wbsScheduleActualGroup'))}
-                {stickyTh(9, 'tabular-nums', t('evm.wbsSchedulePctDone'), 3)}
-                {stickyTh(10, 'whitespace-normal', t('evm.tableAssignee'), 3)}
-                <th
-                  className="box-border border-t border-r border-b border-solid border-border/80 bg-muted p-0 align-stretch"
-                  style={{
-                    minWidth: dayTimelinePx,
-                    width: dayTimelinePx,
-                    height: EVM_SCHEDULE_TIMELINE_HEADER_ROW_PX,
-                  }}
-                >
-                  <div
-                    className="flex h-full min-h-0 w-full flex-row"
-                    style={{ width: dayTimelinePx, minHeight: EVM_SCHEDULE_TIMELINE_HEADER_ROW_PX }}
-                  >
-                    {weekBands.map((band, bi) => (
-                      <div
-                        key={bi}
-                        className="flex h-full shrink-0 items-center justify-center border-r border-solid border-border/80 px-0 py-0 text-center text-foreground text-xs font-semibold leading-tight whitespace-nowrap last:border-r-0"
-                        style={{ width: band.len * DAY_COL_PX }}
-                      >
-                        {band.label}
-                      </div>
-                    ))}
-                  </div>
-                </th>
-              </TableRow>
-              <TableRow className="bg-muted/90">
-                {acDetailTh(5, 'whitespace-nowrap tabular-nums', t('evm.planStart'), 2)}
-                {acDetailTh(6, 'whitespace-nowrap tabular-nums', t('evm.planEnd'), 2)}
-                {acDetailTh(7, 'whitespace-nowrap tabular-nums', t('evm.actualStart'), 2)}
-                {acDetailTh(8, 'whitespace-nowrap tabular-nums', t('evm.actualEnd'), 2)}
-                <th
-                  className="box-border border-r border-b border-solid border-border/80 bg-muted p-0 align-stretch"
-                  style={{
-                    minWidth: dayTimelinePx,
-                    width: dayTimelinePx,
-                    height: EVM_SCHEDULE_TIMELINE_HEADER_ROW_PX,
-                  }}
-                >
-                  <div
-                    className="relative box-border h-full! min-h-0"
-                    style={{
-                      width: colVirtualizer.getTotalSize(),
-                      minHeight: EVM_SCHEDULE_TIMELINE_HEADER_ROW_PX,
-                      height: EVM_SCHEDULE_TIMELINE_HEADER_ROW_PX,
-                    }}
-                  >
-                    {colVirtualizer.getVirtualItems().map(vc => {
-                      const meta = dayColMeta[vc.index]
-                      const pd = projectDays[vc.index]
-                      if (!meta || !pd) return null
-                      return (
-                        <div
-                          key={vc.key}
-                          className={cn(
-                            'absolute top-0 box-border flex h-full items-center justify-center border-r border-solid border-border/80 px-0 py-0 text-center text-foreground text-sm font-semibold tabular-nums last:border-r-0',
-                            meta.isWeekend && 'bg-zinc-400/25 dark:bg-zinc-600/35',
-                            !meta.isWeekend && 'bg-muted',
-                            meta.isReport && 'bg-amber-200/90 dark:bg-amber-900/45',
-                          )}
-                          style={{ left: vc.start - PIN_TOTAL, width: vc.size }}
-                          title={meta.isReport ? t('evm.resourceGridReportCol') : meta.ds}
-                        >
-                          {format(pd, 'd')}
-                        </div>
-                      )
-                    })}
-                  </div>
-                </th>
-              </TableRow>
-              <TableRow className="bg-muted/90">
-                <th
-                  className="box-border border-r border-b border-solid border-border/80 bg-muted p-0 align-stretch"
-                  style={{
-                    minWidth: dayTimelinePx,
-                    width: dayTimelinePx,
-                    height: EVM_SCHEDULE_TIMELINE_HEADER_ROW_PX,
-                  }}
-                >
-                  <div
-                    className="relative box-border h-full! min-h-0"
-                    style={{
-                      width: colVirtualizer.getTotalSize(),
-                      minHeight: EVM_SCHEDULE_TIMELINE_HEADER_ROW_PX,
-                      height: EVM_SCHEDULE_TIMELINE_HEADER_ROW_PX,
-                    }}
-                  >
-                    {colVirtualizer.getVirtualItems().map(vc => {
-                      const d = projectDays[vc.index]
-                      const meta = dayColMeta[vc.index]
-                      if (!d || !meta) return null
-                      return (
-                        <div
-                          key={vc.key}
-                          className={cn(
-                            'absolute top-0 box-border flex h-full items-center justify-center border-r border-solid border-border/80 px-0 py-0 text-center text-foreground text-xs font-semibold last:border-r-0',
-                            meta.isWeekend && 'bg-zinc-400/25 dark:bg-zinc-600/35',
-                            !meta.isWeekend && 'bg-muted',
-                            meta.isReport && 'bg-amber-200/90 dark:bg-amber-900/45',
-                          )}
-                          style={{ left: vc.start - PIN_TOTAL, width: vc.size }}
-                        >
-                          {WEEK_LETTERS[d.getDay()]}
-                        </div>
-                      )
-                    })}
-                  </div>
-                </th>
-              </TableRow>
-            </thead>
-          </table>
+            </div>
+            <div
+              className="relative box-border shrink-0 border-r border-b border-solid border-border/80 bg-muted"
+              style={{
+                width: dayTimelinePx,
+                height: H,
+                minHeight: H,
+              }}
+            >
+              <div
+                className="relative h-full min-h-0 w-full"
+                style={{
+                  width: colVirtualizer.getTotalSize(),
+                  height: H,
+                  minHeight: H,
+                }}
+              >
+                {colVirtualizer.getVirtualItems().map(vc => {
+                  const meta = dayColMeta[vc.index]
+                  const pd = projectDays[vc.index]
+                  if (!meta || !pd) return null
+                  return (
+                    <div
+                      key={vc.key}
+                      className={cn(
+                        'absolute top-0 box-border flex h-full items-center justify-center border-r border-solid border-border/80 px-0 py-0 text-center text-foreground text-sm font-semibold tabular-nums last:border-r-0',
+                        meta.isWeekend && 'bg-zinc-400/25 dark:bg-zinc-600/35',
+                        !meta.isWeekend && 'bg-muted',
+                        meta.isReport && 'bg-amber-200/90 dark:bg-amber-900/45',
+                      )}
+                      style={{ left: vc.start - PIN_TOTAL, width: vc.size, height: '100%' }}
+                      title={meta.isReport ? t('evm.resourceGridReportCol') : meta.ds}
+                    >
+                      {format(pd, 'd')}
+                    </div>
+                  )
+                })}
+              </div>
+            </div>
+            <div
+              className="relative box-border shrink-0 border-r border-b border-solid border-border/80 bg-muted text-sm"
+              style={{
+                width: dayTimelinePx,
+                height: H,
+                minHeight: H,
+              }}
+            >
+              <div
+                className="relative h-full min-h-0 w-full"
+                style={{
+                  width: colVirtualizer.getTotalSize(),
+                  height: H,
+                  minHeight: H,
+                }}
+              >
+                {colVirtualizer.getVirtualItems().map(vc => {
+                  const d = projectDays[vc.index]
+                  const meta = dayColMeta[vc.index]
+                  if (!d || !meta) return null
+                  return (
+                    <div
+                      key={vc.key}
+                      className={cn(
+                        'absolute top-0 box-border flex h-full items-center justify-center border-r border-solid border-border/80 px-0 py-0 text-center text-foreground text-xs font-semibold last:border-r-0',
+                        meta.isWeekend && 'bg-zinc-400/25 dark:bg-zinc-600/35',
+                        !meta.isWeekend && 'bg-muted',
+                        meta.isReport && 'bg-amber-200/90 dark:bg-amber-900/45',
+                      )}
+                      style={{ left: vc.start - PIN_TOTAL, width: vc.size, height: '100%' }}
+                    >
+                      {WEEK_LETTERS[d.getDay()]}
+                    </div>
+                  )
+                })}
+              </div>
+            </div>
+          </div>
         </div>
 
-        <table
-          className="border-separate border-spacing-0 text-sm"
-          style={{ display: 'block', width: tableMinWidth, minWidth: tableMinWidth }}
-        >
-          <colgroup>
-            {PIN_W.map((w, i) => (
-              <col key={i} style={{ width: w, minWidth: w }} />
-            ))}
-            <col style={{ minWidth: dayTimelinePx, width: dayTimelinePx }} />
-          </colgroup>
-          <tbody
-            className="relative block"
+        <div className="text-sm" style={{ width: tableMinWidth, minWidth: tableMinWidth }}>
+          <div
+            className="relative"
             style={{
               width: tableMinWidth,
               ...(sortedRows.length === 0 ? undefined : { height: rowVirtualizer.getTotalSize() }),
             }}
           >
             {sortedRows.length === 0 ? (
-              <TableRow style={{ display: 'table', width: '100%', tableLayout: 'fixed' }}>
-                <td
-                  colSpan={12}
-                  className="box-border border-t border-l border-r border-b border-solid border-border/60 px-2 py-8 text-center text-muted-foreground"
-                >
-                  {t('evm.acMatrixEmptyWbs')}
-                </td>
-              </TableRow>
+              <div
+                className="box-border flex w-full border-t border-l border-r border-b border-solid border-border/60 px-2 py-8 text-center text-muted-foreground"
+                style={{ minHeight: EVM_SCHEDULE_ROW_PX * 3 }}
+              >
+                {t('evm.acMatrixEmptyWbs')}
+              </div>
             ) : (
               rowVirtualizer.getVirtualItems().map(vr => {
                 const row = sortedRows[vr.index]
@@ -523,20 +505,15 @@ export function AcScheduleUnifiedTable() {
                 const taskLabel = row.task?.trim() ? row.task : '—'
 
                 return (
-                  <TableRow
+                  <div
                     key={row.id}
                     role="button"
                     tabIndex={0}
-                    className="hover:bg-muted cursor-pointer"
+                    className="hover:bg-muted absolute left-0 box-border flex w-full cursor-pointer"
                     style={{
-                      display: 'table',
-                      position: 'absolute',
                       top: vr.start,
-                      left: 0,
-                      width: '100%',
-                      tableLayout: 'fixed',
                       height: vr.size,
-                      boxSizing: 'border-box',
+                      minHeight: vr.size,
                     }}
                     onClick={() => setEditRow(row)}
                     onKeyDown={e => {
@@ -546,25 +523,33 @@ export function AcScheduleUnifiedTable() {
                       }
                     }}
                   >
-                    {stickyTd(0, ri, 'text-center font-mono tabular-nums', row.no)}
-                    {stickyTd(1, ri, 'max-w-[72px] truncate', row.phase ?? '—', row.phase ?? undefined)}
-                    {stickyTd(2, ri, 'max-w-[88px] truncate', row.category?.trim() ? row.category : '—')}
-                    {stickyTd(3, ri, 'max-w-[88px] truncate', row.feature?.trim() ? row.feature : '—')}
-                    {stickyTd(4, ri, 'truncate font-medium', taskLabel, taskLabel)}
-                    {stickyTd(5, ri, 'whitespace-nowrap', formatDateDisplay(row.planStartDate, i18n.language))}
-                    {stickyTd(6, ri, 'whitespace-nowrap', formatDateDisplay(row.planEndDate, i18n.language))}
-                    {stickyTd(7, ri, 'whitespace-nowrap', formatDateDisplay(row.actualStartDate, i18n.language))}
-                    {stickyTd(8, ri, 'whitespace-nowrap', formatDateDisplay(row.actualEndDate, i18n.language))}
-                    {stickyTd(9, ri, 'text-center tabular-nums', pctLabel)}
-                    {stickyTd(
-                      10,
-                      ri,
-                      'max-w-[96px] truncate',
-                      evmAssigneeDisplayName(master, row.assignee, assigneeNameFromWbs.get(row.assignee ?? '') ?? null),
-                    )}
-                    <td
-                      className="box-border border-r border-b border-solid border-border/50 p-0 align-stretch"
-                      style={{ minWidth: dayTimelinePx, width: dayTimelinePx }}
+                    <div
+                      className={cn(
+                        'sticky left-0 z-10 flex shrink-0 items-stretch self-stretch border-solid border-border/55',
+                        ri % 2 === 1 ? 'bg-muted' : 'bg-background',
+                      )}
+                      style={{ width: PIN_TOTAL, minWidth: PIN_TOTAL }}
+                    >
+                      {acBodyCell(0, ri, 'text-center font-mono tabular-nums', row.no)}
+                      {acBodyCell(1, ri, 'max-w-[72px] truncate justify-start', row.phase ?? '—', row.phase ?? undefined)}
+                      {acBodyCell(2, ri, 'max-w-[88px] truncate justify-start', row.category?.trim() ? row.category : '—')}
+                      {acBodyCell(3, ri, 'max-w-[88px] truncate justify-start', row.feature?.trim() ? row.feature : '—')}
+                      {acBodyCell(4, ri, 'truncate justify-start font-medium', taskLabel, taskLabel)}
+                      {acBodyCell(5, ri, 'whitespace-nowrap', formatDateDisplay(row.planStartDate, i18n.language))}
+                      {acBodyCell(6, ri, 'whitespace-nowrap', formatDateDisplay(row.planEndDate, i18n.language))}
+                      {acBodyCell(7, ri, 'whitespace-nowrap', formatDateDisplay(row.actualStartDate, i18n.language))}
+                      {acBodyCell(8, ri, 'whitespace-nowrap', formatDateDisplay(row.actualEndDate, i18n.language))}
+                      {acBodyCell(9, ri, 'text-center tabular-nums', pctLabel)}
+                      {acBodyCell(
+                        10,
+                        ri,
+                        'max-w-[96px] truncate justify-start',
+                        evmAssigneeDisplayName(master, row.assignee, assigneeNameFromWbs.get(row.assignee ?? '') ?? null),
+                      )}
+                    </div>
+                    <div
+                      className="relative shrink-0 self-stretch border-r border-b border-solid border-border/50"
+                      style={{ width: dayTimelinePx, minWidth: dayTimelinePx }}
                       onClick={e => e.stopPropagation()}
                       onKeyDown={e => e.stopPropagation()}
                     >
@@ -594,13 +579,13 @@ export function AcScheduleUnifiedTable() {
                           )
                         })}
                       </div>
-                    </td>
-                  </TableRow>
+                    </div>
+                  </div>
                 )
               })
             )}
-          </tbody>
-        </table>
+          </div>
+        </div>
       </div>
 
       <EditAcSheetDialog

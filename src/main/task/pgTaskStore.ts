@@ -22,7 +22,7 @@ function toMysqlDateTime(value: string | null | undefined): string | null {
 }
 
 export type TaskStatus = 'new' | 'in_progress' | 'in_review' | 'fixed' | 'cancelled' | 'done' | 'feedback'
-export type TaskType = 'bug' | 'feature' | 'support' | 'task'
+export type TaskType = 'bug' | 'feature' | 'support' | 'task' | 'milestone'
 export type TaskPriority = 'critical' | 'high' | 'medium' | 'low'
 
 export interface Task {
@@ -829,10 +829,10 @@ async function managementBaseParams(
   const { parts, params, isEmptyScope } = buildManagementWhereParts(visible, p, omitFacet)
   if (isEmptyScope) return { whereSql: '1=0', params: [], isEmptyScope: true }
   const role = (appRole || '').toLowerCase()
-  /** Dev chỉ được xem task mình được assign trong project thành viên (PL/PM không áp điều kiện này). */
+  /** Dev chỉ xem task được assign cho mình; milestone luôn hiển thị trong phạm vi project (cột mốc dùng chung). */
   if (role === 'dev') {
-    parts.push('t.assignee_user_id = ?')
-    params.push(userId)
+    parts.push('(t.assignee_user_id = ? OR COALESCE(t.type, \'bug\') = ?)')
+    params.push(userId, 'milestone')
   }
   return { whereSql: managementWhereClause(parts), params, isEmptyScope: false }
 }
@@ -889,8 +889,8 @@ export async function getManagementScopeMeta(userId: string, appRole: string): P
   }
   const role = (appRole || '').toLowerCase()
   if (role === 'dev') {
-    visParts.push('t.assignee_user_id = ?')
-    visParams.push(userId)
+    visParts.push('(t.assignee_user_id = ? OR COALESCE(t.type, \'bug\') = ?)')
+    visParams.push(userId, 'milestone')
   }
   const w = visParts.length > 0 ? visParts.join(' AND ') : '1=1'
   const [unRows, distRows] = await Promise.all([
@@ -1617,6 +1617,29 @@ export async function getTaskLinks(taskId: string): Promise<TaskLinksResponse> {
   }
 }
 
+/**
+ * Lấy tất cả task_links có liên quan đến một danh sách taskIds (from hoặc to).
+ * Dùng cho Gantt view để vẽ dependency arrows mà không cần N+1 queries.
+ */
+export async function getTaskLinksBulk(taskIds: string[]): Promise<{ id: string; fromTaskId: string; toTaskId: string; linkType: string }[]> {
+  if (!taskIds || taskIds.length === 0) return []
+  const placeholders = taskIds.map(() => '?').join(',')
+  const rows = await query<any[]>(
+    `SELECT id, from_task_id, to_task_id, link_type FROM task_links WHERE from_task_id IN (${placeholders}) OR to_task_id IN (${placeholders})`,
+    [...taskIds, ...taskIds]
+  )
+  if (!rows || rows.length === 0) return []
+  // Dedup (cùng link có thể match cả from và to nếu cả 2 đều trong list)
+  const seen = new Set<string>()
+  const result: { id: string; fromTaskId: string; toTaskId: string; linkType: string }[] = []
+  for (const r of rows) {
+    if (seen.has(r.id)) continue
+    seen.add(r.id)
+    result.push({ id: r.id, fromTaskId: r.from_task_id, toTaskId: r.to_task_id, linkType: r.link_type })
+  }
+  return result
+}
+
 export async function createTaskLink(taskId: string, toTaskId: string, linkType: string): Promise<TaskLink> {
   const lt = (linkType ?? '').trim()
   if (!lt) throw new Error('linkType is required')
@@ -1824,7 +1847,7 @@ export async function getUserRoles(userId: string): Promise<UserProjectRole[]> {
 }
 
 export async function getUserRolesForProject(userId: string, projectId: string | null): Promise<UserRole[]> {
-  const rows = await query<any[]>('SELECT role FROM user_project_roles WHERE user_id = ? AND (project_id <=> ?)', [userId, projectId])
+  const rows = await query<any[]>('SELECT role FROM user_project_roles WHERE user_id = ? AND (project_id IS NOT DISTINCT FROM ?)', [userId, projectId])
   const roles = [...new Set((rows || []).map(r => r.role))]
   if (projectId) {
     const globalRows = await query<any[]>('SELECT role FROM user_project_roles WHERE user_id = ? AND project_id IS NULL', [userId])
@@ -1839,14 +1862,14 @@ export async function setUserProjectRole(userId: string, projectId: string | nul
     const proj = await query<any[]>('SELECT id FROM projects WHERE id = ?', [projectId])
     if (!proj?.length) throw new Error('Project not found')
   }
-  const existing = await query<any[]>('SELECT id FROM user_project_roles WHERE user_id = ? AND (project_id <=> ?) AND role = ?', [userId, projectId, role])
+  const existing = await query<any[]>('SELECT id FROM user_project_roles WHERE user_id = ? AND (project_id IS NOT DISTINCT FROM ?) AND role = ?', [userId, projectId, role])
   if (existing?.length) return
   const id = randomUuidV7()
   await query('INSERT INTO user_project_roles (id, user_id, project_id, role) VALUES (?, ?, ?, ?)', [id, userId, projectId, role])
 }
 
 export async function removeUserProjectRole(userId: string, projectId: string | null, role: UserRole): Promise<void> {
-  await query('DELETE FROM user_project_roles WHERE user_id = ? AND (project_id <=> ?) AND role = ?', [userId, projectId, role])
+  await query('DELETE FROM user_project_roles WHERE user_id = ? AND (project_id IS NOT DISTINCT FROM ?) AND role = ?', [userId, projectId, role])
 }
 
 export interface ProjectMember {
@@ -1883,7 +1906,7 @@ export async function getProjectMembers(projectId: string): Promise<ProjectMembe
 }
 
 export async function hasRole(userId: string, projectId: string | null, role: UserRole): Promise<boolean> {
-  const rows = await query<any[]>('SELECT 1 FROM user_project_roles WHERE user_id = ? AND (project_id <=> ?) AND role = ? LIMIT 1', [userId, projectId, role])
+  const rows = await query<any[]>('SELECT 1 FROM user_project_roles WHERE user_id = ? AND (project_id IS NOT DISTINCT FROM ?) AND role = ? LIMIT 1', [userId, projectId, role])
   if (rows?.length) return true
   if (projectId) {
     const globalRows = await query<any[]>('SELECT 1 FROM user_project_roles WHERE user_id = ? AND project_id IS NULL AND role = ? LIMIT 1', [userId, role])
@@ -2496,7 +2519,7 @@ export async function getCodingRuleContentByIdOrName(idOrName: string, options?:
   if (options?.userId?.trim() && options?.sourceFolderPath?.trim()) {
     projectId = await getProjectIdByUserAndPath(options.userId.trim(), options.sourceFolderPath.trim())
   }
-  const rows = await query<any[]>('SELECT content FROM coding_rules WHERE name = ? AND (project_id <=> ?)', [idOrName, projectId])
+  const rows = await query<any[]>('SELECT content FROM coding_rules WHERE name = ? AND (project_id IS NOT DISTINCT FROM ?)', [idOrName, projectId])
   const r = rows?.[0]
   return r?.content ?? null
 }
@@ -2549,7 +2572,7 @@ export async function createCodingRule(input: CreateCodingRuleInput): Promise<Co
   } else {
     if (!isAdmin) throw new Error('Chỉ admin mới được tạo rule áp dụng toàn bộ dự án')
   }
-  const existing = await query<any[]>('SELECT id FROM coding_rules WHERE name = ? AND (project_id <=> ?)', [name.trim(), projectId])
+  const existing = await query<any[]>('SELECT id FROM coding_rules WHERE name = ? AND (project_id IS NOT DISTINCT FROM ?)', [name.trim(), projectId])
   if (existing?.length) throw new Error('Tên rule đã tồn tại trong phạm vi này')
   const id = randomUuidV7()
   await query('INSERT INTO coding_rules (id, name, content, project_id, created_by) VALUES (?, ?, ?, ?, ?)', [id, name.trim(), content, projectId, createdBy])
@@ -2575,7 +2598,7 @@ export async function updateCodingRule(id: string, input: { name?: string; conte
   if (input.name?.trim()) {
     const crRow = await query<any[]>('SELECT project_id FROM coding_rules WHERE id = ?', [id])
     const projectId = crRow?.[0]?.project_id ?? null
-    const existing = await query<any[]>('SELECT id FROM coding_rules WHERE name = ? AND (project_id <=> ?) AND id != ?', [input.name.trim(), projectId, id])
+    const existing = await query<any[]>('SELECT id FROM coding_rules WHERE name = ? AND (project_id IS NOT DISTINCT FROM ?) AND id != ?', [input.name.trim(), projectId, id])
     if (existing?.length) throw new Error('Tên rule đã tồn tại trong phạm vi này')
     await query('UPDATE coding_rules SET name = ?, updated_at = NOW() WHERE id = ?', [input.name.trim(), id])
   }

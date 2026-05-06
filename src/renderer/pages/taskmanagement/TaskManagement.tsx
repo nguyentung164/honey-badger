@@ -13,6 +13,7 @@ import {
   CheckCircle,
   Circle,
   Columns3,
+  Diamond,
   Eye,
   FileDown,
   Headphones,
@@ -78,7 +79,7 @@ import { useTaskAuthStore } from '@/stores/useTaskAuthStore'
 import type { ChartTask } from './chartDataUtils'
 import { TaskBulkActionsBar } from './TaskBulkActionsBar'
 import { TaskCalendarView } from './TaskCalendarView'
-import { TaskGanttView } from './TaskGanttView'
+import { TaskGanttView, type GanttTaskLink } from './TaskGanttView'
 import type { WorkloadData, WorkloadOverrideUpsertInput } from './TaskGanttWorkload'
 import { TaskKanbanBoard } from './TaskKanbanBoard'
 import { TaskSavedViewsPopover } from './TaskSavedViewsPopover'
@@ -235,6 +236,7 @@ interface Task {
   createdByAvatarUrl?: string | null
   updatedByName?: string
   updatedByAvatarUrl?: string | null
+  parentId?: string | null
   version?: number
 }
 
@@ -401,6 +403,99 @@ function appliedMgmtFromSavedViewSnapshot(snap: TaskManagementSavedViewSnapshot)
   }
 }
 
+type WorkloadUpsertApiResult = { deleted?: boolean; overrideHours?: number | null }
+
+/** Cập nhật `days` ngay sau upsert override để ô phản ánh đúng; refetch vẫn chạy sau để đồng bộ server. */
+function applyWorkloadOverrideToState(
+  prev: WorkloadData | null,
+  input: WorkloadOverrideUpsertInput,
+  result: WorkloadUpsertApiResult | undefined
+): WorkloadData | null {
+  if (!prev) return prev
+  const date = input.workDate.trim().slice(0, 10)
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) return prev
+
+  const deleted = result?.deleted === true
+  const nextOverride: number | null = deleted ? null : ((result?.overrideHours ?? input.overrideHours) ?? null)
+
+  const idx = prev.days.findIndex(d => d.userId === input.userId && d.date === date)
+
+  if (deleted) {
+    if (idx < 0) return prev
+    return {
+      ...prev,
+      days: prev.days.map((d, i) => (i === idx ? { ...d, overrideHours: null, actualWorkHours: null } : d)),
+    }
+  }
+
+  type Day = WorkloadData['days'][number]
+  const patched: Day =
+    idx >= 0
+      ? { ...prev.days[idx], overrideHours: nextOverride }
+      : {
+          userId: input.userId,
+          date,
+          derivedHours: 0,
+          actualWorkHours: null,
+          overrideHours: nextOverride,
+          taskCount: 0,
+          taskIds: [],
+        }
+
+  if (idx >= 0) {
+    return { ...prev, days: prev.days.map((d, i) => (i === idx ? patched : d)) }
+  }
+  return { ...prev, days: [...prev.days, patched] }
+}
+
+type WorkloadOverridePendingPatch = {
+  userId: string
+  date: string
+  overrideHours: number | null
+  deleted: boolean
+}
+
+function workloadHoursOverrideMatch(a: number | null | undefined, b: number | null | undefined): boolean {
+  const na = a == null || (typeof a === 'number' && Number.isNaN(a)) ? null : Number(a)
+  const nb = b == null || (typeof b === 'number' && Number.isNaN(b)) ? null : Number(b)
+  if (na === null && nb === null) return true
+  if (na === null || nb === null) return false
+  return Math.abs(na - nb) < 1e-6
+}
+
+/**
+ * GET đôi khi thiếu vài ô override; mỗi lần refetch gộp lại **tất cả** patch đã lưu thành công gần đây.
+ * Gỡ patch khỏi map khi giá trị server đã khớp.
+ */
+function mergeWorkloadServerWithPendingPatches(
+  server: WorkloadData,
+  patches: Map<string, WorkloadOverridePendingPatch>
+): WorkloadData {
+  const toRemove: string[] = []
+  let next: WorkloadData = server
+
+  for (const [, p] of patches) {
+    const cell = next.days.find(d => d.userId === p.userId && d.date === p.date)
+    const wantOh = p.deleted ? null : p.overrideHours
+    if (workloadHoursOverrideMatch(cell?.overrideHours, wantOh)) {
+      toRemove.push(`${p.userId}|${p.date}`)
+      continue
+    }
+    const input: WorkloadOverrideUpsertInput = {
+      userId: p.userId,
+      workDate: p.date,
+      overrideHours: p.overrideHours,
+      note: null,
+    }
+    const result: WorkloadUpsertApiResult = p.deleted ? { deleted: true } : { overrideHours: p.overrideHours ?? null }
+    const merged = applyWorkloadOverrideToState(next, input, result)
+    if (merged) next = merged
+  }
+
+  for (const k of toRemove) patches.delete(k)
+  return next
+}
+
 export function TaskManagement({ embedded = false }: { embedded?: boolean }) {
   const { t } = useTranslation()
   const location = useLocation()
@@ -493,10 +588,13 @@ export function TaskManagement({ embedded = false }: { embedded?: boolean }) {
   const [boardTotal, setBoardTotal] = useState(0)
   const [boardTruncated, setBoardTruncated] = useState(false)
   const [boardLoading, setBoardLoading] = useState(false)
+  const [ganttTaskLinks, setGanttTaskLinks] = useState<GanttTaskLink[]>([])
   /** Workload Gantt section: chỉ active khi taskView === 'gantt' và đúng 1 project được chọn. */
   const [workloadData, setWorkloadData] = useState<WorkloadData | null>(null)
   const [workloadLoading, setWorkloadLoading] = useState(false)
   const workloadRequestIdRef = useRef(0)
+  /** Override vừa lưu (theo ô) — merge sau mỗi GET cho đến khi server khớp. */
+  const workloadOverridePatchesRef = useRef<Map<string, WorkloadOverridePendingPatch>>(new Map())
   const [savedViews, setSavedViews] = useState<TaskManagementSavedView[]>([])
   const [selectedTaskIds, setSelectedTaskIds] = useState(() => new Set<string>())
   const boardManagementRequestIdRef = useRef(0)
@@ -1554,6 +1652,19 @@ export function TaskManagement({ embedded = false }: { embedded?: boolean }) {
     }
   }, [activeTab, taskView, isAuthChecked, isLoading, taskApiOk, mgmtApiFilters, listRevision, taskListFiltersKey, t, clearSession])
 
+  // Load dependency links cho Gantt view mỗi khi boardTasks thay đổi
+  useEffect(() => {
+    if (taskView !== 'gantt' || boardTasks.length === 0) {
+      setGanttTaskLinks([])
+      return
+    }
+    const ids = boardTasks.map(t => t.id)
+    void window.api.task.getTaskLinksBulk(ids).then(res => {
+      if (res.status === 'success') setGanttTaskLinks(res.data ?? [])
+      else setGanttTaskLinks([])
+    })
+  }, [taskView, boardTasks])
+
   const totalPages = Math.max(1, Math.ceil(totalCount / pageSize))
 
   useEffect(() => {
@@ -1791,6 +1902,8 @@ export function TaskManagement({ embedded = false }: { embedded?: boolean }) {
         return <Headphones className="h-4 w-4 shrink-0" />
       case 'task':
         return <ListTodo className="h-4 w-4 shrink-0" />
+      case 'milestone':
+        return <Diamond className="h-4 w-4 shrink-0" />
       default:
         return null
     }
@@ -1804,6 +1917,7 @@ export function TaskManagement({ embedded = false }: { embedded?: boolean }) {
       feature: 'bg-violet-500/20 text-violet-700 dark:text-violet-400',
       support: 'bg-teal-500/20 text-teal-700 dark:text-teal-400',
       task: 'bg-blue-500/20 text-blue-700 dark:text-blue-400',
+      milestone: 'bg-amber-500/20 text-amber-700 dark:text-amber-400',
     }
     const colors = colorMap[typeCode] ?? 'bg-slate-500/15 text-slate-700 dark:text-slate-400'
     const ringMap: Record<string, string> = {
@@ -1811,6 +1925,7 @@ export function TaskManagement({ embedded = false }: { embedded?: boolean }) {
       feature: 'ring-violet-500/50',
       support: 'ring-teal-500/50',
       task: 'ring-blue-500/50',
+      milestone: 'ring-amber-500/50',
     }
     const ring = isFilterActive ? (ringMap[typeCode] ?? 'ring-slate-500/50') : ''
     return cn(base, active, colors, ring)
@@ -1858,6 +1973,7 @@ export function TaskManagement({ embedded = false }: { embedded?: boolean }) {
     if (taskView !== 'gantt' || !workloadProjectId) {
       setWorkloadData(null)
       setWorkloadLoading(false)
+      workloadOverridePatchesRef.current.clear()
       return
     }
     const reqId = ++workloadRequestIdRef.current
@@ -1865,17 +1981,27 @@ export function TaskManagement({ embedded = false }: { embedded?: boolean }) {
     try {
       const res = await window.api.task.workload.get({ projectId: workloadProjectId, from: workloadFromIso, to: workloadToIso })
       if (reqId !== workloadRequestIdRef.current) return
-      if (res?.status === 'success' && res.data) {
-        setWorkloadData(res.data as WorkloadData)
+      if (res?.status === 'success') {
+        if (res.data) {
+          setWorkloadData(mergeWorkloadServerWithPendingPatches(res.data as WorkloadData, workloadOverridePatchesRef.current))
+        }
       } else {
         setWorkloadData(null)
+        workloadOverridePatchesRef.current.clear()
       }
     } catch {
-      if (reqId === workloadRequestIdRef.current) setWorkloadData(null)
+      if (reqId === workloadRequestIdRef.current) {
+        setWorkloadData(null)
+        workloadOverridePatchesRef.current.clear()
+      }
     } finally {
       if (reqId === workloadRequestIdRef.current) setWorkloadLoading(false)
     }
   }, [taskView, workloadProjectId, workloadFromIso, workloadToIso])
+
+  useEffect(() => {
+    workloadOverridePatchesRef.current.clear()
+  }, [workloadProjectId])
 
   useEffect(() => {
     void fetchWorkload()
@@ -1900,6 +2026,19 @@ export function TaskManagement({ embedded = false }: { embedded?: boolean }) {
           }
           return
         }
+        const apiResult = res.data as WorkloadUpsertApiResult | undefined
+        const date = input.workDate.trim().slice(0, 10)
+        if (/^\d{4}-\d{2}-\d{2}$/.test(date)) {
+          const deleted = apiResult?.deleted === true
+          const oh = deleted ? null : ((apiResult?.overrideHours ?? input.overrideHours) ?? null)
+          workloadOverridePatchesRef.current.set(`${input.userId}|${date}`, {
+            userId: input.userId,
+            date,
+            overrideHours: oh,
+            deleted,
+          })
+        }
+        setWorkloadData(prev => applyWorkloadOverrideToState(prev, input, apiResult))
         await fetchWorkload()
       } catch (err: unknown) {
         const msg = err instanceof Error ? err.message : String(err)
@@ -2918,10 +3057,10 @@ export function TaskManagement({ embedded = false }: { embedded?: boolean }) {
                             workloadLoading={workloadLoading}
                             workloadMultiProject={workloadMultiProject}
                             onUpsertWorkloadOverride={handleUpsertWorkloadOverride}
+                            taskLinks={ganttTaskLinks}
                             labels={{
                               week: t('taskManagement.ganttScaleWeek'),
                               month: t('taskManagement.ganttScaleMonth'),
-                              twoWeek: t('taskManagement.ganttScaleTwoWeek'),
                               monthly: t('taskManagement.ganttScaleMonthly'),
                               unscheduled: t('taskManagement.ganttUnscheduled'),
                               zoom: t('taskManagement.ganttZoom'),
@@ -2936,6 +3075,7 @@ export function TaskManagement({ embedded = false }: { embedded?: boolean }) {
                               resizeLabelColumn: t('taskManagement.ganttResizeLabelColumn'),
                               gridBordersSwitch: t('taskManagement.ganttGridBordersSwitch'),
                               gridBordersHelp: t('taskManagement.ganttGridBordersHelp'),
+                              milestoneLabel: t('taskManagement.ganttMilestoneLabel'),
                             }}
                           />
                         )}

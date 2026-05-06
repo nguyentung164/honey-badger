@@ -265,6 +265,7 @@ declare global {
           reportDate: string
           projectIds?: string[]
           selectedUserProjectSourceFolderIds?: string[] | null
+          hoursPerProject?: Record<string, number | null>
         }) => Promise<{ status: string; message?: string }>
         getMine: (reportDate: string) => Promise<{ status: string; data?: any; message?: string }>
         getCommitsToday: (params: {
@@ -616,6 +617,7 @@ declare global {
         getTaskChildren: (taskId: string) => Promise<{ status: string; data?: any; message?: string }>
         createTaskChild: (taskId: string, input: any) => Promise<{ status: string; data?: any; message?: string }>
         getTaskLinks: (taskId: string) => Promise<{ status: string; data?: any; message?: string }>
+        getTaskLinksBulk: (taskIds: string[]) => Promise<{ status: string; data?: { id: string; fromTaskId: string; toTaskId: string; linkType: string }[]; message?: string }>
         createTaskLink: (taskId: string, toTaskId: string, linkType: string) => Promise<{ status: string; data?: any; message?: string }>
         deleteTaskLink: (taskId: string, linkId: string, version?: number) => Promise<{ status: string; message?: string }>
         getFavoriteTaskIds: () => Promise<{ status: string; data?: string[]; message?: string }>
@@ -659,7 +661,7 @@ declare global {
             code?: string
             data?: {
               users: { userId: string; name: string; userCode: string; role: 'pm' | 'pl' | 'dev' }[]
-              days: { userId: string; date: string; derivedHours: number; overrideHours: number | null; taskCount: number; taskIds: string[] }[]
+              days: { userId: string; date: string; derivedHours: number; actualWorkHours: number | null; overrideHours: number | null; taskCount: number; taskIds: string[] }[]
               hoursPerDay: number
               nonWorkingDates: string[]
               canEditAll: boolean
@@ -1520,6 +1522,7 @@ contextBridge.exposeInMainWorld('api', {
     getTaskChildren: (taskId: string) => ipcRenderer.invoke(IPC.TASK.GET_TASK_CHILDREN, taskId),
     createTaskChild: (taskId: string, input: any) => ipcRenderer.invoke(IPC.TASK.CREATE_TASK_CHILD, taskId, input),
     getTaskLinks: (taskId: string) => ipcRenderer.invoke(IPC.TASK.GET_TASK_LINKS, taskId),
+    getTaskLinksBulk: (taskIds: string[]) => ipcRenderer.invoke(IPC.TASK.GET_TASK_LINKS_BULK, taskIds),
     createTaskLink: (taskId: string, toTaskId: string, linkType: string) => ipcRenderer.invoke(IPC.TASK.CREATE_TASK_LINK, taskId, toTaskId, linkType),
     deleteTaskLink: (taskId: string, linkId: string, version?: number) => ipcRenderer.invoke(IPC.TASK.DELETE_TASK_LINK, taskId, linkId, version),
     getFavoriteTaskIds: () => ipcRenderer.invoke(IPC.TASK.GET_FAVORITE_TASK_IDS),

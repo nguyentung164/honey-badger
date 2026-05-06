@@ -2,6 +2,7 @@ import { parseISO } from 'date-fns'
 import { randomUuidV7 } from 'shared/randomUuidV7'
 import { query, withTransaction } from './db'
 import { getProjectMembers } from './pgTaskStore'
+import { upsertActualWorkHoursInTransaction } from './pgWorkloadStore'
 
 export interface SelectedSourceFolderRef {
   id: string
@@ -41,6 +42,8 @@ export interface DailyReportRecord {
   updatedAt: string
   /** Chuẩn hóa cho UI (PL detail) */
   vcsType?: string | null
+  /** Giờ thực tế đã khai (project_user_daily_workload) theo project_id */
+  hoursPerProject?: Record<string, number>
 }
 
 function parseSelectedCommitsFromDb(raw: unknown): SelectedCommit[] | null {
@@ -79,6 +82,8 @@ export interface DailyReportInput {
   projectId?: string | null
   /** Id bảng user_project_source_folder, theo thứ tự hiển thị */
   selectedUserProjectSourceFolderIds?: string[] | null
+  /** Giờ làm thực tế theo project (daily report → project_user_daily_workload.actual_work_hours). Chỉ cập nhật các key có trong object. */
+  hoursPerProject?: Record<string, number | null>
 }
 
 function parseProjectIds(raw: unknown): string[] {
@@ -187,6 +192,20 @@ export async function saveDailyReport(userId: string, input: DailyReportInput): 
       await txQuery(`INSERT INTO daily_report_source_folders (daily_report_id, user_project_source_folder_id, sort_order) VALUES (?, ?, ?)`, [reportId, upsfId, sortOrder])
       sortOrder += 1
     }
+
+    const reportDateKey = String(input.reportDate || '').trim().slice(0, 10)
+    const hpp = input.hoursPerProject
+    if (hpp && /^\d{4}-\d{2}-\d{2}$/.test(reportDateKey)) {
+      for (const pid of projectIds) {
+        if (!Object.hasOwn(hpp, pid)) continue
+        const raw = hpp[pid]
+        await upsertActualWorkHoursInTransaction(
+          txQuery,
+          { projectId: pid, userId, workDate: reportDateKey, actualWorkHours: raw ?? null },
+          userId
+        )
+      }
+    }
   })
 }
 
@@ -214,6 +233,26 @@ export async function getDailyReportByUserAndDate(userId: string, reportDate: st
   const selectedCommits = parseSelectedCommitsFromDb(r.selected_commits)
   const selectedSourceFolders = await loadSelectedSourceFoldersForReport(r.id)
   const selectedSourceFolderPaths = selectedSourceFolders.length > 0 ? selectedSourceFolders.map(f => f.path) : null
+
+  let hoursPerProject: Record<string, number> | undefined
+  if (resolvedProjectIds.length > 0) {
+    const ph = resolvedProjectIds.map(() => '?').join(',')
+    const hw = await query<{ project_id: string; actual_work_hours: unknown }[]>(
+      `SELECT project_id, actual_work_hours FROM project_user_daily_workload WHERE user_id = ? AND work_date = ?::date AND project_id IN (${ph})`,
+      [userId, r.report_date, ...resolvedProjectIds]
+    )
+    if (Array.isArray(hw) && hw.length > 0) {
+      hoursPerProject = {}
+      for (const row of hw) {
+        const ah = row.actual_work_hours
+        if (ah != null && ah !== '' && Number.isFinite(Number(ah))) {
+          hoursPerProject[String(row.project_id)] = Number(ah)
+        }
+      }
+      if (Object.keys(hoursPerProject).length === 0) hoursPerProject = undefined
+    }
+  }
+
   return {
     id: r.id,
     userId: r.user_id,
@@ -228,6 +267,7 @@ export async function getDailyReportByUserAndDate(userId: string, reportDate: st
     createdAt: r.created_at,
     updatedAt: r.updated_at,
     vcsType: deriveVcsTypeFromCommits(selectedCommits),
+    hoursPerProject,
   }
 }
 

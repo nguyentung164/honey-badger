@@ -37,6 +37,7 @@ export interface TaskTableRowTask {
   createdAt: string
   updatedAt: string
   createdBy: string
+  parentId?: string | null
   version?: number
 }
 

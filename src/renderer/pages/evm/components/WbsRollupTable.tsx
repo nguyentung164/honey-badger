@@ -2,7 +2,7 @@
 
 import { useVirtualizer } from '@tanstack/react-virtual'
 import { eachDayOfInterval, format, isSameWeek } from 'date-fns'
-import { type ReactNode, type RefObject, type UIEvent, useCallback, useMemo, useRef, useState } from 'react'
+import { type CSSProperties, type ReactNode, type RefObject, type UIEvent, useCallback, useMemo, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import type { EVMMaster, EVMProject, WBSRow, WbsMasterRow } from 'shared/types/evm'
 import { Button } from '@/components/ui/button'
@@ -10,7 +10,6 @@ import { Combobox } from '@/components/ui/combobox'
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
-import { TableBody, TableRow } from '@/components/ui/table'
 import toast from '@/components/ui-elements/Toast'
 import { formatDateDisplay, parseLocalDate, toYyyyMmDd } from '@/lib/dateUtils'
 import {
@@ -38,15 +37,6 @@ const WEEK_LETTERS = ['S', 'M', 'T', 'W', 'T', 'F', 'S'] as const
 /** Cột meta ghim — cùng chỉ số/độ rộng với WBS Schedule detail (`EVM_WBS_PINNED_COL_WIDTHS`). */
 const META_PIN = EVM_WBS_PINNED_COL_WIDTHS
 
-function metaPinLeft(i: number): number {
-  let s = 0
-  for (let j = 0; j < i && j < META_PIN.length; j++) {
-    const w = META_PIN[j]
-    if (w !== undefined) s += w
-  }
-  return s
-}
-
 function metaPinWidth(from: number, to: number): number {
   let s = 0
   for (let j = from; j < to && j < META_PIN.length; j++) {
@@ -56,86 +46,25 @@ function metaPinWidth(from: number, to: number): number {
   return s
 }
 
-/** border-separate: chỉ r+b (+ t/l mép) — tránh viền dày gấp đôi giữa hai ô. */
-const META_STICKY_TH_BASE =
-  'sticky z-40 box-border border-solid border-border/80 bg-muted text-foreground text-center align-middle text-sm font-semibold leading-tight'
+const META_STICKY_HEADER_CELL =
+  'box-border border-solid border-border/80 bg-muted text-foreground text-center text-sm font-semibold leading-tight flex items-center justify-center px-1 py-1'
 
-function metaHeaderThEdges(colIndex: number) {
-  return colIndex === 0 ? 'border-t border-l border-r border-b' : 'border-t border-r border-b'
+const META_PIN_GRID_TEMPLATE_COLS = META_PIN.map(w => `${w}px`).join(' ')
+
+function metaHeaderCellBorder(colIndex: number, row: 'top' | 'mid' | 'bot') {
+  const l = colIndex === 0 ? 'border-l' : ''
+  const t = row === 'top' ? 'border-t' : ''
+  const b = 'border-b'
+  const r = 'border-r'
+  return cn(l, t, b, r)
 }
 
-/** Ô ghim hàng 1 (rowspan) — cạnh ô gộp colspan không bị đứt nhờ box-border. */
-function metaHeaderTh(colIndex: number, className: string, children: ReactNode, rowSpan: number) {
-  return (
-    <th
-      rowSpan={rowSpan}
-      className={cn(META_STICKY_TH_BASE, 'px-1 py-1', metaHeaderThEdges(colIndex), className)}
-      style={{
-        left: metaPinLeft(colIndex),
-        width: META_PIN[colIndex],
-        minWidth: META_PIN[colIndex],
-        maxWidth: colIndex === 4 ? 160 : META_PIN[colIndex],
-      }}
-    >
-      <span
-        className="flex items-center justify-center gap-0.5"
-        style={{ minHeight: rowSpan * EVM_SCHEDULE_TIMELINE_HEADER_ROW_PX }}
-      >
-        {children}
-      </span>
-    </th>
-  )
+function metaBodyCellBorder(colIndex: number) {
+  const edge = colIndex === 0 ? 'border-l border-r border-b' : 'border-r border-b'
+  return edge
 }
 
-/** Một ô header nhóm (colspan) ghim trái. */
-function metaGroupTh(fromCol: number, toCol: number, className: string, children: ReactNode) {
-  const span = toCol - fromCol
-  return (
-    <th
-      colSpan={span}
-      className={cn(META_STICKY_TH_BASE, 'border-t border-r border-b', className)}
-      style={{
-        left: metaPinLeft(fromCol),
-        width: metaPinWidth(fromCol, toCol),
-        minWidth: metaPinWidth(fromCol, toCol),
-      }}
-    >
-      <span
-        className="flex items-center justify-center gap-0.5 text-center leading-tight"
-        style={{ minHeight: EVM_SCHEDULE_TIMELINE_HEADER_ROW_PX }}
-      >
-        {children}
-      </span>
-    </th>
-  )
-}
-
-function metaDetailTh(colIndex: number, className: string, children: ReactNode, rowSpan?: number) {
-  const rs = rowSpan ?? 1
-  const spanMin = rs * EVM_SCHEDULE_TIMELINE_HEADER_ROW_PX
-  return (
-    <th
-      rowSpan={rs > 1 ? rs : undefined}
-      className={cn(
-        META_STICKY_TH_BASE,
-        'border-r border-b px-1 py-0.5 text-sm leading-tight',
-        className,
-      )}
-      style={{
-        left: metaPinLeft(colIndex),
-        width: META_PIN[colIndex],
-        minWidth: META_PIN[colIndex],
-        maxWidth: colIndex === 4 ? 160 : META_PIN[colIndex],
-      }}
-    >
-      <span className="flex items-center justify-center gap-0.5" style={{ minHeight: spanMin }}>
-        {children}
-      </span>
-    </th>
-  )
-}
-
-function metaStickyTd(
+function metaBodyCell(
   colIndex: number,
   rowParity: number,
   className: string,
@@ -144,20 +73,19 @@ function metaStickyTd(
 ) {
   const bg = rowParity % 2 === 1 ? 'bg-muted' : 'bg-background'
   const w = META_PIN[colIndex] ?? 40
-  const edge = colIndex === 0 ? 'border-l border-r border-b' : 'border-r border-b'
   return (
-    <td
+    <div
       className={cn(
-        'sticky z-10 box-border border-solid border-border/55 px-1 py-0.5 text-sm',
-        edge,
+        'box-border shrink-0 border-solid border-border/55 px-1 py-0.5 text-sm flex items-center justify-center min-h-0 overflow-hidden',
+        metaBodyCellBorder(colIndex),
         bg,
         className,
       )}
-      style={{ left: metaPinLeft(colIndex), width: w, minWidth: w, maxWidth: colIndex === 4 ? 160 : w }}
+      style={{ width: w, minWidth: w, maxWidth: colIndex === 4 ? 160 : w }}
       title={title}
     >
       {children}
-    </td>
+    </div>
   )
 }
 
@@ -208,6 +136,8 @@ function computeProjectDays(project: EVMProject): Date[] {
   if (end < start) return []
   return eachDayOfInterval({ start, end })
 }
+
+const H = EVM_SCHEDULE_TIMELINE_HEADER_ROW_PX
 
 export function WbsRollupTable({
   master,
@@ -318,16 +248,19 @@ export function WbsRollupTable({
   const [note, setNote] = useState('')
   const [assignee, setAssignee] = useState('')
 
-  const openEdit = useCallback((r: WbsMasterRollupRow) => {
-    setEditing(r)
-    setPhase(r.phase)
-    setCategory(r.category)
-    setFeature(r.feature)
-    setNote(r.note)
-    const masterRec = r.masterId ? wbsMaster.find(m => m.id === r.masterId) : undefined
-    setAssignee(masterRec?.assignee ?? '')
-    setEditOpen(true)
-  }, [wbsMaster])
+  const openEdit = useCallback(
+    (r: WbsMasterRollupRow) => {
+      setEditing(r)
+      setPhase(r.phase)
+      setCategory(r.category)
+      setFeature(r.feature)
+      setNote(r.note)
+      const masterRec = r.masterId ? wbsMaster.find(m => m.id === r.masterId) : undefined
+      setAssignee(masterRec?.assignee ?? '')
+      setEditOpen(true)
+    },
+    [wbsMaster],
+  )
 
   const applyBulk = useCallback(async () => {
     if (!editing) return
@@ -368,7 +301,18 @@ export function WbsRollupTable({
   }, [editing, wbsAll, phase, category, feature, note, assignee, updateWbsRow, updateWbsMaster, t])
 
   const hasTimeline = projectDays.length > 0
-  const rollupColSpan = META_PIN.length + 1
+
+  const pinnedHeaderGridStyle = useMemo(
+    (): CSSProperties => ({
+      display: 'grid',
+      gridTemplateColumns: META_PIN_GRID_TEMPLATE_COLS,
+      gridTemplateRows: `repeat(3, ${H}px)`,
+      width: metaPinTotalPx,
+      minWidth: metaPinTotalPx,
+      boxSizing: 'border-box',
+    }),
+    [metaPinTotalPx],
+  )
 
   return (
     <>
@@ -381,196 +325,498 @@ export function WbsRollupTable({
           {hasTimeline ? (
             <>
               <div
-                className="sticky top-0 z-[35] bg-muted shadow-[0_1px_0_0_var(--border)]"
+                className="sticky top-0 z-[35] flex shrink-0 bg-muted shadow-[0_1px_0_0_var(--border)]"
                 style={{ width: tableMinWidth, minWidth: tableMinWidth }}
               >
-                <table
-                  className="border-separate border-spacing-0 text-sm"
-                  style={{ width: tableMinWidth, tableLayout: 'fixed' }}
-                >
-                  <colgroup>
-                    {META_PIN.map((w, i) => (
-                      <col key={i} style={{ width: w, minWidth: w }} />
+                <div className="sticky left-0 z-40 shrink-0 bg-muted" style={{ width: metaPinTotalPx }}>
+                  <div className="text-sm" style={pinnedHeaderGridStyle}>
+                    <div
+                      className={cn(META_STICKY_HEADER_CELL, metaHeaderCellBorder(0, 'top'))}
+                      style={{ gridRow: '1 / 4', gridColumn: '1 / 2' }}
+                    >
+                      {t('evm.tableNo')}
+                    </div>
+                    <div
+                      className={cn(META_STICKY_HEADER_CELL, 'border-t border-r border-b')}
+                      style={{ gridRow: '1 / 2', gridColumn: '2 / 6' }}
+                    >
+                      {t('evm.wbsMasterExcelGroupMaster')}
+                    </div>
+                    <div
+                      className={cn(META_STICKY_HEADER_CELL, 'border-t border-r border-b')}
+                      style={{ gridRow: '1 / 2', gridColumn: '6 / 8' }}
+                    >
+                      {t('evm.wbsSchedulePlanGroup')}
+                    </div>
+                    <div
+                      className={cn(META_STICKY_HEADER_CELL, 'border-t border-r border-b')}
+                      style={{ gridRow: '1 / 2', gridColumn: '8 / 10' }}
+                    >
+                      {t('evm.wbsScheduleActualGroup')}
+                    </div>
+                    <div
+                      className={cn(META_STICKY_HEADER_CELL, metaHeaderCellBorder(9, 'top'))}
+                      style={{ gridRow: '1 / 4', gridColumn: '10 / 11' }}
+                    >
+                      {t('evm.tableAssignee')}
+                    </div>
+                    <div
+                      className={cn(META_STICKY_HEADER_CELL, 'border-t border-r border-b')}
+                      style={{ gridRow: '1 / 2', gridColumn: '11 / 17' }}
+                    >
+                      {t('evm.wbsMasterExcelGroupEvm')}
+                    </div>
+                    <div
+                      className={cn(META_STICKY_HEADER_CELL, 'whitespace-normal', metaHeaderCellBorder(1, 'mid'))}
+                      style={{ gridRow: '2 / 4', gridColumn: '2 / 3' }}
+                    >
+                      {t('evm.tablePhase')}
+                    </div>
+                    <div
+                      className={cn(META_STICKY_HEADER_CELL, 'whitespace-normal', metaHeaderCellBorder(2, 'mid'))}
+                      style={{ gridRow: '2 / 4', gridColumn: '3 / 4' }}
+                    >
+                      {t('evm.tableCategory')}
+                    </div>
+                    <div
+                      className={cn(META_STICKY_HEADER_CELL, 'whitespace-normal', metaHeaderCellBorder(3, 'mid'))}
+                      style={{ gridRow: '2 / 4', gridColumn: '4 / 5' }}
+                    >
+                      {t('evm.tableFeature')}
+                    </div>
+                    <div
+                      className={cn(META_STICKY_HEADER_CELL, 'whitespace-normal', metaHeaderCellBorder(4, 'mid'))}
+                      style={{ gridRow: '2 / 4', gridColumn: '5 / 6' }}
+                    >
+                      {t('evm.wbsNote')}
+                    </div>
+                    <div
+                      className={cn(META_STICKY_HEADER_CELL, 'whitespace-nowrap tabular-nums', metaHeaderCellBorder(5, 'mid'))}
+                      style={{ gridRow: '2 / 4', gridColumn: '6 / 7' }}
+                    >
+                      {t('evm.planStart')}
+                    </div>
+                    <div
+                      className={cn(META_STICKY_HEADER_CELL, 'whitespace-nowrap tabular-nums', metaHeaderCellBorder(6, 'mid'))}
+                      style={{ gridRow: '2 / 4', gridColumn: '7 / 8' }}
+                    >
+                      {t('evm.planEnd')}
+                    </div>
+                    <div
+                      className={cn(META_STICKY_HEADER_CELL, 'whitespace-nowrap tabular-nums', metaHeaderCellBorder(7, 'mid'))}
+                      style={{ gridRow: '2 / 4', gridColumn: '8 / 9' }}
+                    >
+                      {t('evm.actualStart')}
+                    </div>
+                    <div
+                      className={cn(META_STICKY_HEADER_CELL, 'whitespace-nowrap tabular-nums', metaHeaderCellBorder(8, 'mid'))}
+                      style={{ gridRow: '2 / 4', gridColumn: '9 / 10' }}
+                    >
+                      {t('evm.actualEnd')}
+                    </div>
+                    <div
+                      className={cn(META_STICKY_HEADER_CELL, 'tabular-nums', metaHeaderCellBorder(10, 'mid'))}
+                      style={{ gridRow: '2 / 4', gridColumn: '11 / 12' }}
+                    >
+                      {t('evm.kpiBAC')}
+                    </div>
+                    <div
+                      className={cn(META_STICKY_HEADER_CELL, 'tabular-nums', metaHeaderCellBorder(11, 'mid'))}
+                      style={{ gridRow: '2 / 4', gridColumn: '12 / 13' }}
+                    >
+                      {t('evm.kpiPV')}
+                    </div>
+                    <div
+                      className={cn(META_STICKY_HEADER_CELL, 'tabular-nums', metaHeaderCellBorder(12, 'mid'))}
+                      style={{ gridRow: '2 / 4', gridColumn: '13 / 14' }}
+                    >
+                      {t('evm.kpiEV')}
+                    </div>
+                    <div
+                      className={cn(META_STICKY_HEADER_CELL, 'tabular-nums', metaHeaderCellBorder(13, 'mid'))}
+                      style={{ gridRow: '2 / 4', gridColumn: '14 / 15' }}
+                    >
+                      {t('evm.kpiSV')}
+                    </div>
+                    <div
+                      className={cn(META_STICKY_HEADER_CELL, 'tabular-nums', metaHeaderCellBorder(14, 'mid'))}
+                      style={{ gridRow: '2 / 4', gridColumn: '15 / 16' }}
+                    >
+                      {t('evm.kpiSPI')}
+                    </div>
+                    <div
+                      className={cn(META_STICKY_HEADER_CELL, 'tabular-nums', metaHeaderCellBorder(15, 'mid'))}
+                      style={{ gridRow: '2 / 4', gridColumn: '16 / 17' }}
+                    >
+                      {t('evm.kpiProgress')}
+                    </div>
+                  </div>
+                </div>
+                <div className="flex min-w-0 flex-1 flex-col bg-muted" style={{ width: dayTimelinePx, minWidth: dayTimelinePx }}>
+                  <div
+                    className="box-border flex h-full min-h-0 w-full shrink-0 flex-row border-t border-r border-b border-solid border-border/80"
+                    style={{ height: H, minHeight: H, width: dayTimelinePx }}
+                  >
+                    {weekBands.map((band, bi) => (
+                      <div
+                        key={bi}
+                        className="flex h-full shrink-0 items-center justify-center border-r border-solid border-border/80 px-0 py-0 text-center text-foreground text-xs font-semibold leading-tight whitespace-nowrap last:border-r-0"
+                        style={{ width: band.len * EVM_SCHEDULE_DAY_COL_PX }}
+                      >
+                        {band.label}
+                      </div>
                     ))}
-                    <col style={{ minWidth: dayTimelinePx, width: dayTimelinePx }} />
-                  </colgroup>
-                  <thead className="bg-muted">
-                    <TableRow className="bg-muted/40">
-                      {metaHeaderTh(0, '', t('evm.tableNo'), 3)}
-                      {metaGroupTh(1, 5, '', t('evm.wbsMasterExcelGroupMaster'))}
-                      {metaGroupTh(5, 7, '', t('evm.wbsSchedulePlanGroup'))}
-                      {metaGroupTh(7, 9, '', t('evm.wbsScheduleActualGroup'))}
-                      {metaHeaderTh(9, '', t('evm.tableAssignee'), 3)}
-                      {metaGroupTh(10, 16, '', t('evm.wbsMasterExcelGroupEvm'))}
-                      <th
-                        className="box-border border-t border-r border-b border-solid border-border/80 bg-muted p-0 align-stretch"
-                        style={{
-                          minWidth: dayTimelinePx,
-                          width: dayTimelinePx,
-                          height: EVM_SCHEDULE_TIMELINE_HEADER_ROW_PX,
-                        }}
-                      >
-                        <div
-                          className="flex h-full min-h-0 w-full flex-row"
-                          style={{ width: dayTimelinePx, minHeight: EVM_SCHEDULE_TIMELINE_HEADER_ROW_PX }}
-                        >
-                          {weekBands.map((band, bi) => (
-                            <div
-                              key={bi}
-                              className="flex h-full shrink-0 items-center justify-center border-r border-solid border-border/80 px-0 py-0 text-center text-foreground text-xs font-semibold leading-tight whitespace-nowrap last:border-r-0"
-                              style={{ width: band.len * EVM_SCHEDULE_DAY_COL_PX }}
-                            >
-                              {band.label}
-                            </div>
-                          ))}
-                        </div>
-                      </th>
-                    </TableRow>
-                    <TableRow className="bg-muted/90">
-                      {metaDetailTh(1, 'whitespace-normal', t('evm.tablePhase'), 2)}
-                      {metaDetailTh(2, 'whitespace-normal', t('evm.tableCategory'), 2)}
-                      {metaDetailTh(3, 'whitespace-normal', t('evm.tableFeature'), 2)}
-                      {metaDetailTh(4, 'whitespace-normal', t('evm.wbsNote'), 2)}
-                      {metaDetailTh(5, 'whitespace-nowrap tabular-nums', t('evm.planStart'), 2)}
-                      {metaDetailTh(6, 'whitespace-nowrap tabular-nums', t('evm.planEnd'), 2)}
-                      {metaDetailTh(7, 'whitespace-nowrap tabular-nums', t('evm.actualStart'), 2)}
-                      {metaDetailTh(8, 'whitespace-nowrap tabular-nums', t('evm.actualEnd'), 2)}
-                      {metaDetailTh(10, 'tabular-nums', t('evm.kpiBAC'), 2)}
-                      {metaDetailTh(11, 'tabular-nums', t('evm.kpiPV'), 2)}
-                      {metaDetailTh(12, 'tabular-nums', t('evm.kpiEV'), 2)}
-                      {metaDetailTh(13, 'tabular-nums', t('evm.kpiSV'), 2)}
-                      {metaDetailTh(14, 'tabular-nums', t('evm.kpiSPI'), 2)}
-                      {metaDetailTh(15, 'tabular-nums', t('evm.kpiProgress'), 2)}
-                      <th
-                        className="box-border border-r border-b border-solid border-border/80 bg-muted p-0 align-stretch"
-                        style={{
-                          minWidth: dayTimelinePx,
-                          width: dayTimelinePx,
-                          height: EVM_SCHEDULE_TIMELINE_HEADER_ROW_PX,
-                        }}
-                      >
-                        <div
-                          className="relative box-border h-full! min-h-0"
-                          style={{
-                            width: colVirtualizer.getTotalSize(),
-                            height: EVM_SCHEDULE_TIMELINE_HEADER_ROW_PX,
-                            minHeight: EVM_SCHEDULE_TIMELINE_HEADER_ROW_PX,
-                          }}
-                        >
-                          {colVirtualizer.getVirtualItems().map(vc => {
-                            const meta = dayColMeta[vc.index]
-                            const pd = projectDays[vc.index]
-                            if (!meta || !pd) return null
-                            return (
-                              <div
-                                key={vc.key}
-                                className={cn(
-                                  'absolute top-0 box-border flex h-full items-center justify-center border-r border-solid border-border/80 px-0 py-0 text-center text-foreground text-sm font-semibold tabular-nums last:border-r-0',
-                                  !meta.isWorkCal && 'bg-zinc-400/25 dark:bg-zinc-600/35',
-                                  meta.isWorkCal && 'bg-muted',
-                                  meta.isReport && 'bg-amber-200/90 dark:bg-amber-900/45',
-                                )}
-                                style={{ left: vc.start - metaPinTotalPx, width: vc.size, height: '100%' }}
-                                title={meta.isReport ? t('evm.resourceGridReportCol') : meta.ds}
-                              >
-                                {format(pd, 'd')}
-                              </div>
-                            )
-                          })}
-                        </div>
-                      </th>
-                    </TableRow>
-                    <TableRow className="bg-muted/90 text-sm">
-                      <th
-                        className="box-border border-r border-b border-solid border-border/80 bg-muted p-0 align-stretch"
-                        style={{
-                          minWidth: dayTimelinePx,
-                          width: dayTimelinePx,
-                          height: EVM_SCHEDULE_TIMELINE_HEADER_ROW_PX,
-                        }}
-                      >
-                        <div
-                          className="relative box-border h-full! min-h-0"
-                          style={{
-                            width: colVirtualizer.getTotalSize(),
-                            height: EVM_SCHEDULE_TIMELINE_HEADER_ROW_PX,
-                            minHeight: EVM_SCHEDULE_TIMELINE_HEADER_ROW_PX,
-                          }}
-                        >
-                          {colVirtualizer.getVirtualItems().map(vc => {
-                            const d = projectDays[vc.index]
-                            const meta = dayColMeta[vc.index]
-                            if (!d || !meta) return null
-                            return (
-                              <div
-                                key={vc.key}
-                                className={cn(
-                                  'absolute top-0 box-border flex h-full items-center justify-center border-r border-solid border-border/80 px-0 py-0 text-center text-foreground text-xs font-semibold last:border-r-0',
-                                  !meta.isWorkCal && 'bg-zinc-400/25 dark:bg-zinc-600/35',
-                                  meta.isWorkCal && 'bg-muted',
-                                  meta.isReport && 'bg-amber-200/90 dark:bg-amber-900/45',
-                                )}
-                                style={{ left: vc.start - metaPinTotalPx, width: vc.size, height: '100%' }}
-                              >
-                                {WEEK_LETTERS[d.getDay()]}
-                              </div>
-                            )
-                          })}
-                        </div>
-                      </th>
-                    </TableRow>
-                  </thead>
-                </table>
+                  </div>
+                  <div
+                    className="relative box-border shrink-0 border-r border-b border-solid border-border/80 bg-muted"
+                    style={{
+                      width: dayTimelinePx,
+                      height: H,
+                      minHeight: H,
+                    }}
+                  >
+                    <div
+                      className="relative h-full min-h-0 w-full"
+                      style={{
+                        width: colVirtualizer.getTotalSize(),
+                        height: H,
+                        minHeight: H,
+                      }}
+                    >
+                      {colVirtualizer.getVirtualItems().map(vc => {
+                        const meta = dayColMeta[vc.index]
+                        const pd = projectDays[vc.index]
+                        if (!meta || !pd) return null
+                        return (
+                          <div
+                            key={vc.key}
+                            className={cn(
+                              'absolute top-0 box-border flex h-full items-center justify-center border-r border-solid border-border/80 px-0 py-0 text-center text-foreground text-sm font-semibold tabular-nums last:border-r-0',
+                              !meta.isWorkCal && 'bg-zinc-400/25 dark:bg-zinc-600/35',
+                              meta.isWorkCal && 'bg-muted',
+                              meta.isReport && 'bg-amber-200/90 dark:bg-amber-900/45',
+                            )}
+                            style={{ left: vc.start - metaPinTotalPx, width: vc.size, height: '100%' }}
+                            title={meta.isReport ? t('evm.resourceGridReportCol') : meta.ds}
+                          >
+                            {format(pd, 'd')}
+                          </div>
+                        )
+                      })}
+                    </div>
+                  </div>
+                  <div
+                    className="relative box-border shrink-0 border-r border-b border-solid border-border/80 bg-muted text-sm"
+                    style={{
+                      width: dayTimelinePx,
+                      height: H,
+                      minHeight: H,
+                    }}
+                  >
+                    <div
+                      className="relative h-full min-h-0 w-full"
+                      style={{
+                        width: colVirtualizer.getTotalSize(),
+                        height: H,
+                        minHeight: H,
+                      }}
+                    >
+                      {colVirtualizer.getVirtualItems().map(vc => {
+                        const d = projectDays[vc.index]
+                        const meta = dayColMeta[vc.index]
+                        if (!d || !meta) return null
+                        return (
+                          <div
+                            key={vc.key}
+                            className={cn(
+                              'absolute top-0 box-border flex h-full items-center justify-center border-r border-solid border-border/80 px-0 py-0 text-center text-foreground text-xs font-semibold last:border-r-0',
+                              !meta.isWorkCal && 'bg-zinc-400/25 dark:bg-zinc-600/35',
+                              meta.isWorkCal && 'bg-muted',
+                              meta.isReport && 'bg-amber-200/90 dark:bg-amber-900/45',
+                            )}
+                            style={{ left: vc.start - metaPinTotalPx, width: vc.size, height: '100%' }}
+                          >
+                            {WEEK_LETTERS[d.getDay()]}
+                          </div>
+                        )
+                      })}
+                    </div>
+                  </div>
+                </div>
               </div>
-              <table
-                className="border-separate border-spacing-0 text-sm"
-                style={{ display: 'block', width: tableMinWidth, minWidth: tableMinWidth }}
-              >
-                <colgroup>
-                  {META_PIN.map((w, i) => (
-                    <col key={i} style={{ width: w, minWidth: w }} />
-                  ))}
-                  <col style={{ minWidth: dayTimelinePx, width: dayTimelinePx }} />
-                </colgroup>
-                <tbody
-                  className="relative block"
+
+              <div className="text-sm" style={{ width: tableMinWidth, minWidth: tableMinWidth }}>
+                <div
+                  className="relative"
                   style={{
                     width: tableMinWidth,
                     ...(rollups.length === 0 ? undefined : { height: rowVirtualizer.getTotalSize() }),
                   }}
                 >
                   {rollups.length === 0 ? (
-                    <TableRow style={{ display: 'table', width: '100%', tableLayout: 'fixed' }}>
-                      <td
-                        colSpan={rollupColSpan}
-                        className="box-border border-t border-l border-r border-b border-solid border-border/60 px-2 py-8 text-center text-muted-foreground"
-                      >
-                        {t('evm.rollupEmpty')}
-                      </td>
-                    </TableRow>
+                    <div
+                      className="box-border flex w-full border-t border-l border-r border-b border-solid border-border/60 px-2 py-8 text-center text-muted-foreground"
+                      style={{ minHeight: EVM_SCHEDULE_ROW_PX * 3 }}
+                    >
+                      {t('evm.rollupEmpty')}
+                    </div>
                   ) : (
                     rowVirtualizer.getVirtualItems().map(vr => {
-                    const r = rollups[vr.index]
-                    if (!r) return null
-                    const ri = vr.index
-                    const band = unitsMatrix[ri] ?? []
+                      const r = rollups[vr.index]
+                      if (!r) return null
+                      const ri = vr.index
+                      const band = unitsMatrix[ri] ?? []
+                      const assigneeLabel = rollupAssigneeLabel(r, wbsMaster, master)
+                      return (
+                        <div
+                          key={r.rollupKey}
+                          role="button"
+                          tabIndex={0}
+                          className="hover:bg-muted absolute left-0 box-border flex w-full cursor-pointer"
+                          style={{
+                            top: vr.start,
+                            height: vr.size,
+                            minHeight: vr.size,
+                          }}
+                          onClick={() => openEdit(r)}
+                          onKeyDown={e => {
+                            if (e.key === 'Enter' || e.key === ' ') {
+                              e.preventDefault()
+                              openEdit(r)
+                            }
+                          }}
+                        >
+                          <div
+                            className={cn(
+                              'sticky left-0 z-10 flex shrink-0 items-stretch self-stretch border-solid border-border/55',
+                              ri % 2 === 1 ? 'bg-muted' : 'bg-background',
+                            )}
+                            style={{ width: metaPinTotalPx, minWidth: metaPinTotalPx }}
+                          >
+                            {metaBodyCell(0, ri, 'text-center font-mono tabular-nums text-muted-foreground', ri + 1)}
+                            {metaBodyCell(1, ri, 'max-w-[72px] truncate justify-start', r.phase || '—', r.phase ?? undefined)}
+                            {metaBodyCell(2, ri, 'max-w-[88px] truncate justify-start', r.category || '—')}
+                            {metaBodyCell(3, ri, 'max-w-[88px] truncate justify-start', r.feature || '—')}
+                            {metaBodyCell(4, ri, 'max-w-[120px] truncate justify-start', r.note || '—', r.note ?? undefined)}
+                            {metaBodyCell(5, ri, 'whitespace-nowrap', formatDateDisplay(r.planStartMin, i18n.language))}
+                            {metaBodyCell(6, ri, 'whitespace-nowrap', formatDateDisplay(r.planEndMax, i18n.language))}
+                            {metaBodyCell(7, ri, 'whitespace-nowrap', formatDateDisplay(r.actualStartMin, i18n.language))}
+                            {metaBodyCell(8, ri, 'whitespace-nowrap', formatDateDisplay(r.actualEndMax, i18n.language))}
+                            {metaBodyCell(
+                              9,
+                              ri,
+                              'max-w-[100px] truncate justify-start',
+                              assigneeLabel,
+                              assigneeLabel !== '—' ? assigneeLabel : undefined,
+                            )}
+                            {metaBodyCell(10, ri, 'justify-end text-right tabular-nums', fmt(r.bac, 2))}
+                            {metaBodyCell(11, ri, 'justify-end text-right tabular-nums', fmt(r.pv, 2))}
+                            {metaBodyCell(12, ri, 'justify-end text-right tabular-nums', fmt(r.ev, 2))}
+                            {metaBodyCell(13, ri, 'justify-end text-right tabular-nums', fmt(r.sv, 2))}
+                            {metaBodyCell(14, ri, 'justify-end text-right tabular-nums', fmt(r.spi, 3))}
+                            {metaBodyCell(15, ri, 'justify-end text-right tabular-nums', `${(r.progress * 100).toFixed(1)}%`)}
+                          </div>
+                          <div
+                            className="relative shrink-0 self-stretch border-r border-b border-solid border-border/50"
+                            style={{ width: dayTimelinePx, minWidth: dayTimelinePx }}
+                            onClick={e => e.stopPropagation()}
+                            onKeyDown={e => e.stopPropagation()}
+                          >
+                            <div className="relative" style={{ width: colVirtualizer.getTotalSize(), height: EVM_SCHEDULE_ROW_PX }}>
+                              {colVirtualizer.getVirtualItems().map(vc => {
+                                const meta = dayColMeta[vc.index]
+                                if (!meta) return null
+                                const u = band[vc.index] ?? 0
+                                const isWork = meta?.isWorkCal ?? false
+                                const show = !isWork || u <= 0.0001 ? '' : u.toFixed(1)
+                                return (
+                                  <div
+                                    key={vc.key}
+                                    className={cn(
+                                      'absolute top-0 flex items-center justify-center border-r border-border/50 px-0 py-0.5 text-center text-xs tabular-nums last:border-r-0',
+                                      ri % 2 === 1 ? 'bg-muted' : 'bg-background',
+                                      !meta.isWorkCal && 'bg-zinc-400/15 dark:bg-zinc-600/25',
+                                      meta.isReport && 'bg-amber-100/70 dark:bg-amber-950/30',
+                                    )}
+                                    style={{ left: vc.start - metaPinTotalPx, width: vc.size, height: '100%' }}
+                                  >
+                                    {show}
+                                  </div>
+                                )
+                              })}
+                            </div>
+                          </div>
+                        </div>
+                      )
+                    })
+                  )}
+                </div>
+              </div>
+            </>
+          ) : (
+            <div className="w-max min-w-full text-sm">
+              <div className="sticky top-0 z-[35] flex shrink-0 bg-muted shadow-[0_1px_0_0_var(--border)]" style={{ minWidth: '100%' }}>
+                <div className="sticky left-0 z-40 shrink-0 bg-muted" style={{ width: metaPinTotalPx }}>
+                  <div
+                    className="grid text-sm"
+                    style={{
+                      gridTemplateColumns: META_PIN_GRID_TEMPLATE_COLS,
+                      gridTemplateRows: `repeat(2, ${H}px)`,
+                      width: metaPinTotalPx,
+                      minWidth: metaPinTotalPx,
+                    }}
+                  >
+                    <div
+                      className={cn(META_STICKY_HEADER_CELL, metaHeaderCellBorder(0, 'top'))}
+                      style={{ gridRow: '1 / 3', gridColumn: '1 / 2' }}
+                    >
+                      {t('evm.tableNo')}
+                    </div>
+                    <div
+                      className={cn(META_STICKY_HEADER_CELL, 'border-t border-r border-b')}
+                      style={{ gridRow: '1 / 2', gridColumn: '2 / 6' }}
+                    >
+                      {t('evm.wbsMasterExcelGroupMaster')}
+                    </div>
+                    <div
+                      className={cn(META_STICKY_HEADER_CELL, 'border-t border-r border-b')}
+                      style={{ gridRow: '1 / 2', gridColumn: '6 / 8' }}
+                    >
+                      {t('evm.wbsSchedulePlanGroup')}
+                    </div>
+                    <div
+                      className={cn(META_STICKY_HEADER_CELL, 'border-t border-r border-b')}
+                      style={{ gridRow: '1 / 2', gridColumn: '8 / 10' }}
+                    >
+                      {t('evm.wbsScheduleActualGroup')}
+                    </div>
+                    <div
+                      className={cn(META_STICKY_HEADER_CELL, metaHeaderCellBorder(9, 'top'))}
+                      style={{ gridRow: '1 / 3', gridColumn: '10 / 11' }}
+                    >
+                      {t('evm.tableAssignee')}
+                    </div>
+                    <div
+                      className={cn(META_STICKY_HEADER_CELL, 'border-t border-r border-b')}
+                      style={{ gridRow: '1 / 2', gridColumn: '11 / 17' }}
+                    >
+                      {t('evm.wbsMasterExcelGroupEvm')}
+                    </div>
+                    <div
+                      className={cn(META_STICKY_HEADER_CELL, 'whitespace-normal', metaHeaderCellBorder(1, 'bot'))}
+                      style={{ gridRow: '2 / 3', gridColumn: '2 / 3' }}
+                    >
+                      {t('evm.tablePhase')}
+                    </div>
+                    <div
+                      className={cn(META_STICKY_HEADER_CELL, 'whitespace-normal', metaHeaderCellBorder(2, 'bot'))}
+                      style={{ gridRow: '2 / 3', gridColumn: '3 / 4' }}
+                    >
+                      {t('evm.tableCategory')}
+                    </div>
+                    <div
+                      className={cn(META_STICKY_HEADER_CELL, 'whitespace-normal', metaHeaderCellBorder(3, 'bot'))}
+                      style={{ gridRow: '2 / 3', gridColumn: '4 / 5' }}
+                    >
+                      {t('evm.tableFeature')}
+                    </div>
+                    <div
+                      className={cn(META_STICKY_HEADER_CELL, 'whitespace-normal', metaHeaderCellBorder(4, 'bot'))}
+                      style={{ gridRow: '2 / 3', gridColumn: '5 / 6' }}
+                    >
+                      {t('evm.wbsNote')}
+                    </div>
+                    <div
+                      className={cn(META_STICKY_HEADER_CELL, 'whitespace-nowrap tabular-nums', metaHeaderCellBorder(5, 'bot'))}
+                      style={{ gridRow: '2 / 3', gridColumn: '6 / 7' }}
+                    >
+                      {t('evm.planStart')}
+                    </div>
+                    <div
+                      className={cn(META_STICKY_HEADER_CELL, 'whitespace-nowrap tabular-nums', metaHeaderCellBorder(6, 'bot'))}
+                      style={{ gridRow: '2 / 3', gridColumn: '7 / 8' }}
+                    >
+                      {t('evm.planEnd')}
+                    </div>
+                    <div
+                      className={cn(META_STICKY_HEADER_CELL, 'whitespace-nowrap tabular-nums', metaHeaderCellBorder(7, 'bot'))}
+                      style={{ gridRow: '2 / 3', gridColumn: '8 / 9' }}
+                    >
+                      {t('evm.actualStart')}
+                    </div>
+                    <div
+                      className={cn(META_STICKY_HEADER_CELL, 'whitespace-nowrap tabular-nums', metaHeaderCellBorder(8, 'bot'))}
+                      style={{ gridRow: '2 / 3', gridColumn: '9 / 10' }}
+                    >
+                      {t('evm.actualEnd')}
+                    </div>
+                    <div
+                      className={cn(META_STICKY_HEADER_CELL, 'tabular-nums', metaHeaderCellBorder(10, 'bot'))}
+                      style={{ gridRow: '2 / 3', gridColumn: '11 / 12' }}
+                    >
+                      {t('evm.kpiBAC')}
+                    </div>
+                    <div
+                      className={cn(META_STICKY_HEADER_CELL, 'tabular-nums', metaHeaderCellBorder(11, 'bot'))}
+                      style={{ gridRow: '2 / 3', gridColumn: '12 / 13' }}
+                    >
+                      {t('evm.kpiPV')}
+                    </div>
+                    <div
+                      className={cn(META_STICKY_HEADER_CELL, 'tabular-nums', metaHeaderCellBorder(12, 'bot'))}
+                      style={{ gridRow: '2 / 3', gridColumn: '13 / 14' }}
+                    >
+                      {t('evm.kpiEV')}
+                    </div>
+                    <div
+                      className={cn(META_STICKY_HEADER_CELL, 'tabular-nums', metaHeaderCellBorder(13, 'bot'))}
+                      style={{ gridRow: '2 / 3', gridColumn: '14 / 15' }}
+                    >
+                      {t('evm.kpiSV')}
+                    </div>
+                    <div
+                      className={cn(META_STICKY_HEADER_CELL, 'tabular-nums', metaHeaderCellBorder(14, 'bot'))}
+                      style={{ gridRow: '2 / 3', gridColumn: '15 / 16' }}
+                    >
+                      {t('evm.kpiSPI')}
+                    </div>
+                    <div
+                      className={cn(META_STICKY_HEADER_CELL, 'tabular-nums', metaHeaderCellBorder(15, 'bot'))}
+                      style={{ gridRow: '2 / 3', gridColumn: '16 / 17' }}
+                    >
+                      {t('evm.kpiProgress')}
+                    </div>
+                  </div>
+                </div>
+                <div
+                  className={cn(
+                    META_STICKY_HEADER_CELL,
+                    'sticky top-0 z-30 min-w-[120px] flex-1 border-t border-r border-b px-2 py-2',
+                  )}
+                >
+                  {t('evm.wbsMasterTimelinePlaceholder')}
+                </div>
+              </div>
+
+              <div className="min-w-full">
+                {rollups.length === 0 ? (
+                  <div
+                    className="box-border flex w-full border-t border-l border-r border-b border-solid border-border/60 px-2 py-8 text-center text-muted-foreground"
+                    style={{ minWidth: metaPinTotalPx + 120 }}
+                  >
+                    {t('evm.rollupEmpty')}
+                  </div>
+                ) : (
+                  rollups.map((r, idx) => {
+                    const ri = idx
                     const assigneeLabel = rollupAssigneeLabel(r, wbsMaster, master)
                     return (
-                      <TableRow
+                      <div
                         key={r.rollupKey}
                         role="button"
                         tabIndex={0}
-                        className="hover:bg-muted cursor-pointer"
-                        style={{
-                          display: 'table',
-                          position: 'absolute',
-                          top: vr.start,
-                          left: 0,
-                          width: '100%',
-                          tableLayout: 'fixed',
-                          height: vr.size,
-                          boxSizing: 'border-box',
-                        }}
+                        className="hover:bg-muted flex w-full min-w-0 cursor-pointer"
+                        style={{ height: EVM_SCHEDULE_ROW_PX }}
                         onClick={() => openEdit(r)}
                         onKeyDown={e => {
                           if (e.key === 'Enter' || e.key === ' ') {
@@ -579,159 +825,45 @@ export function WbsRollupTable({
                           }
                         }}
                       >
-                        {metaStickyTd(0, ri, 'text-center font-mono tabular-nums text-muted-foreground', ri + 1)}
-                        {metaStickyTd(1, ri, 'max-w-[72px] truncate', r.phase || '—', r.phase ?? undefined)}
-                        {metaStickyTd(2, ri, 'max-w-[88px] truncate', r.category || '—')}
-                        {metaStickyTd(3, ri, 'max-w-[88px] truncate', r.feature || '—')}
-                        {metaStickyTd(4, ri, 'max-w-[120px] truncate', r.note || '—', r.note ?? undefined)}
-                        {metaStickyTd(5, ri, 'whitespace-nowrap', formatDateDisplay(r.planStartMin, i18n.language))}
-                        {metaStickyTd(6, ri, 'whitespace-nowrap', formatDateDisplay(r.planEndMax, i18n.language))}
-                        {metaStickyTd(7, ri, 'whitespace-nowrap', formatDateDisplay(r.actualStartMin, i18n.language))}
-                        {metaStickyTd(8, ri, 'whitespace-nowrap', formatDateDisplay(r.actualEndMax, i18n.language))}
-                        {metaStickyTd(
-                          9,
-                          ri,
-                          'max-w-[100px] truncate',
-                          assigneeLabel,
-                          assigneeLabel !== '—' ? assigneeLabel : undefined,
-                        )}
-                        {metaStickyTd(10, ri, 'text-right tabular-nums', fmt(r.bac, 2))}
-                        {metaStickyTd(11, ri, 'text-right tabular-nums', fmt(r.pv, 2))}
-                        {metaStickyTd(12, ri, 'text-right tabular-nums', fmt(r.ev, 2))}
-                        {metaStickyTd(13, ri, 'text-right tabular-nums', fmt(r.sv, 2))}
-                        {metaStickyTd(14, ri, 'text-right tabular-nums', fmt(r.spi, 3))}
-                        {metaStickyTd(15, ri, 'text-right tabular-nums', `${(r.progress * 100).toFixed(1)}%`)}
-                        <td
-                          className="box-border border-r border-b border-solid border-border/50 p-0 align-stretch"
-                          style={{ minWidth: dayTimelinePx, width: dayTimelinePx }}
-                          onClick={e => e.stopPropagation()}
-                          onKeyDown={e => e.stopPropagation()}
+                        <div
+                          className={cn(
+                            'sticky left-0 z-10 flex shrink-0 items-stretch border-solid border-border/55',
+                            ri % 2 === 1 ? 'bg-muted' : 'bg-background',
+                          )}
+                          style={{ width: metaPinTotalPx, minWidth: metaPinTotalPx }}
                         >
-                          <div className="relative" style={{ width: colVirtualizer.getTotalSize(), height: EVM_SCHEDULE_ROW_PX }}>
-                            {colVirtualizer.getVirtualItems().map(vc => {
-                              const meta = dayColMeta[vc.index]
-                              if (!meta) return null
-                              const u = band[vc.index] ?? 0
-                              const isWork = meta?.isWorkCal ?? false
-                              const show = !isWork || u <= 0.0001 ? '' : u.toFixed(1)
-                              return (
-                                <div
-                                  key={vc.key}
-                                  className={cn(
-                                    'absolute top-0 flex items-center justify-center border-r border-border/50 px-0 py-0.5 text-center text-xs tabular-nums last:border-r-0',
-                                    ri % 2 === 1 ? 'bg-muted' : 'bg-background',
-                                    !meta.isWorkCal && 'bg-zinc-400/15 dark:bg-zinc-600/25',
-                                    meta.isReport && 'bg-amber-100/70 dark:bg-amber-950/30',
-                                  )}
-                                  style={{ left: vc.start - metaPinTotalPx, width: vc.size, height: '100%' }}
-                                >
-                                  {show}
-                                </div>
-                              )
-                            })}
-                          </div>
-                        </td>
-                      </TableRow>
+                          {metaBodyCell(0, ri, 'text-center font-mono tabular-nums text-muted-foreground', idx + 1)}
+                          {metaBodyCell(1, ri, 'max-w-[72px] truncate justify-start', r.phase || '—', r.phase ?? undefined)}
+                          {metaBodyCell(2, ri, 'max-w-[88px] truncate justify-start', r.category || '—')}
+                          {metaBodyCell(3, ri, 'max-w-[88px] truncate justify-start', r.feature || '—')}
+                          {metaBodyCell(4, ri, 'max-w-[120px] truncate justify-start', r.note || '—', r.note ?? undefined)}
+                          {metaBodyCell(5, ri, 'whitespace-nowrap', formatDateDisplay(r.planStartMin, i18n.language))}
+                          {metaBodyCell(6, ri, 'whitespace-nowrap', formatDateDisplay(r.planEndMax, i18n.language))}
+                          {metaBodyCell(7, ri, 'whitespace-nowrap', formatDateDisplay(r.actualStartMin, i18n.language))}
+                          {metaBodyCell(8, ri, 'whitespace-nowrap', formatDateDisplay(r.actualEndMax, i18n.language))}
+                          {metaBodyCell(
+                            9,
+                            ri,
+                            'max-w-[100px] truncate justify-start',
+                            assigneeLabel,
+                            assigneeLabel !== '—' ? assigneeLabel : undefined,
+                          )}
+                          {metaBodyCell(10, ri, 'justify-end text-right tabular-nums', fmt(r.bac, 2))}
+                          {metaBodyCell(11, ri, 'justify-end text-right tabular-nums', fmt(r.pv, 2))}
+                          {metaBodyCell(12, ri, 'justify-end text-right tabular-nums', fmt(r.ev, 2))}
+                          {metaBodyCell(13, ri, 'justify-end text-right tabular-nums', fmt(r.sv, 2))}
+                          {metaBodyCell(14, ri, 'justify-end text-right tabular-nums', fmt(r.spi, 3))}
+                          {metaBodyCell(15, ri, 'justify-end text-right tabular-nums', `${(r.progress * 100).toFixed(1)}%`)}
+                        </div>
+                        <div className="box-border flex min-w-[120px] flex-1 items-center justify-center border-r border-b border-solid border-border/50 px-2 py-1 text-center text-muted-foreground">
+                          —
+                        </div>
+                      </div>
                     )
                   })
-                  )}
-                </tbody>
-              </table>
-            </>
-          ) : (
-            <table className="w-max min-w-full border-separate border-spacing-0 text-sm">
-              <thead className="bg-muted">
-                <TableRow className="bg-muted/40">
-                  {metaHeaderTh(0, '', t('evm.tableNo'), 2)}
-                  {metaGroupTh(1, 5, '', t('evm.wbsMasterExcelGroupMaster'))}
-                  {metaGroupTh(5, 7, '', t('evm.wbsSchedulePlanGroup'))}
-                  {metaGroupTh(7, 9, '', t('evm.wbsScheduleActualGroup'))}
-                  {metaHeaderTh(9, '', t('evm.tableAssignee'), 2)}
-                  {metaGroupTh(10, 16, '', t('evm.wbsMasterExcelGroupEvm'))}
-                  <th
-                    rowSpan={2}
-                    className="sticky top-0 z-30 box-border border-t border-r border-b border-solid border-border/80 bg-muted px-2 py-2 text-center align-middle text-foreground text-sm font-semibold leading-tight"
-                  >
-                    {t('evm.wbsMasterTimelinePlaceholder')}
-                  </th>
-                </TableRow>
-                <TableRow className="bg-muted/90">
-                  {metaDetailTh(1, 'whitespace-normal', t('evm.tablePhase'))}
-                  {metaDetailTh(2, 'whitespace-normal', t('evm.tableCategory'))}
-                  {metaDetailTh(3, 'whitespace-normal', t('evm.tableFeature'))}
-                  {metaDetailTh(4, 'whitespace-normal', t('evm.wbsNote'))}
-                  {metaDetailTh(5, 'whitespace-nowrap tabular-nums', t('evm.planStart'))}
-                  {metaDetailTh(6, 'whitespace-nowrap tabular-nums', t('evm.planEnd'))}
-                  {metaDetailTh(7, 'whitespace-nowrap tabular-nums', t('evm.actualStart'))}
-                  {metaDetailTh(8, 'whitespace-nowrap tabular-nums', t('evm.actualEnd'))}
-                  {metaDetailTh(10, 'tabular-nums', t('evm.kpiBAC'))}
-                  {metaDetailTh(11, 'tabular-nums', t('evm.kpiPV'))}
-                  {metaDetailTh(12, 'tabular-nums', t('evm.kpiEV'))}
-                  {metaDetailTh(13, 'tabular-nums', t('evm.kpiSV'))}
-                  {metaDetailTh(14, 'tabular-nums', t('evm.kpiSPI'))}
-                  {metaDetailTh(15, 'tabular-nums', t('evm.kpiProgress'))}
-                </TableRow>
-              </thead>
-              <TableBody>
-                {rollups.length === 0 ? (
-                  <TableRow>
-                    <td
-                      colSpan={rollupColSpan}
-                      className="box-border border-t border-l border-r border-b border-solid border-border/60 px-2 py-8 text-center text-muted-foreground"
-                    >
-                      {t('evm.rollupEmpty')}
-                    </td>
-                  </TableRow>
-                ) : (
-                  rollups.map((r, idx) => {
-                  const ri = idx
-                  const assigneeLabel = rollupAssigneeLabel(r, wbsMaster, master)
-                  return (
-                    <TableRow
-                      key={r.rollupKey}
-                      role="button"
-                      tabIndex={0}
-                      className="hover:bg-muted cursor-pointer"
-                      style={{ height: EVM_SCHEDULE_ROW_PX }}
-                      onClick={() => openEdit(r)}
-                      onKeyDown={e => {
-                        if (e.key === 'Enter' || e.key === ' ') {
-                          e.preventDefault()
-                          openEdit(r)
-                        }
-                      }}
-                    >
-                      {metaStickyTd(0, ri, 'text-center font-mono tabular-nums text-muted-foreground', idx + 1)}
-                      {metaStickyTd(1, ri, 'max-w-[72px] truncate', r.phase || '—', r.phase ?? undefined)}
-                      {metaStickyTd(2, ri, 'max-w-[88px] truncate', r.category || '—')}
-                      {metaStickyTd(3, ri, 'max-w-[88px] truncate', r.feature || '—')}
-                      {metaStickyTd(4, ri, 'max-w-[120px] truncate', r.note || '—', r.note ?? undefined)}
-                      {metaStickyTd(5, ri, 'whitespace-nowrap', formatDateDisplay(r.planStartMin, i18n.language))}
-                      {metaStickyTd(6, ri, 'whitespace-nowrap', formatDateDisplay(r.planEndMax, i18n.language))}
-                      {metaStickyTd(7, ri, 'whitespace-nowrap', formatDateDisplay(r.actualStartMin, i18n.language))}
-                      {metaStickyTd(8, ri, 'whitespace-nowrap', formatDateDisplay(r.actualEndMax, i18n.language))}
-                      {metaStickyTd(
-                        9,
-                        ri,
-                        'max-w-[100px] truncate',
-                        assigneeLabel,
-                        assigneeLabel !== '—' ? assigneeLabel : undefined,
-                      )}
-                      {metaStickyTd(10, ri, 'text-right tabular-nums', fmt(r.bac, 2))}
-                      {metaStickyTd(11, ri, 'text-right tabular-nums', fmt(r.pv, 2))}
-                      {metaStickyTd(12, ri, 'text-right tabular-nums', fmt(r.ev, 2))}
-                      {metaStickyTd(13, ri, 'text-right tabular-nums', fmt(r.sv, 2))}
-                      {metaStickyTd(14, ri, 'text-right tabular-nums', fmt(r.spi, 3))}
-                      {metaStickyTd(15, ri, 'text-right tabular-nums', `${(r.progress * 100).toFixed(1)}%`)}
-                      <td className="box-border border-r border-b border-solid border-border/50 px-2 py-1 text-center text-muted-foreground">
-                        —
-                      </td>
-                    </TableRow>
-                  )
-                })
                 )}
-              </TableBody>
-            </table>
+              </div>
+            </div>
           )}
         </div>
       </div>

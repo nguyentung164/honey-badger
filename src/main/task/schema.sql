@@ -430,11 +430,12 @@ CREATE TABLE IF NOT EXISTS task_notifications (
   created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
 );
 
-CREATE TABLE IF NOT EXISTS task_workload_overrides (
+CREATE TABLE IF NOT EXISTS project_user_daily_workload (
   id VARCHAR(36) PRIMARY KEY,
   project_id VARCHAR(36) NOT NULL,
   user_id VARCHAR(36) NOT NULL,
   work_date DATE NOT NULL,
+  actual_work_hours DECIMAL(6,2) NULL,
   override_hours DECIMAL(6,2) NULL,
   note TEXT NULL,
   version INT NOT NULL DEFAULT 1,
@@ -442,7 +443,7 @@ CREATE TABLE IF NOT EXISTS task_workload_overrides (
   updated_by VARCHAR(36) NULL,
   created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
   updated_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
-  CONSTRAINT uk_workload_proj_user_date UNIQUE (project_id, user_id, work_date)
+  CONSTRAINT uk_pudw_proj_user_date UNIQUE (project_id, user_id, work_date)
 );
 
 CREATE INDEX IF NOT EXISTS idx_projects_reminder ON projects(daily_report_reminder_time);
@@ -481,8 +482,8 @@ CREATE INDEX IF NOT EXISTS idx_git_cq_commit_user ON git_commit_queue(commit_use
 CREATE INDEX IF NOT EXISTS idx_drsf_upsf ON daily_report_source_folders(user_project_source_folder_id);
 CREATE INDEX IF NOT EXISTS idx_target_unread ON task_notifications(target_user_id, is_read, created_at);
 CREATE INDEX IF NOT EXISTS idx_task_change_task_created ON task_change_history(task_id, created_at DESC);
-CREATE INDEX IF NOT EXISTS idx_workload_proj_date ON task_workload_overrides(project_id, work_date);
-CREATE INDEX IF NOT EXISTS idx_workload_proj_user ON task_workload_overrides(project_id, user_id);
+CREATE INDEX IF NOT EXISTS idx_pudw_proj_date ON project_user_daily_workload(project_id, work_date);
+CREATE INDEX IF NOT EXISTS idx_pudw_proj_user ON project_user_daily_workload(project_id, user_id);
 
 INSERT INTO task_statuses (code, name, sort_order, color) VALUES
   ('new', 'New', 1, '#0ea5e9'),
@@ -505,7 +506,8 @@ INSERT INTO task_types (code, name, sort_order, color) VALUES
   ('bug', 'Bug', 1, '#f59e0b'),
   ('feature', 'Feature', 2, '#8b5cf6'),
   ('support', 'Support', 3, '#0d9488'),
-  ('task', 'Task', 4, '#3b82f6')
+  ('task', 'Task', 4, '#3b82f6'),
+  ('milestone', 'Milestone', 5, '#f59e0b')
 ON CONFLICT (code) DO NOTHING;
 
 INSERT INTO task_sources (code, name, sort_order) VALUES

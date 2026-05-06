@@ -35,7 +35,7 @@ function pgSchemaFromStore(): string {
 }
 
 /** Tên schema PG (namespace) đã được kiểm tra an toàn tham vào động. */
-function validatedPgSchemaName(): string {
+export function validatedPgSchemaName(): string {
   const s = pgSchemaFromStore()
   if (!s || !/^[a-zA-Z_][a-zA-Z0-9_]*$/.test(s)) {
     throw new Error('PostgreSQL schema (namespace): chỉ chữ, số, gạch dưới; ký tự đầu phải là chữ hoặc _.')

@@ -28,3 +28,20 @@ export function taskStatusBarStyle(hex: string | undefined): CSSProperties | und
     color: 'hsl(var(--foreground))',
   }
 }
+
+/**
+ * Task có sub-task: nửa trên đậm hơn, nửa dưới giữ đúng màu bar thường (cùng alpha với taskStatusBarStyle khi có hex).
+ */
+export function taskStatusBarParentFillStyle(hex: string | undefined): CSSProperties {
+  if (hex?.trim()) {
+    const bottom = hexToRgba(hex, 58)
+    const top = hexToRgba(hex, 92)
+    return {
+      backgroundImage: `linear-gradient(to bottom, ${top} 0%, ${top} 50%, ${bottom} 50%, ${bottom} 100%)`,
+    }
+  }
+  return {
+    backgroundImage:
+      'linear-gradient(to bottom, hsl(var(--primary) / 0.42) 0%, hsl(var(--primary) / 0.42) 50%, hsl(var(--primary) / 0.25) 50%, hsl(var(--primary) / 0.25) 100%)',
+  }
+}

@@ -1,7 +1,9 @@
 import l from 'electron-log'
 import { randomUuidV7 } from 'shared/randomUuidV7'
-import { query } from './db'
+import { query, type TransactionQuery } from './db'
 import { getProjectMembers, hasRole, isAppAdmin } from './pgTaskStore'
+
+const PUDW = 'project_user_daily_workload'
 
 export type WorkloadDay = {
   userId: string
@@ -9,7 +11,9 @@ export type WorkloadDay = {
   date: string
   /** Tổng giờ derive từ tasks (đã chia đều theo working day trong task span) */
   derivedHours: number
-  /** Override do user/PM/PL nhập tay; null/undefined = chưa override */
+  /** Giờ thực tế user khai qua daily report; hiển thị sau derived, trước override */
+  actualWorkHours: number | null
+  /** Override do PM/PL/Admin nhập tay; ưu tiên hiển thị */
   overrideHours: number | null
   /** Số task assigned cho user vào ngày đó (đếm distinct task_id), dùng cho toggle Tasks */
   taskCount: number
@@ -139,7 +143,7 @@ async function fetchAssigneeFallbackUsers(userIds: string[]): Promise<WorkloadUs
  *
  * - derived: chia đều estMd*hoursPerDay / workingDaysInTaskSpan của task (estMd null/0 → 0).
  *   Mẫu số dùng TOÀN BỘ task span (không phụ thuộc range hiển thị) để cell phản ánh đúng tải/ngày.
- * - override: lấy từ task_workload_overrides theo (project, user, date).
+ * - actual / override: lấy từ project_user_daily_workload theo (project, user, date).
  * - users: union (member project) ∪ (assignee xuất hiện trong tasks overlap range).
  *
  * Permission: caller PHẢI đảm bảo session là member của project (handler IPC kiểm tra).
@@ -171,7 +175,7 @@ export async function getWorkload(input: { projectId: string; from: string; to: 
   )
 
   const overrideRows = await query<Record<string, unknown>>(
-    `SELECT user_id, work_date, override_hours, version FROM task_workload_overrides WHERE project_id = ? AND work_date BETWEEN ?::date AND ?::date`,
+    `SELECT user_id, work_date, actual_work_hours, override_hours, version FROM ${PUDW} WHERE project_id = ? AND work_date BETWEEN ?::date AND ?::date`,
     [projectId, from, to]
   )
 
@@ -185,7 +189,7 @@ export async function getWorkload(input: { projectId: string; from: string; to: 
     const k = cellKey(uid, dateIso)
     let c = cellMap.get(k)
     if (!c) {
-      c = { userId: uid, date: dateIso, derivedHours: 0, overrideHours: null, taskCount: 0, taskIds: [] }
+      c = { userId: uid, date: dateIso, derivedHours: 0, actualWorkHours: null, overrideHours: null, taskCount: 0, taskIds: [] }
       cellMap.set(k, c)
     }
     return c
@@ -230,6 +234,8 @@ export async function getWorkload(input: { projectId: string; from: string; to: 
     if (!uid) continue
     const dateIso = (r.work_date instanceof Date ? toIsoDateLocal(r.work_date) : String(r.work_date ?? '')).slice(0, 10)
     const cell = ensureCell(uid, dateIso)
+    const ah = r.actual_work_hours
+    cell.actualWorkHours = ah == null || ah === '' ? null : Number(ah)
     const oh = r.override_hours
     cell.overrideHours = oh == null || oh === '' ? null : Number(oh)
   }
@@ -305,11 +311,10 @@ export async function upsertWorkloadOverride(
   const ohNorm = oh == null || (typeof oh === 'number' && Number.isNaN(oh)) ? null : Number(oh)
 
   if (ohNorm === null && noteIn === null) {
-    const sel = await query<Record<string, unknown>>('SELECT id, version FROM task_workload_overrides WHERE project_id = ? AND user_id = ? AND work_date = ? LIMIT 1', [
-      projectId,
-      userId,
-      workDate,
-    ])
+    const sel = await query<Record<string, unknown>>(
+      `SELECT id, version, actual_work_hours FROM ${PUDW} WHERE project_id = ? AND user_id = ? AND work_date = ? LIMIT 1`,
+      [projectId, userId, workDate]
+    )
     const cur = sel?.[0]
     if (!cur) return { overrideHours: null, note: null, version: 0, deleted: true }
     if (input.version !== undefined && Number(cur.version) !== input.version) {
@@ -317,11 +322,22 @@ export async function upsertWorkloadOverride(
       ;(e as Error & { code: string }).code = 'VERSION_CONFLICT'
       throw e
     }
-    await query('DELETE FROM task_workload_overrides WHERE id = ?', [cur.id as string])
+    const aw = cur.actual_work_hours
+    const hasActual = aw != null && aw !== '' && Number.isFinite(Number(aw))
+    if (hasActual) {
+      const nextVer = Number(cur.version) + 1
+      await query(`UPDATE ${PUDW} SET override_hours = NULL, note = NULL, version = ?, updated_by = ?, updated_at = NOW() WHERE id = ?`, [
+        nextVer,
+        actorUserId,
+        cur.id as string,
+      ])
+      return { overrideHours: null, note: null, version: nextVer, deleted: false }
+    }
+    await query(`DELETE FROM ${PUDW} WHERE id = ?`, [cur.id as string])
     return { overrideHours: null, note: null, version: 0, deleted: true }
   }
 
-  const sel = await query<Record<string, unknown>>('SELECT id, version FROM task_workload_overrides WHERE project_id = ? AND user_id = ? AND work_date = ? LIMIT 1', [
+  const sel = await query<Record<string, unknown>>(`SELECT id, version FROM ${PUDW} WHERE project_id = ? AND user_id = ? AND work_date = ? LIMIT 1`, [
     projectId,
     userId,
     workDate,
@@ -330,7 +346,7 @@ export async function upsertWorkloadOverride(
   if (!cur) {
     const id = randomUuidV7()
     await query(
-      `INSERT INTO task_workload_overrides (id, project_id, user_id, work_date, override_hours, note, version, created_by, updated_by) VALUES (?, ?, ?, ?, ?, ?, 1, ?, ?)`,
+      `INSERT INTO ${PUDW} (id, project_id, user_id, work_date, actual_work_hours, override_hours, note, version, created_by, updated_by) VALUES (?, ?, ?, ?, NULL, ?, ?, 1, ?, ?)`,
       [id, projectId, userId, workDate, ohNorm, noteIn, actorUserId, actorUserId]
     )
     return { overrideHours: ohNorm, note: noteIn, version: 1, deleted: false }
@@ -342,7 +358,7 @@ export async function upsertWorkloadOverride(
     throw e
   }
   const nextVer = Number(cur.version) + 1
-  await query(`UPDATE task_workload_overrides SET override_hours = ?, note = ?, version = ?, updated_by = ?, updated_at = NOW() WHERE id = ?`, [
+  await query(`UPDATE ${PUDW} SET override_hours = ?, note = ?, version = ?, updated_by = ?, updated_at = NOW() WHERE id = ?`, [
     ohNorm,
     noteIn,
     nextVer,
@@ -370,11 +386,10 @@ export async function deleteWorkloadOverride(
     throw e
   }
   try {
-    const sel = await query<Record<string, unknown>>('SELECT id, version FROM task_workload_overrides WHERE project_id = ? AND user_id = ? AND work_date = ? LIMIT 1', [
-      projectId,
-      userId,
-      workDate,
-    ])
+    const sel = await query<Record<string, unknown>>(
+      `SELECT id, version, actual_work_hours, override_hours, note FROM ${PUDW} WHERE project_id = ? AND user_id = ? AND work_date = ? LIMIT 1`,
+      [projectId, userId, workDate]
+    )
     const cur = sel?.[0]
     if (!cur) return { deleted: false }
     if (input.version !== undefined && Number(cur.version) !== input.version) {
@@ -382,10 +397,81 @@ export async function deleteWorkloadOverride(
       ;(e as Error & { code: string }).code = 'VERSION_CONFLICT'
       throw e
     }
-    await query('DELETE FROM task_workload_overrides WHERE id = ?', [cur.id as string])
+    const aw = cur.actual_work_hours
+    const hasActual = aw != null && aw !== '' && Number.isFinite(Number(aw))
+    if (hasActual) {
+      const nextVer = Number(cur.version) + 1
+      await query(`UPDATE ${PUDW} SET override_hours = NULL, note = NULL, version = ?, updated_by = ?, updated_at = NOW() WHERE id = ?`, [
+        nextVer,
+        actorUserId,
+        cur.id as string,
+      ])
+      return { deleted: false }
+    }
+    await query(`DELETE FROM ${PUDW} WHERE id = ?`, [cur.id as string])
     return { deleted: true }
   } catch (e) {
     l.error('deleteWorkloadOverride failed', e)
     throw e
   }
+}
+
+function clampWorkHours(n: number): number {
+  if (!Number.isFinite(n) || n < 0) return 0
+  return Math.min(24, Math.round(n * 100) / 100)
+}
+
+/**
+ * Ghi `actual_work_hours` (daily report) trong transaction. Không sửa `override_hours` / `note`.
+ * `actorUserId` phải trùng `userId` hoặc app admin.
+ */
+export async function upsertActualWorkHoursInTransaction(
+  txQuery: TransactionQuery,
+  input: { projectId: string; userId: string; workDate: string; actualWorkHours: number | null },
+  actorUserId: string
+): Promise<void> {
+  const projectId = (input.projectId || '').trim()
+  const userId = (input.userId || '').trim()
+  const workDate = (input.workDate || '').slice(0, 10)
+  if (!projectId || !userId || !/^\d{4}-\d{2}-\d{2}$/.test(workDate)) {
+    throw new Error('Invalid actual work hours input')
+  }
+  if (actorUserId !== userId && !(await isAppAdmin(actorUserId))) {
+    const e = new Error('Forbidden')
+    ;(e as Error & { code: string }).code = 'FORBIDDEN'
+    throw e
+  }
+
+  const raw = input.actualWorkHours
+  const num = raw == null || (typeof raw === 'number' && Number.isNaN(raw)) ? null : clampWorkHours(Number(raw))
+
+  if (num === null) {
+    const sel = (await txQuery(`SELECT id FROM ${PUDW} WHERE project_id = ? AND user_id = ? AND work_date = ?::date LIMIT 1`, [projectId, userId, workDate])) as {
+      id: string
+    }[]
+    const cur = Array.isArray(sel) && sel[0] ? sel[0] : null
+    if (!cur) return
+    await txQuery(`UPDATE ${PUDW} SET actual_work_hours = NULL, version = version + 1, updated_by = ?, updated_at = NOW() WHERE id = ?`, [
+      actorUserId,
+      cur.id,
+    ])
+    await txQuery(
+      `DELETE FROM ${PUDW} WHERE id = ? AND override_hours IS NULL AND actual_work_hours IS NULL AND (note IS NULL OR BTRIM(COALESCE(note, '')) = '')`,
+      [cur.id]
+    )
+    return
+  }
+
+  const id = randomUuidV7()
+  await txQuery(
+    `INSERT INTO ${PUDW} (id, project_id, user_id, work_date, actual_work_hours, override_hours, note, version, created_by, updated_by)
+     VALUES (?, ?, ?, ?::date, ?, NULL, NULL, 1, ?, ?)
+     ON CONFLICT (project_id, user_id, work_date)
+     DO UPDATE SET
+       actual_work_hours = EXCLUDED.actual_work_hours,
+       version = ${PUDW}.version + 1,
+       updated_by = EXCLUDED.updated_by,
+       updated_at = NOW()`,
+    [id, projectId, userId, workDate, num, actorUserId, actorUserId]
+  )
 }
