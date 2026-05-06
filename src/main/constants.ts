@@ -341,6 +341,9 @@ export const IPC = {
     CODING_RULE_UPDATE: 'task:coding-rule:update',
     CODING_RULE_DELETE: 'task:coding-rule:delete',
     CODING_RULE_GET_FOR_MANAGEMENT: 'task:coding-rule:get-for-management',
+    WORKLOAD_GET: 'task:workload:get',
+    WORKLOAD_UPSERT_OVERRIDE: 'task:workload:upsert-override',
+    WORKLOAD_DELETE_OVERRIDE: 'task:workload:delete-override',
   },
   COMMIT_MESSAGE_HISTORY: {
     GET: 'commit-message-history:get',

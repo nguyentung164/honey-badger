@@ -12,7 +12,7 @@ export async function migrateProjectsDropLegacyPmPlColumns(): Promise<void> {
     const rows = await query(
       `SELECT 1 FROM information_schema.columns
        WHERE table_schema = current_schema() AND table_name = 'projects' AND column_name = ? LIMIT 1`,
-      [col],
+      [col]
     )
     return Array.isArray(rows) && rows.length > 0
   }
@@ -44,7 +44,7 @@ export async function migratePrCheckpointGithubColumns(): Promise<void> {
     const rows = await query(
       `SELECT 1 FROM information_schema.columns
        WHERE table_schema = current_schema() AND table_name = 'pr_branch_checkpoints' AND column_name = ? LIMIT 1`,
-      [col],
+      [col]
     )
     return Array.isArray(rows) && rows.length > 0
   }
@@ -107,7 +107,7 @@ export async function migratePrCheckpointTemplateHeaderGroup(): Promise<void> {
   try {
     if (!(await checkCol())) {
       await query(
-        'ALTER TABLE pr_checkpoint_templates ADD COLUMN header_group_id SMALLINT NULL CHECK (header_group_id IS NULL OR (header_group_id >= 0 AND header_group_id <= 255))',
+        'ALTER TABLE pr_checkpoint_templates ADD COLUMN header_group_id SMALLINT NULL CHECK (header_group_id IS NULL OR (header_group_id >= 0 AND header_group_id <= 255))'
       )
     }
   } catch (e) {
@@ -128,9 +128,7 @@ CREATE TABLE IF NOT EXISTS pr_user_board_skip_branches (
   updated_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
   PRIMARY KEY (user_id, project_id)
 )`)
-    await query(
-      'CREATE INDEX IF NOT EXISTS idx_pr_ub_skip_project ON pr_user_board_skip_branches(project_id)'
-    )
+    await query('CREATE INDEX IF NOT EXISTS idx_pr_ub_skip_project ON pr_user_board_skip_branches(project_id)')
   } catch (e) {
     l.error('[db] migratePrUserBoardSkipBranchesTable failed', e)
   }
@@ -162,7 +160,7 @@ export async function migratePrTrackedBranchesDropAssigneeStatus(): Promise<void
     const rows = await query(
       `SELECT 1 FROM information_schema.columns
        WHERE table_schema = current_schema() AND table_name = ? AND column_name = ? LIMIT 1`,
-      [table, col],
+      [table, col]
     )
     return Array.isArray(rows) && rows.length > 0
   }
@@ -172,7 +170,7 @@ export async function migratePrTrackedBranchesDropAssigneeStatus(): Promise<void
       `SELECT 1 FROM information_schema.table_constraints
        WHERE table_schema = current_schema() AND table_name = ? AND constraint_name = ?
          AND constraint_type = 'FOREIGN KEY' LIMIT 1`,
-      [table, constraintName],
+      [table, constraintName]
     )
     return Array.isArray(rows) && rows.length > 0
   }
@@ -203,16 +201,13 @@ export async function migratePrManagerTablesUserIdColumns(): Promise<void> {
     const rows = await query(
       `SELECT 1 FROM information_schema.columns
        WHERE table_schema = current_schema() AND table_name = ? AND column_name = ? LIMIT 1`,
-      [table, col],
+      [table, col]
     )
     return Array.isArray(rows) && rows.length > 0
   }
 
   const hasIndex = async (table: string, indexName: string): Promise<boolean> => {
-    const rows = await query(
-      `SELECT 1 FROM pg_indexes WHERE schemaname = current_schema()::text AND tablename = ? AND indexname = ? LIMIT 1`,
-      [table, indexName],
-    )
+    const rows = await query(`SELECT 1 FROM pg_indexes WHERE schemaname = current_schema()::text AND tablename = ? AND indexname = ? LIMIT 1`, [table, indexName])
     return Array.isArray(rows) && rows.length > 0
   }
 
@@ -221,7 +216,7 @@ export async function migratePrManagerTablesUserIdColumns(): Promise<void> {
       `SELECT 1 FROM information_schema.table_constraints
        WHERE table_schema = current_schema() AND table_name = ? AND constraint_name = ?
          AND constraint_type = 'FOREIGN KEY' LIMIT 1`,
-      [table, constraintName],
+      [table, constraintName]
     )
     return Array.isArray(rows) && rows.length > 0
   }
@@ -265,30 +260,20 @@ UPDATE pr_repos pr SET user_id = r.uid FROM (
   SELECT project_id, MIN(user_id) AS uid FROM user_project_roles WHERE project_id IS NOT NULL GROUP BY project_id
 ) r WHERE r.project_id = pr.project_id AND pr.user_id IS NULL`)
 
-    await tryExec(
-      `UPDATE pr_repos SET user_id = (SELECT id FROM users ORDER BY created_at ASC LIMIT 1) WHERE user_id IS NULL`,
-    )
+    await tryExec(`UPDATE pr_repos SET user_id = (SELECT id FROM users ORDER BY created_at ASC LIMIT 1) WHERE user_id IS NULL`)
 
     await tryExec(`
 UPDATE pr_checkpoint_templates t SET user_id = r.uid FROM (
   SELECT project_id, MIN(user_id) AS uid FROM user_project_roles WHERE project_id IS NOT NULL GROUP BY project_id
 ) r WHERE r.project_id = t.project_id AND t.user_id IS NULL`)
 
-    await tryExec(
-      `UPDATE pr_checkpoint_templates SET user_id = (SELECT id FROM users ORDER BY created_at ASC LIMIT 1) WHERE user_id IS NULL`,
-    )
+    await tryExec(`UPDATE pr_checkpoint_templates SET user_id = (SELECT id FROM users ORDER BY created_at ASC LIMIT 1) WHERE user_id IS NULL`)
 
-    await tryExec(
-      `UPDATE pr_tracked_branches tb SET user_id = r.user_id FROM pr_repos r WHERE r.id = tb.repo_id AND tb.user_id IS NULL`,
-    )
+    await tryExec(`UPDATE pr_tracked_branches tb SET user_id = r.user_id FROM pr_repos r WHERE r.id = tb.repo_id AND tb.user_id IS NULL`)
 
-    await tryExec(
-      `UPDATE pr_branch_checkpoints bc SET user_id = tb.user_id FROM pr_tracked_branches tb WHERE tb.id = bc.tracked_branch_id AND bc.user_id IS NULL`,
-    )
+    await tryExec(`UPDATE pr_branch_checkpoints bc SET user_id = tb.user_id FROM pr_tracked_branches tb WHERE tb.id = bc.tracked_branch_id AND bc.user_id IS NULL`)
 
-    await tryExec(
-      `UPDATE pr_automations a SET user_id = r.user_id FROM pr_repos r WHERE r.id = a.repo_id AND a.user_id IS NULL`,
-    )
+    await tryExec(`UPDATE pr_automations a SET user_id = r.user_id FROM pr_repos r WHERE r.id = a.repo_id AND a.user_id IS NULL`)
 
     await tryExec('ALTER TABLE pr_repos ALTER COLUMN user_id SET NOT NULL')
     await tryExec('ALTER TABLE pr_checkpoint_templates ALTER COLUMN user_id SET NOT NULL')
@@ -300,39 +285,29 @@ UPDATE pr_checkpoint_templates t SET user_id = r.uid FROM (
       await tryExec('DROP INDEX IF EXISTS uk_pr_repos_owner_repo')
     }
     if (!(await hasIndex('pr_repos', 'uk_pr_repos_user_proj_own_repo'))) {
-      await tryExec(
-        'ALTER TABLE pr_repos ADD CONSTRAINT uk_pr_repos_user_proj_own_repo UNIQUE (user_id, project_id, owner, repo)',
-      )
+      await tryExec('ALTER TABLE pr_repos ADD CONSTRAINT uk_pr_repos_user_proj_own_repo UNIQUE (user_id, project_id, owner, repo)')
     }
     if (await hasIndex('pr_checkpoint_templates', 'uk_pr_tpl_code')) {
       await tryExec('DROP INDEX IF EXISTS uk_pr_tpl_code')
     }
     if (!(await hasIndex('pr_checkpoint_templates', 'uk_pr_tpl_user_proj_code'))) {
-      await tryExec(
-        'ALTER TABLE pr_checkpoint_templates ADD CONSTRAINT uk_pr_tpl_user_proj_code UNIQUE (user_id, project_id, code)',
-      )
+      await tryExec('ALTER TABLE pr_checkpoint_templates ADD CONSTRAINT uk_pr_tpl_user_proj_code UNIQUE (user_id, project_id, code)')
     }
     if (await hasIndex('pr_tracked_branches', 'uk_pr_track')) {
       await tryExec('DROP INDEX IF EXISTS uk_pr_track')
     }
     if (!(await hasIndex('pr_tracked_branches', 'uk_pr_track_user_repo_branch'))) {
-      await tryExec(
-        'ALTER TABLE pr_tracked_branches ADD CONSTRAINT uk_pr_track_user_repo_branch UNIQUE (user_id, repo_id, branch_name)',
-      )
+      await tryExec('ALTER TABLE pr_tracked_branches ADD CONSTRAINT uk_pr_track_user_repo_branch UNIQUE (user_id, repo_id, branch_name)')
     }
 
     if (!(await hasIndex('pr_repos', 'idx_pr_repos_user_project'))) {
       await tryExec('CREATE INDEX IF NOT EXISTS idx_pr_repos_user_project ON pr_repos (user_id, project_id)')
     }
     if (!(await hasIndex('pr_checkpoint_templates', 'idx_pr_tpl_user_project'))) {
-      await tryExec(
-        'CREATE INDEX IF NOT EXISTS idx_pr_tpl_user_project ON pr_checkpoint_templates (user_id, project_id)',
-      )
+      await tryExec('CREATE INDEX IF NOT EXISTS idx_pr_tpl_user_project ON pr_checkpoint_templates (user_id, project_id)')
     }
     if (!(await hasIndex('pr_tracked_branches', 'idx_pr_track_user_project'))) {
-      await tryExec(
-        'CREATE INDEX IF NOT EXISTS idx_pr_track_user_project ON pr_tracked_branches (user_id, project_id)',
-      )
+      await tryExec('CREATE INDEX IF NOT EXISTS idx_pr_track_user_project ON pr_tracked_branches (user_id, project_id)')
     }
     if (!(await hasIndex('pr_branch_checkpoints', 'idx_pr_bc_user'))) {
       await tryExec('CREATE INDEX IF NOT EXISTS idx_pr_bc_user ON pr_branch_checkpoints (user_id)')
@@ -342,29 +317,19 @@ UPDATE pr_checkpoint_templates t SET user_id = r.uid FROM (
     }
 
     if (!(await hasFk('pr_repos', 'fk_pr_repos_user'))) {
-      await tryExec(
-        'ALTER TABLE pr_repos ADD CONSTRAINT fk_pr_repos_user FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE',
-      )
+      await tryExec('ALTER TABLE pr_repos ADD CONSTRAINT fk_pr_repos_user FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE')
     }
     if (!(await hasFk('pr_checkpoint_templates', 'fk_pr_tpl_user'))) {
-      await tryExec(
-        'ALTER TABLE pr_checkpoint_templates ADD CONSTRAINT fk_pr_tpl_user FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE',
-      )
+      await tryExec('ALTER TABLE pr_checkpoint_templates ADD CONSTRAINT fk_pr_tpl_user FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE')
     }
     if (!(await hasFk('pr_tracked_branches', 'fk_pr_track_user'))) {
-      await tryExec(
-        'ALTER TABLE pr_tracked_branches ADD CONSTRAINT fk_pr_track_user FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE',
-      )
+      await tryExec('ALTER TABLE pr_tracked_branches ADD CONSTRAINT fk_pr_track_user FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE')
     }
     if (!(await hasFk('pr_branch_checkpoints', 'fk_pr_bc_user'))) {
-      await tryExec(
-        'ALTER TABLE pr_branch_checkpoints ADD CONSTRAINT fk_pr_bc_user FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE',
-      )
+      await tryExec('ALTER TABLE pr_branch_checkpoints ADD CONSTRAINT fk_pr_bc_user FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE')
     }
     if (!(await hasFk('pr_automations', 'fk_pr_auto_user'))) {
-      await tryExec(
-        'ALTER TABLE pr_automations ADD CONSTRAINT fk_pr_auto_user FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE',
-      )
+      await tryExec('ALTER TABLE pr_automations ADD CONSTRAINT fk_pr_auto_user FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE')
     }
   } catch (e) {
     l.error('[db] migratePrManagerTablesUserIdColumns failed', e)
@@ -378,9 +343,7 @@ let taskChangeHistoryTableMigrationDone = false
 export async function migrateTaskChangeHistoryTable(): Promise<void> {
   if (taskChangeHistoryTableMigrationDone || !hasDbConfig()) return
   try {
-    const rows = await query(
-      `SELECT 1 FROM information_schema.tables WHERE table_schema = current_schema() AND table_name = 'task_change_history' LIMIT 1`,
-    )
+    const rows = await query(`SELECT 1 FROM information_schema.tables WHERE table_schema = current_schema() AND table_name = 'task_change_history' LIMIT 1`)
     if (Array.isArray(rows) && rows.length > 0) {
       taskChangeHistoryTableMigrationDone = true
       return
@@ -393,14 +356,42 @@ export async function migrateTaskChangeHistoryTable(): Promise<void> {
       changes_json JSONB NOT NULL,
       created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
     )`)
-    await query(
-      'CREATE INDEX IF NOT EXISTS idx_task_change_task_created ON task_change_history (task_id, created_at DESC)',
-    )
+    await query('CREATE INDEX IF NOT EXISTS idx_task_change_task_created ON task_change_history (task_id, created_at DESC)')
   } catch (e) {
     l.error('[db] migrateTaskChangeHistoryTable failed', e)
     return
   }
   taskChangeHistoryTableMigrationDone = true
+}
+
+let taskWorkloadOverridesTableMigrationDone = false
+
+/** Tạo bảng `task_workload_overrides` để lưu override hours theo (project, user, date) cho Workload section của Task Gantt. */
+export async function migrateTaskWorkloadOverridesTable(): Promise<void> {
+  if (taskWorkloadOverridesTableMigrationDone || !hasDbConfig()) return
+  try {
+    await query(`
+CREATE TABLE IF NOT EXISTS task_workload_overrides (
+  id VARCHAR(36) PRIMARY KEY,
+  project_id VARCHAR(36) NOT NULL,
+  user_id VARCHAR(36) NOT NULL,
+  work_date DATE NOT NULL,
+  override_hours DECIMAL(6,2) NULL,
+  note TEXT NULL,
+  version INT NOT NULL DEFAULT 1,
+  created_by VARCHAR(36) NULL,
+  updated_by VARCHAR(36) NULL,
+  created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
+  updated_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
+  CONSTRAINT uk_workload_proj_user_date UNIQUE (project_id, user_id, work_date)
+)`)
+    await query('CREATE INDEX IF NOT EXISTS idx_workload_proj_date ON task_workload_overrides(project_id, work_date)')
+    await query('CREATE INDEX IF NOT EXISTS idx_workload_proj_user ON task_workload_overrides(project_id, user_id)')
+  } catch (e) {
+    l.error('[db] migrateTaskWorkloadOverridesTable failed', e)
+    return
+  }
+  taskWorkloadOverridesTableMigrationDone = true
 }
 
 let userDailySnapshotsUniqueConstraintMigrationDone = false
@@ -415,7 +406,7 @@ export async function migrateUserDailySnapshotsUniqueConstraint(): Promise<void>
          AND table_name = 'user_daily_snapshots'
          AND constraint_name = 'uk_uds_user_date'
          AND constraint_type = 'UNIQUE'
-       LIMIT 1`,
+       LIMIT 1`
     )
     return Array.isArray(rows) && rows.length > 0
   }
@@ -425,7 +416,7 @@ export async function migrateUserDailySnapshotsUniqueConstraint(): Promise<void>
       `SELECT 1 FROM information_schema.tables
        WHERE table_schema = current_schema()
          AND table_name = 'user_daily_snapshots'
-       LIMIT 1`,
+       LIMIT 1`
     )
     return Array.isArray(rows) && rows.length > 0
   }
@@ -452,7 +443,7 @@ export async function migrateUserDailySnapshotsUniqueConstraint(): Promise<void>
        )
        DELETE FROM user_daily_snapshots uds
        USING ranked r
-       WHERE uds.ctid = r.ctid AND r.rn > 1`,
+       WHERE uds.ctid = r.ctid AND r.rn > 1`
     )
 
     await query('ALTER TABLE user_daily_snapshots ADD CONSTRAINT uk_uds_user_date UNIQUE (user_id, snapshot_date)')

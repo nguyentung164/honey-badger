@@ -55,6 +55,7 @@ import {
   getTask,
   getTaskChildren,
   getTaskLinks,
+  getTaskListVisibleProjectIds,
   getTasksForSession,
   getUserProjectSourceFolderMappings,
   getUsers,
@@ -77,6 +78,7 @@ import {
   updateTaskStatus,
   upsertUserProjectSourceFolder,
 } from '../task/pgTaskStore'
+import { deleteWorkloadOverride, getWorkload, upsertWorkloadOverride, type WorkloadOverrideInput } from '../task/pgWorkloadStore'
 import { initTaskSchema } from '../task/schemaInit'
 import type { TaskNotificationType } from '../task/taskNotificationStore'
 import { insertTaskNotification, markAsRead } from '../task/taskNotificationStore'
@@ -276,7 +278,7 @@ export function registerTaskIpcHandlers() {
     })
   )
 
-  ipcMain.handle(IPC.TASK.INIT_TASK_SCHEMA, async (_event) => {
+  ipcMain.handle(IPC.TASK.INIT_TASK_SCHEMA, async _event => {
     try {
       const applied = await isTaskSchemaApplied()
       if (applied) {
@@ -670,47 +672,49 @@ export function registerTaskIpcHandlers() {
 
   ipcMain.handle(
     IPC.TASK.BULK_UPDATE_TASKS,
-    withAuthFromStore(async (_event, session, payload: { items: { id: string; version: number }[]; patch: { status?: string; priority?: string; assigneeUserId?: string | null } }) => {
-      try {
-        const items = payload.items ?? []
-        const patch = payload.patch ?? {}
-        const allowed: { id: string; version: number }[] = []
-        const skippedEarly: string[] = []
-        for (const item of items) {
-          const task = await getTask(item.id)
-          if (!task) {
-            skippedEarly.push(item.id)
-            continue
+    withAuthFromStore(
+      async (_event, session, payload: { items: { id: string; version: number }[]; patch: { status?: string; priority?: string; assigneeUserId?: string | null } }) => {
+        try {
+          const items = payload.items ?? []
+          const patch = payload.patch ?? {}
+          const allowed: { id: string; version: number }[] = []
+          const skippedEarly: string[] = []
+          for (const item of items) {
+            const task = await getTask(item.id)
+            if (!task) {
+              skippedEarly.push(item.id)
+              continue
+            }
+            const projectId = task.projectId
+            if (!projectId || typeof projectId !== 'string') {
+              skippedEarly.push(item.id)
+              continue
+            }
+            if (task.version !== item.version) {
+              skippedEarly.push(item.id)
+              continue
+            }
+            const canUpdate =
+              task.status === 'done'
+                ? await canUserUpdateOrDeleteDoneTask(session.userId, projectId, session.role === 'admin')
+                : await canUserUpdateTask(session.userId, projectId, task.assigneeUserId ?? null, session.role === 'admin')
+            if (!canUpdate) {
+              skippedEarly.push(item.id)
+              continue
+            }
+            allowed.push({ id: item.id, version: item.version })
           }
-          const projectId = task.projectId
-          if (!projectId || typeof projectId !== 'string') {
-            skippedEarly.push(item.id)
-            continue
+          const { updatedIds, skippedIds } = await bulkUpdateTasksWithPatch(allowed, patch, session.userId)
+          return {
+            status: 'success' as const,
+            data: { updatedIds, skippedIds: [...skippedEarly, ...skippedIds], updatedCount: updatedIds.length },
           }
-          if (task.version !== item.version) {
-            skippedEarly.push(item.id)
-            continue
-          }
-          const canUpdate =
-            task.status === 'done'
-              ? await canUserUpdateOrDeleteDoneTask(session.userId, projectId, session.role === 'admin')
-              : await canUserUpdateTask(session.userId, projectId, task.assigneeUserId ?? null, session.role === 'admin')
-          if (!canUpdate) {
-            skippedEarly.push(item.id)
-            continue
-          }
-          allowed.push({ id: item.id, version: item.version })
+        } catch (error: any) {
+          l.error('task:bulk-update error:', error)
+          return { status: 'error' as const, message: error?.message ?? String(error) }
         }
-        const { updatedIds, skippedIds } = await bulkUpdateTasksWithPatch(allowed, patch, session.userId)
-        return {
-          status: 'success' as const,
-          data: { updatedIds, skippedIds: [...skippedEarly, ...skippedIds], updatedCount: updatedIds.length },
-        }
-      } catch (error: any) {
-        l.error('task:bulk-update error:', error)
-        return { status: 'error' as const, message: error?.message ?? String(error) }
       }
-    })
+    )
   )
 
   ipcMain.handle(
@@ -886,13 +890,7 @@ export function registerTaskIpcHandlers() {
     withAuthFromStore(async (_event, session, csvContent: string) => {
       try {
         const users = await getUsers()
-        const { created, updated, errors } = await createTasksFromRedmineCsv(
-          csvContent,
-          users as any,
-          session.userId,
-          session.role,
-          session.userId
-        )
+        const { created, updated, errors } = await createTasksFromRedmineCsv(csvContent, users as any, session.userId, session.role, session.userId)
         return { status: 'success' as const, created, updated, errors }
       } catch (error: any) {
         l.error('task:import-redmine-csv error:', error)
@@ -1403,6 +1401,74 @@ export function registerTaskIpcHandlers() {
       return { status: 'error' as const, message: error?.message ?? String(error) }
     }
   })
+
+  ipcMain.handle(
+    IPC.TASK.WORKLOAD_GET,
+    withAuthFromStore(async (_event, session, body: { projectId?: string; from?: string; to?: string }) => {
+      try {
+        const projectId = (body?.projectId || '').trim()
+        const from = (body?.from || '').slice(0, 10)
+        const to = (body?.to || '').slice(0, 10)
+        if (!projectId || !from || !to) {
+          return { status: 'error' as const, message: 'projectId, from, to là bắt buộc' }
+        }
+        /** Read = mọi member project. Tận dụng visible scope đã có. */
+        const visible = await getTaskListVisibleProjectIds(session.userId, session.role)
+        if (visible !== null && !visible.includes(projectId)) {
+          return { status: 'error' as const, code: 'FORBIDDEN' as const, message: 'Không có quyền xem workload của project này' }
+        }
+        const data = await getWorkload({ projectId, from, to, sessionUserId: session.userId, sessionRole: session.role })
+        return { status: 'success' as const, data }
+      } catch (error: any) {
+        l.error('task:workload:get error:', error)
+        return { status: 'error' as const, message: error?.message ?? String(error) }
+      }
+    })
+  )
+
+  ipcMain.handle(
+    IPC.TASK.WORKLOAD_UPSERT_OVERRIDE,
+    withAuthFromStore(async (_event, session, input: WorkloadOverrideInput) => {
+      try {
+        const projectId = (input?.projectId || '').trim()
+        if (!projectId) return { status: 'error' as const, message: 'projectId là bắt buộc' }
+        const visible = await getTaskListVisibleProjectIds(session.userId, session.role)
+        if (visible !== null && !visible.includes(projectId)) {
+          return { status: 'error' as const, code: 'FORBIDDEN' as const, message: 'Không có quyền sửa workload của project này' }
+        }
+        const data = await upsertWorkloadOverride(input, session.userId, session.role)
+        return { status: 'success' as const, data }
+      } catch (error: any) {
+        const code = (error as { code?: string })?.code
+        if (code === 'FORBIDDEN') return { status: 'error' as const, code: 'FORBIDDEN' as const, message: error?.message ?? 'Forbidden' }
+        if (code === 'VERSION_CONFLICT') return { status: 'error' as const, code: 'VERSION_CONFLICT' as const, message: error?.message ?? 'Version conflict' }
+        l.error('task:workload:upsert-override error:', error)
+        return { status: 'error' as const, message: error?.message ?? String(error) }
+      }
+    })
+  )
+
+  ipcMain.handle(
+    IPC.TASK.WORKLOAD_DELETE_OVERRIDE,
+    withAuthFromStore(async (_event, session, input: { projectId: string; userId: string; workDate: string; version?: number }) => {
+      try {
+        const projectId = (input?.projectId || '').trim()
+        if (!projectId) return { status: 'error' as const, message: 'projectId là bắt buộc' }
+        const visible = await getTaskListVisibleProjectIds(session.userId, session.role)
+        if (visible !== null && !visible.includes(projectId)) {
+          return { status: 'error' as const, code: 'FORBIDDEN' as const, message: 'Không có quyền sửa workload của project này' }
+        }
+        const data = await deleteWorkloadOverride(input, session.userId, session.role)
+        return { status: 'success' as const, data }
+      } catch (error: any) {
+        const code = (error as { code?: string })?.code
+        if (code === 'FORBIDDEN') return { status: 'error' as const, code: 'FORBIDDEN' as const, message: error?.message ?? 'Forbidden' }
+        if (code === 'VERSION_CONFLICT') return { status: 'error' as const, code: 'VERSION_CONFLICT' as const, message: error?.message ?? 'Version conflict' }
+        l.error('task:workload:delete-override error:', error)
+        return { status: 'error' as const, message: error?.message ?? String(error) }
+      }
+    })
+  )
 
   l.info('Task IPC Handlers Registered')
 }

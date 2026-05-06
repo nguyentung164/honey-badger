@@ -430,6 +430,21 @@ CREATE TABLE IF NOT EXISTS task_notifications (
   created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
 );
 
+CREATE TABLE IF NOT EXISTS task_workload_overrides (
+  id VARCHAR(36) PRIMARY KEY,
+  project_id VARCHAR(36) NOT NULL,
+  user_id VARCHAR(36) NOT NULL,
+  work_date DATE NOT NULL,
+  override_hours DECIMAL(6,2) NULL,
+  note TEXT NULL,
+  version INT NOT NULL DEFAULT 1,
+  created_by VARCHAR(36) NULL,
+  updated_by VARCHAR(36) NULL,
+  created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
+  updated_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
+  CONSTRAINT uk_workload_proj_user_date UNIQUE (project_id, user_id, work_date)
+);
+
 CREATE INDEX IF NOT EXISTS idx_projects_reminder ON projects(daily_report_reminder_time);
 CREATE INDEX IF NOT EXISTS idx_upr_user ON user_project_roles(user_id);
 CREATE INDEX IF NOT EXISTS idx_upr_project ON user_project_roles(project_id);
@@ -466,6 +481,8 @@ CREATE INDEX IF NOT EXISTS idx_git_cq_commit_user ON git_commit_queue(commit_use
 CREATE INDEX IF NOT EXISTS idx_drsf_upsf ON daily_report_source_folders(user_project_source_folder_id);
 CREATE INDEX IF NOT EXISTS idx_target_unread ON task_notifications(target_user_id, is_read, created_at);
 CREATE INDEX IF NOT EXISTS idx_task_change_task_created ON task_change_history(task_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_workload_proj_date ON task_workload_overrides(project_id, work_date);
+CREATE INDEX IF NOT EXISTS idx_workload_proj_user ON task_workload_overrides(project_id, user_id);
 
 INSERT INTO task_statuses (code, name, sort_order, color) VALUES
   ('new', 'New', 1, '#0ea5e9'),

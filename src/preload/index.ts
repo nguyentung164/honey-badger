@@ -570,7 +570,10 @@ declare global {
         deleteTask: (id: string, version?: number) => Promise<{ status: string; code?: string; message?: string }>
         canEditTask: (taskId: string) => Promise<{ status: string; data?: { canEdit: boolean; canDelete: boolean }; message?: string }>
         assign: (id: string, assigneeUserId: string | null, version?: number) => Promise<{ status: string; message?: string }>
-        listTaskChangeHistory: (taskId: string, limit?: number) => Promise<{
+        listTaskChangeHistory: (
+          taskId: string,
+          limit?: number
+        ) => Promise<{
           status: string
           data?: Array<{
             id: string
@@ -649,6 +652,33 @@ declare global {
           get: (sourceFolderPath: string, commitId: string) => Promise<{ status: string; data?: any; message?: string }>
           getAllBySourceFolder: (sourceFolderPath: string) => Promise<{ status: string; data?: any[]; message?: string }>
           getReviewedIds: (sourceFolderPath: string) => Promise<{ status: string; data?: string[]; message?: string }>
+        }
+        workload: {
+          get: (params: { projectId: string; from: string; to: string }) => Promise<{
+            status: string
+            code?: string
+            data?: {
+              users: { userId: string; name: string; userCode: string; role: 'pm' | 'pl' | 'dev' }[]
+              days: { userId: string; date: string; derivedHours: number; overrideHours: number | null; taskCount: number; taskIds: string[] }[]
+              hoursPerDay: number
+              nonWorkingDates: string[]
+              canEditAll: boolean
+              selfUserId: string
+            }
+            message?: string
+          }>
+          upsertOverride: (input: { projectId: string; userId: string; workDate: string; overrideHours: number | null; note?: string | null; version?: number }) => Promise<{
+            status: string
+            code?: string
+            data?: { overrideHours: number | null; note: string | null; version: number; deleted: boolean }
+            message?: string
+          }>
+          deleteOverride: (input: { projectId: string; userId: string; workDate: string; version?: number }) => Promise<{
+            status: string
+            code?: string
+            data?: { deleted: boolean }
+            message?: string
+          }>
         }
       }
 
@@ -1455,10 +1485,8 @@ contextBridge.exposeInMainWorld('api', {
     canEditTask: (taskId: string) => ipcRenderer.invoke(IPC.TASK.CAN_EDIT_TASK, taskId),
     assign: (id: string, assigneeUserId: string | null, version?: number) => ipcRenderer.invoke(IPC.TASK.ASSIGN, id, assigneeUserId, version),
     listTaskChangeHistory: (taskId: string, limit?: number) => ipcRenderer.invoke(IPC.TASK.LIST_TASK_CHANGE_HISTORY, taskId, limit),
-    bulkUpdateTasks: (payload: {
-      items: { id: string; version: number }[]
-      patch: { status?: string; priority?: string; assigneeUserId?: string | null }
-    }) => ipcRenderer.invoke(IPC.TASK.BULK_UPDATE_TASKS, payload),
+    bulkUpdateTasks: (payload: { items: { id: string; version: number }[]; patch: { status?: string; priority?: string; assigneeUserId?: string | null } }) =>
+      ipcRenderer.invoke(IPC.TASK.BULK_UPDATE_TASKS, payload),
     checkOnedrive: () => ipcRenderer.invoke(IPC.TASK.CHECK_ONEDRIVE),
     checkTaskApi: () => ipcRenderer.invoke(IPC.TASK.CHECK_TASK_API),
     checkTaskSchemaApplied: () => ipcRenderer.invoke(IPC.TASK.CHECK_TASK_SCHEMA_APPLIED),
@@ -1478,7 +1506,7 @@ contextBridge.exposeInMainWorld('api', {
     codingRule: {
       getForSelection: (sourceFolderPath: string) => ipcRenderer.invoke(IPC.TASK.CODING_RULE_GET_FOR_SELECTION, sourceFolderPath),
       getGlobalOnly: () => ipcRenderer.invoke(IPC.TASK.CODING_RULE_GET_GLOBAL_ONLY),
-          getContent: (idOrName: string, options?: { sourceFolderPath?: string }) => ipcRenderer.invoke(IPC.TASK.CODING_RULE_GET_CONTENT, idOrName, options),
+      getContent: (idOrName: string, options?: { sourceFolderPath?: string }) => ipcRenderer.invoke(IPC.TASK.CODING_RULE_GET_CONTENT, idOrName, options),
       create: (input: { name: string; content: string; projectId?: string | null }) => ipcRenderer.invoke(IPC.TASK.CODING_RULE_CREATE, input),
       update: (id: string, input: { name?: string; content?: string }) => ipcRenderer.invoke(IPC.TASK.CODING_RULE_UPDATE, id, input),
       delete: (id: string) => ipcRenderer.invoke(IPC.TASK.CODING_RULE_DELETE, id),
@@ -1507,6 +1535,12 @@ contextBridge.exposeInMainWorld('api', {
       get: (sourceFolderPath: string, commitId: string) => ipcRenderer.invoke(IPC.TASK.COMMIT_REVIEW_GET, sourceFolderPath, commitId),
       getAllBySourceFolder: (sourceFolderPath: string) => ipcRenderer.invoke(IPC.TASK.COMMIT_REVIEW_GET_ALL_BY_SOURCE, sourceFolderPath),
       getReviewedIds: (sourceFolderPath: string) => ipcRenderer.invoke(IPC.TASK.COMMIT_REVIEW_GET_REVIEWED_IDS, sourceFolderPath),
+    },
+    workload: {
+      get: (params: { projectId: string; from: string; to: string }) => ipcRenderer.invoke(IPC.TASK.WORKLOAD_GET, params),
+      upsertOverride: (input: { projectId: string; userId: string; workDate: string; overrideHours: number | null; note?: string | null; version?: number }) =>
+        ipcRenderer.invoke(IPC.TASK.WORKLOAD_UPSERT_OVERRIDE, input),
+      deleteOverride: (input: { projectId: string; userId: string; workDate: string; version?: number }) => ipcRenderer.invoke(IPC.TASK.WORKLOAD_DELETE_OVERRIDE, input),
     },
   },
 

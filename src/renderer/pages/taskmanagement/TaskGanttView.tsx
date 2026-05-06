@@ -13,6 +13,7 @@ import { Switch } from '@/components/ui/switch'
 import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group'
 import { parseLocalDate, toYyyyMmDd } from '@/lib/dateUtils'
 import { cn } from '@/lib/utils'
+import { TaskGanttWorkload, type WorkloadData, type WorkloadOverrideUpsertInput } from './TaskGanttWorkload'
 import type { TaskTableRowTask } from './TaskTableRow'
 import { taskStatusBarStyle } from './taskStatusVisual'
 
@@ -278,6 +279,11 @@ export function TaskGanttView({
   getStatusToneClass,
   getPriorityToneClass,
   disableRowGrouping = false,
+  workloadData,
+  workloadLoading,
+  workloadMultiProject,
+  onUpsertWorkloadOverride,
+  getUserAvatarUrl,
 }: {
   tasks: TaskTableRowTask[]
   locale: Locale
@@ -300,6 +306,13 @@ export function TaskGanttView({
   getPriorityToneClass: (code: string) => string
   /** Admin / PL / PM — khi false: luôn flat, ẩn nhóm hàng */
   disableRowGrouping?: boolean
+  /** Workload data cho project hiện tại (server đã thêm canEditAll/selfUserId). null = chưa load / đa project. */
+  workloadData?: WorkloadData | null
+  workloadLoading?: boolean
+  /** True khi đang chọn nhiều project hoặc 0 project: ẩn workload, hiện banner. */
+  workloadMultiProject?: boolean
+  onUpsertWorkloadOverride?: (input: WorkloadOverrideUpsertInput) => Promise<void> | void
+  getUserAvatarUrl?: (userId: string) => string | null | undefined
 }) {
   const { t } = useTranslation()
   const [scale, setScale] = useState<TaskGanttScale>('week')
@@ -326,7 +339,10 @@ export function TaskGanttView({
     saveGanttRowGrouping(rowGrouping)
   }, [disableRowGrouping, rowGrouping])
 
-  const outerScrollRef = useRef<HTMLDivElement>(null)
+  const ganttScrollRef = useRef<HTMLDivElement>(null)
+  const workloadScrollRef = useRef<HTMLDivElement>(null)
+  /** Tránh vòng lặp khi mirror scrollLeft giữa Gantt và Workload. */
+  const syncingHScrollRef = useRef(false)
   const fitScrollGenRef = useRef(0)
   const lastAppliedFitGenRef = useRef(0)
   const scrollToChartPixelRef = useRef<((pixel: number) => void) | null>(null)
@@ -473,10 +489,7 @@ export function TaskGanttView({
 
   const verticalGridLeftPx = useMemo(() => ganttVerticalGridLeftPx(scale, start, totalDays, pixelPerDay), [scale, start, totalDays, pixelPerDay])
 
-  const weekendColumnRects = useMemo(
-    () => ganttWeekendColumnRects(start, totalDays, pixelPerDay),
-    [start, totalDays, pixelPerDay]
-  )
+  const weekendColumnRects = useMemo(() => ganttWeekendColumnRects(start, totalDays, pixelPerDay), [start, totalDays, pixelPerDay])
 
   const flashTimelineChrome = useCallback(() => {
     if (ganttReducedMotion()) return
@@ -488,10 +501,10 @@ export function TaskGanttView({
     }, 420)
   }, [])
 
-  /** Cuộn ngang: `Element.scrollTo({ behavior: 'smooth' })` — không đọc `prefers-reduced-motion` (OS của user có thể bật reduce nhưng vẫn muốn pan timeline mượt). */
+  /** Cuộn ngang trên vùng Gantt; Workload mirror qua onScroll (và useLayoutEffect khi mount). */
   const scrollToChartPixel = useCallback(
     (pixelInTimeline: number) => {
-      const el = outerScrollRef.current
+      const el = ganttScrollRef.current
       if (!el) return
       const target = Math.max(0, leftBlockWidth + pixelInTimeline - Math.max(80, el.clientWidth / 3))
       const startLeft = el.scrollLeft
@@ -510,6 +523,30 @@ export function TaskGanttView({
   )
 
   scrollToChartPixelRef.current = scrollToChartPixel
+
+  const onGanttScroll = useCallback(() => {
+    if (syncingHScrollRef.current) return
+    const g = ganttScrollRef.current
+    const w = workloadScrollRef.current
+    if (!g || !w) return
+    const sl = g.scrollLeft
+    if (Math.abs(w.scrollLeft - sl) < 0.5) return
+    syncingHScrollRef.current = true
+    w.scrollLeft = sl
+    syncingHScrollRef.current = false
+  }, [])
+
+  const onWorkloadScroll = useCallback(() => {
+    if (syncingHScrollRef.current) return
+    const g = ganttScrollRef.current
+    const w = workloadScrollRef.current
+    if (!g || !w) return
+    const sl = w.scrollLeft
+    if (Math.abs(g.scrollLeft - sl) < 0.5) return
+    syncingHScrollRef.current = true
+    g.scrollLeft = sl
+    syncingHScrollRef.current = false
+  }, [])
 
   const scrollToToday = useCallback(() => {
     scrollToChartPixel(Math.max(0, todayPxCenter))
@@ -535,6 +572,80 @@ export function TaskGanttView({
   }, [])
 
   const showTodayLine = todayPxCenter >= 0 && todayPxCenter <= chartWidth
+
+  const renderMiniGanttForUser = useCallback(
+    (userId: string) => {
+      const userTasks = scheduled.filter(t => (t.assigneeUserId || '') === userId)
+      if (userTasks.length === 0) {
+        return (
+          <div className="sticky left-0 z-[2] bg-background/60 px-3 py-2 text-[10px] italic text-muted-foreground" style={{ width: leftBlockWidth + Math.min(chartWidth, 720) }}>
+            {labels.emptyScheduled}
+          </div>
+        )
+      }
+      return userTasks.map(task => (
+        <GanttTaskRow
+          key={`workload-mini-${task.id}`}
+          task={task}
+          start={start}
+          pixelPerDay={pixelPerDay}
+          chartWidth={chartWidth}
+          weekendColumnRects={weekendColumnRects}
+          statusColorMap={statusColorMap}
+          selectedTaskIds={selectedTaskIds}
+          onToggleTaskSelect={onToggleTaskSelect}
+          onOpenTask={() => onSelectTask(task)}
+          onUpdatePlanDates={onUpdatePlanDates}
+          taskNameColumnWidth={taskNameColumnWidth}
+          getAssigneeDisplay={getAssigneeDisplay}
+          getStatusLabel={getStatusLabel}
+          getPriorityLabel={getPriorityLabel}
+          getStatusIcon={getStatusIcon}
+          getPriorityIcon={getPriorityIcon}
+          getStatusToneClass={getStatusToneClass}
+          getPriorityToneClass={getPriorityToneClass}
+          showGridBorders={showGridBorders}
+        />
+      ))
+    },
+    [
+      scheduled,
+      leftBlockWidth,
+      chartWidth,
+      labels.emptyScheduled,
+      start,
+      pixelPerDay,
+      weekendColumnRects,
+      statusColorMap,
+      selectedTaskIds,
+      onToggleTaskSelect,
+      onSelectTask,
+      onUpdatePlanDates,
+      taskNameColumnWidth,
+      getAssigneeDisplay,
+      getStatusLabel,
+      getPriorityLabel,
+      getStatusIcon,
+      getPriorityIcon,
+      getStatusToneClass,
+      getPriorityToneClass,
+      showGridBorders,
+    ]
+  )
+
+  const showWorkload = workloadMultiProject || workloadData != null || workloadLoading === true
+
+  /** Khi bật Workload hoặc đổi độ rộng chart: căn scroll ngang Workload theo Gantt (một lần, không rAF loop). */
+  useLayoutEffect(() => {
+    if (!showWorkload) return
+    const g = ganttScrollRef.current
+    const w = workloadScrollRef.current
+    if (!g || !w) return
+    if (Math.abs(w.scrollLeft - g.scrollLeft) < 0.5) return
+    syncingHScrollRef.current = true
+    w.scrollLeft = g.scrollLeft
+    syncingHScrollRef.current = false
+  }, [showWorkload, chartWidth, leftBlockWidth])
 
   return (
     <div className="flex min-h-0 min-w-0 flex-1 flex-col gap-3">
@@ -631,17 +742,25 @@ export function TaskGanttView({
       </div>
 
       <div
-        ref={outerScrollRef}
         className={cn(
-          'min-h-0 min-w-0 flex-1 overflow-auto scroll-smooth rounded-md border border-border/70 bg-muted/10',
+          'flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden rounded-md border border-border/70 bg-muted/10',
           'transition-[box-shadow,background-color] duration-300 ease-out motion-reduce:transition-none',
           timelineChromeFlash && 'bg-primary/[0.07] shadow-[inset_0_0_0_2px_hsl(var(--primary)/0.22)] motion-reduce:bg-muted/10 motion-reduce:shadow-none'
         )}
       >
-        {scheduled.length === 0 ? (
-          <div className="p-4 text-muted-foreground text-sm">{labels.emptyScheduled}</div>
-        ) : (
-          <div className="relative inline-block min-w-max bg-background/30" style={{ width: leftBlockWidth + chartWidth }}>
+        <div className={cn('flex min-h-0 flex-col', showWorkload ? 'flex-[7]' : 'min-h-0 flex-1')}>
+          <div
+            ref={ganttScrollRef}
+            onScroll={onGanttScroll}
+            className={cn(
+              'min-h-0 flex-1 overflow-auto scroll-smooth',
+              showWorkload ? '' : 'min-h-0'
+            )}
+          >
+            {scheduled.length === 0 ? (
+              <div className="p-4 text-muted-foreground text-sm">{labels.emptyScheduled}</div>
+            ) : (
+              <div className="relative inline-block min-w-max bg-background/30" style={{ width: leftBlockWidth + chartWidth }}>
             <div
               className={cn(
                 'sticky top-0 z-40 flex bg-muted/90',
@@ -649,17 +768,9 @@ export function TaskGanttView({
               )}
               style={{ height: HEADER_H }}
             >
-              <div
-                className="sticky left-0 z-[41] flex shrink-0 flex-row items-stretch bg-muted/95 backdrop-blur-sm"
-                style={{ width: leftBlockWidth }}
-              >
-                <div
-                  className="relative flex shrink-0 items-center justify-center border-r border-border/50 px-1"
-                  style={{ width: taskNameColumnWidth }}
-                >
-                  <span className="max-w-full truncate text-[9px] font-semibold uppercase tracking-wide text-muted-foreground">
-                    {t('taskManagement.taskTitle')}
-                  </span>
+              <div className="sticky left-0 z-[41] flex shrink-0 flex-row items-stretch bg-muted/95 backdrop-blur-sm" style={{ width: leftBlockWidth }}>
+                <div className="relative flex shrink-0 items-center justify-center border-r border-border/50 px-1" style={{ width: taskNameColumnWidth }}>
+                  <span className="max-w-full truncate text-[9px] font-semibold uppercase tracking-wide text-muted-foreground">{t('taskManagement.taskTitle')}</span>
                   <button
                     type="button"
                     tabIndex={-1}
@@ -672,36 +783,20 @@ export function TaskGanttView({
                     onPointerCancel={onLabelResizePointerEnd}
                   />
                 </div>
-                <div
-                  className="flex shrink-0 items-center justify-center border-r border-border/50 px-1"
-                  style={{ width: GANTT_COL_ASSIGNEE_W }}
-                >
-                  <span className="max-w-full truncate text-[9px] font-semibold uppercase tracking-wide text-muted-foreground">
-                    {t('taskManagement.assignee')}
-                  </span>
+                <div className="flex shrink-0 items-center justify-center border-r border-border/50 px-1" style={{ width: GANTT_COL_ASSIGNEE_W }}>
+                  <span className="max-w-full truncate text-[9px] font-semibold uppercase tracking-wide text-muted-foreground">{t('taskManagement.assignee')}</span>
                 </div>
-                <div
-                  className="flex shrink-0 items-center justify-center border-r border-border/50 px-1"
-                  style={{ width: GANTT_COL_STATUS_W }}
-                >
-                  <span className="max-w-full truncate text-[9px] font-semibold uppercase tracking-wide text-muted-foreground">
-                    {t('taskManagement.status')}
-                  </span>
+                <div className="flex shrink-0 items-center justify-center border-r border-border/50 px-1" style={{ width: GANTT_COL_STATUS_W }}>
+                  <span className="max-w-full truncate text-[9px] font-semibold uppercase tracking-wide text-muted-foreground">{t('taskManagement.status')}</span>
                 </div>
                 <div className="flex shrink-0 items-center justify-center px-1" style={{ width: GANTT_COL_PRIORITY_W }}>
-                  <span className="max-w-full truncate text-[9px] font-semibold uppercase tracking-wide text-muted-foreground">
-                    {t('taskManagement.priority')}
-                  </span>
+                  <span className="max-w-full truncate text-[9px] font-semibold uppercase tracking-wide text-muted-foreground">{t('taskManagement.priority')}</span>
                 </div>
               </div>
               <div className="relative shrink-0 text-[10px] text-muted-foreground" style={{ width: chartWidth }}>
                 <div aria-hidden className="pointer-events-none absolute inset-0 z-0 overflow-hidden">
                   {weekendColumnRects.map((r, i) => (
-                    <div
-                      key={`hdr-wk-${r.left}-${i}`}
-                      className="absolute top-0 bottom-0 bg-slate-500/[0.11] dark:bg-slate-400/[0.05]"
-                      style={{ left: r.left, width: r.width }}
-                    />
+                    <div key={`hdr-wk-${r.left}-${i}`} className="absolute top-0 bottom-0 bg-slate-500/[0.11] dark:bg-slate-400/[0.05]" style={{ left: r.left, width: r.width }} />
                   ))}
                 </div>
                 {showGridBorders ? (
@@ -795,6 +890,40 @@ export function TaskGanttView({
             </div>
           </div>
         )}
+          </div>
+        </div>
+
+        {showWorkload ? (
+          <div className="flex min-h-0 min-w-0 flex-[3] flex-col border-t border-border/60">
+            <div
+              ref={workloadScrollRef}
+              onScroll={onWorkloadScroll}
+              className="min-h-0 flex-1 overflow-auto scroll-smooth [scrollbar-gutter:stable]"
+            >
+              <div className="relative inline-block min-w-max bg-background/30" style={{ width: leftBlockWidth + chartWidth }}>
+                <TaskGanttWorkload
+                  data={workloadData ?? null}
+                  scale={scale}
+                  start={start}
+                  totalDays={totalDays}
+                  pixelPerDay={pixelPerDay}
+                  leftBlockWidth={leftBlockWidth}
+                  chartWidth={chartWidth}
+                  weekendColumnRects={weekendColumnRects}
+                  verticalGridLeftPx={verticalGridLeftPx}
+                  showGridBorders={showGridBorders}
+                  locale={locale}
+                  language={language}
+                  loading={Boolean(workloadLoading)}
+                  multiProject={Boolean(workloadMultiProject)}
+                  renderMiniGanttForUser={renderMiniGanttForUser}
+                  onUpsertOverride={onUpsertWorkloadOverride}
+                  getUserAvatarUrl={getUserAvatarUrl}
+                />
+              </div>
+            </div>
+          </div>
+        ) : null}
 
         {unscheduled.length > 0 ? (
           <div className="flex max-h-[min(40vh,18rem)] min-h-0 flex-col border-t border-border p-3">
@@ -1016,12 +1145,7 @@ function GanttTaskRow({
           <span className="truncate text-xs text-muted-foreground">{assigneeText}</span>
         </div>
         <div className="flex min-w-0 shrink-0 items-center px-1.5 py-1" style={{ width: GANTT_COL_STATUS_W }} title={statusLabel}>
-          <span
-            className={cn(
-              'flex min-w-0 max-w-full items-center gap-1.5 text-xs leading-tight [&_svg]:shrink-0',
-              getStatusToneClass(displayStatus)
-            )}
-          >
+          <span className={cn('flex min-w-0 max-w-full items-center gap-1.5 text-xs leading-tight [&_svg]:shrink-0', getStatusToneClass(displayStatus))}>
             <span className="[&_svg]:h-3.5 [&_svg]:w-3.5" aria-hidden>
               {getStatusIcon(displayStatus)}
             </span>
@@ -1029,12 +1153,7 @@ function GanttTaskRow({
           </span>
         </div>
         <div className="flex min-w-0 shrink-0 items-center px-1.5 py-1" style={{ width: GANTT_COL_PRIORITY_W }} title={priorityLabel}>
-          <span
-            className={cn(
-              'flex min-w-0 max-w-full items-center gap-1.5 text-xs leading-tight [&_svg]:shrink-0',
-              getPriorityToneClass(priority)
-            )}
-          >
+          <span className={cn('flex min-w-0 max-w-full items-center gap-1.5 text-xs leading-tight [&_svg]:shrink-0', getPriorityToneClass(priority))}>
             <span className="[&_svg]:h-3.5 [&_svg]:w-3.5" aria-hidden>
               {getPriorityIcon(priority)}
             </span>
@@ -1043,10 +1162,7 @@ function GanttTaskRow({
         </div>
       </div>
 
-      <div
-        className={cn('relative flex min-h-[36px] min-w-0 bg-transparent', showGridBorders && 'border-r border-r-border/55')}
-        style={{ width: chartWidth }}
-      >
+      <div className={cn('relative flex min-h-[36px] min-w-0 bg-transparent', showGridBorders && 'border-r border-r-border/55')} style={{ width: chartWidth }}>
         <div aria-hidden className="pointer-events-none absolute inset-0 z-[1] overflow-hidden">
           {weekendColumnRects.map((r, i) => (
             <div
@@ -1083,10 +1199,7 @@ function GanttTaskRow({
             {/* biome-ignore lint/a11y/noStaticElementInteractions: Gantt timeline bar drag */}
             <div
               role="presentation"
-              className={cn(
-                'min-w-0 flex-1 cursor-default truncate px-1 leading-[26px]',
-                canDrag && 'cursor-grab active:cursor-grabbing'
-              )}
+              className={cn('min-w-0 flex-1 cursor-default truncate px-1 leading-[26px]', canDrag && 'cursor-grab active:cursor-grabbing')}
               onPointerDown={e => canDrag && beginDrag('move', e)}
               onDoubleClick={onOpenTask}
             />

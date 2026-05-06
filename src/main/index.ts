@@ -90,7 +90,7 @@ makeAppWithSingleInstanceLock(async () => {
         const { startTaskNotificationPoller } = await import('./scheduler/taskNotificationPoller')
         startTaskNotificationPoller()
         const { seedAchievements } = await import('./task/achievementSeed')
-        seedAchievements().catch(() => { })
+        seedAchievements().catch(() => {})
         const { startAchievementDailyScheduler } = await import('./scheduler/achievementDailyScheduler')
         startAchievementDailyScheduler()
         const { startProgressScheduler } = await import('./scheduler/progressScheduler')
@@ -103,16 +103,18 @@ makeAppWithSingleInstanceLock(async () => {
           migratePrUserBoardSkipBranchesTable,
           migratePrAiAssistChatsTable,
           migrateTaskChangeHistoryTable,
+          migrateTaskWorkloadOverridesTable,
           migrateUserDailySnapshotsUniqueConstraint,
         } = await import('./task/taskDbPatches')
-        await migratePrCheckpointGithubColumns().catch(() => { })
-        await migratePrCheckpointTemplateHeaderGroup().catch(() => { })
-        await migratePrManagerTablesUserIdColumns().catch(() => { })
-        await migratePrTrackedBranchesDropAssigneeStatus().catch(() => { })
-        await migratePrUserBoardSkipBranchesTable().catch(() => { })
-        await migratePrAiAssistChatsTable().catch(() => { })
-        await migrateTaskChangeHistoryTable().catch(() => { })
-        await migrateUserDailySnapshotsUniqueConstraint().catch(() => { })
+        await migratePrCheckpointGithubColumns().catch(() => {})
+        await migratePrCheckpointTemplateHeaderGroup().catch(() => {})
+        await migratePrManagerTablesUserIdColumns().catch(() => {})
+        await migratePrTrackedBranchesDropAssigneeStatus().catch(() => {})
+        await migratePrUserBoardSkipBranchesTable().catch(() => {})
+        await migratePrAiAssistChatsTable().catch(() => {})
+        await migrateTaskChangeHistoryTable().catch(() => {})
+        await migrateTaskWorkloadOverridesTable().catch(() => {})
+        await migrateUserDailySnapshotsUniqueConstraint().catch(() => {})
         const { startPrStatusSync } = await import('./scheduler/prStatusSync')
         startPrStatusSync()
       })()

@@ -1,6 +1,6 @@
 'use client'
 
-import { format, subDays } from 'date-fns'
+import { addDays, format, startOfDay, subDays } from 'date-fns'
 import { enUS, ja, vi } from 'date-fns/locale'
 import type { TFunction } from 'i18next'
 import {
@@ -79,6 +79,7 @@ import type { ChartTask } from './chartDataUtils'
 import { TaskBulkActionsBar } from './TaskBulkActionsBar'
 import { TaskCalendarView } from './TaskCalendarView'
 import { TaskGanttView } from './TaskGanttView'
+import type { WorkloadData, WorkloadOverrideUpsertInput } from './TaskGanttWorkload'
 import { TaskKanbanBoard } from './TaskKanbanBoard'
 import { TaskSavedViewsPopover } from './TaskSavedViewsPopover'
 import { TaskTableRow, type TaskTableRowTask } from './TaskTableRow'
@@ -145,8 +146,7 @@ const VISIBLE_COLUMNS_STORAGE_KEY = 'task-management-visible-columns'
 const TASK_VIEW_STORAGE_KEY = 'task-management-task-view'
 
 /** Nút filter facet (Assignee, Project, Type, Status, Priority): đã chọn ít nhất một giá trị */
-const TASK_MGMT_FILTER_TRIGGER_ACTIVE =
-  'border-primary/55 bg-primary/[0.09] font-medium text-foreground shadow-sm dark:border-primary/45 dark:bg-primary/14'
+const TASK_MGMT_FILTER_TRIGGER_ACTIVE = 'border-primary/55 bg-primary/[0.09] font-medium text-foreground shadow-sm dark:border-primary/45 dark:bg-primary/14'
 
 type TaskManagementViewMode = 'table' | 'board' | 'gantt' | 'calendar'
 
@@ -322,7 +322,7 @@ function buildAppliedMgmtFromDraft(
   projectFilter: string[],
   dateRange: DateRange | undefined,
   createdDateRange: DateRange | undefined,
-  updatedDateRange: DateRange | undefined,
+  updatedDateRange: DateRange | undefined
 ): AppliedMgmtFiltersSlice {
   let dateFromKey: string | null = null
   let dateToKey: string | null = null
@@ -493,6 +493,10 @@ export function TaskManagement({ embedded = false }: { embedded?: boolean }) {
   const [boardTotal, setBoardTotal] = useState(0)
   const [boardTruncated, setBoardTruncated] = useState(false)
   const [boardLoading, setBoardLoading] = useState(false)
+  /** Workload Gantt section: chỉ active khi taskView === 'gantt' và đúng 1 project được chọn. */
+  const [workloadData, setWorkloadData] = useState<WorkloadData | null>(null)
+  const [workloadLoading, setWorkloadLoading] = useState(false)
+  const workloadRequestIdRef = useRef(0)
   const [savedViews, setSavedViews] = useState<TaskManagementSavedView[]>([])
   const [selectedTaskIds, setSelectedTaskIds] = useState(() => new Set<string>())
   const boardManagementRequestIdRef = useRef(0)
@@ -583,8 +587,8 @@ export function TaskManagement({ embedded = false }: { embedded?: boolean }) {
         projectFilter,
         dateRange,
         createdDateRange,
-        updatedDateRange,
-      ),
+        updatedDateRange
+      )
     )
     setTaskPage(1)
     // eslint-disable-next-line react-hooks/exhaustive-deps -- chỉ facet/ngày; không kéo typing search vào để tránh áp nhầm từng ký tự
@@ -620,7 +624,22 @@ export function TaskManagement({ embedded = false }: { embedded?: boolean }) {
         taskColumnIds: TASK_COLUMN_IDS,
         requiredColumnIds: REQUIRED_COLUMN_IDS,
       }),
-    [searchQuery, statusFilter, assigneeFilter, typeFilter, priorityFilter, projectFilter, dateRange, createdDateRange, updatedDateRange, sortColumn, sortDirection, taskView, pageSize, visibleColumnIds]
+    [
+      searchQuery,
+      statusFilter,
+      assigneeFilter,
+      typeFilter,
+      priorityFilter,
+      projectFilter,
+      dateRange,
+      createdDateRange,
+      updatedDateRange,
+      sortColumn,
+      sortDirection,
+      taskView,
+      pageSize,
+      visibleColumnIds,
+    ]
   )
 
   const matchingSavedView = useMemo(() => snapshotsMatchAnySaved(savedViews, currentSavedSnapshot), [savedViews, currentSavedSnapshot])
@@ -638,8 +657,7 @@ export function TaskManagement({ embedded = false }: { embedded?: boolean }) {
   }, [savedViews, pinnedSavedViewId])
 
   const hasNarrowingFilters = useMemo(() => {
-    const q =
-      requiresManualMgmtApply ? searchQuery.trim().length > 0 : debouncedSearch.trim().length > 0
+    const q = requiresManualMgmtApply ? searchQuery.trim().length > 0 : debouncedSearch.trim().length > 0
     return (
       q ||
       statusFilter.length > 0 ||
@@ -739,9 +757,7 @@ export function TaskManagement({ embedded = false }: { embedded?: boolean }) {
     setMgmtUpdatedPickerOpen(false)
     setChartTimelinePickerOpen(false)
     if (requiresManualMgmtApply) {
-      setAppliedMgmtFilters(
-        buildAppliedMgmtFromDraft('', [], [], [], [], [], undefined, undefined, undefined),
-      )
+      setAppliedMgmtFilters(buildAppliedMgmtFromDraft('', [], [], [], [], [], undefined, undefined, undefined))
     }
   }, [requiresManualMgmtApply])
 
@@ -870,7 +886,7 @@ export function TaskManagement({ embedded = false }: { embedded?: boolean }) {
 
   useEffect(() => {
     if (user && typeof Notification !== 'undefined' && Notification.permission === 'default') {
-      Notification.requestPermission().catch(() => { })
+      Notification.requestPermission().catch(() => {})
     }
   }, [user])
 
@@ -1219,9 +1235,9 @@ export function TaskManagement({ embedded = false }: { embedded?: boolean }) {
       const dateRangeApi =
         dateRange?.from != null
           ? {
-            from: format(dateRange.from, 'yyyy-MM-dd'),
-            to: dateRange.to ? format(dateRange.to, 'yyyy-MM-dd') : format(dateRange.from, 'yyyy-MM-dd'),
-          }
+              from: format(dateRange.from, 'yyyy-MM-dd'),
+              to: dateRange.to ? format(dateRange.to, 'yyyy-MM-dd') : format(dateRange.from, 'yyyy-MM-dd'),
+            }
           : undefined
       return {
         ready: true as const,
@@ -1240,9 +1256,9 @@ export function TaskManagement({ embedded = false }: { embedded?: boolean }) {
     const dateRangeApi =
       appliedMgmtFilters.dateFromKey != null
         ? {
-          from: appliedMgmtFilters.dateFromKey,
-          to: appliedMgmtFilters.dateToKey ?? appliedMgmtFilters.dateFromKey,
-        }
+            from: appliedMgmtFilters.dateFromKey,
+            to: appliedMgmtFilters.dateToKey ?? appliedMgmtFilters.dateFromKey,
+          }
         : undefined
     return {
       ready: true as const,
@@ -1253,14 +1269,8 @@ export function TaskManagement({ embedded = false }: { embedded?: boolean }) {
       priorityCodes: appliedMgmtFilters.priorityCodes,
       projectIds: appliedMgmtFilters.projectIds,
       dateRangeApi,
-      createdDateRangeApi: appliedSliceKeysToApi(
-        appliedMgmtFilters.createdDateFromKey,
-        appliedMgmtFilters.createdDateToKey,
-      ),
-      updatedDateRangeApi: appliedSliceKeysToApi(
-        appliedMgmtFilters.updatedDateFromKey,
-        appliedMgmtFilters.updatedDateToKey,
-      ),
+      createdDateRangeApi: appliedSliceKeysToApi(appliedMgmtFilters.createdDateFromKey, appliedMgmtFilters.createdDateToKey),
+      updatedDateRangeApi: appliedSliceKeysToApi(appliedMgmtFilters.updatedDateFromKey, appliedMgmtFilters.updatedDateToKey),
     }
   }, [
     requiresManualMgmtApply,
@@ -1279,46 +1289,15 @@ export function TaskManagement({ embedded = false }: { embedded?: boolean }) {
   const commitMgmtFiltersFromDraft = useCallback(() => {
     if (!requiresManualMgmtApply) return
     setAppliedMgmtFilters(
-      buildAppliedMgmtFromDraft(
-        searchQuery,
-        statusFilter,
-        assigneeFilter,
-        typeFilter,
-        priorityFilter,
-        projectFilter,
-        dateRange,
-        createdDateRange,
-        updatedDateRange,
-      ),
+      buildAppliedMgmtFromDraft(searchQuery, statusFilter, assigneeFilter, typeFilter, priorityFilter, projectFilter, dateRange, createdDateRange, updatedDateRange)
     )
     setTaskPage(1)
-  }, [
-    requiresManualMgmtApply,
-    searchQuery,
-    statusFilter,
-    assigneeFilter,
-    typeFilter,
-    priorityFilter,
-    projectFilter,
-    dateRange,
-    createdDateRange,
-    updatedDateRange,
-  ])
+  }, [requiresManualMgmtApply, searchQuery, statusFilter, assigneeFilter, typeFilter, priorityFilter, projectFilter, dateRange, createdDateRange, updatedDateRange])
 
   const mgmtSearchDirtyOrInitial = useMemo(() => {
     if (!requiresManualMgmtApply) return false
     const fpDraft = fingerprintAppliedMgmtFilters(
-      buildAppliedMgmtFromDraft(
-        searchQuery,
-        statusFilter,
-        assigneeFilter,
-        typeFilter,
-        priorityFilter,
-        projectFilter,
-        dateRange,
-        createdDateRange,
-        updatedDateRange,
-      ),
+      buildAppliedMgmtFromDraft(searchQuery, statusFilter, assigneeFilter, typeFilter, priorityFilter, projectFilter, dateRange, createdDateRange, updatedDateRange)
     )
     if (!appliedMgmtFilters) return true
     return fpDraft !== fingerprintAppliedMgmtFilters(appliedMgmtFilters)
@@ -1430,21 +1409,7 @@ export function TaskManagement({ embedded = false }: { embedded?: boolean }) {
     return () => {
       listManagementRequestIdRef.current += 1
     }
-  }, [
-    isAuthChecked,
-    isLoading,
-    taskApiOk,
-    taskPage,
-    pageSize,
-    mgmtApiFilters,
-    sortColumn,
-    sortDirection,
-    listRevision,
-    taskListFiltersKey,
-    t,
-    clearSession,
-    taskView,
-  ])
+  }, [isAuthChecked, isLoading, taskApiOk, taskPage, pageSize, mgmtApiFilters, sortColumn, sortDirection, listRevision, taskListFiltersKey, t, clearSession, taskView])
 
   /** Board/Gantt/Lịch: chỉ khi `taskView===table` mới fetch list bảng (+ facet) — các view khác vẫn cần facet counts trong popover. */
   useEffect(() => {
@@ -1487,16 +1452,7 @@ export function TaskManagement({ embedded = false }: { embedded?: boolean }) {
     return () => {
       managementFacetPopoverRequestIdRef.current += 1
     }
-  }, [
-    isAuthChecked,
-    isLoading,
-    taskApiOk,
-    activeTab,
-    taskView,
-    mgmtApiFilters,
-    taskListFiltersKey,
-    listRevision,
-  ])
+  }, [isAuthChecked, isLoading, taskApiOk, activeTab, taskView, mgmtApiFilters, taskListFiltersKey, listRevision])
 
   useEffect(() => {
     if (activeTab !== 'chart' || !isAuthChecked || taskApiOk !== true || isLoading) return
@@ -1596,18 +1552,7 @@ export function TaskManagement({ embedded = false }: { embedded?: boolean }) {
     return () => {
       boardManagementRequestIdRef.current += 1
     }
-  }, [
-    activeTab,
-    taskView,
-    isAuthChecked,
-    isLoading,
-    taskApiOk,
-    mgmtApiFilters,
-    listRevision,
-    taskListFiltersKey,
-    t,
-    clearSession,
-  ])
+  }, [activeTab, taskView, isAuthChecked, isLoading, taskApiOk, mgmtApiFilters, listRevision, taskListFiltersKey, t, clearSession])
 
   const totalPages = Math.max(1, Math.ceil(totalCount / pageSize))
 
@@ -1686,15 +1631,15 @@ export function TaskManagement({ embedded = false }: { embedded?: boolean }) {
 
   const tableToolbarColSpan = 2 + visibleColumnIds.length + 1
 
-  const getPriorityLabel = useCallback(
-    (p: TaskPriority) => priorities.find(pr => pr.code === p)?.name ?? FALLBACK_PRIORITY[p] ?? p,
-    [priorities],
-  )
+  const getPriorityLabel = useCallback((p: TaskPriority) => priorities.find(pr => pr.code === p)?.name ?? FALLBACK_PRIORITY[p] ?? p, [priorities])
 
-  const getTypeLabel = useCallback((ty?: TaskType) => {
-    if (!ty) return '-'
-    return types.find(tp => tp.code === ty)?.name ?? FALLBACK_TYPE[ty] ?? ty
-  }, [types])
+  const getTypeLabel = useCallback(
+    (ty?: TaskType) => {
+      if (!ty) return '-'
+      return types.find(tp => tp.code === ty)?.name ?? FALLBACK_TYPE[ty] ?? ty
+    },
+    [types]
+  )
 
   const bulkStatusComboOptions = useMemo(() => {
     const rows = statuses.filter(s => s.is_active !== false)
@@ -1883,23 +1828,86 @@ export function TaskManagement({ embedded = false }: { embedded?: boolean }) {
       typeColorMap,
       statusColorMap,
     }),
-    [
-      getPriorityLabel,
-      getTypeLabel,
-      getPriorityIcon,
-      getTypeIcon,
-      getTypeBadgeClass,
-      getBadgeStyle,
-      priorityColorMap,
-      typeColorMap,
-      statusColorMap,
-    ],
+    [getPriorityLabel, getTypeLabel, getPriorityIcon, getTypeIcon, getTypeBadgeClass, getBadgeStyle, priorityColorMap, typeColorMap, statusColorMap]
   )
 
   const ganttFilterRange = useMemo(() => {
     if (dateRange?.from == null) return undefined
     return { from: dateRange.from, to: dateRange.to ?? dateRange.from }
   }, [dateRange?.from, dateRange?.to])
+
+  /** Range fetch workload: bám theo dateRange nếu có; nếu không, lấy ±60 ngày quanh hôm nay (đủ rộng cho zoom Tháng). */
+  const workloadFetchRange = useMemo(() => {
+    const today = startOfDay(new Date())
+    const fallbackFrom = startOfDay(addDays(today, -60))
+    const fallbackTo = startOfDay(addDays(today, 60))
+    let fromD = ganttFilterRange?.from ?? fallbackFrom
+    let toD = ganttFilterRange?.to ?? fallbackTo
+    fromD = startOfDay(addDays(fromD, -14))
+    toD = startOfDay(addDays(toD, 14))
+    if (fromD.getTime() > toD.getTime()) [fromD, toD] = [toD, fromD]
+    return { from: fromD, to: toD }
+  }, [ganttFilterRange?.from, ganttFilterRange?.to])
+
+  const workloadProjectId = projectFilter.length === 1 ? projectFilter[0] : null
+  const workloadMultiProject = taskView === 'gantt' && projectFilter.length !== 1
+  const workloadFromIso = format(workloadFetchRange.from, 'yyyy-MM-dd')
+  const workloadToIso = format(workloadFetchRange.to, 'yyyy-MM-dd')
+
+  const fetchWorkload = useCallback(async () => {
+    if (taskView !== 'gantt' || !workloadProjectId) {
+      setWorkloadData(null)
+      setWorkloadLoading(false)
+      return
+    }
+    const reqId = ++workloadRequestIdRef.current
+    setWorkloadLoading(true)
+    try {
+      const res = await window.api.task.workload.get({ projectId: workloadProjectId, from: workloadFromIso, to: workloadToIso })
+      if (reqId !== workloadRequestIdRef.current) return
+      if (res?.status === 'success' && res.data) {
+        setWorkloadData(res.data as WorkloadData)
+      } else {
+        setWorkloadData(null)
+      }
+    } catch {
+      if (reqId === workloadRequestIdRef.current) setWorkloadData(null)
+    } finally {
+      if (reqId === workloadRequestIdRef.current) setWorkloadLoading(false)
+    }
+  }, [taskView, workloadProjectId, workloadFromIso, workloadToIso])
+
+  useEffect(() => {
+    void fetchWorkload()
+  }, [fetchWorkload])
+
+  const handleUpsertWorkloadOverride = useCallback(
+    async (input: WorkloadOverrideUpsertInput) => {
+      if (!workloadProjectId) return
+      try {
+        const res = await window.api.task.workload.upsertOverride({
+          projectId: workloadProjectId,
+          userId: input.userId,
+          workDate: input.workDate,
+          overrideHours: input.overrideHours,
+          note: input.note,
+        })
+        if (res?.status !== 'success') {
+          if (res?.code === 'FORBIDDEN') {
+            toast.error(t('taskManagement.workloadOverrideReadOnly'))
+          } else {
+            toast.error(res?.message || 'Workload override failed')
+          }
+          return
+        }
+        await fetchWorkload()
+      } catch (err: unknown) {
+        const msg = err instanceof Error ? err.message : String(err)
+        toast.error(msg)
+      }
+    },
+    [workloadProjectId, fetchWorkload, t]
+  )
 
   const calendarToolbarMessages = useMemo(
     () => ({
@@ -2074,73 +2082,73 @@ export function TaskManagement({ embedded = false }: { embedded?: boolean }) {
 
       {embedded && taskToolbarPortalTarget
         ? createPortal(
-          <div className="flex items-center gap-2 min-w-0 h-full flex-wrap sm:flex-nowrap sm:justify-start" style={{ WebkitAppRegion: 'no-drag' } as CSSProperties}>
-            {showChartTab ? (
-              <TabsList className="h-6! p-0.5 rounded-md shrink-0">
-                <TabsTrigger value="tasks" disabled={isImporting} className="h-5 px-2 text-xs data-[state=active]:shadow-none">
-                  {t('taskManagement.tabTasks')}
-                </TabsTrigger>
-                <TabsTrigger value="chart" disabled={isImporting} className="h-5 px-2 text-xs data-[state=active]:shadow-none">
-                  {t('taskManagement.tabChart')}
-                </TabsTrigger>
-              </TabsList>
-            ) : null}
-            {activeTab === 'tasks' && <TaskViewModeToggle value={taskView} onValueChange={setTaskView} disabled={isImporting || taskApiOk !== true} t={t} />}
-            <div className="flex items-center gap-1 shrink-0">
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <Button
-                    variant="link"
-                    size="sm"
-                    onClick={reloadTaskMgmtMastersAndList}
-                    disabled={isLoading || isImporting}
-                    className="shadow-none focus-visible:ring-0 focus-visible:ring-offset-0 hover:bg-muted rounded-sm h-[25px] w-[25px]"
-                  >
-                    <RefreshCw strokeWidth={1.25} absoluteStrokeWidth size={15} className={isLoading || isImporting ? 'animate-spin' : ''} />
-                  </Button>
-                </TooltipTrigger>
-                <TooltipContent>{t('common.refresh')}</TooltipContent>
-              </Tooltip>
-            </div>
-          </div>,
-          taskToolbarPortalTarget
-        )
+            <div className="flex items-center gap-2 min-w-0 h-full flex-wrap sm:flex-nowrap sm:justify-start" style={{ WebkitAppRegion: 'no-drag' } as CSSProperties}>
+              {showChartTab ? (
+                <TabsList className="h-6! p-0.5 rounded-md shrink-0">
+                  <TabsTrigger value="tasks" disabled={isImporting} className="h-5 px-2 text-xs data-[state=active]:shadow-none">
+                    {t('taskManagement.tabTasks')}
+                  </TabsTrigger>
+                  <TabsTrigger value="chart" disabled={isImporting} className="h-5 px-2 text-xs data-[state=active]:shadow-none">
+                    {t('taskManagement.tabChart')}
+                  </TabsTrigger>
+                </TabsList>
+              ) : null}
+              {activeTab === 'tasks' && <TaskViewModeToggle value={taskView} onValueChange={setTaskView} disabled={isImporting || taskApiOk !== true} t={t} />}
+              <div className="flex items-center gap-1 shrink-0">
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <Button
+                      variant="link"
+                      size="sm"
+                      onClick={reloadTaskMgmtMastersAndList}
+                      disabled={isLoading || isImporting}
+                      className="shadow-none focus-visible:ring-0 focus-visible:ring-offset-0 hover:bg-muted rounded-sm h-[25px] w-[25px]"
+                    >
+                      <RefreshCw strokeWidth={1.25} absoluteStrokeWidth size={15} className={isLoading || isImporting ? 'animate-spin' : ''} />
+                    </Button>
+                  </TooltipTrigger>
+                  <TooltipContent>{t('common.refresh')}</TooltipContent>
+                </Tooltip>
+              </div>
+            </div>,
+            taskToolbarPortalTarget
+          )
         : null}
       {embedded && taskToolbarActionsTarget
         ? createPortal(
-          activeTab === 'tasks' ? (
-            <div className="flex items-center gap-1 shrink-0 h-full" style={{ WebkitAppRegion: 'no-drag' } as CSSProperties}>
-              <Button
-                variant="outline"
-                size="sm"
-                className={cn(PR_MANAGER_ACCENT_OUTLINE_BTN_COMPACT, PR_MANAGER_ACCENT_TITLEBAR_SURFACE)}
-                onClick={() => {
-                  if (projects.length === 0) {
-                    toast.error(t('taskManagement.createProjectFirst'))
-                    return
-                  }
-                  setEditingTaskInDialog(null)
-                  setShowTaskDialog(true)
-                }}
-                disabled={!taskApiOk || isLoading || isImporting}
-              >
-                <Plus className="h-3 w-3 shrink-0" />
-                {t('taskManagement.createTask')}
-              </Button>
-              <Button
-                variant="outline"
-                size="sm"
-                className={cn(PR_MANAGER_ACCENT_OUTLINE_BTN_COMPACT, PR_MANAGER_ACCENT_TITLEBAR_SURFACE)}
-                onClick={handleImportCsv}
-                disabled={!taskApiOk || isLoading || isImporting}
-              >
-                <FileDown className="h-3 w-3 shrink-0" />
-                {t('taskManagement.importFromCsv')}
-              </Button>
-            </div>
-          ) : null,
-          taskToolbarActionsTarget
-        )
+            activeTab === 'tasks' ? (
+              <div className="flex items-center gap-1 shrink-0 h-full" style={{ WebkitAppRegion: 'no-drag' } as CSSProperties}>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className={cn(PR_MANAGER_ACCENT_OUTLINE_BTN_COMPACT, PR_MANAGER_ACCENT_TITLEBAR_SURFACE)}
+                  onClick={() => {
+                    if (projects.length === 0) {
+                      toast.error(t('taskManagement.createProjectFirst'))
+                      return
+                    }
+                    setEditingTaskInDialog(null)
+                    setShowTaskDialog(true)
+                  }}
+                  disabled={!taskApiOk || isLoading || isImporting}
+                >
+                  <Plus className="h-3 w-3 shrink-0" />
+                  {t('taskManagement.createTask')}
+                </Button>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className={cn(PR_MANAGER_ACCENT_OUTLINE_BTN_COMPACT, PR_MANAGER_ACCENT_TITLEBAR_SURFACE)}
+                  onClick={handleImportCsv}
+                  disabled={!taskApiOk || isLoading || isImporting}
+                >
+                  <FileDown className="h-3 w-3 shrink-0" />
+                  {t('taskManagement.importFromCsv')}
+                </Button>
+              </div>
+            ) : null,
+            taskToolbarActionsTarget
+          )
         : null}
 
       {/* Toolbar cửa sổ Task riêng (không embedded) */}
@@ -2266,16 +2274,8 @@ export function TaskManagement({ embedded = false }: { embedded?: boolean }) {
               <div className="shrink-0 flex flex-col gap-2 mb-2">
                 <div className="flex items-center justify-between gap-2 flex-wrap">
                   <div className="flex flex-wrap items-end gap-x-5 gap-y-2 flex-1 min-w-0">
-                    <div
-                      className={cn(
-                        'flex flex-col gap-1 min-w-0',
-                        requiresManualMgmtApply ? 'min-w-[220px] max-w-md flex-1' : 'min-w-[200px] max-w-xs shrink-0',
-                      )}
-                    >
-                      <Label
-                        htmlFor="task-search-input"
-                        className="text-[10px] font-normal text-muted-foreground leading-none whitespace-nowrap"
-                      >
+                    <div className={cn('flex flex-col gap-1 min-w-0', requiresManualMgmtApply ? 'min-w-[220px] max-w-md flex-1' : 'min-w-[200px] max-w-xs shrink-0')}>
+                      <Label htmlFor="task-search-input" className="text-[10px] font-normal text-muted-foreground leading-none whitespace-nowrap">
                         {t('taskManagement.toolbarSearchTitle')}
                       </Label>
                       <div className="flex items-center gap-1.5 h-8 w-full">
@@ -2317,9 +2317,7 @@ export function TaskManagement({ embedded = false }: { embedded?: boolean }) {
                     </div>
                     <div className="flex flex-wrap items-end gap-x-4 gap-y-2">
                       <div className="flex min-w-0 shrink-0 flex-col gap-0.5">
-                        <span className="text-[10px] leading-none whitespace-nowrap text-muted-foreground">
-                          {t('taskManagement.mgmtDateTimelineLabel')}
-                        </span>
+                        <span className="text-[10px] leading-none whitespace-nowrap text-muted-foreground">{t('taskManagement.mgmtDateTimelineLabel')}</span>
                         <DateRangePickerPopover
                           dateRange={dateRange}
                           onDateRangeChange={setDateRange}
@@ -2332,9 +2330,7 @@ export function TaskManagement({ embedded = false }: { embedded?: boolean }) {
                         />
                       </div>
                       <div className="flex min-w-0 shrink-0 flex-col gap-0.5">
-                        <span className="text-[10px] leading-none whitespace-nowrap text-muted-foreground">
-                          {t('taskManagement.mgmtDateCreatedLabel')}
-                        </span>
+                        <span className="text-[10px] leading-none whitespace-nowrap text-muted-foreground">{t('taskManagement.mgmtDateCreatedLabel')}</span>
                         <DateRangePickerPopover
                           dateRange={createdDateRange}
                           onDateRangeChange={setCreatedDateRange}
@@ -2347,9 +2343,7 @@ export function TaskManagement({ embedded = false }: { embedded?: boolean }) {
                         />
                       </div>
                       <div className="flex min-w-0 shrink-0 flex-col gap-0.5">
-                        <span className="text-[10px] leading-none whitespace-nowrap text-muted-foreground">
-                          {t('taskManagement.mgmtDateUpdatedLabel')}
-                        </span>
+                        <span className="text-[10px] leading-none whitespace-nowrap text-muted-foreground">{t('taskManagement.mgmtDateUpdatedLabel')}</span>
                         <DateRangePickerPopover
                           dateRange={updatedDateRange}
                           onDateRangeChange={setUpdatedDateRange}
@@ -2363,9 +2357,7 @@ export function TaskManagement({ embedded = false }: { embedded?: boolean }) {
                       </div>
                     </div>
                     <div className="flex min-w-0 flex-col gap-0.5">
-                      <span className="text-[10px] font-normal leading-none whitespace-nowrap text-muted-foreground">
-                        {t('taskManagement.toolbarFiltersTitle')}
-                      </span>
+                      <span className="text-[10px] font-normal leading-none whitespace-nowrap text-muted-foreground">{t('taskManagement.toolbarFiltersTitle')}</span>
                       <div className="flex flex-wrap items-center gap-2">
                         {user?.id ? (
                           <TaskSavedViewsPopover
@@ -2382,11 +2374,7 @@ export function TaskManagement({ embedded = false }: { embedded?: boolean }) {
                         ) : null}
                         <Popover>
                           <PopoverTrigger asChild>
-                            <Button
-                              variant={buttonVariant}
-                              size="sm"
-                              className={cn('h-8 gap-1.5', assigneeFilter.length > 0 && TASK_MGMT_FILTER_TRIGGER_ACTIVE)}
-                            >
+                            <Button variant={buttonVariant} size="sm" className={cn('h-8 gap-1.5', assigneeFilter.length > 0 && TASK_MGMT_FILTER_TRIGGER_ACTIVE)}>
                               <Plus className="h-3.5 w-3.5" />
                               {t('taskManagement.assignee')}
                               {assigneeFilter.length > 0 && <span className="text-muted-foreground">({assigneeFilter.length})</span>}
@@ -2437,11 +2425,7 @@ export function TaskManagement({ embedded = false }: { embedded?: boolean }) {
                         </Popover>
                         <Popover>
                           <PopoverTrigger asChild>
-                            <Button
-                              variant={buttonVariant}
-                              size="sm"
-                              className={cn('h-8 gap-1.5', projectFilter.length > 0 && TASK_MGMT_FILTER_TRIGGER_ACTIVE)}
-                            >
+                            <Button variant={buttonVariant} size="sm" className={cn('h-8 gap-1.5', projectFilter.length > 0 && TASK_MGMT_FILTER_TRIGGER_ACTIVE)}>
                               <Plus className="h-3.5 w-3.5" />
                               {t('taskManagement.project')}
                               {projectFilter.length > 0 && <span className="text-muted-foreground">({projectFilter.length})</span>}
@@ -2492,11 +2476,7 @@ export function TaskManagement({ embedded = false }: { embedded?: boolean }) {
                         </Popover>
                         <Popover>
                           <PopoverTrigger asChild>
-                            <Button
-                              variant={buttonVariant}
-                              size="sm"
-                              className={cn('h-8 gap-1.5', typeFilter.length > 0 && TASK_MGMT_FILTER_TRIGGER_ACTIVE)}
-                            >
+                            <Button variant={buttonVariant} size="sm" className={cn('h-8 gap-1.5', typeFilter.length > 0 && TASK_MGMT_FILTER_TRIGGER_ACTIVE)}>
                               <Plus className="h-3.5 w-3.5" />
                               {t('taskManagement.type')}
                               {typeFilter.length > 0 &&
@@ -2560,11 +2540,7 @@ export function TaskManagement({ embedded = false }: { embedded?: boolean }) {
                         </Popover>
                         <Popover>
                           <PopoverTrigger asChild>
-                            <Button
-                              variant={buttonVariant}
-                              size="sm"
-                              className={cn('h-8 gap-1.5', statusFilter.length > 0 && TASK_MGMT_FILTER_TRIGGER_ACTIVE)}
-                            >
+                            <Button variant={buttonVariant} size="sm" className={cn('h-8 gap-1.5', statusFilter.length > 0 && TASK_MGMT_FILTER_TRIGGER_ACTIVE)}>
                               <Plus className="h-3.5 w-3.5" />
                               {t('taskManagement.status')}
                               {statusFilter.length > 0 &&
@@ -2573,14 +2549,14 @@ export function TaskManagement({ embedded = false }: { embedded?: boolean }) {
                                     statuses.length > 0
                                       ? statuses
                                       : [
-                                        { code: 'new', name: t('taskManagement.statusNew') },
-                                        { code: 'in_progress', name: t('taskManagement.statusInProgress') },
-                                        { code: 'in_review', name: t('taskManagement.statusInReview') },
-                                        { code: 'fixed', name: t('taskManagement.statusFixed') },
-                                        { code: 'feedback', name: t('taskManagement.statusFeedback') },
-                                        { code: 'cancelled', name: t('taskManagement.statusCancelled') },
-                                        { code: 'done', name: t('taskManagement.statusDone') },
-                                      ]
+                                          { code: 'new', name: t('taskManagement.statusNew') },
+                                          { code: 'in_progress', name: t('taskManagement.statusInProgress') },
+                                          { code: 'in_review', name: t('taskManagement.statusInReview') },
+                                          { code: 'fixed', name: t('taskManagement.statusFixed') },
+                                          { code: 'feedback', name: t('taskManagement.statusFeedback') },
+                                          { code: 'cancelled', name: t('taskManagement.statusCancelled') },
+                                          { code: 'done', name: t('taskManagement.statusDone') },
+                                        ]
                                   ).find(st => st.code === code)
                                   return s ? (
                                     <span
@@ -2602,21 +2578,26 @@ export function TaskManagement({ embedded = false }: { embedded?: boolean }) {
                             <div className="p-2 border-b">
                               <div className="relative">
                                 <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-                                <Input placeholder={t('taskManagement.status')} value={statusFilterSearch} onChange={e => setStatusFilterSearch(e.target.value)} className="pl-8 h-8" />
+                                <Input
+                                  placeholder={t('taskManagement.status')}
+                                  value={statusFilterSearch}
+                                  onChange={e => setStatusFilterSearch(e.target.value)}
+                                  className="pl-8 h-8"
+                                />
                               </div>
                             </div>
                             <div className="max-h-[240px] overflow-y-auto p-1">
                               {(statuses.length > 0
                                 ? statuses
                                 : [
-                                  { code: 'new', name: t('taskManagement.statusNew') },
-                                  { code: 'in_progress', name: t('taskManagement.statusInProgress') },
-                                  { code: 'in_review', name: t('taskManagement.statusInReview') },
-                                  { code: 'fixed', name: t('taskManagement.statusFixed') },
-                                  { code: 'feedback', name: t('taskManagement.statusFeedback') },
-                                  { code: 'cancelled', name: t('taskManagement.statusCancelled') },
-                                  { code: 'done', name: t('taskManagement.statusDone') },
-                                ]
+                                    { code: 'new', name: t('taskManagement.statusNew') },
+                                    { code: 'in_progress', name: t('taskManagement.statusInProgress') },
+                                    { code: 'in_review', name: t('taskManagement.statusInReview') },
+                                    { code: 'fixed', name: t('taskManagement.statusFixed') },
+                                    { code: 'feedback', name: t('taskManagement.statusFeedback') },
+                                    { code: 'cancelled', name: t('taskManagement.statusCancelled') },
+                                    { code: 'done', name: t('taskManagement.statusDone') },
+                                  ]
                               )
                                 .filter(s => !statusFilterSearch.trim() || s.name.toLowerCase().includes(statusFilterSearch.trim().toLowerCase()))
                                 .map(s => (
@@ -2652,22 +2633,18 @@ export function TaskManagement({ embedded = false }: { embedded?: boolean }) {
                         </Popover>
                         <Popover>
                           <PopoverTrigger asChild>
-                            <Button
-                              variant={buttonVariant}
-                              size="sm"
-                              className={cn('h-8 gap-1.5', priorityFilter.length > 0 && TASK_MGMT_FILTER_TRIGGER_ACTIVE)}
-                            >
+                            <Button variant={buttonVariant} size="sm" className={cn('h-8 gap-1.5', priorityFilter.length > 0 && TASK_MGMT_FILTER_TRIGGER_ACTIVE)}>
                               <Plus className="h-3.5 w-3.5" />
                               {t('taskManagement.priority')}
                               {priorityFilter.length > 0 &&
                                 (priorities.length > 0
                                   ? priorities
                                   : [
-                                    { code: 'critical', name: t('taskManagement.priorityCritical') },
-                                    { code: 'high', name: t('taskManagement.priorityHigh') },
-                                    { code: 'medium', name: t('taskManagement.priorityMedium') },
-                                    { code: 'low', name: t('taskManagement.priorityLow') },
-                                  ]
+                                      { code: 'critical', name: t('taskManagement.priorityCritical') },
+                                      { code: 'high', name: t('taskManagement.priorityHigh') },
+                                      { code: 'medium', name: t('taskManagement.priorityMedium') },
+                                      { code: 'low', name: t('taskManagement.priorityLow') },
+                                    ]
                                 )
                                   .filter(p => priorityFilter.includes(p.code))
                                   .map(p => (
@@ -2676,15 +2653,15 @@ export function TaskManagement({ embedded = false }: { embedded?: boolean }) {
                                       className={cn(
                                         'inline-flex items-center gap-1.5 px-2 py-1 rounded-md text-xs font-medium',
                                         !priorityColorMap[p.code] &&
-                                        (p.code === 'critical'
-                                          ? 'bg-red-500/25 text-red-700 dark:text-red-400'
-                                          : p.code === 'high'
-                                            ? 'bg-orange-500/25 text-orange-700 dark:text-orange-400'
-                                            : p.code === 'medium'
-                                              ? 'bg-sky-500/20 text-sky-700 dark:text-sky-400'
-                                              : p.code === 'low'
-                                                ? 'bg-emerald-500/25 text-emerald-700 dark:text-emerald-400'
-                                                : '')
+                                          (p.code === 'critical'
+                                            ? 'bg-red-500/25 text-red-700 dark:text-red-400'
+                                            : p.code === 'high'
+                                              ? 'bg-orange-500/25 text-orange-700 dark:text-orange-400'
+                                              : p.code === 'medium'
+                                                ? 'bg-sky-500/20 text-sky-700 dark:text-sky-400'
+                                                : p.code === 'low'
+                                                  ? 'bg-emerald-500/25 text-emerald-700 dark:text-emerald-400'
+                                                  : '')
                                       )}
                                       style={getBadgeStyle(p.code, priorityColorMap)}
                                     >
@@ -2710,11 +2687,11 @@ export function TaskManagement({ embedded = false }: { embedded?: boolean }) {
                               {(priorities.length > 0
                                 ? priorities
                                 : [
-                                  { code: 'critical', name: t('taskManagement.priorityCritical') },
-                                  { code: 'high', name: t('taskManagement.priorityHigh') },
-                                  { code: 'medium', name: t('taskManagement.priorityMedium') },
-                                  { code: 'low', name: t('taskManagement.priorityLow') },
-                                ]
+                                    { code: 'critical', name: t('taskManagement.priorityCritical') },
+                                    { code: 'high', name: t('taskManagement.priorityHigh') },
+                                    { code: 'medium', name: t('taskManagement.priorityMedium') },
+                                    { code: 'low', name: t('taskManagement.priorityLow') },
+                                  ]
                               )
                                 .filter(p => !priorityFilterSearch.trim() || p.name.toLowerCase().includes(priorityFilterSearch.trim().toLowerCase()))
                                 .map(p => (
@@ -2821,12 +2798,7 @@ export function TaskManagement({ embedded = false }: { embedded?: boolean }) {
               {selectedTaskIds.size > 0 ? (
                 <TaskBulkActionsBar
                   count={selectedTaskIds.size}
-                  disabled={
-                    taskApiOk !== true ||
-                    isImporting ||
-                    listLoading ||
-                    (requiresManualMgmtApply && !mgmtApiFilters.ready)
-                  }
+                  disabled={taskApiOk !== true || isImporting || listLoading || (requiresManualMgmtApply && !mgmtApiFilters.ready)}
                   variant={buttonVariant}
                   statusOptions={bulkStatusComboOptions}
                   priorityOptions={bulkPriorityComboOptions}
@@ -2850,7 +2822,13 @@ export function TaskManagement({ embedded = false }: { embedded?: boolean }) {
                     <div className="flex flex-col items-center justify-center flex-1 min-h-[280px] rounded-md border border-dashed border-border/80 bg-muted/20 px-6 py-12 text-center text-muted-foreground">
                       <p className="font-medium text-foreground">{t('taskManagement.mgmtPendingTitle')}</p>
                       <p className="mt-1 max-w-md text-sm">{t('taskManagement.mgmtPendingHint')}</p>
-                      <Button type="button" className={cn('mt-4', PR_MANAGER_ACCENT_OUTLINE_BTN, PR_MANAGER_ACCENT_OUTLINE_SURFACE)} variant="outline" size="sm" onClick={commitMgmtFiltersFromDraft}>
+                      <Button
+                        type="button"
+                        className={cn('mt-4', PR_MANAGER_ACCENT_OUTLINE_BTN, PR_MANAGER_ACCENT_OUTLINE_SURFACE)}
+                        variant="outline"
+                        size="sm"
+                        onClick={commitMgmtFiltersFromDraft}
+                      >
                         {t('taskManagement.mgmtApplySearch')}
                       </Button>
                     </div>
@@ -2897,11 +2875,7 @@ export function TaskManagement({ embedded = false }: { embedded?: boolean }) {
                   ) : (
                     <div className="relative flex flex-1 min-h-0 flex-col rounded-md bg-background shadow-sm min-w-0 overflow-hidden">
                       {boardLoading ? (
-                        <div
-                          className="absolute inset-0 z-10 flex items-center justify-center bg-background/55 backdrop-blur-[1px]"
-                          aria-busy
-                          aria-live="polite"
-                        >
+                        <div className="absolute inset-0 z-10 flex items-center justify-center bg-background/55 backdrop-blur-[1px]" aria-busy aria-live="polite">
                           <GlowLoader className="w-10 h-10" />
                         </div>
                       ) : null}
@@ -2940,6 +2914,10 @@ export function TaskManagement({ embedded = false }: { embedded?: boolean }) {
                             onToggleTaskSelect={toggleBulkTaskSelection}
                             onUpdatePlanDates={handleUpdatePlanDates}
                             disableRowGrouping={!canManageTaskRowGrouping}
+                            workloadData={workloadData}
+                            workloadLoading={workloadLoading}
+                            workloadMultiProject={workloadMultiProject}
+                            onUpsertWorkloadOverride={handleUpsertWorkloadOverride}
                             labels={{
                               week: t('taskManagement.ganttScaleWeek'),
                               month: t('taskManagement.ganttScaleMonth'),
@@ -2982,7 +2960,13 @@ export function TaskManagement({ embedded = false }: { embedded?: boolean }) {
                 <div className="flex flex-col items-center justify-center flex-1 rounded-md border border-dashed border-border/80 bg-muted/20 px-6 py-12 text-center text-muted-foreground">
                   <p className="font-medium text-foreground">{t('taskManagement.mgmtPendingTitle')}</p>
                   <p className="mt-1 max-w-md text-sm">{t('taskManagement.mgmtPendingHint')}</p>
-                  <Button type="button" className={cn('mt-4', PR_MANAGER_ACCENT_OUTLINE_BTN, PR_MANAGER_ACCENT_OUTLINE_SURFACE)} variant="outline" size="sm" onClick={commitMgmtFiltersFromDraft}>
+                  <Button
+                    type="button"
+                    className={cn('mt-4', PR_MANAGER_ACCENT_OUTLINE_BTN, PR_MANAGER_ACCENT_OUTLINE_SURFACE)}
+                    variant="outline"
+                    size="sm"
+                    onClick={commitMgmtFiltersFromDraft}
+                  >
                     {t('taskManagement.mgmtApplySearch')}
                   </Button>
                 </div>
@@ -3069,31 +3053,13 @@ export function TaskManagement({ embedded = false }: { embedded?: boolean }) {
                               />
                             )}
                             {visibleColumnIds.includes('ticketId') && (
-                              <SortHeader
-                                col="ticketId"
-                                label={t('taskManagement.ticketId')}
-                                sortColumn={sortColumn}
-                                sortDirection={sortDirection}
-                                onSort={handleSortClick}
-                              />
+                              <SortHeader col="ticketId" label={t('taskManagement.ticketId')} sortColumn={sortColumn} sortDirection={sortDirection} onSort={handleSortClick} />
                             )}
                             {visibleColumnIds.includes('project') && (
-                              <SortHeader
-                                col="project"
-                                label={t('taskManagement.project')}
-                                sortColumn={sortColumn}
-                                sortDirection={sortDirection}
-                                onSort={handleSortClick}
-                              />
+                              <SortHeader col="project" label={t('taskManagement.project')} sortColumn={sortColumn} sortDirection={sortDirection} onSort={handleSortClick} />
                             )}
                             {visibleColumnIds.includes('title') && (
-                              <SortHeader
-                                col="title"
-                                label={t('taskManagement.taskTitle')}
-                                sortColumn={sortColumn}
-                                sortDirection={sortDirection}
-                                onSort={handleSortClick}
-                              />
+                              <SortHeader col="title" label={t('taskManagement.taskTitle')} sortColumn={sortColumn} sortDirection={sortDirection} onSort={handleSortClick} />
                             )}
                             {visibleColumnIds.includes('assigneeUserId') && (
                               <SortHeader
@@ -3105,22 +3071,10 @@ export function TaskManagement({ embedded = false }: { embedded?: boolean }) {
                               />
                             )}
                             {visibleColumnIds.includes('status') && (
-                              <SortHeader
-                                col="status"
-                                label={t('taskManagement.status')}
-                                sortColumn={sortColumn}
-                                sortDirection={sortDirection}
-                                onSort={handleSortClick}
-                              />
+                              <SortHeader col="status" label={t('taskManagement.status')} sortColumn={sortColumn} sortDirection={sortDirection} onSort={handleSortClick} />
                             )}
                             {visibleColumnIds.includes('priority') && (
-                              <SortHeader
-                                col="priority"
-                                label={t('taskManagement.priority')}
-                                sortColumn={sortColumn}
-                                sortDirection={sortDirection}
-                                onSort={handleSortClick}
-                              />
+                              <SortHeader col="priority" label={t('taskManagement.priority')} sortColumn={sortColumn} sortDirection={sortDirection} onSort={handleSortClick} />
                             )}
                             {visibleColumnIds.includes('progress') && (
                               <SortHeader
@@ -3142,13 +3096,7 @@ export function TaskManagement({ embedded = false }: { embedded?: boolean }) {
                               />
                             )}
                             {visibleColumnIds.includes('planEndDate') && (
-                              <SortHeader
-                                col="planEndDate"
-                                label={t('taskManagement.deadline')}
-                                sortColumn={sortColumn}
-                                sortDirection={sortDirection}
-                                onSort={handleSortClick}
-                              />
+                              <SortHeader col="planEndDate" label={t('taskManagement.deadline')} sortColumn={sortColumn} sortDirection={sortDirection} onSort={handleSortClick} />
                             )}
                             {visibleColumnIds.includes('actualStartDate') && (
                               <SortHeader
@@ -3174,45 +3122,45 @@ export function TaskManagement({ embedded = false }: { embedded?: boolean }) {
                         <TableBody>
                           {listLoading && tableTasks.length === 0
                             ? Array.from({ length: 8 }).map((_, ri) => (
-                              <TableRow key={`tbl-sk-${ri}`} aria-hidden>
-                                <TableCell colSpan={tableToolbarColSpan} className="py-3">
-                                  <Skeleton className="h-9 w-full max-w-4xl mx-auto rounded-md opacity-85" />
-                                </TableCell>
-                              </TableRow>
-                            ))
+                                <TableRow key={`tbl-sk-${ri}`} aria-hidden>
+                                  <TableCell colSpan={tableToolbarColSpan} className="py-3">
+                                    <Skeleton className="h-9 w-full max-w-4xl mx-auto rounded-md opacity-85" />
+                                  </TableCell>
+                                </TableRow>
+                              ))
                             : tableTasks.map((task, idx) => (
-                              <TaskTableRow
-                                key={task.id}
-                                rowNumber={(taskPage - 1) * pageSize + idx + 1}
-                                task={task}
-                                getAssigneeDisplay={getAssigneeDisplay}
-                                getStatusLabel={getStatusLabel}
-                                getPriorityLabel={getPriorityLabel}
-                                getTypeLabel={getTypeLabel}
-                                getStatusIcon={getStatusIcon}
-                                getPriorityIcon={getPriorityIcon}
-                                getTypeIcon={getTypeIcon}
-                                getTypeBadgeClass={getTypeBadgeClass}
-                                getStatusBadgeClass={getStatusBadgeClass}
-                                getPriorityRowClass={getPriorityRowClass}
-                                statusColorMap={statusColorMap}
-                                priorityColorMap={priorityColorMap}
-                                typeColorMap={typeColorMap}
-                                getBadgeStyle={getBadgeStyle}
-                                getPriorityRowStyle={getPriorityRowStyle}
-                                locale={locale}
-                                onOpenDialog={handleOpenTaskRow}
-                                onDelete={handleDeleteTaskRow}
-                                onCopy={taskRow => handleCopyTask(taskRow as Task)}
-                                onToggleFavorite={handleToggleFavorite}
-                                isFavorite={favoriteTaskIds.has(task.id)}
-                                visibleColumnIds={visibleColumnIds}
-                                bulkSelect={{
-                                  checked: selectedTaskIds.has(task.id),
-                                  onToggle: () => toggleBulkTaskSelection(task.id),
-                                }}
-                              />
-                            ))}
+                                <TaskTableRow
+                                  key={task.id}
+                                  rowNumber={(taskPage - 1) * pageSize + idx + 1}
+                                  task={task}
+                                  getAssigneeDisplay={getAssigneeDisplay}
+                                  getStatusLabel={getStatusLabel}
+                                  getPriorityLabel={getPriorityLabel}
+                                  getTypeLabel={getTypeLabel}
+                                  getStatusIcon={getStatusIcon}
+                                  getPriorityIcon={getPriorityIcon}
+                                  getTypeIcon={getTypeIcon}
+                                  getTypeBadgeClass={getTypeBadgeClass}
+                                  getStatusBadgeClass={getStatusBadgeClass}
+                                  getPriorityRowClass={getPriorityRowClass}
+                                  statusColorMap={statusColorMap}
+                                  priorityColorMap={priorityColorMap}
+                                  typeColorMap={typeColorMap}
+                                  getBadgeStyle={getBadgeStyle}
+                                  getPriorityRowStyle={getPriorityRowStyle}
+                                  locale={locale}
+                                  onOpenDialog={handleOpenTaskRow}
+                                  onDelete={handleDeleteTaskRow}
+                                  onCopy={taskRow => handleCopyTask(taskRow as Task)}
+                                  onToggleFavorite={handleToggleFavorite}
+                                  isFavorite={favoriteTaskIds.has(task.id)}
+                                  visibleColumnIds={visibleColumnIds}
+                                  bulkSelect={{
+                                    checked: selectedTaskIds.has(task.id),
+                                    onToggle: () => toggleBulkTaskSelection(task.id),
+                                  }}
+                                />
+                              ))}
                         </TableBody>
                       </Table>
                     </div>
@@ -3240,7 +3188,13 @@ export function TaskManagement({ embedded = false }: { embedded?: boolean }) {
                   <div className="flex flex-col items-center justify-center flex-1 min-h-[240px] rounded-md border border-dashed border-border/80 bg-muted/20 px-6 py-12 text-center text-muted-foreground">
                     <p className="font-medium text-foreground">{t('taskManagement.mgmtPendingTitle')}</p>
                     <p className="mt-1 max-w-md text-sm">{t('taskManagement.mgmtPendingHint')}</p>
-                    <Button type="button" className={cn('mt-4', PR_MANAGER_ACCENT_OUTLINE_BTN, PR_MANAGER_ACCENT_OUTLINE_SURFACE)} variant="outline" size="sm" onClick={commitMgmtFiltersFromDraft}>
+                    <Button
+                      type="button"
+                      className={cn('mt-4', PR_MANAGER_ACCENT_OUTLINE_BTN, PR_MANAGER_ACCENT_OUTLINE_SURFACE)}
+                      variant="outline"
+                      size="sm"
+                      onClick={commitMgmtFiltersFromDraft}
+                    >
                       {t('taskManagement.mgmtApplySearch')}
                     </Button>
                   </div>
@@ -3248,9 +3202,7 @@ export function TaskManagement({ embedded = false }: { embedded?: boolean }) {
                   <>
                     <div className="flex shrink-0 flex-wrap items-end gap-2 pb-2 mb-2 border-b border-border/70">
                       <div className="flex min-w-0 flex-col gap-1">
-                        <span className="text-[10px] font-normal leading-none text-muted-foreground whitespace-nowrap">
-                          {t('taskManagement.mgmtDateTimelineLabel')}
-                        </span>
+                        <span className="text-[10px] font-normal leading-none text-muted-foreground whitespace-nowrap">{t('taskManagement.mgmtDateTimelineLabel')}</span>
                         <DateRangePickerPopover
                           dateRange={dateRange}
                           onDateRangeChange={setDateRange}
