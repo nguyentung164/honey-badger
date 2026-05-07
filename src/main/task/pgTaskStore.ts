@@ -995,6 +995,19 @@ export async function canUserViewTaskByScope(userId: string, appRole: string, ta
   return visible.includes(task.projectId)
 }
 
+/** Admin app hoặc PM/PL của project — dùng cho tạo/sửa type milestone. */
+export async function canUserCreateMilestoneInProject(userId: string, appRole: string, projectId: string | null | undefined): Promise<boolean> {
+  const pid = (projectId ?? '').trim()
+  if (!pid) return false
+  if (await isAppAdmin(userId)) return true
+  if ((appRole || '').toLowerCase() === 'admin') return true
+  const rows = await query<{ one: number }[]>(
+    `SELECT 1 AS one FROM user_project_roles WHERE user_id = ? AND project_id = ? AND role IN ('pm', 'pl') LIMIT 1`,
+    [userId, pid]
+  )
+  return (rows?.length ?? 0) > 0
+}
+
 /** Cùng phạm vi project với Task Management (danh sách task): admin app = mọi project; không thì chỉ PL/PM hoặc dev của project đó. */
 export async function canUserCreateTasksInProject(userId: string, appRole: string, projectId: string | null | undefined): Promise<boolean> {
   const pid = (projectId ?? '').trim()
@@ -1040,6 +1053,7 @@ export async function copyTask(taskId: string, createdBy: string): Promise<Task>
   const src = (task.source || 'in_app').toLowerCase().replace(/\s+/g, '_')
   if (src === 'redmine') throw new Error('CANNOT_COPY_REDMINE_TASK')
   const copyTitle = `${(task.title || '').trim()} (Copy)`
+  const ty = (task.type || 'bug').toString() as TaskType
   return createTask({
     title: copyTitle,
     description: task.description,
@@ -1047,9 +1061,9 @@ export async function copyTask(taskId: string, createdBy: string): Promise<Task>
     status: 'new',
     progress: 0,
     priority: (task.priority || 'medium') as TaskPriority,
-    type: (task.type || 'bug') as TaskType,
+    type: ty,
     source: task.source || 'in_app',
-    ticketId: '',
+    ticketId: ty === 'milestone' ? undefined : '',
     projectId: task.projectId,
     planStartDate: task.planStartDate || undefined,
     planEndDate: task.planEndDate || undefined,
@@ -1096,9 +1110,12 @@ export async function createTask(input: CreateTaskInput): Promise<Task> {
   await ensureUserExists(input.assigneeUserId)
 
   const effectiveSource = (input.source || 'in_app').toLowerCase().replace(/\s+/g, '_')
+  const taskType = (input.type || 'bug').toString()
   const ticketIdInput = (input.ticketId || '').trim()
-  let ticketId = ticketIdInput
-  if (!ticketId) {
+  let ticketId: string | null = ticketIdInput || null
+  if (taskType === 'milestone') {
+    ticketId = null
+  } else if (!ticketId) {
     ticketId = await getNextTicketId(projectId, effectiveSource)
   }
 
@@ -1117,7 +1134,7 @@ export async function createTask(input: CreateTaskInput): Promise<Task> {
       input.status || 'new',
       progress,
       input.priority || 'medium',
-      input.type || 'bug',
+      taskType,
       effectiveSource,
       ticketId,
       input.planStartDate ? toMysqlDateTime(input.planStartDate) : null,
@@ -1323,6 +1340,11 @@ export async function updateTask(id: string, input: UpdateTaskInput, updatedByUs
     }
   }
 
+  const mergedTypeForUpdate =
+    (input as any).type !== undefined && (input as any).type !== null && String((input as any).type).trim() !== ''
+      ? String((input as any).type).trim()
+      : String(beforeRow.type || 'bug')
+
   const map: Record<string, string> = {
     title: 'title',
     description: 'description',
@@ -1352,7 +1374,11 @@ export async function updateTask(id: string, input: UpdateTaskInput, updatedByUs
       throw new Error('title cannot be empty')
     }
     if (key === 'ticketId' && (val === null || (typeof val === 'string' && !val.trim()))) {
-      throw new Error('ticket_id cannot be empty')
+      if (mergedTypeForUpdate === 'milestone') {
+        val = null
+      } else {
+        throw new Error('ticket_id cannot be empty')
+      }
     }
     if (key === 'progress') val = Math.min(100, Math.max(0, Number(val) ?? 0))
     if (key === 'status') await ensureMasterCodeExists('statuses', String(val))
@@ -1369,6 +1395,13 @@ export async function updateTask(id: string, input: UpdateTaskInput, updatedByUs
   const hasActualEndKey = Object.hasOwn(input, 'actualEndDate')
   if (inputStatus === 'done' && !hasActualEndKey) {
     updates.push('actual_end_date = COALESCE(actual_end_date, CURDATE())')
+  }
+  if (
+    String((input as any).type || '').trim() === 'milestone' &&
+    !updates.some(u => u.startsWith('ticket_id'))
+  ) {
+    updates.push('ticket_id = ?')
+    params.push(null)
   }
   if (updates.length === 0) return
   const actor = updatedByUserId?.trim()
@@ -1443,6 +1476,10 @@ export async function bulkUpdateTasksWithPatch(
       const sel = (await txQuery('SELECT * FROM tasks WHERE id = ? LIMIT 1', [item.id])) as any[]
       const before = sel?.[0]
       if (!before || Number(before.version) !== Number(item.version)) {
+        skippedIds.push(item.id)
+        continue
+      }
+      if (String(before.type ?? 'bug') === 'milestone') {
         skippedIds.push(item.id)
         continue
       }
@@ -1540,6 +1577,7 @@ export async function getTaskChildren(taskId: string): Promise<Task[]> {
 export async function createTaskChild(taskId: string, input: CreateTaskInput): Promise<Task> {
   const title = (input.title ?? '').toString().trim()
   if (!title) throw new Error('title is required')
+  if ((input.type || 'bug').toString() === 'milestone') throw new Error('MILESTONE_CANNOT_BE_SUBTASK')
   const parentRows = await query<any[]>('SELECT project_id FROM tasks WHERE id = ?', [taskId])
   const parent = parentRows?.[0]
   if (!parent) throw new Error('Parent task not found')
@@ -1547,9 +1585,12 @@ export async function createTaskChild(taskId: string, input: CreateTaskInput): P
   await ensureUserExists(input.assigneeUserId)
 
   const effectiveSource = (input.source || 'in_app').toLowerCase().replace(/\s+/g, '_')
+  const taskType = (input.type || 'bug').toString()
   const ticketIdInput = (input.ticketId || '').trim()
-  let ticketId = ticketIdInput
-  if (!ticketId) {
+  let ticketId: string | null = ticketIdInput || null
+  if (taskType === 'milestone') {
+    ticketId = null
+  } else if (!ticketId) {
     ticketId = await getNextTicketId(projectId, effectiveSource)
   }
 
@@ -1568,7 +1609,7 @@ export async function createTaskChild(taskId: string, input: CreateTaskInput): P
       input.status || 'new',
       progress,
       input.priority || 'medium',
-      input.type || 'bug',
+      taskType,
       effectiveSource,
       ticketId,
       input.planStartDate ? toMysqlDateTime(input.planStartDate) : null,
@@ -2378,34 +2419,35 @@ export async function getReminderStats(userId: string, appRole: string): Promise
   const devStatuses = ['new', 'in_progress', 'in_review', 'feedback']
   const placeholders = devStatuses.map(() => '?').join(', ')
   const taskCols = 't.id, t.title, t.ticket_id, t.plan_end_date, t.updated_at'
+  const excludeMilestoneSql = ` AND COALESCE(t.type, 'bug') <> 'milestone'`
 
   const [todayRows, tomorrowRows, nearDeadlineRows, overdueRows, inReviewRows, longUnreviewedRows] = await Promise.all([
     query<any[]>(
-      `SELECT ${taskCols} FROM tasks t WHERE t.assignee_user_id = ? AND t.status IN (${placeholders}) AND t.plan_end_date >= ? AND t.plan_end_date < ?${pf.sql} ORDER BY t.plan_end_date`,
+      `SELECT ${taskCols} FROM tasks t WHERE t.assignee_user_id = ? AND t.status IN (${placeholders}) AND t.plan_end_date >= ? AND t.plan_end_date < ?${excludeMilestoneSql}${pf.sql} ORDER BY t.plan_end_date`,
       [userId, ...devStatuses, today, tomorrowStr, ...pf.params]
     ),
     query<any[]>(
-      `SELECT ${taskCols} FROM tasks t WHERE t.assignee_user_id = ? AND t.status IN (${placeholders}) AND t.plan_end_date >= ? AND t.plan_end_date < ?${pf.sql} ORDER BY t.plan_end_date`,
+      `SELECT ${taskCols} FROM tasks t WHERE t.assignee_user_id = ? AND t.status IN (${placeholders}) AND t.plan_end_date >= ? AND t.plan_end_date < ?${excludeMilestoneSql}${pf.sql} ORDER BY t.plan_end_date`,
       [userId, ...devStatuses, tomorrowStr, dayAfterTomorrowStr, ...pf.params]
     ),
     query<any[]>(
-      `SELECT ${taskCols} FROM tasks t WHERE t.assignee_user_id = ? AND t.status IN (${placeholders}) AND t.plan_end_date > ? AND t.plan_end_date < ?${pf.sql} ORDER BY t.plan_end_date`,
+      `SELECT ${taskCols} FROM tasks t WHERE t.assignee_user_id = ? AND t.status IN (${placeholders}) AND t.plan_end_date > ? AND t.plan_end_date < ?${excludeMilestoneSql}${pf.sql} ORDER BY t.plan_end_date`,
       [userId, ...devStatuses, dayAfterTomorrowStr, dayAfterThreeDaysLaterStr, ...pf.params]
     ),
     query<any[]>(
-      `SELECT ${taskCols} FROM tasks t WHERE t.assignee_user_id = ? AND t.status IN (${placeholders}) AND t.plan_end_date IS NOT NULL AND t.plan_end_date < ? AND t.actual_end_date IS NULL${pf.sql} ORDER BY t.plan_end_date`,
+      `SELECT ${taskCols} FROM tasks t WHERE t.assignee_user_id = ? AND t.status IN (${placeholders}) AND t.plan_end_date IS NOT NULL AND t.plan_end_date < ? AND t.actual_end_date IS NULL${excludeMilestoneSql}${pf.sql} ORDER BY t.plan_end_date`,
       [userId, ...devStatuses, today, ...pf.params]
     ),
     query<any[]>(
       `SELECT t.id, t.title, t.ticket_id, t.plan_end_date, t.updated_at FROM tasks t
        JOIN user_project_roles upr ON upr.project_id = t.project_id AND upr.role IN ('pl','pm') AND upr.user_id = ?
-       WHERE t.status = 'in_review'${pf.sql} ORDER BY t.updated_at`,
+       WHERE t.status = 'in_review'${excludeMilestoneSql}${pf.sql} ORDER BY t.updated_at`,
       [userId, ...pf.params]
     ),
     query<any[]>(
       `SELECT t.id, t.title, t.ticket_id, t.plan_end_date, t.updated_at FROM tasks t
        JOIN user_project_roles upr ON upr.project_id = t.project_id AND upr.role IN ('pl','pm') AND upr.user_id = ?
-       WHERE t.status = 'in_review' AND t.updated_at < NOW() - interval '3 days'${pf.sql} ORDER BY t.updated_at`,
+       WHERE t.status = 'in_review' AND t.updated_at < NOW() - interval '3 days'${excludeMilestoneSql}${pf.sql} ORDER BY t.updated_at`,
       [userId, ...pf.params]
     ),
   ])

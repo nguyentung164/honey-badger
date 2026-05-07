@@ -17,6 +17,11 @@ import i18n from '@/lib/i18n'
 import { storedDescriptionToPlainText } from '@/lib/taskDescriptionEditorState'
 import { cn, getProgressColor } from '@/lib/utils'
 
+/** Milestone không tham gia bulk select / bulk update (đồng bộ Gantt). */
+export function isTaskBulkSelectable(task: Pick<TaskTableRowTask, 'type'>): boolean {
+  return (task.type ?? 'bug') !== 'milestone'
+}
+
 export interface TaskTableRowTask {
   id: string
   title: string
@@ -130,6 +135,8 @@ interface TaskTableRowProps {
     checked: boolean
     onToggle: () => void
   }
+  /** Giữ cột checkbox trống (cùng độ rộng header) khi row là milestone. */
+  bulkSelectSpacer?: boolean
 }
 
 function TaskTableRowComponent({
@@ -158,6 +165,7 @@ function TaskTableRowComponent({
   isFavorite,
   visibleColumnIds = ['type', 'ticketId', 'project', 'title', 'assigneeUserId', 'status', 'priority', 'progress', 'planStartDate', 'planEndDate', 'actualStartDate', 'actualEndDate'],
   bulkSelect,
+  bulkSelectSpacer = false,
 }: TaskTableRowProps) {
   const { t } = useTranslation()
   const dateDisplayPattern = getDateOnlyPattern(i18n.language)
@@ -210,6 +218,8 @@ function TaskTableRowComponent({
         <TableCell className="w-9 min-w-9 p-1 text-center align-middle" data-task-bulk-check onClick={e => e.stopPropagation()}>
           <Checkbox checked={bulkSelect.checked} onCheckedChange={() => bulkSelect.onToggle()} aria-label={undefined} className="translate-y-[1px]" />
         </TableCell>
+      ) : bulkSelectSpacer ? (
+        <TableCell className="w-9 min-w-9 p-1 text-center align-middle" aria-hidden />
       ) : null}
       {rowNumber != null && (
         <TableCell className="text-center w-10 min-w-10 tabular-nums text-muted-foreground text-sm" onClick={e => e.stopPropagation()}>
@@ -383,6 +393,7 @@ export const TaskTableRow = memo(TaskTableRowComponent, (prev, next) => {
   if (prev.visibleColumnIds !== next.visibleColumnIds) return false
   if (prev.bulkSelect?.checked !== next.bulkSelect?.checked) return false
   if (prev.bulkSelect?.onToggle !== next.bulkSelect?.onToggle) return false
+  if (prev.bulkSelectSpacer !== next.bulkSelectSpacer) return false
   if (prev.isFavorite !== next.isFavorite) return false
   if (prev.locale !== next.locale) return false
   if (prev.getAssigneeDisplay !== next.getAssigneeDisplay) return false

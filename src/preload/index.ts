@@ -560,6 +560,7 @@ declare global {
         }>
         getTask: (id: string) => Promise<{ status: string; data?: any; code?: string; message?: string }>
         create: (input: any) => Promise<{ status: string; data?: any; message?: string }>
+        canCreateMilestone: (projectId: string) => Promise<{ status: string; data?: { ok: boolean }; message?: string }>
         updateStatus: (id: string, status: string, version?: number) => Promise<{ status: string; message?: string; code?: string }>
         updateProgress: (id: string, progress: number, version?: number) => Promise<{ status: string; message?: string; code?: string }>
         updateDates: (
@@ -1478,6 +1479,7 @@ contextBridge.exposeInMainWorld('api', {
     getManagementScopeMeta: () => ipcRenderer.invoke(IPC.TASK.GET_MANAGEMENT_SCOPE_META),
     getTask: (id: string) => ipcRenderer.invoke(IPC.TASK.GET_TASK, id),
     create: (input: any) => ipcRenderer.invoke(IPC.TASK.CREATE, input),
+    canCreateMilestone: (projectId: string) => ipcRenderer.invoke(IPC.TASK.CAN_CREATE_MILESTONE, projectId),
     updateStatus: (id: string, status: string, version?: number) => ipcRenderer.invoke(IPC.TASK.UPDATE_STATUS, id, status, version),
     updateProgress: (id: string, progress: number, version?: number) => ipcRenderer.invoke(IPC.TASK.UPDATE_PROGRESS, id, progress, version),
     updateDates: (id: string, dates: { planStartDate?: string; planEndDate?: string; actualStartDate?: string; actualEndDate?: string }, version?: number) =>

@@ -13,6 +13,7 @@ import {
   CheckCircle,
   Circle,
   Clock,
+  Diamond,
   Eye,
   Headphones,
   History,
@@ -27,10 +28,9 @@ import {
   XCircle,
   XIcon,
 } from 'lucide-react'
-import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { lazy, memo, startTransition, Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { TaskChangeHistoryDialog } from '@/components/dialogs/task/TaskChangeHistoryDialog'
-import { TaskDescriptionEditor } from '@/components/dialogs/task/TaskDescriptionEditor'
 import { TaskPickerCombobox } from '@/components/dialogs/task/TaskPickerCombobox'
 import {
   AlertDialog,
@@ -56,8 +56,18 @@ import { getDateOnlyPattern, getDateTimeDisplayPattern, parseLocalDate } from '@
 import i18n from '@/lib/i18n'
 import { isSerializedStateEmpty } from '@/lib/taskDescriptionEditorState'
 import { cn, getProgressColor } from '@/lib/utils'
+import { TASK_TYPE_MILESTONE_COMBO_TEXT_CLASS } from '@/lib/taskTypeMilestoneTokens'
 import { useAppearanceStoreSelect } from '@/stores/useAppearanceStore'
 import { Separator } from '../../ui/separator'
+
+/** Lexical + plugins rất nặng — tách chunk để overlay/header/dialog hiện trước khi editor mount. */
+const TaskDescriptionEditor = lazy(() =>
+  import('@/components/dialogs/task/TaskDescriptionEditor').then(m => ({ default: m.TaskDescriptionEditor }))
+)
+
+function TaskDescriptionEditorSkeleton() {
+  return <div className="flex min-h-[14rem] w-full animate-pulse rounded-lg border border-border/80 bg-muted/35" aria-hidden />
+}
 
 const LINK_TYPE_CONFIG: Record<string, { icon: React.ComponentType<{ className?: string }>; badgeClass: string }> = {
   blocks: {
@@ -136,6 +146,14 @@ const TYPE_COLOR: Record<string, string> = {
   feature: 'text-violet-700 dark:text-violet-400',
   support: 'text-teal-700 dark:text-teal-400',
   task: 'text-blue-700 dark:text-blue-400',
+  milestone: TASK_TYPE_MILESTONE_COMBO_TEXT_CLASS,
+}
+
+function normalizeTaskTypeCode(raw: string | undefined): string {
+  return String(raw ?? '')
+    .trim()
+    .toLowerCase()
+    .replace(/\s+/g, '_')
 }
 
 /** Màu icon + text combobox Status - đồng bộ với TaskManagement */
@@ -193,7 +211,7 @@ function recordUserInitials(name: string): string {
   return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase()
 }
 
-function TaskDialogSection({
+const TaskDialogSection = memo(function TaskDialogSection({
   title,
   children,
   className,
@@ -211,7 +229,7 @@ function TaskDialogSection({
       {children}
     </div>
   )
-}
+})
 
 /** Input cô lập - state nội bộ, không gây re-render form cha. Tránh lag + cursor jump. */
 const IsolatedInput = memo(function IsolatedInput({
@@ -336,6 +354,7 @@ export function AddOrEditTaskDialog({
   const titleRef = useRef<string>('')
   const descriptionRef = useRef<string>('')
   const ticketIdRef = useRef<string>('')
+  const prevTypeRef = useRef<TaskType>('bug')
   const addChildTitleRef = useRef<string>('')
   const [assigneeUserId, setAssigneeUserId] = useState<string | null>(null)
   const [status, setStatus] = useState<TaskStatus>('new')
@@ -369,44 +388,85 @@ export function AddOrEditTaskDialog({
   const [canEdit, setCanEdit] = useState(true)
   const [canDelete, setCanDelete] = useState(true)
   const [recordExtraAvatars, setRecordExtraAvatars] = useState<Record<string, string | null>>({})
+  const [canCreateMilestone, setCanCreateMilestone] = useState(false)
 
   const subTaskPickerExcludeIds = useMemo(() => children.map(c => c.id), [children])
 
   const isEditMode = !!task
   const isReadOnly = isEditMode && !canEdit
 
+  /** Quyền milestone + edit/deleted — gộp IPC song song, cập nhật trong startTransition (ưu tiên paint dialog). */
   useEffect(() => {
-    if (!open) setHistoryDialogOpen(false)
-  }, [open])
-
-  useEffect(() => {
-    if (!open || !task?.id) {
-      setCanEdit(true)
-      setCanDelete(true)
+    if (!open) {
+      startTransition(() => {
+        setCanCreateMilestone(false)
+        setCanEdit(true)
+        setCanDelete(true)
+      })
       return
     }
+
     let cancelled = false
-    setCanEdit(false)
-    setCanDelete(false)
-    window.api.task
-      .canEditTask(task.id)
-      .then((res: { status: string; data?: { canEdit: boolean; canDelete: boolean } }) => {
-        if (cancelled) return
-        if (res.status === 'success' && res.data) {
-          setCanEdit(res.data.canEdit)
-          setCanDelete(res.data.canDelete)
-        }
-      })
-      .catch(() => {
-        if (!cancelled) {
+    const pid = projectId.trim()
+    const tid = task?.id
+
+    const pMilestone = pid
+      ? window.api.task.canCreateMilestone(pid).then((res: { status: string; data?: { ok: boolean } }) => {
+          if (cancelled) return
+          startTransition(() => setCanCreateMilestone(res.status === 'success' && Boolean(res.data?.ok)))
+        })
+      : Promise.resolve().then(() => {
+          if (!cancelled) startTransition(() => setCanCreateMilestone(false))
+        })
+
+    const pEdit = tid
+      ? window.api.task.canEditTask(tid).then((res: { status: string; data?: { canEdit: boolean; canDelete: boolean } }) => {
+          if (cancelled) return
+          startTransition(() => {
+            if (res.status === 'success' && res.data) {
+              setCanEdit(res.data.canEdit)
+              setCanDelete(res.data.canDelete)
+            } else {
+              setCanEdit(false)
+              setCanDelete(false)
+            }
+          })
+        })
+      : Promise.resolve().then(() => {
+          if (!cancelled) startTransition(() => {
+            setCanEdit(true)
+            setCanDelete(true)
+          })
+        })
+
+    Promise.all([pMilestone, pEdit]).catch(() => {
+      if (cancelled) return
+      startTransition(() => {
+        setCanCreateMilestone(false)
+        if (tid) {
           setCanEdit(false)
           setCanDelete(false)
         }
       })
+    })
+
     return () => {
       cancelled = true
     }
-  }, [open, task?.id])
+  }, [open, projectId, task?.id])
+
+  useEffect(() => {
+    if (prevTypeRef.current !== 'milestone' && type === 'milestone') {
+      setPlanEndDate('')
+      setActualStartDate('')
+      setActualEndDate('')
+    }
+    prevTypeRef.current = type
+  }, [type])
+
+  useEffect(() => {
+    if (!open) setHistoryDialogOpen(false)
+  }, [open])
 
   useEffect(() => {
     setRecordExtraAvatars({})
@@ -419,14 +479,18 @@ export function AddOrEditTaskDialog({
       const ub = task.updatedBy?.trim()
       if (ub && !task.updatedByAvatarUrl) ids.push(ub)
       const unique = [...new Set(ids)]
-      for (const id of unique) {
-        try {
-          const url = await window.api.user.getAvatarUrl(id)
-          if (!cancelled) setRecordExtraAvatars(prev => ({ ...prev, [id]: url ?? null }))
-        } catch {
-          if (!cancelled) setRecordExtraAvatars(prev => ({ ...prev, [id]: null }))
-        }
-      }
+      if (unique.length === 0) return
+      const next: Record<string, string | null> = {}
+      await Promise.all(
+        unique.map(async id => {
+          try {
+            next[id] = (await window.api.user.getAvatarUrl(id)) ?? null
+          } catch {
+            next[id] = null
+          }
+        })
+      )
+      if (!cancelled) startTransition(() => setRecordExtraAvatars(next))
     }
     void run()
     return () => {
@@ -441,20 +505,30 @@ export function AddOrEditTaskDialog({
         setStatus(task.status)
         setProgress(task.progress)
         setPriority(task.priority ?? priorities[0]?.code ?? 'medium')
-        setType((task as { type?: string }).type ?? types[0]?.code ?? 'bug')
+        const tt = (task as { type?: string }).type ?? types[0]?.code ?? 'bug'
+        setType(tt as TaskType)
         setSource((task as { source?: string }).source ?? 'in_app')
         setProject((task as { project?: string }).project ?? '')
         setProjectId((task as { projectId?: string }).projectId ?? '')
         setPlanStartDate(task.planStartDate ?? '')
-        setPlanEndDate(task.planEndDate ?? '')
-        setActualStartDate(task.actualStartDate ?? '')
-        setActualEndDate(task.actualEndDate ?? '')
+        if (tt === 'milestone') {
+          setPlanEndDate('')
+          setActualStartDate('')
+          setActualEndDate('')
+        } else {
+          setPlanEndDate(task.planEndDate ?? '')
+          setActualStartDate(task.actualStartDate ?? '')
+          setActualEndDate(task.actualEndDate ?? '')
+        }
+        prevTypeRef.current = tt as TaskType
       } else {
         setAssigneeUserId(null)
         setStatus(statuses[0]?.code ?? 'new')
         setProgress(0)
         setPriority(priorities[0]?.code ?? 'medium')
-        setType(types[0]?.code ?? 'bug')
+        const nt = types[0]?.code ?? 'bug'
+        setType(nt)
+        prevTypeRef.current = nt as TaskType
         setSource('in_app')
         setProject('')
         setProjectId(projects[0]?.id ?? '')
@@ -472,21 +546,24 @@ export function AddOrEditTaskDialog({
     setIsLoadingRelations(true)
     try {
       const [childrenRes, linksRes] = await Promise.all([window.api.task.getTaskChildren(task.id), window.api.task.getTaskLinks(task.id)])
-      if (childrenRes.status === 'success' && childrenRes.data) {
-        setChildren(
-          childrenRes.data.map((c: { id: string; title: string; ticketId?: string; version?: number }) => ({
-            id: c.id,
-            title: c.title,
-            ticketId: c.ticketId,
-            version: typeof c.version === 'number' ? c.version : undefined,
-          }))
-        )
-      }
-      if (linksRes.status === 'success' && linksRes.data) {
-        setLinks(linksRes.data)
-      }
-    } finally {
-      setIsLoadingRelations(false)
+      startTransition(() => {
+        if (childrenRes.status === 'success' && childrenRes.data) {
+          setChildren(
+            childrenRes.data.map((c: { id: string; title: string; ticketId?: string; version?: number }) => ({
+              id: c.id,
+              title: c.title,
+              ticketId: c.ticketId,
+              version: typeof c.version === 'number' ? c.version : undefined,
+            }))
+          )
+        }
+        if (linksRes.status === 'success' && linksRes.data) {
+          setLinks(linksRes.data)
+        }
+        setIsLoadingRelations(false)
+      })
+    } catch {
+      startTransition(() => setIsLoadingRelations(false))
     }
   }, [task?.id, open])
 
@@ -494,23 +571,52 @@ export function AddOrEditTaskDialog({
     loadRelations()
   }, [loadRelations])
 
+  /** Master link types ít khẩn cấp — defer sau paint (idle / microtask). */
   useEffect(() => {
     if (!open) return
     let cancelled = false
-    window.api.master.getMasterTaskLinkTypesAll().then(res => {
+    const apply = () => {
       if (cancelled) return
-      if (res.status === 'success' && res.data) {
-        setLinkTypes(res.data)
-        setAddLinkType(prev => {
-          const codes = res.data?.map(d => d.code)
-          return codes?.includes(prev) ? prev : codes?.[0] ?? 'blocks'
+      window.api.master
+        .getMasterTaskLinkTypesAll()
+        .then(res => {
+          if (cancelled) return
+          startTransition(() => {
+            if (res.status === 'success' && res.data) {
+              setLinkTypes(res.data)
+              setAddLinkType(prev => {
+                const codes = res.data?.map(d => d.code)
+                return codes?.includes(prev) ? prev : codes?.[0] ?? 'blocks'
+              })
+            } else {
+              setLinkTypes([
+                { code: 'blocks', name: 'Blocks' },
+                { code: 'blocked_by', name: 'Blocked By' },
+                { code: 'relates_to', name: 'Relates To' },
+              ])
+            }
+          })
         })
-      } else {
-        setLinkTypes([{ code: 'blocks', name: 'Blocks' }, { code: 'blocked_by', name: 'Blocked By' }, { code: 'relates_to', name: 'Relates To' }])
-      }
-    })
+        .catch(() => {
+          if (cancelled) return
+          startTransition(() =>
+            setLinkTypes([
+              { code: 'blocks', name: 'Blocks' },
+              { code: 'blocked_by', name: 'Blocked By' },
+              { code: 'relates_to', name: 'Relates To' },
+            ])
+          )
+        })
+    }
+    let idleId: number | undefined
+    if (typeof requestIdleCallback !== 'undefined') {
+      idleId = requestIdleCallback(apply, { timeout: 450 })
+    } else {
+      queueMicrotask(apply)
+    }
     return () => {
       cancelled = true
+      if (idleId !== undefined && typeof cancelIdleCallback !== 'undefined') cancelIdleCallback(idleId)
     }
   }, [open])
 
@@ -549,45 +655,65 @@ export function AddOrEditTaskDialog({
   const dateDisplayPattern = useMemo(() => getDateOnlyPattern(i18n.language), [i18n.language])
   const dateTimeDisplayPattern = useMemo(() => getDateTimeDisplayPattern(i18n.language), [i18n.language])
 
+  const isMilestone = type === 'milestone'
+  const allowMilestoneTypeOption = canCreateMilestone || (isEditMode && task?.type === 'milestone')
+
   const typeOptions = useMemo(() => {
-    const opts = types.length > 0 ? [...types] : []
-    if (type && !opts.find(tp => tp.code === type)) opts.push({ code: type, name: type })
-    const colorCls = (code: string) => TYPE_COLOR[code] ?? 'text-foreground'
+    let opts = types.length > 0 ? [...types] : []
+    opts = opts.filter(tp => normalizeTaskTypeCode(tp.code) !== 'milestone' || allowMilestoneTypeOption)
+    if (type && !opts.find(tp => normalizeTaskTypeCode(tp.code) === normalizeTaskTypeCode(type))) opts.push({ code: type, name: type })
+    const colorCls = (code: string) => TYPE_COLOR[normalizeTaskTypeCode(code)] ?? 'text-foreground'
     const getIcon = (code: string, item?: { color?: string }) => {
-      const cls = item?.color ? '' : colorCls(code)
-      const style = item?.color ? { color: item.color } : undefined
-      switch (code) {
+      const norm = normalizeTaskTypeCode(code)
+      const isMilestone = norm === 'milestone'
+      /** Milestone luôn dùng palette rose (tránh master `color` nhầm amber; SVG trong Button cần class). */
+      const useMasterHex = Boolean(item?.color) && !isMilestone
+      const cls = useMasterHex ? '' : colorCls(isMilestone ? 'milestone' : norm)
+      const style = useMasterHex ? { color: item!.color } : undefined
+      switch (norm) {
         case 'feature':
           return <Sparkles className={cn('h-4 w-4 shrink-0', cls)} style={style} />
         case 'support':
           return <Headphones className={cn('h-4 w-4 shrink-0', cls)} style={style} />
         case 'task':
           return <ListTodo className={cn('h-4 w-4 shrink-0', cls)} style={style} />
+        case 'milestone':
+          return <Diamond className={cn('h-4 w-4 shrink-0', cls)} style={style} />
         case 'bug':
-        default:
           return <Bug className={cn('h-4 w-4 shrink-0', cls)} style={style} />
+        default:
+          return <ListTodo className={cn('h-4 w-4 shrink-0', cls)} style={style} />
       }
     }
-    const wrap = (item: { code: string; color?: string }, icon: React.ReactNode, label: string) =>
-      item.color ? (
-        <span className="flex items-center gap-2" style={{ color: item.color }}>
-          {icon}
-          {label}
-        </span>
-      ) : (
-        <span className={cn('flex items-center gap-2', colorCls(item.code))}>
+    const wrap = (item: { code: string; color?: string }, icon: React.ReactNode, label: string) => {
+      const norm = normalizeTaskTypeCode(item.code)
+      const isMilestone = norm === 'milestone'
+      if (item.color && !isMilestone) {
+        return (
+          <span className="flex items-center gap-2" style={{ color: item.color }}>
+            {icon}
+            {label}
+          </span>
+        )
+      }
+      return (
+        <span className={cn('flex items-center gap-2', colorCls(isMilestone ? 'milestone' : normalizeTaskTypeCode(item.code)))}>
           {icon}
           {label}
         </span>
       )
+    }
     const fallback = [
       { value: 'bug', label: t('taskManagement.typeBug'), render: wrap({ code: 'bug' }, getIcon('bug'), t('taskManagement.typeBug')) },
       { value: 'feature', label: t('taskManagement.typeFeature'), render: wrap({ code: 'feature' }, getIcon('feature'), t('taskManagement.typeFeature')) },
       { value: 'support', label: t('taskManagement.typeSupport'), render: wrap({ code: 'support' }, getIcon('support'), t('taskManagement.typeSupport')) },
       { value: 'task', label: t('taskManagement.typeTask'), render: wrap({ code: 'task' }, getIcon('task'), t('taskManagement.typeTask')) },
+      ...(allowMilestoneTypeOption
+        ? [{ value: 'milestone', label: t('taskManagement.typeMilestone'), render: wrap({ code: 'milestone' }, getIcon('milestone'), t('taskManagement.typeMilestone')) }]
+        : []),
     ]
     return opts.length > 0 ? opts.map(tp => ({ value: tp.code, label: tp.name, render: wrap(tp, getIcon(tp.code, tp), tp.name) })) : fallback
-  }, [types, type, t])
+  }, [types, type, t, allowMilestoneTypeOption])
 
   const projectOptions = useMemo(() => projects.map(p => ({ value: p.id, label: p.name })), [projects])
 
@@ -729,12 +855,12 @@ export function AddOrEditTaskDialog({
           priority,
           type,
           source,
-          ticketId: undefined,
+          ticketId: type === 'milestone' ? '' : undefined,
           projectId: projectId || undefined,
           planStartDate: planStartDate || undefined,
-          planEndDate: planEndDate || undefined,
-          actualStartDate: actualStartDate || undefined,
-          actualEndDate: actualEndDate || undefined,
+          planEndDate: type === 'milestone' ? undefined : planEndDate || undefined,
+          actualStartDate: type === 'milestone' ? undefined : actualStartDate || undefined,
+          actualEndDate: type === 'milestone' ? undefined : actualEndDate || undefined,
           version: task.version,
         })
         if (result?.success) onOpenChange(false)
@@ -753,9 +879,9 @@ export function AddOrEditTaskDialog({
           project: selectedProject?.name,
           projectId,
           planStartDate: planStartDate || undefined,
-          planEndDate: planEndDate || undefined,
-          actualStartDate: actualStartDate || undefined,
-          actualEndDate: actualEndDate || undefined,
+          planEndDate: type === 'milestone' ? undefined : planEndDate || undefined,
+          actualStartDate: type === 'milestone' ? undefined : actualStartDate || undefined,
+          actualEndDate: type === 'milestone' ? undefined : actualEndDate || undefined,
         })
       }
     } finally {
@@ -849,15 +975,17 @@ export function AddOrEditTaskDialog({
                     </div>
                     <div className="flex min-h-0 flex-1 flex-col gap-1">
                       <Label htmlFor="task-description" className={TASK_DIALOG_LABEL_CLASS}>{t('taskManagement.description')}</Label>
-                      <TaskDescriptionEditor
-                        key={`${task?.id ?? 'create'}-desc`}
-                        valueRef={descriptionRef}
-                        initialValue={task?.description ?? ''}
-                        id="task-description"
-                        placeholder={t('taskManagement.descriptionPlaceholder')}
-                        disabled={isReadOnly}
-                        className="w-full min-h-0"
-                      />
+                      <Suspense fallback={<TaskDescriptionEditorSkeleton />}>
+                        <TaskDescriptionEditor
+                          key={`${task?.id ?? 'create'}-desc`}
+                          valueRef={descriptionRef}
+                          initialValue={task?.description ?? ''}
+                          id="task-description"
+                          placeholder={t('taskManagement.descriptionPlaceholder')}
+                          disabled={isReadOnly}
+                          className="w-full min-h-0"
+                        />
+                      </Suspense>
                     </div>
                   </div>
                 </TaskDialogSection>
@@ -869,12 +997,21 @@ export function AddOrEditTaskDialog({
                   <div className={TASK_DIALOG_RIGHT_GRID}>
                     <div className="grid min-w-0 gap-1">
                       <Label className={TASK_DIALOG_LABEL_CLASS}>{t('taskManagement.type')}</Label>
-                      <Combobox value={type} onValueChange={setType} options={typeOptions} className="w-full" disabled={isReadOnly} {...TASK_DIALOG_COMBOBOX_FIELD} />
+                      <Combobox
+                        value={type}
+                        onValueChange={setType}
+                        options={typeOptions}
+                        className="w-full"
+                        disabled={isReadOnly}
+                        {...TASK_DIALOG_COMBOBOX_FIELD}
+                        triggerClassName={cn(TASK_DIALOG_COMBOBOX_FIELD.triggerClassName, '[&_svg]:text-inherit')}
+                      />
                     </div>
                     <div className="grid min-w-0 gap-1">
                       <Label className={TASK_DIALOG_LABEL_CLASS}>{t('taskManagement.source')}</Label>
                       <Input value={sourceDisplayName} disabled className={cn('w-full bg-muted', TASK_DIALOG_FIELD_INPUT_CLASS)} />
                     </div>
+                    {!isMilestone ? (
                     <div className="grid min-w-0 gap-1">
                       <Label htmlFor="task-ticketId" className={TASK_DIALOG_LABEL_CLASS}>{t('taskManagement.ticketId')}</Label>
                       <IsolatedInput
@@ -887,6 +1024,7 @@ export function AddOrEditTaskDialog({
                         className={cn('w-full', TASK_DIALOG_FIELD_INPUT_CLASS, (ticketIdDisabled || isReadOnly) && 'bg-muted')}
                       />
                     </div>
+                    ) : null}
                     <div className="grid min-w-0 gap-1">
                       <Label htmlFor="task-project" className={TASK_DIALOG_LABEL_CLASS}>{t('taskManagement.project')}</Label>
                       {isEditMode ? (
@@ -908,6 +1046,21 @@ export function AddOrEditTaskDialog({
 
                 <TaskDialogSection title={t('taskManagement.dialogSectionAssignment')}>
                   <div className={TASK_DIALOG_RIGHT_GRID}>
+                    {isMilestone ? (
+                      <div className="grid min-w-0 gap-1 sm:col-span-2">
+                        <Label className={TASK_DIALOG_LABEL_CLASS}>{t('taskManagement.assignee')}</Label>
+                        <Combobox
+                          value={assigneeUserId || '_empty'}
+                          onValueChange={v => setAssigneeUserId(v === '_empty' ? null : v)}
+                          options={assigneeOptions}
+                          placeholder={t('taskManagement.selectAssignee')}
+                          className="w-full"
+                          disabled={isReadOnly}
+                          {...TASK_DIALOG_COMBOBOX_FIELD}
+                        />
+                      </div>
+                    ) : (
+                      <>
                     <div className="grid min-w-0 gap-2 sm:col-span-2 sm:grid-cols-2 sm:items-end sm:gap-x-3">
                       <div className="grid min-w-0 gap-1">
                         <Label className={TASK_DIALOG_LABEL_CLASS}>{t('taskManagement.assignee')}</Label>
@@ -938,13 +1091,15 @@ export function AddOrEditTaskDialog({
                       <Label className={TASK_DIALOG_LABEL_CLASS}>{t('taskManagement.priority')}</Label>
                       <Combobox value={priority} onValueChange={setPriority} options={priorityOptions} className="w-full" disabled={isReadOnly} {...TASK_DIALOG_COMBOBOX_FIELD} />
                     </div>
+                      </>
+                    )}
                   </div>
                 </TaskDialogSection>
 
                 <TaskDialogSection title={t('taskManagement.dialogSectionDates', 'Timeline')}>
                   <div className={TASK_DIALOG_RIGHT_GRID}>
-                    <div className="grid min-w-0 gap-1">
-                      <Label className={TASK_DIALOG_LABEL_CLASS}>{t('taskManagement.planStartDate')}</Label>
+                    <div className={cn('grid min-w-0 gap-1', isMilestone && 'sm:col-span-2')}>
+                      <Label className={TASK_DIALOG_LABEL_CLASS}>{isMilestone ? t('taskManagement.milestoneDate') : t('taskManagement.planStartDate')}</Label>
                       <Popover open={planStartDateOpen} onOpenChange={setPlanStartDateOpen}>
                         <PopoverTrigger asChild>
                           <Button
@@ -969,6 +1124,7 @@ export function AddOrEditTaskDialog({
                               setPlanStartDate(fromDate(d))
                             }}
                             disabled={date => {
+                              if (isMilestone) return false
                               const max = planEndDate ? (parseLocalDate(planEndDate) ?? new Date(planEndDate)) : undefined
                               return max ? date > max : false
                             }}
@@ -976,6 +1132,8 @@ export function AddOrEditTaskDialog({
                         </PopoverContent>
                       </Popover>
                     </div>
+                    {!isMilestone ? (
+                      <>
                     <div className="grid min-w-0 gap-1">
                       <Label className={TASK_DIALOG_LABEL_CLASS}>{t('taskManagement.deadline')}</Label>
                       <Popover open={planEndDateOpen} onOpenChange={setPlanEndDateOpen}>
@@ -1080,6 +1238,8 @@ export function AddOrEditTaskDialog({
                         </PopoverContent>
                       </Popover>
                     </div>
+                      </>
+                    ) : null}
                   </div>
                 </TaskDialogSection>
 
@@ -1150,7 +1310,7 @@ export function AddOrEditTaskDialog({
               </div>
             </div>
 
-            {isEditMode && task && (
+            {isEditMode && task && !isMilestone && (
               <TaskDialogSection title={t('taskManagement.dialogSectionRelations')}>
                 <div className="grid grid-cols-1 sm:grid-cols-[minmax(0,1fr)_minmax(0,1fr)] gap-2 sm:gap-3 min-w-0">
                   {/* Sub-tasks - cột trái */}

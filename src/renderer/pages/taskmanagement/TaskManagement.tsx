@@ -66,6 +66,7 @@ import { DateRangePickerPopover } from '@/components/ui-elements/DateRangePicker
 import { GlowLoader } from '@/components/ui-elements/GlowLoader'
 import toast from '@/components/ui-elements/Toast'
 import i18n from '@/lib/i18n'
+import { TASK_TYPE_MILESTONE_BADGE_CLASS, TASK_TYPE_MILESTONE_COMBO_TEXT_CLASS, TASK_TYPE_MILESTONE_HEX, TASK_TYPE_MILESTONE_RING_CLASS } from '@/lib/taskTypeMilestoneTokens'
 import { cn, getContrastingColor, hexToRgba } from '@/lib/utils'
 import { useTaskToolbarPortalTarget } from '@/pages/main/TaskToolbarPortalContext'
 import {
@@ -79,11 +80,11 @@ import { useTaskAuthStore } from '@/stores/useTaskAuthStore'
 import type { ChartTask } from './chartDataUtils'
 import { TaskBulkActionsBar } from './TaskBulkActionsBar'
 import { TaskCalendarView } from './TaskCalendarView'
-import { TaskGanttView, type GanttTaskLink } from './TaskGanttView'
-import type { WorkloadData, WorkloadOverrideUpsertInput } from './TaskGanttWorkload'
+import { type GanttTaskLink, TaskGanttView, type TaskGanttViewLabels, Z_GANTT_BOARD_LOADING_OVERLAY } from './TaskGanttView'
+import type { WorkloadBoardSegment, WorkloadData, WorkloadOverrideUpsertInput } from './TaskGanttWorkload'
 import { TaskKanbanBoard } from './TaskKanbanBoard'
 import { TaskSavedViewsPopover } from './TaskSavedViewsPopover'
-import { TaskTableRow, type TaskTableRowTask } from './TaskTableRow'
+import { isTaskBulkSelectable, TaskTableRow, type TaskTableRowTask } from './TaskTableRow'
 import {
   buildSavedViewSnapshot,
   coerceTaskManagementPageSize,
@@ -145,6 +146,56 @@ const TASK_COLUMN_IDS = [
 const REQUIRED_COLUMN_IDS = ['type', 'ticketId', 'project', 'title', 'assigneeUserId', 'status', 'priority'] as const
 const VISIBLE_COLUMNS_STORAGE_KEY = 'task-management-visible-columns'
 const TASK_VIEW_STORAGE_KEY = 'task-management-task-view'
+
+/** Giới hạn số project fetch workload Gantt (mỗi project một IPC); tránh trăm request. */
+const WORKLOAD_GANTT_MAX_PROJECTS = 40
+const WORKLOAD_FETCH_CONCURRENCY = 4
+
+/** Cố định tham chiếu — tránh bust memo hàng Gantt (~500 dòng) khi parent re-render. */
+const TYPE_FILTER_COLOR: Record<string, string> = {
+  bug: 'text-amber-700 dark:text-amber-400',
+  feature: 'text-violet-700 dark:text-violet-400',
+  support: 'text-teal-700 dark:text-teal-400',
+  task: 'text-blue-700 dark:text-blue-400',
+  milestone: TASK_TYPE_MILESTONE_COMBO_TEXT_CLASS,
+}
+const STATUS_FILTER_COLOR: Record<string, string> = {
+  new: 'text-sky-700 dark:text-sky-400',
+  in_progress: 'text-amber-700 dark:text-amber-400',
+  in_review: 'text-fuchsia-700 dark:text-fuchsia-400',
+  fixed: 'text-teal-700 dark:text-teal-400',
+  feedback: 'text-orange-700 dark:text-orange-400',
+  cancelled: 'text-red-700 dark:text-red-400',
+  done: 'text-emerald-700 dark:text-emerald-400',
+}
+const PRIORITY_FILTER_COLOR: Record<string, string> = {
+  critical: 'text-red-700 dark:text-red-400',
+  high: 'text-orange-700 dark:text-orange-400',
+  medium: 'text-sky-600 dark:text-sky-400',
+  low: 'text-emerald-700 dark:text-emerald-400',
+}
+
+function ganttStatusToneClass(code: string) {
+  return STATUS_FILTER_COLOR[code] ?? 'text-foreground'
+}
+function ganttPriorityToneClass(code: string) {
+  return PRIORITY_FILTER_COLOR[code] ?? 'text-foreground'
+}
+
+async function mapWithConcurrency<T, R>(items: T[], limit: number, fn: (item: T, index: number) => Promise<R>): Promise<R[]> {
+  const results: R[] = new Array(items.length)
+  let cursor = 0
+  async function worker() {
+    while (true) {
+      const i = cursor++
+      if (i >= items.length) return
+      results[i] = await fn(items[i], i)
+    }
+  }
+  const workers = Math.max(1, Math.min(limit, items.length || 1))
+  await Promise.all(Array.from({ length: workers }, () => worker()))
+  return results
+}
 
 /** Nút filter facet (Assignee, Project, Type, Status, Priority): đã chọn ít nhất một giá trị */
 const TASK_MGMT_FILTER_TRIGGER_ACTIVE = 'border-primary/55 bg-primary/[0.09] font-medium text-foreground shadow-sm dark:border-primary/45 dark:bg-primary/14'
@@ -406,17 +457,13 @@ function appliedMgmtFromSavedViewSnapshot(snap: TaskManagementSavedViewSnapshot)
 type WorkloadUpsertApiResult = { deleted?: boolean; overrideHours?: number | null }
 
 /** Cập nhật `days` ngay sau upsert override để ô phản ánh đúng; refetch vẫn chạy sau để đồng bộ server. */
-function applyWorkloadOverrideToState(
-  prev: WorkloadData | null,
-  input: WorkloadOverrideUpsertInput,
-  result: WorkloadUpsertApiResult | undefined
-): WorkloadData | null {
+function applyWorkloadOverrideToState(prev: WorkloadData | null, input: WorkloadOverrideUpsertInput, result: WorkloadUpsertApiResult | undefined): WorkloadData | null {
   if (!prev) return prev
   const date = input.workDate.trim().slice(0, 10)
   if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) return prev
 
   const deleted = result?.deleted === true
-  const nextOverride: number | null = deleted ? null : ((result?.overrideHours ?? input.overrideHours) ?? null)
+  const nextOverride: number | null = deleted ? null : (result?.overrideHours ?? input.overrideHours ?? null)
 
   const idx = prev.days.findIndex(d => d.userId === input.userId && d.date === date)
 
@@ -448,7 +495,21 @@ function applyWorkloadOverrideToState(
   return { ...prev, days: [...prev.days, patched] }
 }
 
+function applyWorkloadOverrideToSegments(
+  prev: WorkloadBoardSegment[] | null,
+  input: WorkloadOverrideUpsertInput,
+  result: WorkloadUpsertApiResult | undefined
+): WorkloadBoardSegment[] | null {
+  if (!prev?.length) return prev
+  const i = prev.findIndex(s => s.projectId === input.projectId)
+  if (i < 0) return prev
+  const nextData = applyWorkloadOverrideToState(prev[i].data, input, result)
+  if (!nextData) return prev
+  return prev.map((s, j) => (j === i ? { ...s, data: nextData } : s))
+}
+
 type WorkloadOverridePendingPatch = {
+  projectId: string
   userId: string
   date: string
   overrideHours: number | null
@@ -463,25 +524,29 @@ function workloadHoursOverrideMatch(a: number | null | undefined, b: number | nu
   return Math.abs(na - nb) < 1e-6
 }
 
+function workloadPatchKey(projectId: string, userId: string, date: string): string {
+  return `${projectId}|${userId}|${date}`
+}
+
 /**
  * GET đôi khi thiếu vài ô override; mỗi lần refetch gộp lại **tất cả** patch đã lưu thành công gần đây.
  * Gỡ patch khỏi map khi giá trị server đã khớp.
+ * Chỉ áp patch trùng `onlyProjectId` (mutate `patches` theo mapKey).
  */
-function mergeWorkloadServerWithPendingPatches(
-  server: WorkloadData,
-  patches: Map<string, WorkloadOverridePendingPatch>
-): WorkloadData {
+function mergeWorkloadServerWithPendingPatches(server: WorkloadData, patches: Map<string, WorkloadOverridePendingPatch>, onlyProjectId: string): WorkloadData {
   const toRemove: string[] = []
   let next: WorkloadData = server
 
-  for (const [, p] of patches) {
+  for (const [mapKey, p] of patches) {
+    if (p.projectId !== onlyProjectId) continue
     const cell = next.days.find(d => d.userId === p.userId && d.date === p.date)
     const wantOh = p.deleted ? null : p.overrideHours
     if (workloadHoursOverrideMatch(cell?.overrideHours, wantOh)) {
-      toRemove.push(`${p.userId}|${p.date}`)
+      toRemove.push(mapKey)
       continue
     }
     const input: WorkloadOverrideUpsertInput = {
+      projectId: p.projectId,
       userId: p.userId,
       workDate: p.date,
       overrideHours: p.overrideHours,
@@ -494,6 +559,13 @@ function mergeWorkloadServerWithPendingPatches(
 
   for (const k of toRemove) patches.delete(k)
   return next
+}
+
+function mergeWorkloadSegmentsWithPendingPatches(serverSegments: WorkloadBoardSegment[], patches: Map<string, WorkloadOverridePendingPatch>): WorkloadBoardSegment[] {
+  return serverSegments.map(seg => ({
+    ...seg,
+    data: mergeWorkloadServerWithPendingPatches(seg.data, patches, seg.projectId),
+  }))
 }
 
 export function TaskManagement({ embedded = false }: { embedded?: boolean }) {
@@ -586,8 +658,9 @@ export function TaskManagement({ embedded = false }: { embedded?: boolean }) {
   const [boardTruncated, setBoardTruncated] = useState(false)
   const [boardLoading, setBoardLoading] = useState(false)
   const [ganttTaskLinks, setGanttTaskLinks] = useState<GanttTaskLink[]>([])
-  /** Workload Gantt section: chỉ active khi taskView === 'gantt' và đúng 1 project được chọn. */
-  const [workloadData, setWorkloadData] = useState<WorkloadData | null>(null)
+  /** Workload Gantt: nhiều project — mỗi project một segment (batch fetch). */
+  const [workloadSegments, setWorkloadSegments] = useState<WorkloadBoardSegment[]>([])
+  const [workloadCapTruncated, setWorkloadCapTruncated] = useState<{ total: number; shown: number } | null>(null)
   const [workloadLoading, setWorkloadLoading] = useState(false)
   const workloadRequestIdRef = useRef(0)
   /** Override vừa lưu (theo ô) — merge sau mỗi GET cho đến khi server khớp. */
@@ -1261,7 +1334,7 @@ export function TaskManagement({ embedded = false }: { embedded?: boolean }) {
       const items: { id: string; version: number }[] = []
       for (const id of selectedTaskIds) {
         const row = sourceRows.find(t => t.id === id)
-        if (row) items.push({ id: row.id, version: Number(row.version ?? 0) })
+        if (row && isTaskBulkSelectable(row)) items.push({ id: row.id, version: Number(row.version ?? 0) })
       }
       if (items.length === 0) {
         toast.error(t('taskManagement.bulkNothingToApply'))
@@ -1424,6 +1497,8 @@ export function TaskManagement({ embedded = false }: { embedded?: boolean }) {
   }, [mgmtApiFilters])
 
   const bulkSelectionClearKey = useMemo(() => `${taskView}|${taskPage}|${taskListFiltersKey}|${listRevision}`, [taskView, taskPage, taskListFiltersKey, listRevision])
+
+  const bulkSelectableTableTasks = useMemo(() => tableTasks.filter(isTaskBulkSelectable), [tableTasks])
 
   useEffect(() => {
     setSelectedTaskIds(new Set())
@@ -1697,48 +1772,59 @@ export function TaskManagement({ embedded = false }: { embedded?: boolean }) {
     [sortColumn, sortDirection]
   )
 
-  const FALLBACK_STATUS: Record<string, string> = {
-    new: t('taskManagement.statusNew'),
-    in_progress: t('taskManagement.statusInProgress'),
-    in_review: t('taskManagement.statusInReview'),
-    fixed: t('taskManagement.statusFixed'),
-    cancelled: t('taskManagement.statusCancelled'),
-    done: t('taskManagement.statusDone'),
-    feedback: t('taskManagement.statusFeedback'),
-  }
-  const FALLBACK_PRIORITY: Record<string, string> = {
-    critical: t('taskManagement.priorityCritical'),
-    high: t('taskManagement.priorityHigh'),
-    medium: t('taskManagement.priorityMedium'),
-    low: t('taskManagement.priorityLow'),
-  }
-  const FALLBACK_TYPE: Record<string, string> = {
-    bug: t('taskManagement.typeBug'),
-    feature: t('taskManagement.typeFeature'),
-    support: t('taskManagement.typeSupport'),
-    task: t('taskManagement.typeTask'),
-  }
+  const FALLBACK_STATUS = useMemo(
+    (): Record<string, string> => ({
+      new: t('taskManagement.statusNew'),
+      in_progress: t('taskManagement.statusInProgress'),
+      in_review: t('taskManagement.statusInReview'),
+      fixed: t('taskManagement.statusFixed'),
+      cancelled: t('taskManagement.statusCancelled'),
+      done: t('taskManagement.statusDone'),
+      feedback: t('taskManagement.statusFeedback'),
+    }),
+    [t]
+  )
+  const FALLBACK_PRIORITY = useMemo(
+    (): Record<string, string> => ({
+      critical: t('taskManagement.priorityCritical'),
+      high: t('taskManagement.priorityHigh'),
+      medium: t('taskManagement.priorityMedium'),
+      low: t('taskManagement.priorityLow'),
+    }),
+    [t]
+  )
+  const FALLBACK_TYPE = useMemo(
+    (): Record<string, string> => ({
+      bug: t('taskManagement.typeBug'),
+      feature: t('taskManagement.typeFeature'),
+      support: t('taskManagement.typeSupport'),
+      task: t('taskManagement.typeTask'),
+      milestone: t('taskManagement.typeMilestone'),
+    }),
+    [t]
+  )
   const fallbackTypeItems = useMemo(
     () => [
       { code: 'bug', name: t('taskManagement.typeBug') },
       { code: 'feature', name: t('taskManagement.typeFeature') },
       { code: 'support', name: t('taskManagement.typeSupport') },
       { code: 'task', name: t('taskManagement.typeTask') },
+      { code: 'milestone', name: t('taskManagement.typeMilestone') },
     ],
     [t]
   )
-  const getStatusLabel = (s: TaskStatus) => statuses.find(st => st.code === s)?.name ?? FALLBACK_STATUS[s] ?? s
+  const getStatusLabel = useCallback((s: TaskStatus) => statuses.find(st => st.code === s)?.name ?? FALLBACK_STATUS[s] ?? s, [statuses, FALLBACK_STATUS])
 
   const tableToolbarColSpan = 2 + visibleColumnIds.length + 1
 
-  const getPriorityLabel = useCallback((p: TaskPriority) => priorities.find(pr => pr.code === p)?.name ?? FALLBACK_PRIORITY[p] ?? p, [priorities])
+  const getPriorityLabel = useCallback((p: TaskPriority) => priorities.find(pr => pr.code === p)?.name ?? FALLBACK_PRIORITY[p] ?? p, [priorities, FALLBACK_PRIORITY])
 
   const getTypeLabel = useCallback(
     (ty?: TaskType) => {
       if (!ty) return '-'
       return types.find(tp => tp.code === ty)?.name ?? FALLBACK_TYPE[ty] ?? ty
     },
-    [types]
+    [types, FALLBACK_TYPE]
   )
 
   const bulkStatusComboOptions = useMemo(() => {
@@ -1766,7 +1852,10 @@ export function TaskManagement({ embedded = false }: { embedded?: boolean }) {
     () => Object.fromEntries(priorities.filter((p): p is typeof p & { color: string } => Boolean(p.color)).map(p => [p.code, p.color])),
     [priorities]
   )
-  const typeColorMap = useMemo(() => Object.fromEntries(types.filter((t): t is typeof t & { color: string } => Boolean(t.color)).map(t => [t.code, t.color])), [types])
+  const typeColorMap = useMemo(() => {
+    const fromDb = Object.fromEntries(types.filter((t): t is typeof t & { color: string } => Boolean(t.color)).map(t => [t.code, t.color]))
+    return { ...fromDb, milestone: TASK_TYPE_MILESTONE_HEX }
+  }, [types])
 
   const getBadgeStyle = useCallback((code: string, colorMap: Record<string, string>): React.CSSProperties | undefined => {
     const color = colorMap[code]
@@ -1797,29 +1886,7 @@ export function TaskManagement({ embedded = false }: { embedded?: boolean }) {
     }
   }
 
-  const TYPE_FILTER_COLOR: Record<string, string> = {
-    bug: 'text-amber-700 dark:text-amber-400',
-    feature: 'text-violet-700 dark:text-violet-400',
-    support: 'text-teal-700 dark:text-teal-400',
-    task: 'text-blue-700 dark:text-blue-400',
-  }
-  const STATUS_FILTER_COLOR: Record<string, string> = {
-    new: 'text-sky-700 dark:text-sky-400',
-    in_progress: 'text-amber-700 dark:text-amber-400',
-    in_review: 'text-fuchsia-700 dark:text-fuchsia-400',
-    fixed: 'text-teal-700 dark:text-teal-400',
-    feedback: 'text-orange-700 dark:text-orange-400',
-    cancelled: 'text-red-700 dark:text-red-400',
-    done: 'text-emerald-700 dark:text-emerald-400',
-  }
-  const PRIORITY_FILTER_COLOR: Record<string, string> = {
-    critical: 'text-red-700 dark:text-red-400',
-    high: 'text-orange-700 dark:text-orange-400',
-    medium: 'text-sky-600 dark:text-sky-400',
-    low: 'text-emerald-700 dark:text-emerald-400',
-  }
-
-  const getStatusIcon = (s: TaskStatus) => {
+  const getStatusIcon = useCallback((s: TaskStatus) => {
     switch (s) {
       case 'new':
         return <Circle className="h-4 w-4 shrink-0" />
@@ -1838,7 +1905,7 @@ export function TaskManagement({ embedded = false }: { embedded?: boolean }) {
       default:
         return null
     }
-  }
+  }, [])
 
   const getStatusBadgeClass = (statusCode: string, isFilterActive?: boolean) => {
     const base = 'flex items-center gap-1.5 px-2 py-1 rounded-md'
@@ -1906,7 +1973,7 @@ export function TaskManagement({ embedded = false }: { embedded?: boolean }) {
       feature: 'bg-violet-500/20 text-violet-700 dark:text-violet-400',
       support: 'bg-teal-500/20 text-teal-700 dark:text-teal-400',
       task: 'bg-blue-500/20 text-blue-700 dark:text-blue-400',
-      milestone: 'bg-amber-500/20 text-amber-700 dark:text-amber-400',
+      milestone: TASK_TYPE_MILESTONE_BADGE_CLASS,
     }
     const colors = colorMap[typeCode] ?? 'bg-slate-500/15 text-slate-700 dark:text-slate-400'
     const ringMap: Record<string, string> = {
@@ -1914,7 +1981,7 @@ export function TaskManagement({ embedded = false }: { embedded?: boolean }) {
       feature: 'ring-violet-500/50',
       support: 'ring-teal-500/50',
       task: 'ring-blue-500/50',
-      milestone: 'ring-amber-500/50',
+      milestone: TASK_TYPE_MILESTONE_RING_CLASS,
     }
     const ring = isFilterActive ? (ringMap[typeCode] ?? 'ring-slate-500/50') : ''
     return cn(base, active, colors, ring)
@@ -1953,44 +2020,71 @@ export function TaskManagement({ embedded = false }: { embedded?: boolean }) {
     return { from: fromD, to: toD }
   }, [ganttFilterRange?.from, ganttFilterRange?.to])
 
-  const workloadProjectId = projectFilter.length === 1 ? projectFilter[0] : null
-  const workloadMultiProject = taskView === 'gantt' && projectFilter.length !== 1
+  const workloadFetchTargets = useMemo(() => {
+    if (taskView !== 'gantt') return { entries: [] as { id: string; label: string }[], totalListed: 0, capped: false }
+    let list: { id: string; label: string }[]
+    if (projectFilter.length > 0) {
+      list = projectFilter.map(id => {
+        const p = projects.find(x => x.id === id)
+        return { id, label: (p?.name ?? '').trim() || id }
+      })
+    } else {
+      list = [...projects].sort((a, b) => a.name.localeCompare(b.name, undefined, { sensitivity: 'base' })).map(p => ({ id: p.id, label: p.name.trim() || p.id }))
+    }
+    const totalListed = list.length
+    const capped = totalListed > WORKLOAD_GANTT_MAX_PROJECTS
+    if (capped) list = list.slice(0, WORKLOAD_GANTT_MAX_PROJECTS)
+    return { entries: list, totalListed, capped }
+  }, [taskView, projectFilter, projects])
+
+  const workloadProjectIdsKey = useMemo(() => workloadFetchTargets.entries.map(e => e.id).join('\0'), [workloadFetchTargets.entries])
+
   const workloadFromIso = format(workloadFetchRange.from, 'yyyy-MM-dd')
   const workloadToIso = format(workloadFetchRange.to, 'yyyy-MM-dd')
 
   const fetchWorkload = useCallback(async () => {
-    if (taskView !== 'gantt' || !workloadProjectId) {
-      setWorkloadData(null)
+    if (taskView !== 'gantt' || workloadFetchTargets.entries.length === 0) {
+      setWorkloadSegments([])
+      setWorkloadCapTruncated(null)
       setWorkloadLoading(false)
       workloadOverridePatchesRef.current.clear()
       return
     }
     const reqId = ++workloadRequestIdRef.current
     setWorkloadLoading(true)
+    if (workloadFetchTargets.capped) {
+      setWorkloadCapTruncated({ total: workloadFetchTargets.totalListed, shown: workloadFetchTargets.entries.length })
+    } else {
+      setWorkloadCapTruncated(null)
+    }
     try {
-      const res = await window.api.task.workload.get({ projectId: workloadProjectId, from: workloadFromIso, to: workloadToIso })
-      if (reqId !== workloadRequestIdRef.current) return
-      if (res?.status === 'success') {
-        if (res.data) {
-          setWorkloadData(mergeWorkloadServerWithPendingPatches(res.data as WorkloadData, workloadOverridePatchesRef.current))
+      const results = await mapWithConcurrency(workloadFetchTargets.entries, WORKLOAD_FETCH_CONCURRENCY, async entry => {
+        const res = await window.api.task.workload.get({ projectId: entry.id, from: workloadFromIso, to: workloadToIso })
+        if (res?.status === 'success' && res.data) {
+          return { ok: true as const, projectId: entry.id, projectLabel: entry.label, data: res.data as WorkloadData }
         }
-      } else {
-        setWorkloadData(null)
-        workloadOverridePatchesRef.current.clear()
+        return { ok: false as const, projectId: entry.id, projectLabel: entry.label }
+      })
+      if (reqId !== workloadRequestIdRef.current) return
+      const segments: WorkloadBoardSegment[] = []
+      for (const r of results) {
+        if (r.ok) segments.push({ projectId: r.projectId, projectLabel: r.projectLabel, data: r.data })
       }
+      const patches = workloadOverridePatchesRef.current
+      const merged = mergeWorkloadSegmentsWithPendingPatches(segments, patches)
+      setWorkloadSegments(merged)
     } catch {
       if (reqId === workloadRequestIdRef.current) {
-        setWorkloadData(null)
-        workloadOverridePatchesRef.current.clear()
+        setWorkloadSegments([])
       }
     } finally {
       if (reqId === workloadRequestIdRef.current) setWorkloadLoading(false)
     }
-  }, [taskView, workloadProjectId, workloadFromIso, workloadToIso])
+  }, [taskView, workloadFetchTargets, workloadFromIso, workloadToIso])
 
   useEffect(() => {
     workloadOverridePatchesRef.current.clear()
-  }, [workloadProjectId])
+  }, [workloadProjectIdsKey])
 
   useEffect(() => {
     void fetchWorkload()
@@ -1998,10 +2092,11 @@ export function TaskManagement({ embedded = false }: { embedded?: boolean }) {
 
   const handleUpsertWorkloadOverride = useCallback(
     async (input: WorkloadOverrideUpsertInput) => {
-      if (!workloadProjectId) return
+      const pid = (input.projectId || '').trim()
+      if (!pid) return
       try {
         const res = await window.api.task.workload.upsertOverride({
-          projectId: workloadProjectId,
+          projectId: pid,
           userId: input.userId,
           workDate: input.workDate,
           overrideHours: input.overrideHours,
@@ -2019,22 +2114,23 @@ export function TaskManagement({ embedded = false }: { embedded?: boolean }) {
         const date = input.workDate.trim().slice(0, 10)
         if (/^\d{4}-\d{2}-\d{2}$/.test(date)) {
           const deleted = apiResult?.deleted === true
-          const oh = deleted ? null : ((apiResult?.overrideHours ?? input.overrideHours) ?? null)
-          workloadOverridePatchesRef.current.set(`${input.userId}|${date}`, {
+          const oh = deleted ? null : (apiResult?.overrideHours ?? input.overrideHours ?? null)
+          workloadOverridePatchesRef.current.set(workloadPatchKey(pid, input.userId, date), {
+            projectId: pid,
             userId: input.userId,
             date,
             overrideHours: oh,
             deleted,
           })
         }
-        setWorkloadData(prev => applyWorkloadOverrideToState(prev, input, apiResult))
+        setWorkloadSegments(prev => applyWorkloadOverrideToSegments(prev, input, apiResult) ?? prev)
         await fetchWorkload()
       } catch (err: unknown) {
         const msg = err instanceof Error ? err.message : String(err)
         toast.error(msg)
       }
     },
-    [workloadProjectId, fetchWorkload, t]
+    [fetchWorkload, t]
   )
 
   const calendarToolbarMessages = useMemo(
@@ -2051,6 +2147,37 @@ export function TaskManagement({ embedded = false }: { embedded?: boolean }) {
       allDayExpandAria: t('taskManagement.calendarAllDayExpandAria'),
       allDayCollapseLabel: t('taskManagement.calendarAllDayCollapseLabel'),
       allDayExpandLabel: t('taskManagement.calendarAllDayExpandLabel'),
+    }),
+    [t]
+  )
+
+  const taskGanttViewLabels = useMemo<TaskGanttViewLabels>(
+    () => ({
+      week: t('taskManagement.ganttScaleWeek'),
+      month: t('taskManagement.ganttScaleMonth'),
+      monthly: t('taskManagement.ganttScaleMonthly'),
+      unscheduled: t('taskManagement.ganttUnscheduled'),
+      zoom: t('taskManagement.ganttZoom'),
+      emptyScheduled: t('taskManagement.ganttEmptyScheduled'),
+      fitRange: t('taskManagement.ganttFitRange'),
+      goToToday: t('taskManagement.ganttGoToToday'),
+      todayMark: t('taskManagement.ganttTodayTooltip'),
+      groupRows: t('taskManagement.ganttGroupRows'),
+      groupingFlat: t('taskManagement.ganttGroupingFlat'),
+      groupingByAssignee: t('taskManagement.ganttGroupingByAssignee'),
+      groupingByProject: t('taskManagement.ganttGroupingByProject'),
+      resizeLabelColumn: t('taskManagement.ganttResizeLabelColumn'),
+      gridBordersSwitch: t('taskManagement.ganttGridBordersSwitch'),
+      gridBordersHelp: t('taskManagement.ganttGridBordersHelp'),
+      actualBarsSwitch: t('taskManagement.ganttActualBarsSwitch'),
+      actualBarsHelp: t('taskManagement.ganttActualBarsHelp'),
+      actualBarRangeTitle: t('taskManagement.ganttActualBarRangeTitle'),
+      actualBarHintLateStart: t('taskManagement.ganttActualBarHintLateStart'),
+      actualBarHintLateFinish: t('taskManagement.ganttActualBarHintLateFinish'),
+      actualBarHintLateBoth: t('taskManagement.ganttActualBarHintLateBoth'),
+      actualBarHintEarly: t('taskManagement.ganttActualBarHintEarly'),
+      actualBarHintOntime: t('taskManagement.ganttActualBarHintOntime'),
+      milestoneLabel: t('taskManagement.ganttMilestoneLabel'),
     }),
     [t]
   )
@@ -3000,7 +3127,12 @@ export function TaskManagement({ embedded = false }: { embedded?: boolean }) {
                   ) : (
                     <div className="relative flex flex-1 min-h-0 flex-col rounded-md bg-background shadow-sm min-w-0 overflow-hidden">
                       {boardLoading ? (
-                        <div className="absolute inset-0 z-10 flex items-center justify-center bg-background/55 backdrop-blur-[1px]" aria-busy aria-live="polite">
+                        <div
+                          className="absolute inset-0 flex items-center justify-center bg-background/55 backdrop-blur-[1px]"
+                          style={{ zIndex: Z_GANTT_BOARD_LOADING_OVERLAY }}
+                          aria-busy
+                          aria-live="polite"
+                        >
                           <GlowLoader className="w-10 h-10" />
                         </div>
                       ) : null}
@@ -3032,37 +3164,19 @@ export function TaskManagement({ embedded = false }: { embedded?: boolean }) {
                             getPriorityLabel={getPriorityLabel}
                             getStatusIcon={getStatusIcon}
                             getPriorityIcon={getPriorityIcon}
-                            getStatusToneClass={code => STATUS_FILTER_COLOR[code] ?? 'text-foreground'}
-                            getPriorityToneClass={code => PRIORITY_FILTER_COLOR[code] ?? 'text-foreground'}
+                            getStatusToneClass={ganttStatusToneClass}
+                            getPriorityToneClass={ganttPriorityToneClass}
                             onSelectTask={handleOpenTaskRow}
                             selectedTaskIds={selectedTaskIds}
                             onToggleTaskSelect={toggleBulkTaskSelection}
                             onUpdatePlanDates={handleUpdatePlanDates}
                             disableRowGrouping={!canManageTaskRowGrouping}
-                            workloadData={workloadData}
+                            workloadSegments={workloadSegments}
+                            workloadCapTruncated={workloadCapTruncated}
                             workloadLoading={workloadLoading}
-                            workloadMultiProject={workloadMultiProject}
                             onUpsertWorkloadOverride={handleUpsertWorkloadOverride}
                             taskLinks={ganttTaskLinks}
-                            labels={{
-                              week: t('taskManagement.ganttScaleWeek'),
-                              month: t('taskManagement.ganttScaleMonth'),
-                              monthly: t('taskManagement.ganttScaleMonthly'),
-                              unscheduled: t('taskManagement.ganttUnscheduled'),
-                              zoom: t('taskManagement.ganttZoom'),
-                              emptyScheduled: t('taskManagement.ganttEmptyScheduled'),
-                              fitRange: t('taskManagement.ganttFitRange'),
-                              goToToday: t('taskManagement.ganttGoToToday'),
-                              todayMark: t('taskManagement.ganttTodayTooltip'),
-                              groupRows: t('taskManagement.ganttGroupRows'),
-                              groupingFlat: t('taskManagement.ganttGroupingFlat'),
-                              groupingByAssignee: t('taskManagement.ganttGroupingByAssignee'),
-                              groupingByProject: t('taskManagement.ganttGroupingByProject'),
-                              resizeLabelColumn: t('taskManagement.ganttResizeLabelColumn'),
-                              gridBordersSwitch: t('taskManagement.ganttGridBordersSwitch'),
-                              gridBordersHelp: t('taskManagement.ganttGridBordersHelp'),
-                              milestoneLabel: t('taskManagement.ganttMilestoneLabel'),
-                            }}
+                            labels={taskGanttViewLabels}
                           />
                         )}
                         {taskView === 'calendar' && (
@@ -3151,13 +3265,13 @@ export function TaskManagement({ embedded = false }: { embedded?: boolean }) {
                           <TableRow>
                             <TableHead className="!text-[var(--table-header-fg)] w-9 min-w-9 px-1 text-center">
                               <Checkbox
-                                disabled={listLoading || tableTasks.length === 0}
-                                checked={tableTasks.length > 0 && tableTasks.every(t => selectedTaskIds.has(t.id))}
+                                disabled={listLoading || bulkSelectableTableTasks.length === 0}
+                                checked={bulkSelectableTableTasks.length > 0 && bulkSelectableTableTasks.every(t => selectedTaskIds.has(t.id))}
                                 onCheckedChange={v => {
                                   const on = v === true
                                   setSelectedTaskIds(prev => {
                                     const next = new Set(prev)
-                                    for (const t of tableTasks) {
+                                    for (const t of bulkSelectableTableTasks) {
                                       if (on) next.add(t.id)
                                       else next.delete(t.id)
                                     }
@@ -3281,10 +3395,15 @@ export function TaskManagement({ embedded = false }: { embedded?: boolean }) {
                                   onToggleFavorite={handleToggleFavorite}
                                   isFavorite={favoriteTaskIds.has(task.id)}
                                   visibleColumnIds={visibleColumnIds}
-                                  bulkSelect={{
-                                    checked: selectedTaskIds.has(task.id),
-                                    onToggle: () => toggleBulkTaskSelection(task.id),
-                                  }}
+                                  bulkSelect={
+                                    isTaskBulkSelectable(task)
+                                      ? {
+                                          checked: selectedTaskIds.has(task.id),
+                                          onToggle: () => toggleBulkTaskSelection(task.id),
+                                        }
+                                      : undefined
+                                  }
+                                  bulkSelectSpacer={!isTaskBulkSelectable(task)}
                                 />
                               ))}
                         </TableBody>

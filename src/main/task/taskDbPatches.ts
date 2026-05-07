@@ -493,7 +493,7 @@ export async function migrateTaskTypesAddMilestone(): Promise<void> {
   if (taskTypesMilestoneMigrationDone || !hasDbConfig()) return
   try {
     await query(
-      `INSERT INTO task_types (code, name, sort_order, color) VALUES ('milestone', 'Milestone', 5, '#f59e0b')
+      `INSERT INTO task_types (code, name, sort_order, color) VALUES ('milestone', 'Milestone', 5, '#e11d48')
        ON CONFLICT (code) DO NOTHING`
     )
   } catch (e) {
@@ -501,4 +501,27 @@ export async function migrateTaskTypesAddMilestone(): Promise<void> {
     return
   }
   taskTypesMilestoneMigrationDone = true
+}
+
+let tasksTicketIdNullableMigrationDone = false
+
+/** Cho phép ticket_id NULL (milestone không gen ticket). Idempotent. */
+export async function migrateTasksTicketIdNullable(): Promise<void> {
+  if (tasksTicketIdNullableMigrationDone || !hasDbConfig()) return
+  try {
+    const rows = await query<{ nullable: string }[]>(
+      `SELECT is_nullable AS nullable FROM information_schema.columns
+       WHERE table_schema = current_schema() AND table_name = 'tasks' AND column_name = 'ticket_id' LIMIT 1`
+    )
+    const col = rows?.[0]
+    if (col?.nullable === 'YES') {
+      tasksTicketIdNullableMigrationDone = true
+      return
+    }
+    await query('ALTER TABLE tasks ALTER COLUMN ticket_id DROP NOT NULL')
+  } catch (e) {
+    l.error('[db] migrateTasksTicketIdNullable failed', e)
+    return
+  }
+  tasksTicketIdNullableMigrationDone = true
 }

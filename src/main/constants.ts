@@ -288,6 +288,7 @@ export const IPC = {
     GET_MANAGEMENT_SCOPE_META: 'task:get-management-scope-meta',
     GET_TASK: 'task:get-task',
     CREATE: 'task:create',
+    CAN_CREATE_MILESTONE: 'task:can-create-milestone',
     UPDATE_STATUS: 'task:update-status',
     UPDATE_PROGRESS: 'task:update-progress',
     UPDATE_DATES: 'task:update-dates',

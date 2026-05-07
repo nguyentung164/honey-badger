@@ -107,6 +107,7 @@ makeAppWithSingleInstanceLock(async () => {
           migrateTaskWorkloadOverridesTable,
           migrateUserDailySnapshotsUniqueConstraint,
           migrateTaskTypesAddMilestone,
+          migrateTasksTicketIdNullable,
         } = await import('./task/taskDbPatches')
         await migratePrCheckpointGithubColumns().catch(() => {})
         await migratePrCheckpointTemplateHeaderGroup().catch(() => {})
@@ -119,6 +120,7 @@ makeAppWithSingleInstanceLock(async () => {
         await migrateTaskWorkloadOverridesTable().catch(() => {})
         await migrateUserDailySnapshotsUniqueConstraint().catch(() => {})
         await migrateTaskTypesAddMilestone().catch(() => {})
+        await migrateTasksTicketIdNullable().catch(() => {})
         const { startPrStatusSync } = await import('./scheduler/prStatusSync')
         startPrStatusSync()
       })()

@@ -148,7 +148,7 @@ CREATE TABLE IF NOT EXISTS tasks (
   priority VARCHAR(50) DEFAULT 'medium',
   type VARCHAR(50) DEFAULT 'bug',
   source VARCHAR(50) DEFAULT 'in_app',
-  ticket_id VARCHAR(100) NOT NULL,
+  ticket_id VARCHAR(100) NULL,
   plan_start_date TIMESTAMPTZ,
   plan_end_date TIMESTAMPTZ,
   actual_start_date TIMESTAMPTZ,

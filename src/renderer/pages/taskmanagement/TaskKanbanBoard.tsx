@@ -185,7 +185,7 @@ function SortableKanbanCard({
           </button>
         }
         badgeRowTrailingSlot={
-          onToggleSelect ? (
+          onToggleSelect && (task.type ?? 'bug') !== 'milestone' ? (
             <Checkbox
               checked={Boolean(selected)}
               onCheckedChange={() => onToggleSelect(task.id)}

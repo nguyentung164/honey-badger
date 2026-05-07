@@ -13,6 +13,7 @@ import {
   addTaskFavorite,
   assignTask,
   bulkUpdateTasksWithPatch,
+  canUserCreateMilestoneInProject,
   canUserCreateTasksInProject,
   canUserDeleteTask,
   canUserUpdateOrDeleteDoneTask,
@@ -476,6 +477,15 @@ export function registerTaskIpcHandlers() {
         if (!pid) return { status: 'error' as const, message: 'projectId là bắt buộc' }
         const okProject = await canUserCreateTasksInProject(session.userId, session.role, pid)
         if (!okProject) return { status: 'error' as const, code: 'FORBIDDEN' as const, message: 'Không có quyền tạo task trong project này' }
+        if ((input.type || 'bug') === 'milestone') {
+          const okMs = await canUserCreateMilestoneInProject(session.userId, session.role, pid)
+          if (!okMs)
+            return {
+              status: 'error' as const,
+              code: 'FORBIDDEN' as const,
+              message: 'Chỉ Admin hoặc PM/PL của dự án mới được tạo milestone',
+            }
+        }
         const task = await createTask({ ...input, createdBy: session.userId })
         if (task.assigneeUserId && task.title) {
           await persistAndSendTaskNotification(task.assigneeUserId, 'assign', 'Task mới được assign', `Bạn được assign task mới: "${task.title}"`, task.id, session.userId)
@@ -484,6 +494,23 @@ export function registerTaskIpcHandlers() {
         return { status: 'success' as const, data: task }
       } catch (error: any) {
         l.error('task:create error:', error)
+        return { status: 'error' as const, message: error?.message ?? String(error) }
+      }
+    })
+  )
+
+  ipcMain.handle(
+    IPC.TASK.CAN_CREATE_MILESTONE,
+    withAuthFromStore(async (_event, session, projectId: string) => {
+      try {
+        const pid = typeof projectId === 'string' ? projectId.trim() : ''
+        if (!pid) return { status: 'success' as const, data: { ok: false } }
+        const okProject = await canUserCreateTasksInProject(session.userId, session.role, pid)
+        if (!okProject) return { status: 'success' as const, data: { ok: false } }
+        const ok = await canUserCreateMilestoneInProject(session.userId, session.role, pid)
+        return { status: 'success' as const, data: { ok } }
+      } catch (error: any) {
+        l.error('task:can-create-milestone error:', error)
         return { status: 'error' as const, message: error?.message ?? String(error) }
       }
     })
@@ -599,6 +626,17 @@ export function registerTaskIpcHandlers() {
             ? await canUserUpdateOrDeleteDoneTask(session.userId, projectId, session.role === 'admin')
             : await canUserUpdateTask(session.userId, projectId, before.assigneeUserId ?? null, session.role === 'admin')
         if (!canUpdate) return { status: 'error' as const, code: 'FORBIDDEN', message: 'Không có quyền sửa task' }
+        const nextType = data.type !== undefined ? String(data.type) : String(before.type || 'bug')
+        const touchesMilestone = before.type === 'milestone' || nextType === 'milestone'
+        if (touchesMilestone) {
+          const okMs = await canUserCreateMilestoneInProject(session.userId, session.role, projectId)
+          if (!okMs)
+            return {
+              status: 'error' as const,
+              code: 'FORBIDDEN' as const,
+              message: 'Chỉ Admin hoặc PM/PL của dự án mới được thao tác milestone',
+            }
+        }
         if (typeof data.projectId === 'string' && data.projectId.trim() !== '' && data.projectId !== projectId) {
           const okTarget = await canUserCreateTasksInProject(session.userId, session.role, data.projectId)
           if (!okTarget) return { status: 'error' as const, code: 'FORBIDDEN', message: 'Không có quyền chuyển task sang project đích' }
@@ -688,6 +726,10 @@ export function registerTaskIpcHandlers() {
             }
             const projectId = task.projectId
             if (!projectId || typeof projectId !== 'string') {
+              skippedEarly.push(item.id)
+              continue
+            }
+            if ((task.type ?? 'bug') === 'milestone') {
               skippedEarly.push(item.id)
               continue
             }
@@ -821,6 +863,10 @@ export function registerTaskIpcHandlers() {
         const pid = src.projectId
         const okProj = pid ? await canUserCreateTasksInProject(session.userId, session.role, pid) : false
         if (!okProj) return { status: 'error' as const, code: 'FORBIDDEN' as const, message: 'Không có quyền tạo task trong project này' }
+        if (src.type === 'milestone') {
+          const okMs = await canUserCreateMilestoneInProject(session.userId, session.role, pid)
+          if (!okMs) return { status: 'error' as const, code: 'FORBIDDEN' as const, message: 'Chỉ Admin hoặc PM/PL của dự án mới được sao chép milestone' }
+        }
         const task = await copyTask(taskId, session.userId)
         if (task.assigneeUserId && task.title) {
           await persistAndSendTaskNotification(task.assigneeUserId, 'assign', 'Task mới được assign', `Bạn được assign task mới: "${task.title}"`, task.id, session.userId)
@@ -1248,6 +1294,9 @@ export function registerTaskIpcHandlers() {
         if (!ppid || typeof ppid !== 'string') return { status: 'error' as const, code: 'FORBIDDEN', message: 'Task không có project' }
         const okCreate = await canUserCreateTasksInProject(session.userId, session.role, ppid)
         if (!okCreate) return { status: 'error' as const, code: 'FORBIDDEN' as const, message: 'Không có quyền tạo sub-task trong project này' }
+        if ((input.type || 'bug') === 'milestone') {
+          return { status: 'error' as const, code: 'FORBIDDEN' as const, message: 'Milestone không thể là sub-task' }
+        }
         if (parentTask.status === 'done') {
           const canUpdateDone = await canUserUpdateOrDeleteDoneTask(session.userId, ppid, session.role === 'admin')
           if (!canUpdateDone) return { status: 'error' as const, code: 'FORBIDDEN', message: 'Không có quyền thêm sub-task vào task đã done' }

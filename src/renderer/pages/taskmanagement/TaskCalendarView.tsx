@@ -246,16 +246,19 @@ export function TaskCalendarView({
     return {
       event: (p: EventProps<CalEvent>) => {
         const ce = p.event
+        const ms = (ce.resource.type ?? 'bug') === 'milestone'
         return (
           <div className="flex min-h-[1.35em] min-w-0 items-start gap-1 overflow-hidden py-0.5">
-            <Checkbox
-              className="mt-0.5 h-4 w-4 shrink-0"
-              checked={selectedTaskIds?.has(ce.resource.id) ?? false}
-              onCheckedChange={() => onToggleTaskSelect(ce.resource.id)}
-              onMouseDown={e => e.stopPropagation()}
-              onClick={e => e.stopPropagation()}
-              aria-label={ce.resource.title ? `Bulk select: ${ce.resource.title}` : 'Bulk select'}
-            />
+            {!ms && onToggleTaskSelect ? (
+              <Checkbox
+                className="mt-0.5 h-4 w-4 shrink-0"
+                checked={selectedTaskIds?.has(ce.resource.id) ?? false}
+                onCheckedChange={() => onToggleTaskSelect(ce.resource.id)}
+                onMouseDown={e => e.stopPropagation()}
+                onClick={e => e.stopPropagation()}
+                aria-label={ce.resource.title ? `Bulk select: ${ce.resource.title}` : 'Bulk select'}
+              />
+            ) : null}
             <button
               type="button"
               className="min-w-0 flex-1 cursor-pointer truncate rounded-sm text-left text-xs leading-snug"
@@ -608,7 +611,7 @@ export function TaskCalendarView({
                 return (
                   <li key={t.id} className="flex items-center gap-1 rounded border border-border/80 px-1 py-0.5 min-w-0">
                     <div className="w-1 shrink-0 self-stretch rounded-sm min-h-[1.25rem]" style={{ backgroundColor: sh || 'hsl(var(--primary))' }} aria-hidden />
-                    {onToggleTaskSelect ? (
+                    {onToggleTaskSelect && (t.type ?? 'bug') !== 'milestone' ? (
                       <Checkbox
                         className="h-4 w-4 shrink-0"
                         checked={selectedTaskIds?.has(t.id) ?? false}
