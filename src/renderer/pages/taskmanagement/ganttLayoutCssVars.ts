@@ -20,8 +20,6 @@ export const HB_GANTT_NAME_W_VAR = '--hb-gantt-name-w'
 export const HB_GANTT_GRID_V_VAR = '--hb-gantt-grid-v'
 const NAME = HB_GANTT_NAME_W_VAR
 const META_EXTRA = '--hb-gantt-meta-extra'
-/** `flex` khi mở rail meta; `none` khi thu — tránh flex min-content + padding làm cột chỉ teo chứ không ẩn. */
-const META_DETAIL_DISPLAY = '--hb-gantt-meta-detail-display'
 const COL_NO = '--hb-gantt-col-no-w'
 const COL_CHK = '--hb-gantt-col-check-w'
 const COL_A = '--hb-gantt-col-assignee-w'
@@ -48,9 +46,8 @@ export function hbGanttRootStyle(
     [COL_S]: m ? `${GANTT_COL_STATUS_W}px` : '0px',
     [COL_P]: m ? `${GANTT_COL_PRIORITY_W}px` : '0px',
     [COL_PR]: m ? `${GANTT_COL_PROGRESS_W}px` : '0px',
-    [META_DETAIL_DISPLAY]: m ? 'flex' : 'none',
     [HB_GANTT_GRID_V_VAR]: gridTimelineVisible ? '1' : '0',
-  }
+  } as CSSProperties
 }
 
 /**
@@ -91,28 +88,49 @@ export const hbGantt = {
     overflow: 'hidden',
   } as CSSProperties,
   nameCol: { width: `var(${NAME})` } as CSSProperties,
+  /** Padding ngang scale theo độ rộng cột — khi thu rail về 0px không còn `px-*` cố định làm lộ nội dung. */
   colAssignee: {
-    display: `var(${META_DETAIL_DISPLAY}, flex)`,
+    display: 'flex',
+    boxSizing: 'border-box',
     width: `var(${COL_A})`,
+    maxWidth: `var(${COL_A})`,
     minWidth: 0,
+    flexShrink: 1,
     overflow: 'hidden',
+    paddingLeft: `min(0.375rem, calc(var(${COL_A}) * ${6 / GANTT_COL_ASSIGNEE_W}))`,
+    paddingRight: `min(0.375rem, calc(var(${COL_A}) * ${6 / GANTT_COL_ASSIGNEE_W}))`,
   } as CSSProperties,
   colStatus: {
-    display: `var(${META_DETAIL_DISPLAY}, flex)`,
+    display: 'flex',
+    boxSizing: 'border-box',
     width: `var(${COL_S})`,
+    maxWidth: `var(${COL_S})`,
     minWidth: 0,
+    flexShrink: 1,
     overflow: 'hidden',
+    paddingLeft: `min(0.375rem, calc(var(${COL_S}) * ${6 / GANTT_COL_STATUS_W}))`,
+    paddingRight: `min(0.375rem, calc(var(${COL_S}) * ${6 / GANTT_COL_STATUS_W}))`,
   } as CSSProperties,
   colPriority: {
-    display: `var(${META_DETAIL_DISPLAY}, flex)`,
+    display: 'flex',
+    boxSizing: 'border-box',
     width: `var(${COL_P})`,
+    maxWidth: `var(${COL_P})`,
     minWidth: 0,
+    flexShrink: 1,
     overflow: 'hidden',
+    paddingLeft: `min(0.375rem, calc(var(${COL_P}) * ${6 / GANTT_COL_PRIORITY_W}))`,
+    paddingRight: `min(0.375rem, calc(var(${COL_P}) * ${6 / GANTT_COL_PRIORITY_W}))`,
   } as CSSProperties,
   colProgress: {
-    display: `var(${META_DETAIL_DISPLAY}, flex)`,
+    display: 'flex',
+    boxSizing: 'border-box',
     width: `var(${COL_PR})`,
+    maxWidth: `var(${COL_PR})`,
     minWidth: 0,
+    flexShrink: 1,
     overflow: 'hidden',
+    paddingLeft: `min(0.375rem, calc(var(${COL_PR}) * ${6 / GANTT_COL_PROGRESS_W}))`,
+    paddingRight: `min(0.375rem, calc(var(${COL_PR}) * ${6 / GANTT_COL_PROGRESS_W}))`,
   } as CSSProperties,
 }

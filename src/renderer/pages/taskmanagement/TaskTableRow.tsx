@@ -204,6 +204,8 @@ function TaskTableRowComponent({
   const show = (col: string) => visibleColumnIds.includes(col)
   const displayStatus = task.status
   const displayProgress = task.progress
+  const progressPct = Math.min(100, Math.max(0, Math.round(Number(displayProgress) || 0)))
+  const progressBarColor = getProgressColor(progressPct / 100)
 
   return (
     <TableRow
@@ -316,10 +318,47 @@ function TaskTableRowComponent({
       )}
       {show('progress') && (
         <TableCell className="text-center min-w-[120px] w-[120px]">
-          <div className="flex items-center justify-center gap-2 w-full">
-            <Progress value={displayProgress} className="h-2 flex-1" indicatorStyle={{ backgroundColor: getProgressColor(displayProgress / 100) }} />
-            <span className="w-8 shrink-0">{displayProgress}%</span>
-          </div>
+          <Tooltip delayDuration={200}>
+            <TooltipTrigger asChild>
+              <div className="flex min-w-0 cursor-default items-center justify-center gap-2 w-full">
+                <Progress value={displayProgress} className="h-2 flex-1" indicatorStyle={{ backgroundColor: progressBarColor }} />
+                <span className="w-8 shrink-0 tabular-nums text-xs text-muted-foreground">{progressPct}%</span>
+              </div>
+            </TooltipTrigger>
+            <TooltipContent
+              side="top"
+              sideOffset={8}
+              className="max-w-[18rem] w-[min(18rem,calc(100vw-1.5rem))] border border-border/70 bg-popover p-0 text-popover-foreground shadow-lg"
+            >
+              <div className="relative overflow-hidden px-3.5 pb-3 pt-3">
+                <div className="pointer-events-none absolute inset-0 bg-gradient-to-br from-primary/[0.07] via-transparent to-transparent" aria-hidden />
+                <div className="relative flex items-start justify-between gap-3">
+                  <div className="min-w-0 flex-1 space-y-1">
+                    <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">{t('taskManagement.progress')}</p>
+                    <p className="line-clamp-2 text-left text-xs font-medium leading-snug text-foreground">{task.title}</p>
+                  </div>
+                  <div className="shrink-0 text-right">
+                    <span className="text-2xl font-bold tabular-nums leading-none tracking-tight" style={{ color: progressBarColor }}>
+                      {progressPct}
+                      <span className="text-base font-semibold">%</span>
+                    </span>
+                  </div>
+                </div>
+                <div className="relative mt-3 h-2 overflow-hidden rounded-full bg-primary/15 ring-1 ring-border/50">
+                  <div
+                    className="h-full rounded-full transition-[width] duration-300 ease-out"
+                    style={{ width: `${progressPct}%`, backgroundColor: progressBarColor }}
+                  />
+                </div>
+                <dl className="relative mt-3 grid grid-cols-[minmax(0,auto)_minmax(0,1fr)] gap-x-3 gap-y-2 text-[11px] leading-tight">
+                  <dt className="text-muted-foreground">{t('taskManagement.status')}</dt>
+                  <dd className="min-w-0 text-right font-medium text-foreground">{getStatusLabel(displayStatus)}</dd>
+                  <dt className="text-muted-foreground">{t('taskManagement.assignee')}</dt>
+                  <dd className="min-w-0 truncate text-right text-foreground">{getAssigneeDisplay(task.assigneeUserId)}</dd>
+                </dl>
+              </div>
+            </TooltipContent>
+          </Tooltip>
         </TableCell>
       )}
       {show('planStartDate') && (

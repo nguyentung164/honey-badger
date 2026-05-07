@@ -14,9 +14,15 @@ type GanttTimelineGridOverlayProps = {
   className?: string
 }
 
+/** Căn giữa stroke 1px theo lưới nửa-pixel — tránh anti-alias hai bên (trông dày ~2px / “mờ”). */
+function crispVerticalGridStrokeX(x: number): number {
+  return Math.round(x - 0.5) + 0.5
+}
+
 /**
- * Lưới dọc timeline — week/month: **một** lớp `mask + background` (không còn O(n) `div`).
- * monthly: SVG gọn (thường chỉ vài chục vạch).
+ * Lưới dọc timeline.
+ * - week / month: vạch tại `period, 2*period, …` (không vẽ tại 0 — tránh đôi vạch với mép cột meta).
+ * - monthly: vạch theo `verticalGridLineLeftPx` (lọc `left > 0` — bỏ trùng cột meta).
  */
 export const GanttTimelineGridOverlay = memo(function GanttTimelineGridOverlay({
   scale,
@@ -27,20 +33,35 @@ export const GanttTimelineGridOverlay = memo(function GanttTimelineGridOverlay({
 }: GanttTimelineGridOverlayProps) {
   if (scale === 'week' || scale === 'month') {
     const period = scale === 'week' ? Math.max(1, pixelPerDay) : Math.max(1, pixelPerDay * 7)
-    const mask = `repeating-linear-gradient(90deg, #000 0px, #000 1px, transparent 1px, transparent ${period}px)`
+    const stepLines: number[] = []
+    for (let x = period; x < chartWidth; x += period) {
+      stepLines.push(x)
+    }
     return (
-      <div
+      <svg
         aria-hidden
-        className={cn('pointer-events-none absolute inset-0 z-[1] bg-border/88 dark:bg-border/70', className)}
-        style={{
-          width: chartWidth,
-          minHeight: '100%',
-          WebkitMaskImage: mask,
-          maskImage: mask,
-        }}
-      />
+        className={cn('pointer-events-none absolute inset-0 z-[1] h-full w-full overflow-hidden text-border opacity-[0.88] dark:opacity-[0.72]', className)}
+        width={chartWidth}
+        height="100%"
+        preserveAspectRatio="none"
+      >
+        {stepLines.map(left => (
+          <line
+            key={left}
+            x1={crispVerticalGridStrokeX(left)}
+            y1={0}
+            x2={crispVerticalGridStrokeX(left)}
+            y2="100%"
+            stroke="currentColor"
+            strokeWidth={1}
+            vectorEffect="non-scaling-stroke"
+          />
+        ))}
+      </svg>
     )
   }
+
+  const monthlyLines = verticalGridLineLeftPx.filter(left => left > 0)
 
   return (
     <svg
@@ -50,12 +71,12 @@ export const GanttTimelineGridOverlay = memo(function GanttTimelineGridOverlay({
       height="100%"
       preserveAspectRatio="none"
     >
-      {verticalGridLineLeftPx.map(left => (
+      {monthlyLines.map(left => (
         <line
           key={left}
-          x1={left}
+          x1={crispVerticalGridStrokeX(left)}
           y1={0}
-          x2={left}
+          x2={crispVerticalGridStrokeX(left)}
           y2="100%"
           stroke="currentColor"
           strokeWidth={1}

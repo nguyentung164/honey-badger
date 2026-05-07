@@ -4,6 +4,7 @@ import { MANAGEMENT_BOARD_MAX_ROWS } from 'shared/constants'
 import { randomUuidV7 } from 'shared/randomUuidV7'
 import { query, withTransaction } from './db'
 import { collectRedmineCsvProjectRefsForAuthorization, createTasksFromCsv, createUsersFromCsv, parseCSVRows } from './importCsv'
+import { isBooleanColumn, toDbBoolValue } from './pgPrTrackingStore'
 import { getNextTicketId } from './ticketSequence'
 
 function throwVersionConflict(): never {
@@ -2060,7 +2061,9 @@ export async function deleteProject(id: string, version?: number): Promise<void>
 async function getMaster(kind: 'statuses' | 'priorities' | 'types' | 'sources', all = false): Promise<MasterItem[]> {
   const tables = { statuses: 'task_statuses', priorities: 'task_priorities', types: 'task_types', sources: 'task_sources' }
   const table = tables[kind]
-  const sql = all ? `SELECT * FROM ${table} ORDER BY sort_order, code` : `SELECT * FROM ${table} WHERE is_active = TRUE ORDER BY sort_order, code`
+  const sql = all
+    ? `SELECT * FROM ${table} ORDER BY sort_order, code`
+    : `SELECT * FROM ${table} WHERE (COALESCE(is_active::int, 0) <> 0) ORDER BY sort_order, code`
   const rows = await query<any[]>(sql)
   return (rows || []).map(r => ({
     code: r.code,
@@ -2091,7 +2094,9 @@ export interface TaskLinkTypeItem {
 }
 
 export async function getMasterTaskLinkTypesAll(): Promise<TaskLinkTypeItem[]> {
-  const rows = await query<any[]>('SELECT code, name, sort_order FROM task_link_types WHERE is_active = TRUE ORDER BY sort_order, code')
+  const rows = await query<any[]>(
+    'SELECT code, name, sort_order FROM task_link_types WHERE (COALESCE(is_active::int, 0) <> 0) ORDER BY sort_order, code'
+  )
   return (rows || []).map(r => ({
     code: r.code,
     name: r.name,
@@ -2149,8 +2154,9 @@ async function updateMaster(
     params.push(data.color)
   }
   if (data.is_active !== undefined) {
+    const useBool = await isBooleanColumn(table, 'is_active')
     updates.push('is_active = ?')
-    params.push(Boolean(data.is_active))
+    params.push(toDbBoolValue(Boolean(data.is_active), useBool))
   }
   if (updates.length === 0) {
     const rows = await query<any[]>(`SELECT * FROM ${table} WHERE code = ?`, [code])
@@ -2183,7 +2189,11 @@ async function deleteMaster(kind: 'statuses' | 'priorities' | 'types' | 'sources
   if (inUse?.length) {
     throw new Error(`Không thể xóa: có task đang sử dụng ${MASTER_LABELS[kind]} "${code}"`)
   }
-  const result = await query<{ affectedRows?: number }>(`UPDATE ${table} SET is_active = FALSE, version = version + 1 WHERE code = ?`, [code])
+  const inactiveVal = toDbBoolValue(false, await isBooleanColumn(table, 'is_active'))
+  const result = await query<{ affectedRows?: number }>(
+    `UPDATE ${table} SET is_active = ?, version = version + 1 WHERE code = ?`,
+    [inactiveVal, code]
+  )
   if (result?.affectedRows === 0) throw new Error('Master record not found')
 }
 

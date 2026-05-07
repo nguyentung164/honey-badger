@@ -1,35 +1,49 @@
 'use client'
 
-import type { TFunction } from 'i18next'
+import { useVirtualizer } from '@tanstack/react-virtual'
 import type { Locale } from 'date-fns'
 import { addDays, addMonths, differenceInCalendarDays, format, getDay, getISOWeek, startOfDay, startOfMonth } from 'date-fns'
 import { enUS } from 'date-fns/locale'
-import { Briefcase, ChevronDown, ChevronRight, ChevronsLeft, ChevronsRight, Layers, Users } from 'lucide-react'
-import type { ReactNode, RefObject } from 'react'
-import { memo, startTransition, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
-import { useVirtualizer } from '@tanstack/react-virtual'
+import type { TFunction } from 'i18next'
+import { Briefcase, ChevronDown, ChevronRight, ChevronsRight, Layers, Loader2, Users } from 'lucide-react'
+import type { DragEvent, ReactNode, RefObject } from 'react'
+import { Activity, lazy, memo, Suspense, startTransition, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, useTransition } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Button } from '@/components/ui/button'
 import { Checkbox } from '@/components/ui/checkbox'
 import { Label } from '@/components/ui/label'
+import { Separator } from '@/components/ui/separator'
 import { Switch } from '@/components/ui/switch'
 import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group'
+import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
+import { GlowLoader } from '@/components/ui-elements/GlowLoader'
 import { parseLocalDate, toYyyyMmDd } from '@/lib/dateUtils'
-import { cn } from '@/lib/utils'
-import {
-  GANTT_LEADING_FIXED_W,
-  GANTT_LEFT_META_FIXED_W,
-  HB_GANTT_GRID_V_VAR,
-  HB_GANTT_NAME_W_VAR,
-  hbGantt,
-  hbGanttRootStyle,
-} from './ganttLayoutCssVars'
+import { cn, getProgressColor } from '@/lib/utils'
 import { GanttTimelineGridOverlay } from './GanttTimelineGridOverlay'
-import { TaskGanttWorkload, type WorkloadBoardSegment, type WorkloadDisplayMode, type WorkloadOverrideUpsertInput } from './TaskGanttWorkload'
+import { GANTT_LEADING_FIXED_W, GANTT_LEFT_META_FIXED_W, HB_GANTT_GRID_V_VAR, HB_GANTT_NAME_W_VAR, hbGantt, hbGanttRootStyle } from './ganttLayoutCssVars'
+import { PLAN_UNSCHED_TASK_DRAG_MIME } from './planUnschedTaskDragMime'
+import type { WorkloadBoardSegment, WorkloadDisplayMode, WorkloadOverrideUpsertInput } from './TaskGanttWorkload'
+import { WorkloadMetaRailFloatingToggle } from './TaskGanttWorkload'
 import { isTaskBulkSelectable, type TaskTableRowTask } from './TaskTableRow'
+import {
+  bucketTasksByGroup,
+  loadTaskBoardRowGrouping,
+  loadUnschedCollapsedSegments,
+  saveTaskBoardRowGrouping,
+  saveUnschedCollapsedSegments,
+  type TaskBoardRowGrouping,
+} from './taskBoardGroupBuckets'
 import { taskStatusBarParentFillStyle, taskStatusBarStyle } from './taskStatusVisual'
 
+const TaskGanttWorkloadLazy = lazy(async () => {
+  const m = await import('./TaskGanttWorkload')
+  return { default: m.TaskGanttWorkload }
+})
+
 export type TaskGanttScale = 'week' | 'month' | 'monthly'
+
+/** Layout của board Gantt: chỉ timeline, chỉ workload, hoặc split (cả hai). */
+export type TaskGanttLayoutMode = 'gantt' | 'workload' | 'combine'
 
 export type GanttTaskLink = {
   id: string
@@ -44,6 +58,12 @@ export type TaskGanttViewLabels = {
   monthly: string
   unscheduled: string
   zoom: string
+  /** Toolbar — nhãn nhóm cho Timeline / Workload / Both (trước Zoom). */
+  layoutModeGroup?: string
+  /** Toolbar — chế độ bố cục (trước Zoom). */
+  layoutTimeline: string
+  layoutWorkload: string
+  layoutBoth: string
   emptyScheduled: string
   fitRange: string
   goToToday: string
@@ -71,7 +91,6 @@ export type TaskGanttViewLabels = {
   actualBarHintOntime?: string
 }
 
-const LS_GANTT_ROWS = 'honey_badger.taskGantt.rowGroup.v1'
 const LS_GANTT_LABEL_W = 'honey_badger.taskGantt.labelWidth.v1'
 const LS_GANTT_GRID_BORDERS = 'honey_badger.taskGantt.gridBorders.v1'
 const LS_GANTT_ACTUAL_BARS = 'honey_badger.taskGantt.showActualBars.v1'
@@ -80,6 +99,7 @@ const LS_GANTT_EXPANDED_PARENTS = 'honey_badger.taskGantt.expandedParents.v1'
 const LS_GANTT_COLLAPSED_GROUP_SEGMENTS = 'honey_badger.taskGantt.collapsedGroupSegments.v1'
 const LS_GANTT_META_RAIL_EXPANDED = 'honey_badger.taskGantt.metaRailExpanded.v1'
 const LS_GANTT_WORKLOAD_SPLIT = 'honey_badger.taskGantt.workloadSplitShare.v1'
+const LS_GANTT_LAYOUT_MODE = 'honey_badger.taskGantt.layoutMode.v1'
 /** Phần chiều cao dành cho khối Gantt khi Workload hiển thị (0–1). */
 const DEFAULT_GANTT_WORKLOAD_SPLIT = 0.7
 const MIN_GANTT_WORKLOAD_SPLIT = 0.22
@@ -95,9 +115,48 @@ const _GANTT_DEP_BELOW_PAD = 10
 /** Group segment header height in px — matches min-h-[28px] on segment title rows. */
 const GROUP_HEADER_H = 28
 
+function ganttProgressClamped(progress: number | undefined): number {
+  return Math.min(100, Math.max(0, Number(progress ?? 0)))
+}
+
 function ganttProgressPercentDisplay(progress: number | undefined): string {
-  const n = Math.round(Math.min(100, Math.max(0, Number(progress ?? 0))))
-  return `${n}%`
+  return `${Math.round(ganttProgressClamped(progress))}%`
+}
+
+/** Vòng gauge tiến độ (cung theo %) — màu cung dùng `getProgressColor` giống slider trong AddOrEditTaskDialog. */
+function GanttProgressGauge({ progress }: { progress: number | undefined }) {
+  const clamped = ganttProgressClamped(progress)
+  const pct = Math.round(clamped)
+  const ratio = clamped / 100
+  const arcColor = getProgressColor(ratio)
+  const size = 14
+  const stroke = 2
+  const r = (size - stroke) / 2
+  const cx = size / 2
+  const cy = size / 2
+  const circumference = 2 * Math.PI * r
+  const dashOffset = circumference - ratio * circumference
+
+  return (
+    <span className="inline-flex min-w-0 items-center justify-start gap-1">
+      <svg width={size} height={size} viewBox={`0 0 ${size} ${size}`} className="shrink-0" aria-hidden>
+        <circle cx={cx} cy={cy} r={r} fill="none" className="stroke-muted-foreground/30" strokeWidth={stroke} />
+        <circle
+          cx={cx}
+          cy={cy}
+          r={r}
+          fill="none"
+          stroke={arcColor}
+          strokeWidth={stroke}
+          strokeLinecap="round"
+          strokeDasharray={circumference}
+          strokeDashoffset={dashOffset}
+          transform={`rotate(-90 ${cx} ${cy})`}
+        />
+      </svg>
+      <span className="truncate text-xs text-muted-foreground">{pct}%</span>
+    </span>
+  )
 }
 
 /** Viền dọc giữa các cột meta — cùng token với Workload (`border-border/50`). */
@@ -122,27 +181,15 @@ const Z_GANTT_BODY_ROWS = 5
  */
 const Z_GANTT_BODY_DEPENDENCIES = 3
 /** Đường Today trên chart — giữ trên hàng để dễ nhìn trên bar rỗng. */
-const Z_GANTT_BODY_TODAY = 10
+const Z_GANTT_BODY_TODAY = 5
 
 /** Lớp nổi trong panel Gantt: trên sticky (≤48), dưới Popover/DatePicker (`z-50`). Dùng cho overlay loading (`TaskManagement`) và nút đóng/mở cột meta. */
 export const Z_GANTT_BOARD_LOADING_OVERLAY = Z_GANTT_STICKY_TOP_HEADER + 1
 
-type GanttRowGrouping = 'flat' | 'assignee' | 'project'
+type GanttRowGrouping = TaskBoardRowGrouping
 
 /** full: một hàng meta+chart (workload mini). meta|chart: chỉ một nửa — dùng trong layout 2 cột để overlay timeline không đè sticky meta. */
 export type GanttRowSegment = 'full' | 'meta' | 'chart'
-
-function loadGanttRowGrouping(): GanttRowGrouping {
-  try {
-    const raw = localStorage.getItem(LS_GANTT_ROWS)
-    if (!raw) return 'flat'
-    const v = JSON.parse(raw) as string
-    if (v === 'flat' || v === 'assignee' || v === 'project') return v
-  } catch {
-    /* ignore */
-  }
-  return 'flat'
-}
 
 /** px / ngày — giảm dần = zoom xa (xem phạm vi dài hơn). */
 function ganttPixelPerDay(scale: TaskGanttScale): number {
@@ -155,14 +202,6 @@ function ganttPixelPerDay(scale: TaskGanttScale): number {
       return 8
     default:
       return 40
-  }
-}
-
-function saveGanttRowGrouping(mode: GanttRowGrouping) {
-  try {
-    localStorage.setItem(LS_GANTT_ROWS, JSON.stringify(mode))
-  } catch {
-    /* ignore */
   }
 }
 
@@ -303,49 +342,32 @@ function saveGanttWorkloadSplitShare(v: number) {
   }
 }
 
+function loadTaskGanttLayoutMode(): TaskGanttLayoutMode {
+  try {
+    const raw = localStorage.getItem(LS_GANTT_LAYOUT_MODE)
+    if (!raw) return 'combine'
+    const v = JSON.parse(raw) as string
+    if (v === 'gantt' || v === 'workload' || v === 'combine') return v
+  } catch {
+    /* ignore */
+  }
+  return 'combine'
+}
+
+function saveTaskGanttLayoutMode(mode: TaskGanttLayoutMode) {
+  try {
+    localStorage.setItem(LS_GANTT_LAYOUT_MODE, JSON.stringify(mode))
+  } catch {
+    /* ignore */
+  }
+}
+
 function bucketGanttScheduled(
   scheduled: TaskTableRowTask[],
   mode: GanttRowGrouping,
   getAssigneeDisplay?: (id: string | null) => string
 ): { segmentKey: string; title: string; tasks: TaskTableRowTask[] }[] {
-  if (mode === 'flat') {
-    return [{ segmentKey: 'flat', title: '', tasks: scheduled }]
-  }
-
-  const m = new Map<string, { title: string; tasks: TaskTableRowTask[] }>()
-  for (const t of scheduled) {
-    let key = ''
-    let title = ''
-    if (mode === 'assignee') {
-      const uid = (t.assigneeUserId || '').trim()
-      key = uid !== '' ? uid : '_none'
-      title = uid !== '' ? (getAssigneeDisplay?.(uid) ?? uid) : '(—)'
-    } else {
-      const pid = (t.projectId || '').trim()
-      key = pid !== '' ? pid : '_none'
-      title = ((t.project && String(t.project).trim()) || (pid !== '' ? pid : null)) ?? '(—)'
-    }
-    const ex = m.get(key)
-    if (ex) ex.tasks.push(t)
-    else m.set(key, { title, tasks: [t] })
-  }
-
-  const entries = [...m.entries()].sort(([ka, a], [kb, b]) => {
-    const na = ka === '_none' ? 1 : 0
-    const nb = kb === '_none' ? 1 : 0
-    if (na !== nb) return na - nb
-    return (a.title || '').localeCompare(b.title || '', undefined, { sensitivity: 'base' })
-  })
-
-  return entries.map(([segmentKey, g], i) => ({
-    segmentKey: `${segmentKey}_${i}`,
-    title: g.title,
-    tasks: [...g.tasks].sort((a, b) => {
-      const pa = parsePlanDate(a.planStartDate)?.getTime() ?? 0
-      const pb = parsePlanDate(b.planStartDate)?.getTime() ?? 0
-      return pa - pb
-    }),
-  }))
+  return bucketTasksByGroup(scheduled, mode, getAssigneeDisplay, 'planStart')
 }
 
 const HEADER_H = 40
@@ -449,6 +471,22 @@ function ganttActualBarStripSurfaceClass(tone: GanttActualBarTone): string {
 
 function calendarSpanInclusive(a: Date, b: Date): number {
   return Math.max(1, differenceInCalendarDays(startOfDay(b), startOfDay(a)) + 1)
+}
+
+function ganttChartDayIndexFromClientX(
+  clientX: number,
+  scrollEl: HTMLDivElement,
+  leftBlockWidth: number,
+  pixelPerDay: number,
+  chartWidth: number,
+  totalDays: number
+): number | null {
+  const rect = scrollEl.getBoundingClientRect()
+  const xInContent = clientX - rect.left + scrollEl.scrollLeft
+  const xChart = xInContent - leftBlockWidth
+  if (xChart < 0 || xChart > chartWidth) return null
+  const idx = Math.floor(xChart / pixelPerDay)
+  return Math.max(0, Math.min(totalDays - 1, idx))
 }
 
 /**
@@ -561,16 +599,16 @@ function isTaskScheduledForGantt(t: TaskTableRowTask): boolean {
 export type GanttVirtualFlatRow =
   | { kind: 'groupHeader'; key: string; segmentKey: string; title: string; groupBodyVisible: boolean }
   | {
-      kind: 'dataRow'
-      key: string
-      task: TaskTableRowTask
-      indentLevel: number
-      hasChildren: boolean
-      isExpanded: boolean
-      subtaskNoPlanHint: string
-      /** `null`: milestone (không đánh số) hoặc sub-task khi parent không có No. */
-      displayNo: string | null
-    }
+    kind: 'dataRow'
+    key: string
+    task: TaskTableRowTask
+    indentLevel: number
+    hasChildren: boolean
+    isExpanded: boolean
+    subtaskNoPlanHint: string
+    /** `null`: milestone (không đánh số) hoặc sub-task khi parent không có No. */
+    displayNo: string | null
+  }
 
 function buildGanttVirtualFlatRows(
   groupTrees: {
@@ -643,6 +681,8 @@ function buildGanttVirtualFlatRows(
 }
 
 export type GanttVirtualSliceStableCtx = {
+  /** Khớp header: khi thu rail meta, ô Task title là ô cuối — không `border-r` trùng mép timeline. */
+  metaRailExpanded: boolean
   chartWidth: number
   start: Date
   pixelPerDay: number
@@ -669,10 +709,7 @@ export type GanttVirtualSliceStableCtx = {
 /** Viền dưới hàng Gantt: `showGridBorders === undefined` → theo `data-gantt-grid` trên sheet (group). */
 function ganttRowSheetBorderClasses(showGridBorders: boolean | undefined, rowSelected: boolean) {
   if (showGridBorders === true) {
-    return cn(
-      'border-b border-b-border/60',
-      rowSelected ? 'bg-primary/[0.09] dark:bg-primary/12' : 'bg-transparent'
-    )
+    return cn('border-b border-b-border/60', rowSelected ? 'bg-primary/[0.09] dark:bg-primary/12' : 'bg-transparent')
   }
   if (showGridBorders === false) {
     return !rowSelected ? cn('border-b border-b-border/[0.12]', 'bg-transparent') : undefined
@@ -730,10 +767,7 @@ function renderGanttVirtualRowSlice(
     )
     const chart = (
       <div
-        className={cn(
-          'h-full w-full shrink-0 border-b border-border/25 bg-muted',
-          'group-data-[gantt-grid=on]/ganttGridShell:border-b-border/60'
-        )}
+        className={cn('h-full w-full shrink-0 border-b border-border/25 bg-muted', 'group-data-[gantt-grid=on]/ganttGridShell:border-b-border/60')}
         style={{ width: stable.chartWidth }}
         aria-hidden
       />
@@ -743,6 +777,7 @@ function renderGanttVirtualRowSlice(
 
   const displayNo = flatRow.displayNo
   const taskProps = {
+    metaRailExpanded: stable.metaRailExpanded,
     task: flatRow.task,
     start: stable.start,
     pixelPerDay: stable.pixelPerDay,
@@ -776,6 +811,7 @@ function renderGanttVirtualRowSlice(
 
   if (!isTaskScheduledForGantt(flatRow.task)) {
     const unschedBase = {
+      metaRailExpanded: stable.metaRailExpanded,
       task: flatRow.task,
       chartWidth: stable.chartWidth,
       selectedTaskIds: stable.selectedTaskIds,
@@ -838,26 +874,13 @@ function renderGanttVirtualRowSlice(
   }
 
   return {
-    meta: (
-      <GanttTaskRow
-        {...taskProps}
-        onUpdatePlanDates={stable.onUpdatePlanDates}
-        rowSegment="meta"
-      />
-    ),
-    chart: (
-      <GanttTaskRow
-        {...taskProps}
-        onUpdatePlanDates={stable.onUpdatePlanDates}
-        rowSegment="chart"
-      />
-    ),
+    meta: <GanttTaskRow {...taskProps} onUpdatePlanDates={stable.onUpdatePlanDates} rowSegment="meta" />,
+    chart: <GanttTaskRow {...taskProps} onUpdatePlanDates={stable.onUpdatePlanDates} rowSegment="chart" />,
   }
 }
 
 /** Band cuối tuần + lưới + today + SVG dependency — tách khỏi `TaskGanttView` để cuộn dọc không re-render (virtualizer nằm trong con). */
 type GanttBodyChartLayersProps = {
-  leftBlockWidth: number
   chartWidth: number
   totalBodyPx: number
   scale: TaskGanttScale
@@ -871,7 +894,6 @@ type GanttBodyChartLayersProps = {
 }
 
 const GanttBodyChartLayers = memo(function GanttBodyChartLayers({
-  leftBlockWidth,
   chartWidth,
   totalBodyPx,
   scale,
@@ -885,11 +907,17 @@ const GanttBodyChartLayers = memo(function GanttBodyChartLayers({
 }: GanttBodyChartLayersProps) {
   return (
     <>
+      {/* `sticky left-0` — không dùng absolute: cuộn ngang sheet thì vạch frozen không trôi theo nội dung */}
       <div
         aria-hidden
-        className="pointer-events-none absolute top-0 z-0 overflow-hidden"
-        style={{ left: leftBlockWidth, width: chartWidth, top: 0, bottom: 0 }}
-      >
+        className="pointer-events-none sticky left-0 top-0 z-[2] shrink-0 flex-1 isolate transform-gpu border-r border-border/50 bg-background"
+        style={{
+          ...hbGantt.leftBlock,
+          minHeight: totalBodyPx,
+          alignSelf: 'flex-start',
+        }}
+      />
+      <div aria-hidden className="pointer-events-none absolute top-0 z-0 overflow-hidden" style={{ ...hbGantt.chartAreaFromMetaRail(chartWidth), top: 0, bottom: 0 }}>
         {weekendColumnRects.map((r, i) => (
           <div
             key={`gantt-chart-col-wk-${r.left}-${i}`}
@@ -902,47 +930,24 @@ const GanttBodyChartLayers = memo(function GanttBodyChartLayers({
         aria-hidden
         className="pointer-events-none absolute top-0 z-[1] overflow-hidden"
         style={{
-          left: leftBlockWidth,
-          width: chartWidth,
+          ...hbGantt.chartAreaFromMetaRail(chartWidth),
           top: 0,
           bottom: 0,
           opacity: `var(${HB_GANTT_GRID_V_VAR}, 0)`,
         }}
       >
-        <GanttTimelineGridOverlay
-          scale={scale}
-          pixelPerDay={pixelPerDay}
-          chartWidth={chartWidth}
-          verticalGridLineLeftPx={verticalGridLineLeftPx}
-        />
+        <GanttTimelineGridOverlay scale={scale} pixelPerDay={pixelPerDay} chartWidth={chartWidth} verticalGridLineLeftPx={verticalGridLineLeftPx} />
       </div>
       {arrowPaths.length > 0 ? (
         <div
           className="pointer-events-none absolute top-0 overflow-hidden"
-          style={{ left: leftBlockWidth, width: chartWidth, height: totalBodyPx, zIndex: Z_GANTT_BODY_DEPENDENCIES }}
+          style={{ ...hbGantt.chartAreaFromMetaRail(chartWidth), height: totalBodyPx, zIndex: Z_GANTT_BODY_DEPENDENCIES }}
           aria-hidden
         >
-          <svg
-            className="pointer-events-none absolute inset-0 h-full w-full overflow-hidden text-primary/70 dark:text-primary/80"
-            aria-hidden
-          >
+          <svg className="pointer-events-none absolute inset-0 h-full w-full overflow-hidden text-primary/70 dark:text-primary/80" aria-hidden>
             <defs>
-              <marker
-                id="gantt-dep-arrow"
-                markerWidth="6"
-                markerHeight="6"
-                refX="5.2"
-                refY="3"
-                orient="auto-start-reverse"
-                markerUnits="userSpaceOnUse"
-              >
-                <path
-                  d="M 0.35,0.35 L 5.65,3 L 0.35,5.65 z"
-                  fill="currentColor"
-                  stroke="currentColor"
-                  strokeWidth={0.35}
-                  strokeLinejoin="round"
-                />
+              <marker id="gantt-dep-arrow" markerWidth="6" markerHeight="6" refX="5.2" refY="3" orient="auto-start-reverse" markerUnits="userSpaceOnUse">
+                <path d="M 0.35,0.35 L 5.65,3 L 0.35,5.65 z" fill="currentColor" stroke="currentColor" strokeWidth={0.35} strokeLinejoin="round" />
               </marker>
             </defs>
             {arrowPaths.map(p => (
@@ -965,11 +970,11 @@ const GanttBodyChartLayers = memo(function GanttBodyChartLayers({
       {showTodayLine ? (
         <div
           className="pointer-events-none absolute top-0 overflow-hidden"
-          style={{ left: leftBlockWidth, width: chartWidth, height: totalBodyPx, zIndex: Z_GANTT_BODY_TODAY }}
+          style={{ ...hbGantt.chartAreaFromMetaRail(chartWidth), height: totalBodyPx, zIndex: Z_GANTT_BODY_TODAY }}
           aria-hidden
         >
           <div className="absolute inset-y-0 left-0 overflow-hidden" style={{ width: chartWidth }}>
-            <div className="absolute top-0 bottom-0 w-px bg-rose-600/95" style={{ left: todayPxCenter }} title={todayMark} />
+            <div className="absolute top-0 bottom-0 w-[2px] -translate-x-1/2 bg-rose-600/65" style={{ left: todayPxCenter }} title={todayMark} />
           </div>
         </div>
       ) : null}
@@ -988,15 +993,11 @@ type GanttVirtualRowsPaneProps = {
   sliceStable: GanttVirtualSliceStableCtx
   rowActualChrome: GanttVirtualRowActualChrome
   chartWidth: number
+  /** Đổi khi mode layout board đổi — đo lại viewport scroll thay vì remount + `setState` ở parent. */
+  virtualMeasureEpoch: TaskGanttLayoutMode
 }
 
-const GanttVirtualRowsPane = memo(function GanttVirtualRowsPane({
-  scrollRef,
-  flatRows,
-  sliceStable,
-  rowActualChrome,
-  chartWidth,
-}: GanttVirtualRowsPaneProps) {
+const GanttVirtualRowsPane = memo(function GanttVirtualRowsPane({ scrollRef, flatRows, sliceStable, rowActualChrome, chartWidth, virtualMeasureEpoch }: GanttVirtualRowsPaneProps) {
   const virtualizer = useVirtualizer({
     count: flatRows.length,
     getScrollElement: () => scrollRef.current,
@@ -1004,6 +1005,11 @@ const GanttVirtualRowsPane = memo(function GanttVirtualRowsPane({
     overscan: 5,
     getItemKey: index => flatRows[index]?.key ?? `idx:${index}`,
   })
+
+  useLayoutEffect(() => {
+    const v = virtualizer as { measure?: () => void }
+    v.measure?.()
+  }, [virtualMeasureEpoch])
 
   return (
     <>
@@ -1076,6 +1082,7 @@ export function TaskGanttView({
   labels,
   selectedTaskIds,
   onToggleTaskSelect,
+  onApplyBulkTaskSelection,
   statusColorMap,
   onUpdatePlanDates,
   getAssigneeDisplay,
@@ -1102,6 +1109,8 @@ export function TaskGanttView({
   labels: TaskGanttViewLabels
   selectedTaskIds?: Set<string>
   onToggleTaskSelect?: (taskId: string) => void
+  /** Chọn/bỏ chọn hàng loạt theo danh sách id (vd. header “chọn tất cả” trên Gantt). */
+  onApplyBulkTaskSelection?: (taskIds: string[], selected: boolean) => void
   statusColorMap?: Record<string, string>
   onUpdatePlanDates?: (taskId: string, planStartDate: string, planEndDate: string, version?: number) => Promise<boolean>
   getAssigneeDisplay?: (assigneeUserId: string | null) => string
@@ -1127,7 +1136,7 @@ export function TaskGanttView({
   const { t } = useTranslation()
   const [scale, setScale] = useState<TaskGanttScale>('week')
   const [tightWindow, setTightWindow] = useState(false)
-  const [rowGrouping, setRowGrouping] = useState<GanttRowGrouping>(() => loadGanttRowGrouping())
+  const [rowGrouping, setRowGrouping] = useState<GanttRowGrouping>(() => loadTaskBoardRowGrouping())
   const [labelColumnWidth, setLabelColumnWidth] = useState(() => loadGanttLabelWidth())
   const [showGridBorders, setShowGridBorders] = useState(() => loadGanttGridBorders())
   const [showActualBars, setShowActualBars] = useState(() => loadGanttShowActualBars())
@@ -1136,18 +1145,15 @@ export function TaskGanttView({
   const [metaRailExpanded, setMetaRailExpanded] = useState(() => loadMetaRailExpanded())
   const [ganttWorkloadSplitShare, setGanttWorkloadSplitShare] = useState(() => loadGanttWorkloadSplitShare())
   const [ganttWorkloadSplitShellH, setGanttWorkloadSplitShellH] = useState(0)
+  const [layoutMode, setLayoutMode] = useState<TaskGanttLayoutMode>(() => loadTaskGanttLayoutMode())
+  /** Transition — React doc: cập nhật subtree nặng không chặn input (toolbar); không giảm tổng thời gian layout. */
+  const [layoutModeTransitionPending, startLayoutModeTransition] = useTransition()
   const pixelPerDay = ganttPixelPerDay(scale)
 
   const taskNameColumnWidth = labelColumnWidth
-  const leftBlockWidth = useMemo(
-    () => GANTT_LEADING_FIXED_W + taskNameColumnWidth + (metaRailExpanded ? GANTT_LEFT_META_FIXED_W : 0),
-    [taskNameColumnWidth, metaRailExpanded]
-  )
+  const leftBlockWidth = useMemo(() => GANTT_LEADING_FIXED_W + taskNameColumnWidth + (metaRailExpanded ? GANTT_LEFT_META_FIXED_W : 0), [taskNameColumnWidth, metaRailExpanded])
 
-  const ganttLayoutRootStyle = useMemo(
-    () => hbGanttRootStyle(labelColumnWidth, metaRailExpanded, showGridBorders),
-    [labelColumnWidth, metaRailExpanded, showGridBorders]
-  )
+  const ganttLayoutRootStyle = useMemo(() => hbGanttRootStyle(labelColumnWidth, metaRailExpanded, showGridBorders), [labelColumnWidth, metaRailExpanded, showGridBorders])
 
   const toggleMetaRail = useCallback(() => {
     setMetaRailExpanded(prev => {
@@ -1191,6 +1197,18 @@ export function TaskGanttView({
     })
   }, [])
 
+  const [collapsedUnschedGroupSegmentKeys, setCollapsedUnschedGroupSegmentKeys] = useState<Set<string>>(() => loadUnschedCollapsedSegments())
+
+  const toggleUnschedGroupCollapsed = useCallback((segmentKey: string) => {
+    setCollapsedUnschedGroupSegmentKeys(prev => {
+      const next = new Set(prev)
+      if (next.has(segmentKey)) next.delete(segmentKey)
+      else next.add(segmentKey)
+      saveUnschedCollapsedSegments(next)
+      return next
+    })
+  }, [])
+
   const labelResizeDragRef = useRef<{ pointerId: number; startX: number; startW: number } | null>(null)
   const ganttLayoutRootRef = useRef<HTMLDivElement>(null)
 
@@ -1198,8 +1216,12 @@ export function TaskGanttView({
 
   useEffect(() => {
     if (disableRowGrouping) return
-    saveGanttRowGrouping(rowGrouping)
+    saveTaskBoardRowGrouping(rowGrouping)
   }, [disableRowGrouping, rowGrouping])
+
+  useEffect(() => {
+    saveTaskGanttLayoutMode(layoutMode)
+  }, [layoutMode])
 
   /** Body Gantt: cuộn dọc + ngang; strip timeline translate theo scroll (không dùng overflow-x thứ hai). */
   const ganttScrollRef = useRef<HTMLDivElement>(null)
@@ -1301,6 +1323,10 @@ export function TaskGanttView({
     return { scheduled: sched, unscheduled: unsched }
   }, [tasks])
 
+  const unscheduledBulkSelectableIds = useMemo(() => unscheduled.filter(isTaskBulkSelectable).map(t => t.id), [unscheduled])
+
+  const unscheduledGroups = useMemo(() => bucketTasksByGroup(unscheduled, groupingEffective, getAssigneeDisplay, 'title'), [unscheduled, groupingEffective, getAssigneeDisplay])
+
   const scheduledGroups = useMemo(() => bucketGanttScheduled(scheduled, groupingEffective, getAssigneeDisplay), [scheduled, groupingEffective, getAssigneeDisplay])
 
   /** Con của mỗi task — từ toàn bộ board `tasks`, lọc theo segment khi nhóm hàng. */
@@ -1379,6 +1405,60 @@ export function TaskGanttView({
   const todayDayIndex = differenceInCalendarDays(startOfDay(new Date()), start)
   const todayPxCenter = todayDayIndex * pixelPerDay + pixelPerDay / 2
 
+  const onGanttUnschedDragOverCapture = useCallback(
+    (e: DragEvent) => {
+      if (!onUpdatePlanDates) return
+      const types = e.dataTransfer.types
+      if (![...types].includes(PLAN_UNSCHED_TASK_DRAG_MIME)) return
+      const scrollEl = ganttScrollRef.current
+      if (!scrollEl) return
+      const dayIdx = ganttChartDayIndexFromClientX(e.clientX, scrollEl, leftBlockWidth, pixelPerDay, chartWidth, totalDays)
+      if (dayIdx === null) return
+      e.preventDefault()
+      e.stopPropagation()
+      e.dataTransfer.dropEffect = 'copy'
+    },
+    [chartWidth, leftBlockWidth, onUpdatePlanDates, pixelPerDay, totalDays]
+  )
+
+  const onGanttUnschedDropCapture = useCallback(
+    (e: DragEvent) => {
+      if (!onUpdatePlanDates) return
+      let taskId = e.dataTransfer.getData(PLAN_UNSCHED_TASK_DRAG_MIME)
+      if (!taskId) taskId = e.dataTransfer.getData('text/plain')
+      taskId = taskId.trim()
+      if (!taskId) return
+      const scrollEl = ganttScrollRef.current
+      if (!scrollEl) return
+      const dayIdx = ganttChartDayIndexFromClientX(e.clientX, scrollEl, leftBlockWidth, pixelPerDay, chartWidth, totalDays)
+      if (dayIdx === null) return
+      const task = taskById.get(taskId)
+      if (!task) return
+      const s0 = parsePlanDate(task.planStartDate)
+      const e0 = parsePlanDate(task.planEndDate)
+      const isMilestone = task.type === 'milestone'
+      if (s0 && e0) return
+      if (isMilestone && s0) return
+      e.preventDefault()
+      e.stopPropagation()
+      const dropDay = startOfDay(addDays(start, dayIdx))
+      const ps = toYyyyMmDd(dropDay)
+      if (!ps) return
+      const pe = ps
+      void onUpdatePlanDates(task.id, ps, pe, task.version)
+    },
+    [chartWidth, leftBlockWidth, onUpdatePlanDates, pixelPerDay, start, taskById, totalDays]
+  )
+
+  const workloadDataAvailable = workloadLoading === true || workloadSegments.length > 0
+  const layoutModeEffective: TaskGanttLayoutMode = !workloadDataAvailable ? 'gantt' : layoutMode
+  const showCombineSplit = layoutModeEffective === 'combine' && workloadDataAvailable
+  const showGanttMain = layoutModeEffective !== 'workload'
+  const showWorkloadBlock = layoutModeEffective !== 'gantt' && workloadDataAvailable
+  /** Bảng workload có segment thật: header cố định ngoài overflow-y (không sticky dọc → hết lệch subpixel Chrome). */
+  const workloadSplitScroll = Boolean(workloadDataAvailable && workloadSegments.length > 0)
+  const toolbarLayoutValue: TaskGanttLayoutMode = workloadDataAvailable ? layoutMode : 'gantt'
+
   const tickMarks = useMemo(() => {
     const raw: { d: Date; left: number; line1: string; line2?: string }[] = []
     const uiLang = ganttUiLang(language)
@@ -1440,6 +1520,14 @@ export function TaskGanttView({
     () => buildGanttVirtualFlatRows(groupTrees, collapsedGroupSegmentKeys, expandedParentIds, t('taskManagement.ganttSubtaskNoPlanDates')),
     [groupTrees, collapsedGroupSegmentKeys, expandedParentIds, t]
   )
+
+  const ganttScheduledBulkSelectableIds = useMemo(() => {
+    const ids: string[] = []
+    for (const row of ganttVirtualFlatRows) {
+      if (row.kind === 'dataRow' && isTaskBulkSelectable(row.task)) ids.push(row.task.id)
+    }
+    return ids
+  }, [ganttVirtualFlatRows])
 
   /**
    * Map từ taskId → top pixel offset tính từ đầu chart body (không kể HEADER_H).
@@ -1628,7 +1716,7 @@ export function TaskGanttView({
   /** Cuộn ngang trên body Gantt / workload; strip timeline header dịch bằng transform (không mirror scrollLeft). */
   const scrollToChartPixel = useCallback(
     (pixelInTimeline: number) => {
-      const el = ganttScrollRef.current
+      const el = showGanttMain ? ganttScrollRef.current : workloadScrollRef.current
       if (!el) return
       const target = Math.max(0, leftBlockWidth + pixelInTimeline - Math.max(80, el.clientWidth / 3))
       const startLeft = el.scrollLeft
@@ -1643,7 +1731,7 @@ export function TaskGanttView({
 
       el.scrollTo({ left: target, top: el.scrollTop, behavior: 'auto' })
     },
-    [leftBlockWidth, flashTimelineChrome]
+    [leftBlockWidth, flashTimelineChrome, showGanttMain]
   )
 
   scrollToChartPixelRef.current = scrollToChartPixel
@@ -1656,7 +1744,7 @@ export function TaskGanttView({
     if (wh && wh.style.transform !== tx) wh.style.transform = tx
   }, [])
 
-  const syncHorizontalScrollFromRef = useRef<(source: 'ganttBody' | 'workloadBody') => void>(() => {})
+  const syncHorizontalScrollFromRef = useRef<(source: 'ganttBody' | 'workloadBody') => void>(() => { })
 
   const syncHorizontalScrollFrom = useCallback(
     (source: 'ganttBody' | 'workloadBody') => {
@@ -1712,9 +1800,6 @@ export function TaskGanttView({
   }, [])
 
   const showTodayLine = todayPxCenter >= 0 && todayPxCenter <= chartWidth
-  const showWorkload = workloadLoading === true || workloadSegments.length > 0
-  /** Bảng workload có data: header cố định ngoài overflow-y (không sticky dọc → hết lệch subpixel Chrome). */
-  const workloadSplitScroll = Boolean(showWorkload && workloadSegments.length > 0)
 
   const workloadScheduledRefs = useMemo(
     () =>
@@ -1729,8 +1814,8 @@ export function TaskGanttView({
   )
 
   useEffect(() => {
-    const g = ganttScrollRef.current
-    const w = workloadScrollRef.current
+    const g = showGanttMain ? ganttScrollRef.current : null
+    const w = showWorkloadBlock ? workloadScrollRef.current : null
     const opts: AddEventListenerOptions = { passive: true }
     const onGantt = () => {
       const el = ganttScrollRef.current
@@ -1754,7 +1839,7 @@ export function TaskGanttView({
       g?.removeEventListener('scroll', onGantt)
       w?.removeEventListener('scroll', onWorkload)
     }
-  }, [showWorkload, workloadSplitScroll, scheduled.length])
+  }, [showGanttMain, showWorkloadBlock, workloadSplitScroll, scheduled.length])
 
   const renderMiniGanttForUserInvoker = useCallback((userId: string, projectId: string | null) => {
     const fn = renderMiniGanttForUserRef.current
@@ -1770,7 +1855,6 @@ export function TaskGanttView({
       totalDays,
       pixelPerDay,
       chartWidth,
-      leftBlockWidthPx: leftBlockWidth,
       weekendColumnRects,
       verticalGridLeftPx: verticalGridLineLeftPx,
       showGridBorders,
@@ -1792,7 +1876,6 @@ export function TaskGanttView({
       totalDays,
       pixelPerDay,
       chartWidth,
-      leftBlockWidth,
       weekendColumnRects,
       verticalGridLineLeftPx,
       showGridBorders,
@@ -1806,6 +1889,45 @@ export function TaskGanttView({
       getUserAvatarUrl,
       groupingEffective,
     ]
+  )
+
+  const workloadSuspenseFallback = (
+    <div className="flex min-h-[140px] flex-1 items-center justify-center bg-background/30">
+      <GlowLoader className="h-8 w-8" />
+    </div>
+  )
+
+  const renderWorkloadBoardPane = () => (
+    <Suspense fallback={workloadSuspenseFallback}>
+      <div className="relative flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
+        {workloadSplitScroll ? (
+          <>
+            <div className="min-w-0 shrink-0 overflow-x-hidden bg-background/30">
+              <TaskGanttWorkloadLazy
+                {...workloadSharedProps}
+                segment="header"
+                displayMode={workloadDisplayMode}
+                onDisplayModeChange={setWorkloadDisplayMode}
+                headerTimelineTrackRef={workloadHeaderTimelineRef}
+              />
+            </div>
+            <div ref={workloadScrollRef} className="flex min-h-0 flex-1 flex-col overflow-y-auto overflow-x-auto [overflow-anchor:none] [scrollbar-gutter:stable]">
+              {/* flex-1 fills scrollport when content is short; % min-height is unreliable inside overflow:auto */}
+              <div className="relative flex min-h-0 w-full flex-1 flex-col min-w-0 bg-background/30" style={hbGantt.sheet(chartWidth)}>
+                <TaskGanttWorkloadLazy {...workloadSharedProps} segment="body" displayMode={workloadDisplayMode} onDisplayModeChange={setWorkloadDisplayMode} />
+              </div>
+            </div>
+          </>
+        ) : (
+          <div ref={workloadScrollRef} className="flex min-h-0 flex-1 flex-col overflow-auto [overflow-anchor:none] [scrollbar-gutter:stable]">
+            <div className="relative flex min-h-0 w-full flex-1 flex-col min-w-0 bg-background/30" style={hbGantt.sheet(chartWidth)}>
+              <TaskGanttWorkloadLazy {...workloadSharedProps} segment="full" />
+            </div>
+          </div>
+        )}
+        <WorkloadMetaRailFloatingToggle expanded={metaRailExpanded} onToggle={toggleMetaRail} />
+      </div>
+    </Suspense>
   )
 
   ganttWorkloadSplitShareRef.current = ganttWorkloadSplitShare
@@ -1846,7 +1968,7 @@ export function TaskGanttView({
   }, [applyGanttWorkloadPaneDragVisual])
 
   useLayoutEffect(() => {
-    if (!showWorkload) {
+    if (!showCombineSplit) {
       setGanttWorkloadSplitShellH(0)
       return
     }
@@ -1862,10 +1984,10 @@ export function TaskGanttView({
       setGanttWorkloadSplitShellH(el.getBoundingClientRect().height)
     }
     return () => ro.disconnect()
-  }, [showWorkload])
+  }, [showCombineSplit])
 
   useEffect(() => {
-    if (!showWorkload) {
+    if (!showCombineSplit) {
       if (ganttSplitDragRafRef.current != null) {
         cancelAnimationFrame(ganttSplitDragRafRef.current)
         ganttSplitDragRafRef.current = null
@@ -1877,11 +1999,11 @@ export function TaskGanttView({
       ganttSplitShellLayoutCacheRef.current = null
       ganttWorkloadSplitDragRef.current = null
     }
-  }, [showWorkload])
+  }, [showCombineSplit])
 
   const onGanttWorkloadSplitPointerDown = useCallback(
     (e: React.PointerEvent<HTMLButtonElement>) => {
-      if (!showWorkload) return
+      if (!showCombineSplit) return
       e.preventDefault()
       const shell = ganttWorkloadSplitRef.current
       if (!shell) return
@@ -1902,7 +2024,7 @@ export function TaskGanttView({
       applyGanttWorkloadPaneDragVisual(ganttWorkloadSplitShareRef.current)
       e.currentTarget.setPointerCapture(e.pointerId)
     },
-    [showWorkload, applyGanttWorkloadPaneDragVisual]
+    [showCombineSplit, applyGanttWorkloadPaneDragVisual]
   )
 
   const onGanttWorkloadSplitPointerMove = useCallback(
@@ -1952,29 +2074,41 @@ export function TaskGanttView({
   }, [])
 
   useLayoutEffect(() => {
-    if (!showWorkload) return
+    if (!showCombineSplit) {
+      const pane = ganttWorkloadPaneRef.current
+      if (pane) {
+        pane.style.removeProperty('height')
+        pane.style.removeProperty('max-height')
+      }
+      return
+    }
     if (ganttWorkloadSplitDraggingRef.current) return
     commitGanttWorkloadPaneLayoutDom(ganttChartIdealHeightPx, ganttWorkloadSplitShellH, ganttWorkloadSplitShare)
-  }, [showWorkload, ganttChartIdealHeightPx, ganttWorkloadSplitShellH, ganttWorkloadSplitShare, commitGanttWorkloadPaneLayoutDom])
+  }, [showCombineSplit, ganttChartIdealHeightPx, ganttWorkloadSplitShellH, ganttWorkloadSplitShare, commitGanttWorkloadPaneLayoutDom])
 
   /** Căn workload body + transform timeline header khi đổi độ rộng / mount. */
   useLayoutEffect(() => {
     const g = ganttScrollRef.current
-    if (!g) return
-    const sl = g.scrollLeft
     const w = workloadScrollRef.current
+    const anchor = showGanttMain ? g : w
+    if (!anchor) return
+    const sl = anchor.scrollLeft
     syncingHScrollRef.current = true
     try {
-      if (showWorkload && w && Math.abs(w.scrollLeft - sl) >= 0.5) w.scrollLeft = sl
+      if (showCombineSplit) {
+        if (g && Math.abs(g.scrollLeft - sl) >= 0.5) g.scrollLeft = sl
+        if (w && Math.abs(w.scrollLeft - sl) >= 0.5) w.scrollLeft = sl
+      }
       applyTimelineTransforms(sl)
       lastCommittedHScrollRef.current = sl
     } finally {
       syncingHScrollRef.current = false
     }
-  }, [showWorkload, workloadSplitScroll, chartWidth, leftBlockWidth, scheduled.length, applyTimelineTransforms])
+  }, [showCombineSplit, showGanttMain, workloadSplitScroll, chartWidth, leftBlockWidth, scheduled.length, applyTimelineTransforms])
 
   const ganttVirtualSliceStable = useMemo(
     (): GanttVirtualSliceStableCtx => ({
+      metaRailExpanded,
       chartWidth,
       start,
       pixelPerDay,
@@ -1998,6 +2132,7 @@ export function TaskGanttView({
       t,
     }),
     [
+      metaRailExpanded,
       chartWidth,
       start,
       pixelPerDay,
@@ -2093,6 +2228,7 @@ export function TaskGanttView({
           getPriorityIcon={getPriorityIcon}
           getStatusToneClass={getStatusToneClass}
           getPriorityToneClass={getPriorityToneClass}
+          metaRailExpanded={metaRailExpanded}
           showGridBorders={wg.showGridBorders}
           showActualBars={wg.showActualBars}
           locale={locale}
@@ -2129,6 +2265,7 @@ export function TaskGanttView({
       getStatusToneClass,
       getPriorityToneClass,
       locale,
+      metaRailExpanded,
     ]
   )
 
@@ -2137,7 +2274,10 @@ export function TaskGanttView({
   const renderGanttPanelBody = (): React.ReactNode => {
     if (scheduled.length === 0) {
       return (
-        <div ref={ganttScrollRef} className={cn('min-h-0 flex-1 [overflow-anchor:none]', showWorkload ? 'overflow-y-auto overflow-x-scroll [&::-webkit-scrollbar]:h-0' : 'overflow-auto')}>
+        <div
+          ref={ganttScrollRef}
+          className={cn('min-h-0 flex-1 [overflow-anchor:none]', showCombineSplit ? 'overflow-y-auto overflow-x-scroll [&::-webkit-scrollbar]:h-0' : 'overflow-auto')}
+        >
           <div className="p-4 text-muted-foreground text-sm">{labels.emptyScheduled}</div>
         </div>
       )
@@ -2150,25 +2290,42 @@ export function TaskGanttView({
             className="flex shrink-0 flex-row items-stretch border-r border-border/50 bg-muted transform-gpu"
             style={{ ...hbGantt.leftBlock, zIndex: Z_GANTT_STICKY_TOP_HEADER }}
           >
-            <div
-              className={cn('flex shrink-0 items-center justify-center bg-background px-0.5', GANTT_META_COL_DIVIDER)}
-              style={hbGantt.colNo}
-            >
+            <div className={cn('flex shrink-0 items-center justify-center bg-background px-0.5', GANTT_META_COL_DIVIDER)} style={hbGantt.colNo}>
               <span className="max-w-full truncate text-[9px] font-semibold uppercase tracking-wide text-muted-foreground">{t('taskManagement.ganttColumnNo')}</span>
             </div>
-            <div
-              className={cn('flex shrink-0 items-center justify-center bg-background px-0.5', GANTT_META_COL_DIVIDER)}
-              style={hbGantt.colCheckbox}
-            >
-              <span className="sr-only">{t('taskManagement.ganttColumnBulkSelect')}</span>
+            <div className={cn('flex shrink-0 items-center justify-center bg-background px-0.5', GANTT_META_COL_DIVIDER)} style={hbGantt.colCheckbox}>
+              {onToggleTaskSelect && onApplyBulkTaskSelection ? (
+                <Checkbox
+                  className="h-4 w-4 shrink-0"
+                  disabled={ganttScheduledBulkSelectableIds.length === 0}
+                  checked={
+                    ganttScheduledBulkSelectableIds.length === 0
+                      ? false
+                      : ganttScheduledBulkSelectableIds.every(id => selectedTaskIds?.has(id))
+                        ? true
+                        : ganttScheduledBulkSelectableIds.some(id => selectedTaskIds?.has(id))
+                          ? 'indeterminate'
+                          : false
+                  }
+                  onCheckedChange={v => {
+                    onApplyBulkTaskSelection(ganttScheduledBulkSelectableIds, v === true)
+                  }}
+                  aria-label={t('taskManagement.ganttBulkSelectAll')}
+                />
+              ) : (
+                <span className="sr-only">{t('taskManagement.ganttColumnBulkSelect')}</span>
+              )}
             </div>
-            <div className={cn('relative flex shrink-0 items-center justify-center bg-background px-1', GANTT_META_COL_DIVIDER)} style={hbGantt.nameCol}>
+            <div
+              className={cn('relative flex shrink-0 items-center justify-center bg-background px-1 border-r-1', metaRailExpanded && GANTT_META_COL_DIVIDER)}
+              style={hbGantt.nameCol}
+            >
               <span className="max-w-full truncate text-[9px] font-semibold uppercase tracking-wide text-muted-foreground">{t('taskManagement.taskTitle')}</span>
               <button
                 type="button"
                 tabIndex={-1}
-                aria-label={labels.resizeLabelColumn ?? 'Resize label column'}
-                title={labels.resizeLabelColumn ?? 'Resize label column'}
+                aria-label={labels.resizeLabelColumn ?? t('taskManagement.ganttResizeLabelColumn')}
+                title={labels.resizeLabelColumn ?? t('taskManagement.ganttResizeLabelColumn')}
                 className="absolute inset-y-0 right-0 z-[2] w-2 cursor-col-resize touch-none border-0 bg-transparent p-0 hover:bg-primary/15 active:bg-primary/25"
                 onPointerDown={onLabelResizePointerDown}
                 onPointerMove={onLabelResizePointerMove}
@@ -2176,16 +2333,16 @@ export function TaskGanttView({
                 onPointerCancel={onLabelResizePointerEnd}
               />
             </div>
-            <div className={cn('flex shrink-0 items-center justify-center bg-background px-1', GANTT_META_COL_DIVIDER)} style={hbGantt.colAssignee}>
+            <div className={cn('flex min-w-0 shrink items-center justify-center bg-background', metaRailExpanded && GANTT_META_COL_DIVIDER)} style={hbGantt.colAssignee}>
               <span className="max-w-full truncate text-[9px] font-semibold uppercase tracking-wide text-muted-foreground">{t('taskManagement.assignee')}</span>
             </div>
-            <div className={cn('flex shrink-0 items-center justify-center bg-background px-1', GANTT_META_COL_DIVIDER)} style={hbGantt.colStatus}>
+            <div className={cn('flex min-w-0 shrink items-center justify-center bg-background', metaRailExpanded && GANTT_META_COL_DIVIDER)} style={hbGantt.colStatus}>
               <span className="max-w-full truncate text-[9px] font-semibold uppercase tracking-wide text-muted-foreground">{t('taskManagement.status')}</span>
             </div>
-            <div className={cn('flex shrink-0 items-center justify-center bg-background px-1', GANTT_META_COL_DIVIDER)} style={hbGantt.colPriority}>
+            <div className={cn('flex min-w-0 shrink items-center justify-center bg-background', metaRailExpanded && GANTT_META_COL_DIVIDER)} style={hbGantt.colPriority}>
               <span className="max-w-full truncate text-[9px] font-semibold uppercase tracking-wide text-muted-foreground">{t('taskManagement.priority')}</span>
             </div>
-            <div className={cn('flex shrink-0 items-center justify-center bg-background px-1', GANTT_META_COL_DIVIDER)} style={hbGantt.colProgress}>
+            <div className="flex min-w-0 shrink items-center justify-start bg-background" style={hbGantt.colProgress}>
               <span className="max-w-full truncate text-[9px] font-semibold uppercase tracking-wide text-muted-foreground">{t('taskManagement.progress')}</span>
             </div>
           </div>
@@ -2200,17 +2357,8 @@ export function TaskGanttView({
                   <div key={`hdr-wk-${r.left}-${i}`} className="absolute top-0 bottom-0 bg-slate-500/[0.11] dark:bg-slate-400/[0.05]" style={{ left: r.left, width: r.width }} />
                 ))}
               </div>
-              <div
-                aria-hidden
-                className="pointer-events-none absolute inset-0 z-[1] overflow-hidden"
-                style={{ opacity: `var(${HB_GANTT_GRID_V_VAR}, 0)` }}
-              >
-                <GanttTimelineGridOverlay
-                  scale={scale}
-                  pixelPerDay={pixelPerDay}
-                  chartWidth={chartWidth}
-                  verticalGridLineLeftPx={verticalGridLineLeftPx}
-                />
+              <div aria-hidden className="pointer-events-none absolute inset-0 z-[1] overflow-hidden" style={{ opacity: `var(${HB_GANTT_GRID_V_VAR}, 0)` }}>
+                <GanttTimelineGridOverlay scale={scale} pixelPerDay={pixelPerDay} chartWidth={chartWidth} verticalGridLineLeftPx={verticalGridLineLeftPx} />
               </div>
               {tickMarks.map(mark => (
                 <div
@@ -2231,19 +2379,20 @@ export function TaskGanttView({
           ref={ganttScrollRef}
           className={cn(
             'flex min-h-0 flex-1 flex-col [overflow-anchor:none]',
-            showWorkload ? 'overflow-y-auto overflow-x-scroll [&::-webkit-scrollbar]:h-0' : 'overflow-y-auto overflow-x-auto'
+            showCombineSplit ? 'overflow-y-auto overflow-x-scroll [&::-webkit-scrollbar]:h-0' : 'overflow-y-auto overflow-x-auto'
           )}
         >
           <div
-            className={cn('relative min-h-0 w-max min-w-max grow shrink-0 bg-background/30', 'group/ganttGridShell')}
+            className={cn('relative flex min-h-0 min-w-max w-max flex-1 flex-col bg-background/30', 'group/ganttGridShell')}
             data-gantt-grid={showGridBorders ? 'on' : 'off'}
+            onDragOverCapture={onGanttUnschedDragOverCapture}
+            onDropCapture={onGanttUnschedDropCapture}
             style={{
               ...hbGantt.sheet(chartWidth),
               minHeight: totalBodyPx,
             }}
           >
             <GanttBodyChartLayers
-              leftBlockWidth={leftBlockWidth}
               chartWidth={chartWidth}
               totalBodyPx={totalBodyPx}
               scale={scale}
@@ -2261,6 +2410,7 @@ export function TaskGanttView({
               sliceStable={ganttVirtualSliceStable}
               rowActualChrome={ganttRowActualChrome}
               chartWidth={chartWidth}
+              virtualMeasureEpoch={layoutModeEffective}
             />
           </div>
         </div>
@@ -2270,7 +2420,9 @@ export function TaskGanttView({
             className={cn(
               'pointer-events-auto absolute flex h-7 w-5 items-center justify-center',
               'rounded-r-md border border-border/80 border-l-0 bg-background/95 shadow-sm',
-              'text-muted-foreground transition-colors hover:bg-muted hover:text-foreground',
+              'text-muted-foreground transition-[background-color,box-shadow] duration-200 ease-out',
+              'hover:bg-muted hover:text-foreground',
+              'motion-safe:active:scale-[0.97] motion-reduce:active:scale-100',
               'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/50'
             )}
             style={{
@@ -2287,7 +2439,13 @@ export function TaskGanttView({
             aria-label={metaRailExpanded ? t('taskManagement.ganttMetaRailCollapse') : t('taskManagement.ganttMetaRailExpand')}
             title={metaRailExpanded ? t('taskManagement.ganttMetaRailCollapse') : t('taskManagement.ganttMetaRailExpand')}
           >
-            {metaRailExpanded ? <ChevronsLeft className="h-4 w-4" aria-hidden /> : <ChevronsRight className="h-4 w-4" aria-hidden />}
+            <ChevronsRight
+              className={cn(
+                'h-4 w-4 motion-safe:transition-transform motion-safe:duration-200 motion-safe:ease-out motion-reduce:transition-none',
+                metaRailExpanded && 'rotate-180'
+              )}
+              aria-hidden
+            />
           </button>
         ) : null}
       </div>
@@ -2298,49 +2456,88 @@ export function TaskGanttView({
     <div className="flex min-h-0 min-w-0 flex-1 flex-col gap-3">
       <div className="min-w-0 w-full shrink-0 overflow-x-auto pb-px [-ms-overflow-style:auto] [scrollbar-gutter:stable]">
         <div className="flex min-w-full w-full flex-nowrap items-start gap-2 sm:items-center">
-          <div className="flex min-w-0 flex-1 flex-wrap items-center gap-2">
-            <span className="text-muted-foreground text-xs">{labels.zoom}</span>
-            <ToggleGroup type="single" value={scale} onValueChange={v => v && setScale(v as TaskGanttScale)} variant="outline" size="sm">
-              <ToggleGroupItem value="week" aria-label="week scale">
-                {labels.week}
-              </ToggleGroupItem>
-              <ToggleGroupItem value="month" aria-label="month scale">
-                {labels.month}
-              </ToggleGroupItem>
-              <ToggleGroupItem value="monthly" aria-label="monthly scale">
-                {labels.monthly}
-              </ToggleGroupItem>
-            </ToggleGroup>
-            {!disableRowGrouping && (labels.groupRows || labels.groupingFlat || labels.groupingByAssignee || labels.groupingByProject) && (
-              <>
-                <span className="mx-1 hidden text-muted-foreground sm:inline text-xs">{labels.groupRows ?? ''}</span>
+          <div className="flex min-w-0 flex-1 flex-wrap items-center gap-x-2 gap-y-2">
+            <div className="flex min-w-0 shrink-0 flex-wrap items-center gap-2">
+              {labels.layoutModeGroup ? <span className="text-muted-foreground text-xs whitespace-nowrap">{labels.layoutModeGroup}</span> : null}
+              <div className="flex shrink-0 items-center gap-1.5">
                 <ToggleGroup
                   type="single"
-                  value={rowGrouping}
-                  onValueChange={v => v && setRowGrouping(v as GanttRowGrouping)}
+                  value={toolbarLayoutValue}
+                  onValueChange={v => {
+                    if (!v) return
+                    startLayoutModeTransition(() => setLayoutMode(v as TaskGanttLayoutMode))
+                  }}
                   variant="outline"
                   size="sm"
-                  className="justify-start gap-px"
+                  disabled={layoutModeTransitionPending}
+                  className={cn('justify-start gap-px shrink-0', layoutModeTransitionPending && 'motion-safe:opacity-85')}
+                  aria-label={labels.layoutModeGroup}
                 >
-                  <ToggleGroupItem value="flat" className="h-8 px-2" title={labels.groupingFlat} aria-label={labels.groupingFlat}>
-                    <Layers className="h-3.5 w-3.5" />
-                    <span className="hidden sm:inline">{labels.groupingFlat}</span>
+                  <ToggleGroupItem value="gantt" className="h-8 px-2" title={labels.layoutTimeline} aria-label={labels.layoutTimeline}>
+                    {labels.layoutTimeline}
                   </ToggleGroupItem>
-                  <ToggleGroupItem value="assignee" className="h-8 px-2" title={labels.groupingByAssignee} aria-label={labels.groupingByAssignee}>
-                    <Users className="h-3.5 w-3.5" />
-                    <span className="hidden sm:inline">{labels.groupingByAssignee}</span>
+                  <ToggleGroupItem value="workload" className="h-8 px-2" disabled={!workloadDataAvailable} title={labels.layoutWorkload} aria-label={labels.layoutWorkload}>
+                    {labels.layoutWorkload}
                   </ToggleGroupItem>
-                  <ToggleGroupItem value="project" className="h-8 px-2" title={labels.groupingByProject} aria-label={labels.groupingByProject}>
-                    <Briefcase className="h-3.5 w-3.5" />
-                    <span className="hidden sm:inline">{labels.groupingByProject}</span>
+                  <ToggleGroupItem value="combine" className="h-8 px-2" disabled={!workloadDataAvailable} title={labels.layoutBoth} aria-label={labels.layoutBoth}>
+                    {labels.layoutBoth}
                   </ToggleGroupItem>
                 </ToggleGroup>
+                {layoutModeTransitionPending ? <Loader2 className="h-3.5 w-3.5 shrink-0 animate-spin text-muted-foreground motion-reduce:animate-none" aria-hidden /> : null}
+              </div>
+            </div>
+
+            <Separator orientation="vertical" className="hidden h-7 shrink-0 self-center sm:block" />
+
+            <div className="flex shrink-0 flex-wrap items-center gap-2">
+              <span className="text-muted-foreground text-xs whitespace-nowrap">{labels.zoom}</span>
+              <ToggleGroup type="single" value={scale} onValueChange={v => v && setScale(v as TaskGanttScale)} variant="outline" size="sm">
+                <ToggleGroupItem value="week" aria-label={labels.week}>
+                  {labels.week}
+                </ToggleGroupItem>
+                <ToggleGroupItem value="month" aria-label={labels.month}>
+                  {labels.month}
+                </ToggleGroupItem>
+                <ToggleGroupItem value="monthly" aria-label={labels.monthly}>
+                  {labels.monthly}
+                </ToggleGroupItem>
+              </ToggleGroup>
+            </div>
+
+            {!disableRowGrouping && (labels.groupRows || labels.groupingFlat || labels.groupingByAssignee || labels.groupingByProject) ? (
+              <>
+                <Separator orientation="vertical" className="hidden h-7 shrink-0 self-center sm:block" />
+                <div className="flex min-w-0 shrink-0 flex-wrap items-center gap-2">
+                  {labels.groupRows ? <span className="hidden text-muted-foreground text-xs whitespace-nowrap sm:inline">{labels.groupRows}</span> : null}
+                  <ToggleGroup
+                    type="single"
+                    value={rowGrouping}
+                    onValueChange={v => v && setRowGrouping(v as GanttRowGrouping)}
+                    variant="outline"
+                    size="sm"
+                    className="justify-start gap-px"
+                  >
+                    <ToggleGroupItem value="flat" className="h-8 px-2" title={labels.groupingFlat} aria-label={labels.groupingFlat}>
+                      <Layers className="h-3.5 w-3.5" />
+                      <span className="hidden sm:inline">{labels.groupingFlat}</span>
+                    </ToggleGroupItem>
+                    <ToggleGroupItem value="assignee" className="h-8 px-2" title={labels.groupingByAssignee} aria-label={labels.groupingByAssignee}>
+                      <Users className="h-3.5 w-3.5" />
+                      <span className="hidden sm:inline">{labels.groupingByAssignee}</span>
+                    </ToggleGroupItem>
+                    <ToggleGroupItem value="project" className="h-8 px-2" title={labels.groupingByProject} aria-label={labels.groupingByProject}>
+                      <Briefcase className="h-3.5 w-3.5" />
+                      <span className="hidden sm:inline">{labels.groupingByProject}</span>
+                    </ToggleGroupItem>
+                  </ToggleGroup>
+                </div>
               </>
-            )}
+            ) : null}
           </div>
+          <Separator orientation="vertical" className="hidden h-7 shrink-0 self-center sm:block" />
           <div className="flex shrink-0 flex-wrap items-center justify-end gap-x-2 gap-y-2 sm:gap-x-3">
-            {(labels.gridBordersSwitch || labels.gridBordersHelp) && (
-              <div className="flex items-center gap-2 border-border/60 sm:border-l sm:pl-3">
+            {labels.gridBordersSwitch || labels.gridBordersHelp ? (
+              <div className="flex items-center gap-2">
                 {labels.gridBordersSwitch ? (
                   <Label htmlFor="task-gantt-grid-borders" className="cursor-pointer whitespace-nowrap text-xs text-muted-foreground" title={labels.gridBordersHelp}>
                     {labels.gridBordersSwitch}
@@ -2356,9 +2553,12 @@ export function TaskGanttView({
                   aria-label={labels.gridBordersHelp ?? labels.gridBordersSwitch}
                 />
               </div>
-            )}
-            {(labels.actualBarsSwitch || labels.actualBarsHelp) && (
-              <div className="flex items-center gap-2 border-border/60 sm:border-l sm:pl-3">
+            ) : null}
+            {(labels.gridBordersSwitch || labels.gridBordersHelp) && (labels.actualBarsSwitch || labels.actualBarsHelp) ? (
+              <Separator orientation="vertical" className="hidden h-7 shrink-0 self-center sm:block" />
+            ) : null}
+            {labels.actualBarsSwitch || labels.actualBarsHelp ? (
+              <div className="flex items-center gap-2">
                 {labels.actualBarsSwitch ? (
                   <Label htmlFor="task-gantt-actual-bars" className="cursor-pointer whitespace-nowrap text-xs text-muted-foreground" title={labels.actualBarsHelp}>
                     {labels.actualBarsSwitch}
@@ -2374,7 +2574,10 @@ export function TaskGanttView({
                   aria-label={labels.actualBarsHelp ?? labels.actualBarsSwitch}
                 />
               </div>
-            )}
+            ) : null}
+            {labels.gridBordersSwitch || labels.gridBordersHelp || labels.actualBarsSwitch || labels.actualBarsHelp ? (
+              <Separator orientation="vertical" className="hidden h-7 shrink-0 self-center sm:block" />
+            ) : null}
             <Button
               type="button"
               variant="outline"
@@ -2405,91 +2608,178 @@ export function TaskGanttView({
 
       <div
         ref={ganttLayoutRootRef}
+        data-gantt-layout-root
         className={cn(
           'flex min-h-0 min-w-0 flex-1 flex-col rounded-md border border-border/70 bg-muted/10',
-          'transition-[box-shadow,background-color] duration-300 ease-out motion-reduce:transition-none',
-          timelineChromeFlash && 'bg-primary/[0.07] shadow-[inset_0_0_0_2px_hsl(var(--primary)/0.22)] motion-reduce:bg-muted/10 motion-reduce:shadow-none'
+          timelineChromeFlash && 'bg-primary/[0.07] shadow-[inset_0_0_0_2px_hsl(var(--primary)/0.22)] motion-reduce:bg-muted/10 motion-reduce:shadow-none',
+          layoutModeTransitionPending && 'motion-safe:opacity-[0.98]'
         )}
         style={ganttLayoutRootStyle}
+        aria-busy={layoutModeTransitionPending}
       >
-        {showWorkload ? (
-          <div ref={ganttWorkloadSplitRef} className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
-            <div ref={ganttWorkloadPaneRef} className="flex min-h-0 w-full min-w-0 flex-col overflow-hidden" style={{ flexShrink: 0 }}>
-              {renderGanttPanelBody()}
+        {/*
+          `combine` dùng cây split riêng. Timeline-only ↔ workload-only: React 19 `<Activity>` giữ subtree mounted (ẩn bằng mode hidden)
+          để đổi tab nhanh; không dùng key trên flex wrapper để tránh remount cả board.
+        */}
+        <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
+          {showCombineSplit ? (
+            <div ref={ganttWorkloadSplitRef} className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
+              <div ref={ganttWorkloadPaneRef} className="flex min-h-0 w-full min-w-0 flex-col overflow-hidden" style={{ flexShrink: 0 }}>
+                {renderGanttPanelBody()}
+              </div>
+              <button
+                type="button"
+                aria-label={t('taskManagement.ganttWorkloadSplitResize')}
+                className={cn(
+                  'relative z-[15] flex w-full shrink-0 cursor-ns-resize touch-none items-center justify-center',
+                  'rounded-none border-0 border-y border-[0.5px] border-border/50 bg-muted/40 p-0 hover:bg-muted/70',
+                  'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/50'
+                )}
+                onPointerDown={onGanttWorkloadSplitPointerDown}
+                onPointerMove={onGanttWorkloadSplitPointerMove}
+                onPointerUp={endGanttWorkloadSplitPointer}
+                onPointerCancel={endGanttWorkloadSplitPointer}
+              ></button>
+              <div className="flex min-h-0 min-w-0 flex-1 flex-col">{renderWorkloadBoardPane()}</div>
             </div>
-            <button
-              type="button"
-              aria-label={t('taskManagement.ganttWorkloadSplitResize')}
-              className={cn(
-                'relative z-[15] flex w-full shrink-0 cursor-ns-resize touch-none items-center justify-center',
-                'rounded-none border-0 border-y border-[0.5px] border-border/50 bg-muted/40 p-0 hover:bg-muted/70',
-                'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/50'
-              )}
-              onPointerDown={onGanttWorkloadSplitPointerDown}
-              onPointerMove={onGanttWorkloadSplitPointerMove}
-              onPointerUp={endGanttWorkloadSplitPointer}
-              onPointerCancel={endGanttWorkloadSplitPointer}
-            >
-            </button>
-            <div className="flex min-h-0 min-w-0 flex-1 flex-col">
-              {workloadSplitScroll ? (
-                <>
-                  <div className="min-w-0 shrink-0 overflow-x-hidden bg-background/30">
-                    <TaskGanttWorkload
-                      {...workloadSharedProps}
-                      segment="header"
-                      displayMode={workloadDisplayMode}
-                      onDisplayModeChange={setWorkloadDisplayMode}
-                      headerTimelineTrackRef={workloadHeaderTimelineRef}
-                    />
-                  </div>
-                  <div ref={workloadScrollRef} className="min-h-0 flex-1 overflow-y-auto overflow-x-auto [overflow-anchor:none] [scrollbar-gutter:stable]">
-                    <div className="relative block bg-background/30" style={hbGantt.sheet(chartWidth)}>
-                      <TaskGanttWorkload {...workloadSharedProps} segment="body" displayMode={workloadDisplayMode} onDisplayModeChange={setWorkloadDisplayMode} />
-                    </div>
-                  </div>
-                </>
-              ) : (
-                <div ref={workloadScrollRef} className="min-h-0 flex-1 overflow-auto [overflow-anchor:none] [scrollbar-gutter:stable]">
-                  <div className="relative block bg-background/30" style={hbGantt.sheet(chartWidth)}>
-                    <TaskGanttWorkload {...workloadSharedProps} segment="full" />
-                  </div>
-                </div>
-              )}
-            </div>
-          </div>
-        ) : (
-          <div className="flex min-h-0 flex-1 flex-col overflow-hidden">{renderGanttPanelBody()}</div>
-        )}
+          ) : !showGanttMain && !showWorkloadBlock ? (
+            <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">{renderGanttPanelBody()}</div>
+          ) : (
+            <>
+              <Activity mode={showGanttMain ? 'visible' : 'hidden'} name="task-gantt-timeline-standalone">
+                <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">{renderGanttPanelBody()}</div>
+              </Activity>
+              <Activity mode={showWorkloadBlock ? 'visible' : 'hidden'} name="task-gantt-workload-standalone">
+                <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">{renderWorkloadBoardPane()}</div>
+              </Activity>
+            </>
+          )}
+        </div>
 
         {unscheduled.length > 0 ? (
-          <div className="flex max-h-[min(40vh,18rem)] min-h-0 flex-col border-t border-border p-3">
-            <div className="mb-2 shrink-0 text-xs font-semibold text-muted-foreground">
-              {labels.unscheduled} ({unscheduled.length})
+          <div className="flex max-h-[min(40vh,18rem)] min-h-0 flex-col border-t border-border bg-background">
+            <div
+              className={cn('flex w-full min-w-0 shrink-0 items-stretch border-b bg-muted', showGridBorders ? 'border-border/70' : 'border-b-border/[0.08]')}
+              style={{ height: HEADER_H }}
+            >
+              <div className="flex min-h-0 min-w-0 flex-1 items-center justify-between gap-2 overflow-hidden px-2 sm:px-3">
+                <div className="flex min-w-0 flex-1 items-center gap-2">
+                  {onToggleTaskSelect && onApplyBulkTaskSelection ? (
+                    <Checkbox
+                      className="h-4 w-4 shrink-0"
+                      disabled={unscheduledBulkSelectableIds.length === 0}
+                      checked={
+                        unscheduledBulkSelectableIds.length === 0
+                          ? false
+                          : unscheduledBulkSelectableIds.every(id => selectedTaskIds?.has(id))
+                            ? true
+                            : unscheduledBulkSelectableIds.some(id => selectedTaskIds?.has(id))
+                              ? 'indeterminate'
+                              : false
+                      }
+                      onCheckedChange={v => {
+                        onApplyBulkTaskSelection(unscheduledBulkSelectableIds, v === true)
+                      }}
+                      aria-label={t('taskManagement.ganttBulkSelectAllUnscheduled')}
+                    />
+                  ) : null}
+                  <div className="min-w-0 truncate text-[10px] font-semibold uppercase tracking-wide text-muted-foreground sm:text-[11px]">
+                    {labels.unscheduled} <span className="tabular-nums">({unscheduled.length})</span>
+                  </div>
+                </div>
+              </div>
             </div>
-            <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain pr-1 [scrollbar-gutter:stable]">
-              <ul className="flex flex-wrap content-start gap-2 pb-1">
-                {unscheduled.map(t => {
-                  const sh = statusColorMap?.[t.status]?.trim()
+            <div className="min-h-0 flex-1 overflow-y-auto">
+              <div className="flex min-w-0 flex-col">
+                {unscheduledGroups.map(group => {
+                  const hasHeader = Boolean(group.title)
+                  const groupExpanded = !hasHeader || !collapsedUnschedGroupSegmentKeys.has(group.segmentKey)
+                  const groupBulkIds = group.tasks.filter(isTaskBulkSelectable).map(t => t.id)
                   return (
-                    <li key={t.id} className="flex items-center gap-1 rounded border border-border/80 px-1 py-0.5 min-w-0">
-                      <div className="w-1 shrink-0 self-stretch rounded-sm min-h-[1.25rem]" style={{ backgroundColor: sh || 'hsl(var(--primary))' }} aria-hidden />
-                      {onToggleTaskSelect ? (
-                        <Checkbox
-                          className="h-4 w-4 shrink-0"
-                          checked={selectedTaskIds?.has(t.id) ?? false}
-                          onCheckedChange={() => onToggleTaskSelect(t.id)}
-                          onClick={e => e.stopPropagation()}
-                          aria-label={t.title ? `Bulk select: ${t.title}` : 'Bulk select'}
-                        />
+                    <div key={group.segmentKey} className="min-w-0">
+                      {hasHeader ? (
+                        <div className="flex min-h-[28px] min-w-0 items-center gap-1.5 border-b border-border/50 bg-muted px-2">
+                          <button
+                            type="button"
+                            className="flex h-6 w-6 shrink-0 items-center justify-center rounded-sm hover:bg-muted/80"
+                            onClick={() => toggleUnschedGroupCollapsed(group.segmentKey)}
+                            aria-expanded={groupExpanded}
+                            aria-label={groupExpanded ? t('taskManagement.ganttCollapseGroupSection') : t('taskManagement.ganttExpandGroupSection')}
+                          >
+                            {groupExpanded ? <ChevronDown className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />}
+                          </button>
+                          <Layers className="h-3.5 w-3.5 shrink-0 text-muted-foreground" aria-hidden />
+                          <span className="min-w-0 flex-1 truncate text-[10px] font-semibold uppercase tracking-wide text-muted-foreground/90 sm:text-[11px]">{group.title}</span>
+                          {onToggleTaskSelect && onApplyBulkTaskSelection && groupBulkIds.length > 0 ? (
+                            <Checkbox
+                              className="h-4 w-4 shrink-0"
+                              checked={
+                                groupBulkIds.every(id => selectedTaskIds?.has(id))
+                                  ? true
+                                  : groupBulkIds.some(id => selectedTaskIds?.has(id))
+                                    ? 'indeterminate'
+                                    : false
+                              }
+                              onCheckedChange={v => onApplyBulkTaskSelection(groupBulkIds, v === true)}
+                              onClick={e => e.stopPropagation()}
+                              aria-label={t('taskManagement.ganttBulkSelectGroupAria', { group: group.title })}
+                            />
+                          ) : null}
+                        </div>
                       ) : null}
-                      <button type="button" className="text-xs hover:bg-muted/60 max-w-[200px] truncate" onClick={() => onSelectTask(t)}>
-                        {t.title || '—'}
-                      </button>
-                    </li>
+                      {groupExpanded ? (
+                        <ul className="p-1.5 grid grid-cols-1 gap-1 min-[420px]:grid-cols-2 min-[420px]:gap-1.5 min-[640px]:grid-cols-3 min-[880px]:grid-cols-4 min-[1120px]:grid-cols-5 min-[1440px]:grid-cols-6">
+                          {group.tasks.map(uTask => {
+                            const sh = statusColorMap?.[uTask.status]?.trim()
+                            const bulkTitle = uTask.title?.trim() ? uTask.title : t('taskManagement.ganttNoTitle')
+                            return (
+                              <li
+                                key={uTask.id}
+                                draggable={Boolean(onUpdatePlanDates && showGanttMain)}
+                                onDragStart={
+                                  onUpdatePlanDates && showGanttMain
+                                    ? e => {
+                                      e.dataTransfer.setData(PLAN_UNSCHED_TASK_DRAG_MIME, uTask.id)
+                                      e.dataTransfer.setData('text/plain', uTask.id)
+                                      e.dataTransfer.effectAllowed = 'copyMove'
+                                    }
+                                    : undefined
+                                }
+                                className={cn(
+                                  'flex min-h-9 w-full min-w-0 items-center gap-1.5 rounded-md border border-border/80 bg-muted/20 px-1.5 py-1 shadow-sm transition-colors hover:bg-muted/35 sm:min-h-8 sm:gap-2 sm:px-2 sm:py-1.5',
+                                  onUpdatePlanDates && showGanttMain && 'cursor-grab active:cursor-grabbing'
+                                )}
+                              >
+                                <div
+                                  className="w-1 shrink-0 self-stretch rounded-sm min-h-[1.35rem] sm:min-h-[1.25rem]"
+                                  style={{ backgroundColor: sh || 'hsl(var(--primary))' }}
+                                  aria-hidden
+                                />
+                                {onToggleTaskSelect && isTaskBulkSelectable(uTask) ? (
+                                  <Checkbox
+                                    className="h-4 w-4 shrink-0"
+                                    checked={selectedTaskIds?.has(uTask.id) ?? false}
+                                    onCheckedChange={() => onToggleTaskSelect(uTask.id)}
+                                    onClick={e => e.stopPropagation()}
+                                    aria-label={t('taskManagement.ganttBulkSelectTaskAria', { title: bulkTitle })}
+                                  />
+                                ) : null}
+                                <button
+                                  type="button"
+                                  className="min-w-0 flex-1 truncate text-left text-[10px] leading-tight hover:bg-muted/50 sm:text-[11px]"
+                                  onClick={() => onSelectTask(uTask)}
+                                >
+                                  {uTask.title || t('taskManagement.ganttNoTitle')}
+                                </button>
+                              </li>
+                            )
+                          })}
+                        </ul>
+                      ) : null}
+                    </div>
                   )
                 })}
-              </ul>
+              </div>
             </div>
           </div>
         ) : null}
@@ -2531,6 +2821,7 @@ const GanttTaskRow = memo(function GanttTaskRow({
   onToggleExpand,
   rowSegment = 'full',
   displayNo,
+  metaRailExpanded = true,
 }: {
   task: TaskTableRowTask
   start: Date
@@ -2569,7 +2860,9 @@ const GanttTaskRow = memo(function GanttTaskRow({
   onToggleExpand?: (taskId: string) => void
   rowSegment?: GanttRowSegment
   displayNo: string | null
+  metaRailExpanded?: boolean
 }) {
+  const { t } = useTranslation()
   const sRaw = parsePlanDate(task.planStartDate)
   const eRaw = parsePlanDate(task.planEndDate)
   const sNorm = sRaw && eRaw ? startOfDay(sRaw <= eRaw ? sRaw : eRaw) : null
@@ -2678,7 +2971,15 @@ const GanttTaskRow = memo(function GanttTaskRow({
   const timelineDays = Math.max(1, Math.round(chartWidth / pixelPerDay))
   const actualDayRange = showActualBars ? resolveGanttActualBarDayRange(task) : null
   const dateLocale = locale ?? enUS
-  let actualStrip: { leftPx: number; widthPx: number; title: string; tone: GanttActualBarTone } | null = null
+  let actualStrip: {
+    leftPx: number
+    widthPx: number
+    title: string
+    tone: GanttActualBarTone
+    sectionTitle: string
+    rangeLine: string
+    hintText: string
+  } | null = null
   if (actualDayRange) {
     const sIdx = differenceInCalendarDays(actualDayRange.start, start)
     const eIdx = differenceInCalendarDays(actualDayRange.end, start)
@@ -2688,7 +2989,7 @@ const GanttTaskRow = memo(function GanttTaskRow({
       const al = clS * pixelPerDay
       const aw = Math.max(pixelPerDay * 0.5, (clE - clS + 1) * pixelPerDay)
       const maxW = chartWidth - al
-      const prefix = (actualBarRangeTitle ?? '').trim() || 'Actual'
+      const sectionTitle = (actualBarRangeTitle ?? '').trim() || t('taskManagement.ganttActualBarRangeTitle')
       const tone = ganttActualBarVarianceTone(sNorm, eNorm, actualDayRange)
       let hintRaw: string | undefined
       switch (tone) {
@@ -2707,13 +3008,17 @@ const GanttTaskRow = memo(function GanttTaskRow({
         default:
           hintRaw = actualBarHintOntime
       }
-      const hint = (hintRaw ?? '').trim()
-      const hintPart = hint ? ` · ${hint}` : ''
+      const hintText = (hintRaw ?? '').trim()
+      const rangeLine = `${format(actualDayRange.start, 'P', { locale: dateLocale })} – ${format(actualDayRange.end, 'P', { locale: dateLocale })}`
+      const hintPart = hintText ? ` · ${hintText}` : ''
       actualStrip = {
         leftPx: al,
         widthPx: Math.min(aw, maxW),
         tone,
-        title: `${prefix}: ${format(actualDayRange.start, 'P', { locale: dateLocale })} – ${format(actualDayRange.end, 'P', { locale: dateLocale })}${hintPart}`,
+        sectionTitle,
+        rangeLine,
+        hintText,
+        title: `${sectionTitle}: ${rangeLine}${hintPart}`,
       }
     }
   }
@@ -2732,6 +3037,12 @@ const GanttTaskRow = memo(function GanttTaskRow({
   const priority = (task.priority ?? 'medium') as string
   const statusLabel = getStatusLabel(displayStatus)
   const priorityLabel = getPriorityLabel(priority)
+
+  const planRangeLine = `${format(show.start, 'P', { locale: dateLocale })} – ${format(show.end, 'P', { locale: dateLocale })}`
+  const planBarTitleShort = task.title?.trim() ? task.title : t('taskManagement.ganttNoTitle')
+  const planBarAriaLabel = `${planBarTitleShort}. ${t('taskManagement.planStartDate')} / ${t('taskManagement.deadline')}: ${planRangeLine}. ${statusLabel}. ${priorityLabel}. ${assigneeText}. ${t('taskManagement.progress')} ${ganttProgressPercentDisplay(task.progress)}.`
+  const planProgressPct = ganttProgressClamped(task.progress)
+  const planProgressColor = getProgressColor(planProgressPct / 100)
 
   const indentPx = indentLevel * 16
   const seg = rowSegment
@@ -2761,10 +3072,7 @@ const GanttTaskRow = memo(function GanttTaskRow({
         ...(seg === 'full' ? { zIndex: Z_GANTT_STICKY_ROW_META_FULL } : {}),
       }}
     >
-      <div
-        className={cn('flex min-w-0 shrink-0 items-center justify-center px-0.5 py-1 tabular-nums', metaCellBg, GANTT_META_COL_DIVIDER)}
-        style={hbGantt.colNo}
-      >
+      <div className={cn('flex min-w-0 shrink-0 items-center justify-center px-0.5 py-1 tabular-nums', metaCellBg, GANTT_META_COL_DIVIDER)} style={hbGantt.colNo}>
         <span className="truncate text-xs text-muted-foreground">{displayNo ?? ''}</span>
       </div>
       <div className={cn('flex min-w-0 shrink-0 items-center justify-center py-1', metaCellBg, GANTT_META_COL_DIVIDER)} style={hbGantt.colCheckbox}>
@@ -2773,20 +3081,25 @@ const GanttTaskRow = memo(function GanttTaskRow({
             checked={selectedTaskIds?.has(task.id) ?? false}
             onCheckedChange={handleToggleSelect}
             className="h-4 w-4 shrink-0"
-            aria-label={`Select ${task.title || 'task'}`}
+            aria-label={t('taskManagement.ganttBulkSelectTaskAria', {
+              title: task.title?.trim() ? task.title : t('taskManagement.ganttNoTitle'),
+            })}
           />
         ) : (
           <span className="inline-block h-4 w-4 shrink-0" aria-hidden />
         )}
       </div>
-      <div className={cn('flex min-w-0 shrink-0 items-center gap-1 px-1.5 py-1', metaCellBg, GANTT_META_COL_DIVIDER)} style={hbGantt.nameCol}>
+      <div
+        className={cn('flex min-h-0 min-w-0 flex-1 flex-row items-center gap-1 px-2 py-1 transform-gpu bg-background', metaCellBg, metaRailExpanded && GANTT_META_COL_DIVIDER)}
+        style={hbGantt.nameCol}
+      >
         {indentPx > 0 ? <span className="shrink-0" style={{ width: indentPx }} aria-hidden /> : null}
         {hasChildren ? (
           <button
             type="button"
             className="flex h-5 w-5 shrink-0 items-center justify-center"
             onClick={handleToggleExpand}
-            aria-label={isExpanded ? 'Collapse subtasks' : 'Expand subtasks'}
+            aria-label={isExpanded ? t('taskManagement.ganttCollapseSubtasks') : t('taskManagement.ganttExpandSubtasks')}
             aria-expanded={isExpanded}
           >
             {isExpanded ? <ChevronDown className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />}
@@ -2803,13 +3116,13 @@ const GanttTaskRow = memo(function GanttTaskRow({
           title={task.title}
           onClick={handleOpenTask}
         >
-          {task.title || '—'}
+          {task.title?.trim() ? task.title : t('taskManagement.ganttNoTitle')}
         </button>
       </div>
-      <div className={cn('flex min-w-0 shrink-0 items-center px-1.5 py-1', metaCellBg, GANTT_META_COL_DIVIDER)} style={hbGantt.colAssignee} title={assigneeText}>
+      <div className={cn('flex min-w-0 shrink items-center py-1', metaCellBg, metaRailExpanded && GANTT_META_COL_DIVIDER)} style={hbGantt.colAssignee} title={assigneeText}>
         <span className="truncate text-xs text-muted-foreground">{assigneeText}</span>
       </div>
-      <div className={cn('flex min-w-0 shrink-0 items-center px-1.5 py-1', metaCellBg, GANTT_META_COL_DIVIDER)} style={hbGantt.colStatus} title={statusLabel}>
+      <div className={cn('flex min-w-0 shrink items-center py-1', metaCellBg, metaRailExpanded && GANTT_META_COL_DIVIDER)} style={hbGantt.colStatus} title={statusLabel}>
         <span className={cn('flex min-w-0 max-w-full items-center gap-1.5 text-xs leading-tight [&_svg]:shrink-0', getStatusToneClass(displayStatus))}>
           <span className="[&_svg]:h-3.5 [&_svg]:w-3.5" aria-hidden>
             {getStatusIcon(displayStatus)}
@@ -2817,7 +3130,7 @@ const GanttTaskRow = memo(function GanttTaskRow({
           <span className="min-w-0 flex-1 truncate font-medium">{statusLabel}</span>
         </span>
       </div>
-      <div className={cn('flex min-w-0 shrink-0 items-center px-1.5 py-1', metaCellBg, GANTT_META_COL_DIVIDER)} style={hbGantt.colPriority} title={priorityLabel}>
+      <div className={cn('flex min-w-0 shrink items-center py-1', metaCellBg, metaRailExpanded && GANTT_META_COL_DIVIDER)} style={hbGantt.colPriority} title={priorityLabel}>
         <span className={cn('flex min-w-0 max-w-full items-center gap-1.5 text-xs leading-tight [&_svg]:shrink-0', getPriorityToneClass(priority))}>
           <span className="[&_svg]:h-3.5 [&_svg]:w-3.5" aria-hidden>
             {getPriorityIcon(priority)}
@@ -2826,11 +3139,11 @@ const GanttTaskRow = memo(function GanttTaskRow({
         </span>
       </div>
       <div
-        className={cn('flex min-w-0 shrink-0 items-center justify-end px-1.5 py-1 tabular-nums', metaCellBg, GANTT_META_COL_DIVIDER)}
+        className={cn('flex min-w-0 shrink items-center justify-start py-1 tabular-nums', metaCellBg)}
         style={hbGantt.colProgress}
         title={ganttProgressPercentDisplay(task.progress)}
       >
-        <span className="truncate text-xs text-muted-foreground">{ganttProgressPercentDisplay(task.progress)}</span>
+        <GanttProgressGauge progress={task.progress} />
       </div>
     </div>
   )
@@ -2850,61 +3163,118 @@ const GanttTaskRow = memo(function GanttTaskRow({
       ) : null}
       <div className="relative z-[2] my-[0.35rem] h-[26px] w-full shrink-0" style={{ width: chartWidth }}>
         {actualStrip ? (
-          <div
-            aria-hidden
-            className={cn('pointer-events-none absolute z-[2] rounded-b-[2px] border', ganttActualBarStripSurfaceClass(actualStrip.tone))}
-            style={{
-              left: actualStrip.leftPx,
-              width: actualStrip.widthPx,
-              top: planBarHeightPx,
-              height: actualStripHeightPx,
-              maxWidth: chartWidth - actualStrip.leftPx,
-            }}
-            title={actualStrip.title}
-          />
+          <Tooltip delayDuration={200}>
+            <TooltipTrigger asChild>
+              <div
+                role="img"
+                aria-label={actualStrip.title}
+                className={cn('pointer-events-auto absolute z-[2] cursor-default rounded-sm border h-[5px]! shadow-sm', ganttActualBarStripSurfaceClass(actualStrip.tone))}
+                style={{
+                  left: actualStrip.leftPx,
+                  width: actualStrip.widthPx,
+                  top: planBarHeightPx,
+                  height: actualStripHeightPx,
+                  maxWidth: chartWidth - actualStrip.leftPx,
+                }}
+              />
+            </TooltipTrigger>
+            <TooltipContent
+              side="top"
+              sideOffset={8}
+              className="max-w-[18rem] w-[min(18rem,calc(100vw-1.5rem))] border border-border/70 bg-popover p-0 text-popover-foreground shadow-lg"
+            >
+              <div className="relative overflow-hidden px-3.5 pb-3 pt-3">
+                <div className="pointer-events-none absolute inset-0 bg-gradient-to-br from-primary/[0.07] via-transparent to-transparent" aria-hidden />
+                <p className="relative text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">{actualStrip.sectionTitle}</p>
+                <p className="relative mt-1 line-clamp-2 text-left text-xs font-medium leading-snug text-foreground">
+                  {task.title?.trim() ? task.title : t('taskManagement.ganttNoTitle')}
+                </p>
+                <p className="relative mt-2 text-sm font-semibold tabular-nums leading-snug text-foreground">{actualStrip.rangeLine}</p>
+                {actualStrip.hintText ? (
+                  <p className="relative mt-2 border-t border-border/60 pt-2 text-[11px] leading-snug text-muted-foreground">{actualStrip.hintText}</p>
+                ) : null}
+                <div className={cn('relative mt-2 h-1.5 w-full overflow-hidden rounded-full border', ganttActualBarStripSurfaceClass(actualStrip.tone))} aria-hidden />
+              </div>
+            </TooltipContent>
+          </Tooltip>
         ) : null}
-        <div
-          role="presentation"
-          className={cn(
-            'absolute top-0 z-[3] flex min-w-[8px] border-none! select-none rounded-xs text-[11px] font-medium text-foreground',
-            hasActualStrip && 'rounded-b-none',
-            !hasChildren && !barTint && 'bg-primary/25'
-          )}
-          style={{
-            left: leftPx,
-            width: widthPx,
-            maxWidth: chartWidth - leftPx,
-            height: planBarHeightPx,
-            ...barChartSurfaceStyle,
-          }}
-        >
-          {canDrag ? (
-            <button
-              type="button"
-              aria-label="Resize plan start"
-              className="h-full w-2 shrink-0 cursor-ew-resize touch-none rounded-l-[3px] hover:bg-black/10 dark:hover:bg-white/15"
-              onPointerDown={e => beginDrag('resize-l', e)}
-            />
-          ) : (
-            <span className="w-1 shrink-0" />
-          )}
-          {/* biome-ignore lint/a11y/noStaticElementInteractions: Gantt timeline drag */}
-          <div
-            role="presentation"
-            className={cn('min-w-0 flex-1 cursor-default truncate px-1', canDrag && 'cursor-grab active:cursor-grabbing')}
-            style={{ lineHeight: `${planBarHeightPx}px` }}
-            onPointerDown={e => canDrag && beginDrag('move', e)}
-            onDoubleClick={handleOpenTask}
-          />
-          {canDrag ? (
-            <button
-              type="button"
-              aria-label="Resize plan end"
-              className="h-full w-2 shrink-0 cursor-ew-resize touch-none rounded-r-[3px] hover:bg-black/10 dark:hover:bg-white/15"
-              onPointerDown={e => beginDrag('resize-r', e)}
-            />
-          ) : null}
-        </div>
+        <Tooltip delayDuration={200}>
+          <TooltipTrigger asChild>
+            {/* biome-ignore lint/a11y/useSemanticElements: plan bar groups drag handles; not a form fieldset. */}
+            <div
+              role="group"
+              aria-label={planBarAriaLabel}
+              className={cn(
+                'absolute top-0 z-[3] flex min-w-[8px] border-none! select-none rounded-xs text-[11px] font-medium text-foreground',
+                hasActualStrip && 'rounded-b-none',
+                !hasChildren && !barTint && 'bg-primary/25'
+              )}
+              style={{
+                left: leftPx,
+                width: widthPx,
+                maxWidth: chartWidth - leftPx,
+                height: planBarHeightPx,
+                ...barChartSurfaceStyle,
+              }}
+            >
+              {canDrag ? (
+                <button
+                  type="button"
+                  aria-label={t('taskManagement.ganttResizePlanStart')}
+                  className="h-full w-2 shrink-0 cursor-ew-resize touch-none rounded-l-[3px] hover:bg-black/10 dark:hover:bg-white/15"
+                  onPointerDown={e => beginDrag('resize-l', e)}
+                />
+              ) : (
+                <span className="w-1 shrink-0" />
+              )}
+              {/* biome-ignore lint/a11y/noStaticElementInteractions: Gantt timeline drag */}
+              <div
+                role="presentation"
+                className={cn('min-w-0 flex-1 cursor-default truncate px-1', canDrag && 'cursor-grab active:cursor-grabbing')}
+                style={{ lineHeight: `${planBarHeightPx}px` }}
+                onPointerDown={e => canDrag && beginDrag('move', e)}
+                onDoubleClick={handleOpenTask}
+              />
+              {canDrag ? (
+                <button
+                  type="button"
+                  aria-label={t('taskManagement.ganttResizePlanEnd')}
+                  className="h-full w-2 shrink-0 cursor-ew-resize touch-none rounded-r-[3px] hover:bg-black/10 dark:hover:bg-white/15"
+                  onPointerDown={e => beginDrag('resize-r', e)}
+                />
+              ) : null}
+            </div>
+          </TooltipTrigger>
+          <TooltipContent
+            side="top"
+            sideOffset={8}
+            className="max-w-[18rem] w-[min(18rem,calc(100vw-1.5rem))] border border-border/70 bg-popover p-0 text-popover-foreground shadow-lg"
+          >
+            <div className="relative overflow-hidden px-3.5 pb-3 pt-3">
+              <div className="pointer-events-none absolute inset-0 bg-gradient-to-br from-primary/[0.07] via-transparent to-transparent" aria-hidden />
+              <p className="relative text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+                {t('taskManagement.planStartDate')} · {t('taskManagement.deadline')}
+              </p>
+              <p className="relative mt-1 line-clamp-2 text-left text-xs font-medium leading-snug text-foreground">{planBarTitleShort}</p>
+              <p className="relative mt-2 text-sm font-semibold tabular-nums leading-snug text-foreground">{planRangeLine}</p>
+              <div className="relative mt-2 h-1.5 w-full overflow-hidden rounded-full bg-primary/15 ring-1 ring-border/50">
+                <div className="h-full rounded-full transition-[width] duration-300 ease-out" style={{ width: `${planProgressPct}%`, backgroundColor: planProgressColor }} />
+              </div>
+              <dl className="relative mt-3 grid grid-cols-[minmax(0,auto)_minmax(0,1fr)] gap-x-3 gap-y-2 text-[11px] leading-tight">
+                <dt className="text-muted-foreground">{t('taskManagement.status')}</dt>
+                <dd className="min-w-0 text-right font-medium text-foreground">{statusLabel}</dd>
+                <dt className="text-muted-foreground">{t('taskManagement.priority')}</dt>
+                <dd className="min-w-0 text-right font-medium text-foreground">{priorityLabel}</dd>
+                <dt className="text-muted-foreground">{t('taskManagement.assignee')}</dt>
+                <dd className="min-w-0 truncate text-right text-foreground">{assigneeText}</dd>
+                <dt className="text-muted-foreground">{t('taskManagement.progress')}</dt>
+                <dd className="text-right font-semibold tabular-nums" style={{ color: planProgressColor }}>
+                  {Math.round(planProgressPct)}%
+                </dd>
+              </dl>
+            </div>
+          </TooltipContent>
+        </Tooltip>
       </div>
     </div>
   )
@@ -2964,6 +3334,7 @@ const GanttMilestoneRow = memo(function GanttMilestoneRow({
   onToggleExpand?: (taskId: string) => void
   rowSegment?: GanttRowSegment
 }) {
+  const { t } = useTranslation()
   const milestoneDate = parsePlanDate(task.planStartDate)
 
   const handleOpenTask = useCallback(() => {
@@ -2981,7 +3352,9 @@ const GanttMilestoneRow = memo(function GanttMilestoneRow({
 
   const rowSelected = Boolean(selectedTaskIds?.has(task.id))
   const indentPx = indentLevel * 16
-  const tooltipText = milestoneLabel ? `${milestoneLabel}: ${task.title}` : task.title
+  const titleShown = task.title?.trim() ? task.title : t('taskManagement.ganttNoTitle')
+  const typeShown = (milestoneLabel ?? '').trim() || t('taskManagement.ganttMilestoneLabel')
+  const tooltipText = t('taskManagement.ganttMilestoneMarkerAria', { type: typeShown, title: titleShown })
   const seg = rowSegment
 
   const rowChromeFull = cn(
@@ -2999,7 +3372,7 @@ const GanttMilestoneRow = memo(function GanttMilestoneRow({
   const metaBlock = (
     <div
       className={cn(
-        'flex min-h-0 min-w-0 flex-1 flex-row items-center gap-1 border-r border-border/50 px-2 py-1 transform-gpu',
+        'flex min-h-0 min-w-0 flex-1 flex-row items-center gap-1 px-2 py-1 transform-gpu',
         seg === 'full' && 'sticky left-0',
         rowSelected ? 'bg-transparent' : 'bg-background'
       )}
@@ -3014,7 +3387,7 @@ const GanttMilestoneRow = memo(function GanttMilestoneRow({
           type="button"
           className="flex h-5 w-5 shrink-0 items-center justify-center"
           onClick={handleToggleExpand}
-          aria-label={isExpanded ? 'Collapse subtasks' : 'Expand subtasks'}
+          aria-label={isExpanded ? t('taskManagement.ganttCollapseSubtasks') : t('taskManagement.ganttExpandSubtasks')}
           aria-expanded={isExpanded}
         >
           {isExpanded ? <ChevronDown className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />}
@@ -3022,19 +3395,21 @@ const GanttMilestoneRow = memo(function GanttMilestoneRow({
       ) : indentLevel > 0 ? (
         <span className="h-5 w-5 shrink-0" aria-hidden />
       ) : null}
-      <span className="flex h-4 w-4 shrink-0 items-center justify-center text-amber-500" aria-hidden>
-        <svg viewBox="0 0 12 12" className="h-3 w-3 fill-current">
-          <path d="M6 0 L12 6 L6 12 L0 6 Z" />
-        </svg>
-      </span>
-      <button
-        type="button"
-        className="min-w-0 flex-1 truncate text-left text-xs font-medium leading-tight text-amber-600 dark:text-amber-400 underline-offset-2 hover:underline"
-        title={tooltipText}
-        onClick={handleOpenTask}
-      >
-        {task.title || '—'}
-      </button>
+      <div className="flex min-w-0 flex-1 items-center justify-center gap-2">
+        <span className="flex h-[18px] w-[18px] shrink-0 items-center justify-center text-amber-500" aria-hidden>
+          <svg viewBox="0 0 12 12" className="h-[14px] w-[14px] fill-current">
+            <path d="M6 0 L12 6 L6 12 L0 6 Z" />
+          </svg>
+        </span>
+        <button
+          type="button"
+          className="min-w-0 max-w-full truncate text-center text-sm font-semibold uppercase tracking-wide leading-tight text-amber-600 dark:text-amber-400 underline-offset-2 hover:underline"
+          title={tooltipText}
+          onClick={handleOpenTask}
+        >
+          {titleShown}
+        </button>
+      </div>
     </div>
   )
 
@@ -3073,14 +3448,14 @@ const GanttMilestoneRow = memo(function GanttMilestoneRow({
               style={
                 hasChildren && !rowSelected
                   ? {
-                      backgroundImage:
-                        'linear-gradient(to bottom, rgba(217, 119, 6, 0.95) 0%, rgba(217, 119, 6, 0.95) 50%, rgba(251, 191, 36, 0.72) 50%, rgba(251, 191, 36, 0.72) 100%)',
-                    }
+                    backgroundImage:
+                      'linear-gradient(to bottom, rgba(217, 119, 6, 0.95) 0%, rgba(217, 119, 6, 0.95) 50%, rgba(251, 191, 36, 0.72) 50%, rgba(251, 191, 36, 0.72) 100%)',
+                  }
                   : hasChildren && rowSelected
                     ? {
-                        backgroundImage:
-                          'linear-gradient(to bottom, hsl(var(--primary) / 0.88) 0%, hsl(var(--primary) / 0.88) 50%, hsl(var(--primary) / 0.58) 50%, hsl(var(--primary) / 0.58) 100%)',
-                      }
+                      backgroundImage:
+                        'linear-gradient(to bottom, hsl(var(--primary) / 0.88) 0%, hsl(var(--primary) / 0.88) 50%, hsl(var(--primary) / 0.58) 50%, hsl(var(--primary) / 0.58) 100%)',
+                    }
                     : undefined
               }
             />
@@ -3132,6 +3507,7 @@ const GanttUnscheduledSubtaskRow = memo(function GanttUnscheduledSubtaskRow({
   indentLevel = 1,
   rowSegment = 'full',
   displayNo,
+  metaRailExpanded = true,
 }: {
   task: TaskTableRowTask
   chartWidth: number
@@ -3152,7 +3528,9 @@ const GanttUnscheduledSubtaskRow = memo(function GanttUnscheduledSubtaskRow({
   indentLevel?: number
   rowSegment?: GanttRowSegment
   displayNo: string | null
+  metaRailExpanded?: boolean
 }) {
+  const { t } = useTranslation()
   const handleOpenTask = useCallback(() => {
     onOpenTaskById(task.id)
   }, [onOpenTaskById, task.id])
@@ -3187,7 +3565,7 @@ const GanttUnscheduledSubtaskRow = memo(function GanttUnscheduledSubtaskRow({
   const metaBlock = isMilestoneUnsched ? (
     <div
       className={cn(
-        'flex min-h-0 min-w-0 flex-1 flex-row items-center gap-1 border-r border-border/50 px-2 py-1 transform-gpu',
+        'flex min-h-0 min-w-0 flex-1 flex-row items-center gap-1 px-2 py-1 transform-gpu',
         seg === 'full' && 'sticky left-0',
         rowSelected ? 'bg-transparent' : 'bg-background'
       )}
@@ -3198,19 +3576,21 @@ const GanttUnscheduledSubtaskRow = memo(function GanttUnscheduledSubtaskRow({
     >
       {indentPx > 0 ? <span className="shrink-0" style={{ width: indentPx }} aria-hidden /> : null}
       <span className="h-5 w-5 shrink-0" aria-hidden />
-      <span className="flex h-4 w-4 shrink-0 items-center justify-center text-amber-500" aria-hidden>
-        <svg viewBox="0 0 12 12" className="h-3 w-3 fill-current">
-          <path d="M6 0 L12 6 L6 12 L0 6 Z" />
-        </svg>
-      </span>
-      <button
-        type="button"
-        className="min-w-0 flex-1 truncate text-left text-xs font-medium leading-tight text-amber-600 dark:text-amber-400 underline-offset-2 hover:underline"
-        title={task.title}
-        onClick={handleOpenTask}
-      >
-        {task.title || '—'}
-      </button>
+      <div className="flex min-w-0 flex-1 items-center justify-center gap-2">
+        <span className="flex h-[18px] w-[18px] shrink-0 items-center justify-center text-amber-500" aria-hidden>
+          <svg viewBox="0 0 12 12" className="h-[14px] w-[14px] fill-current">
+            <path d="M6 0 L12 6 L6 12 L0 6 Z" />
+          </svg>
+        </span>
+        <button
+          type="button"
+          className="min-w-0 max-w-full truncate text-center text-sm font-semibold uppercase tracking-wide leading-tight text-amber-600 dark:text-amber-400 underline-offset-2 hover:underline"
+          title={task.title}
+          onClick={handleOpenTask}
+        >
+          {task.title?.trim() ? task.title : t('taskManagement.ganttNoTitle')}
+        </button>
+      </div>
     </div>
   ) : (
     <div
@@ -3224,10 +3604,7 @@ const GanttUnscheduledSubtaskRow = memo(function GanttUnscheduledSubtaskRow({
         ...(seg === 'full' ? { zIndex: Z_GANTT_STICKY_ROW_META_FULL } : {}),
       }}
     >
-      <div
-        className={cn('flex min-w-0 shrink-0 items-center justify-center px-0.5 py-1 tabular-nums', metaCellBg, GANTT_META_COL_DIVIDER)}
-        style={hbGantt.colNo}
-      >
+      <div className={cn('flex min-w-0 shrink-0 items-center justify-center px-0.5 py-1 tabular-nums', metaCellBg, GANTT_META_COL_DIVIDER)} style={hbGantt.colNo}>
         <span className="truncate text-xs text-muted-foreground">{displayNo ?? ''}</span>
       </div>
       <div className={cn('flex min-w-0 shrink-0 items-center justify-center py-1', metaCellBg, GANTT_META_COL_DIVIDER)} style={hbGantt.colCheckbox}>
@@ -3236,13 +3613,15 @@ const GanttUnscheduledSubtaskRow = memo(function GanttUnscheduledSubtaskRow({
             checked={selectedTaskIds?.has(task.id) ?? false}
             onCheckedChange={handleToggleSelect}
             className="h-4 w-4 shrink-0"
-            aria-label={`Select ${task.title || 'task'}`}
+            aria-label={t('taskManagement.ganttBulkSelectTaskAria', {
+              title: task.title?.trim() ? task.title : t('taskManagement.ganttNoTitle'),
+            })}
           />
         ) : (
           <span className="inline-block h-4 w-4 shrink-0" aria-hidden />
         )}
       </div>
-      <div className={cn('flex min-w-0 shrink-0 items-center gap-1 px-1.5 py-1', metaCellBg, GANTT_META_COL_DIVIDER)} style={hbGantt.nameCol}>
+      <div className={cn('flex min-w-0 shrink-0 items-center gap-1 px-1.5 py-3', metaCellBg, metaRailExpanded && GANTT_META_COL_DIVIDER)} style={hbGantt.nameCol}>
         {indentPx > 0 ? <span className="shrink-0" style={{ width: indentPx }} aria-hidden /> : null}
         <span className="h-5 w-5 shrink-0" aria-hidden />
         <button
@@ -3251,13 +3630,13 @@ const GanttUnscheduledSubtaskRow = memo(function GanttUnscheduledSubtaskRow({
           title={task.title}
           onClick={handleOpenTask}
         >
-          {task.title || '—'}
+          {task.title?.trim() ? task.title : t('taskManagement.ganttNoTitle')}
         </button>
       </div>
-      <div className={cn('flex min-w-0 shrink-0 items-center px-1.5 py-1', metaCellBg, GANTT_META_COL_DIVIDER)} style={hbGantt.colAssignee} title={assigneeText}>
+      <div className={cn('flex min-w-0 shrink items-center py-1', metaCellBg, metaRailExpanded && GANTT_META_COL_DIVIDER)} style={hbGantt.colAssignee} title={assigneeText}>
         <span className="truncate text-xs text-muted-foreground">{assigneeText}</span>
       </div>
-      <div className={cn('flex min-w-0 shrink-0 items-center px-1.5 py-1', metaCellBg, GANTT_META_COL_DIVIDER)} style={hbGantt.colStatus} title={statusLabel}>
+      <div className={cn('flex min-w-0 shrink items-center py-1', metaCellBg, metaRailExpanded && GANTT_META_COL_DIVIDER)} style={hbGantt.colStatus} title={statusLabel}>
         <span className={cn('flex min-w-0 max-w-full items-center gap-1.5 text-xs leading-tight [&_svg]:shrink-0', getStatusToneClass(displayStatus))}>
           <span className="[&_svg]:h-3.5 [&_svg]:w-3.5" aria-hidden>
             {getStatusIcon(displayStatus)}
@@ -3265,7 +3644,7 @@ const GanttUnscheduledSubtaskRow = memo(function GanttUnscheduledSubtaskRow({
           <span className="min-w-0 flex-1 truncate font-medium">{statusLabel}</span>
         </span>
       </div>
-      <div className={cn('flex min-w-0 shrink-0 items-center px-1.5 py-1', metaCellBg, GANTT_META_COL_DIVIDER)} style={hbGantt.colPriority} title={priorityLabel}>
+      <div className={cn('flex min-w-0 shrink items-center py-1', metaCellBg, metaRailExpanded && GANTT_META_COL_DIVIDER)} style={hbGantt.colPriority} title={priorityLabel}>
         <span className={cn('flex min-w-0 max-w-full items-center gap-1.5 text-xs leading-tight [&_svg]:shrink-0', getPriorityToneClass(priority))}>
           <span className="[&_svg]:h-3.5 [&_svg]:w-3.5" aria-hidden>
             {getPriorityIcon(priority)}
@@ -3274,11 +3653,11 @@ const GanttUnscheduledSubtaskRow = memo(function GanttUnscheduledSubtaskRow({
         </span>
       </div>
       <div
-        className={cn('flex min-w-0 shrink-0 items-center justify-end px-1.5 py-1 tabular-nums', metaCellBg, GANTT_META_COL_DIVIDER)}
+        className={cn('flex min-w-0 shrink items-center justify-start py-1 tabular-nums', metaCellBg)}
         style={hbGantt.colProgress}
         title={ganttProgressPercentDisplay(task.progress)}
       >
-        <span className="truncate text-xs text-muted-foreground">{ganttProgressPercentDisplay(task.progress)}</span>
+        <GanttProgressGauge progress={task.progress} />
       </div>
     </div>
   )

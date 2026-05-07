@@ -3,7 +3,7 @@ import { query } from './db'
 
 const booleanColumnTypeCache = new Map<string, boolean>()
 
-async function isBooleanColumn(tableName: string, columnName: string, fallback = true): Promise<boolean> {
+export async function isBooleanColumn(tableName: string, columnName: string, fallback = true): Promise<boolean> {
   const key = `${tableName}.${columnName}`
   if (booleanColumnTypeCache.has(key)) return booleanColumnTypeCache.get(key) as boolean
   try {
@@ -26,7 +26,7 @@ async function isBooleanColumn(tableName: string, columnName: string, fallback =
   }
 }
 
-function toDbBoolValue(value: boolean, useBoolean: boolean): boolean | number {
+export function toDbBoolValue(value: boolean, useBoolean: boolean): boolean | number {
   return useBoolean ? value : value ? 1 : 0
 }
 

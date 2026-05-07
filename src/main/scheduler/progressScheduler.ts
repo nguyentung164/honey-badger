@@ -7,6 +7,7 @@ import {
   getTasksDoneForUserAndDate,
   getTasksOverdueForDate,
   getReviewsDoneForUserAndDate,
+  getUserBasicInfo,
   hasDailyReportForDate,
   getEvmHoursForUserAndDate,
   upsertDailySnapshot,
@@ -50,8 +51,15 @@ async function buildDailySnapshot(
   userCode: string,
   date: string,
 ): Promise<void> {
+  /** DB có thể đổi trong lúc backfill dài — bỏ qua user không còn trong DB hiện tại. */
+  const row = await getUserBasicInfo(userId)
+  if (!row) return
+  const email = row.email ?? userEmail
+  const name = row.name ?? userName
+  const code = row.user_code ?? userCode
+
   const [commitRows, taskRows, overdueCount, reviewsCount, hasReport, evmHours] = await Promise.all([
-    getGitCommitQueueForUserAndDate(userEmail || null, userName || null, userCode || null, date),
+    getGitCommitQueueForUserAndDate(email || null, name || null, code || null, date),
     getTasksDoneForUserAndDate(userId, date),
     getTasksOverdueForDate(userId, date),
     getReviewsDoneForUserAndDate(userId, date),

@@ -28,7 +28,7 @@ import {
   XCircle,
   XIcon,
 } from 'lucide-react'
-import { lazy, memo, startTransition, Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { lazy, memo, Suspense, startTransition, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { TaskChangeHistoryDialog } from '@/components/dialogs/task/TaskChangeHistoryDialog'
 import { TaskPickerCombobox } from '@/components/dialogs/task/TaskPickerCombobox'
@@ -55,15 +55,13 @@ import toast from '@/components/ui-elements/Toast'
 import { getDateOnlyPattern, getDateTimeDisplayPattern, parseLocalDate } from '@/lib/dateUtils'
 import i18n from '@/lib/i18n'
 import { isSerializedStateEmpty } from '@/lib/taskDescriptionEditorState'
-import { cn, getProgressColor } from '@/lib/utils'
 import { TASK_TYPE_MILESTONE_COMBO_TEXT_CLASS } from '@/lib/taskTypeMilestoneTokens'
+import { cn, getProgressColor } from '@/lib/utils'
 import { useAppearanceStoreSelect } from '@/stores/useAppearanceStore'
 import { Separator } from '../../ui/separator'
 
 /** Lexical + plugins rất nặng — tách chunk để overlay/header/dialog hiện trước khi editor mount. */
-const TaskDescriptionEditor = lazy(() =>
-  import('@/components/dialogs/task/TaskDescriptionEditor').then(m => ({ default: m.TaskDescriptionEditor }))
-)
+const TaskDescriptionEditor = lazy(() => import('@/components/dialogs/task/TaskDescriptionEditor').then(m => ({ default: m.TaskDescriptionEditor })))
 
 function TaskDescriptionEditorSkeleton() {
   return <div className="flex min-h-[14rem] w-full animate-pulse rounded-lg border border-border/80 bg-muted/35" aria-hidden />
@@ -211,15 +209,7 @@ function recordUserInitials(name: string): string {
   return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase()
 }
 
-const TaskDialogSection = memo(function TaskDialogSection({
-  title,
-  children,
-  className,
-}: {
-  title: string
-  children: React.ReactNode
-  className?: string
-}) {
+const TaskDialogSection = memo(function TaskDialogSection({ title, children, className }: { title: string; children: React.ReactNode; className?: string }) {
   return (
     <div className={cn('flex min-w-0 flex-col gap-1.5', className)}>
       <div className="flex min-h-[0.875rem] items-center gap-2">
@@ -412,32 +402,33 @@ export function AddOrEditTaskDialog({
 
     const pMilestone = pid
       ? window.api.task.canCreateMilestone(pid).then((res: { status: string; data?: { ok: boolean } }) => {
-          if (cancelled) return
-          startTransition(() => setCanCreateMilestone(res.status === 'success' && Boolean(res.data?.ok)))
-        })
+        if (cancelled) return
+        startTransition(() => setCanCreateMilestone(res.status === 'success' && Boolean(res.data?.ok)))
+      })
       : Promise.resolve().then(() => {
-          if (!cancelled) startTransition(() => setCanCreateMilestone(false))
-        })
+        if (!cancelled) startTransition(() => setCanCreateMilestone(false))
+      })
 
     const pEdit = tid
       ? window.api.task.canEditTask(tid).then((res: { status: string; data?: { canEdit: boolean; canDelete: boolean } }) => {
-          if (cancelled) return
-          startTransition(() => {
-            if (res.status === 'success' && res.data) {
-              setCanEdit(res.data.canEdit)
-              setCanDelete(res.data.canDelete)
-            } else {
-              setCanEdit(false)
-              setCanDelete(false)
-            }
-          })
+        if (cancelled) return
+        startTransition(() => {
+          if (res.status === 'success' && res.data) {
+            setCanEdit(res.data.canEdit)
+            setCanDelete(res.data.canDelete)
+          } else {
+            setCanEdit(false)
+            setCanDelete(false)
+          }
         })
+      })
       : Promise.resolve().then(() => {
-          if (!cancelled) startTransition(() => {
+        if (!cancelled)
+          startTransition(() => {
             setCanEdit(true)
             setCanDelete(true)
           })
-        })
+      })
 
     Promise.all([pMilestone, pEdit]).catch(() => {
       if (cancelled) return
@@ -586,7 +577,7 @@ export function AddOrEditTaskDialog({
               setLinkTypes(res.data)
               setAddLinkType(prev => {
                 const codes = res.data?.map(d => d.code)
-                return codes?.includes(prev) ? prev : codes?.[0] ?? 'blocks'
+                return codes?.includes(prev) ? prev : (codes?.[0] ?? 'blocks')
               })
             } else {
               setLinkTypes([
@@ -669,7 +660,7 @@ export function AddOrEditTaskDialog({
       /** Milestone luôn dùng palette rose (tránh master `color` nhầm amber; SVG trong Button cần class). */
       const useMasterHex = Boolean(item?.color) && !isMilestone
       const cls = useMasterHex ? '' : colorCls(isMilestone ? 'milestone' : norm)
-      const style = useMasterHex ? { color: item!.color } : undefined
+      const style = useMasterHex ? { color: item?.color } : undefined
       switch (norm) {
         case 'feature':
           return <Sparkles className={cn('h-4 w-4 shrink-0', cls)} style={style} />
@@ -726,16 +717,15 @@ export function AddOrEditTaskDialog({
       const u = users.find(x => x.id === id)
       return u ? `${u.name} (${u.userCode})` : id
     },
-    [users, t],
+    [users, t]
   )
 
   const recordCreatedDisplay = useMemo(() => {
     if (!task) return { nameOut: '-', avatarSrc: null as string | null, initials: '?' }
     const uid = task.createdBy?.trim() ?? ''
     const rawName = task.createdByName?.trim() || (uid ? users.find(u => u.id === uid)?.name : '') || ''
-    const nameOut = rawName || (uid || '-')
-    const avatarSrc =
-      (task.createdByAvatarUrl && String(task.createdByAvatarUrl)) || (uid ? recordExtraAvatars[uid] : null) || null
+    const nameOut = rawName || uid || '-'
+    const avatarSrc = (task.createdByAvatarUrl && String(task.createdByAvatarUrl)) || (uid ? recordExtraAvatars[uid] : null) || null
     return { nameOut, avatarSrc, initials: recordUserInitials(rawName || uid || '?') }
   }, [task, users, recordExtraAvatars])
 
@@ -745,8 +735,7 @@ export function AddOrEditTaskDialog({
     if (!uid) return { nameOut: '-', avatarSrc: null, initials: '?' }
     const rawName = task.updatedByName?.trim() || users.find(u => u.id === uid)?.name || ''
     const nameOut = rawName || uid
-    const avatarSrc =
-      (task.updatedByAvatarUrl && String(task.updatedByAvatarUrl)) || recordExtraAvatars[uid] || null
+    const avatarSrc = (task.updatedByAvatarUrl && String(task.updatedByAvatarUrl)) || recordExtraAvatars[uid] || null
     return { nameOut, avatarSrc, initials: recordUserInitials(rawName || uid) }
   }, [task, users, recordExtraAvatars])
 
@@ -910,700 +899,690 @@ export function AddOrEditTaskDialog({
 
   return (
     <>
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent
-        showCloseButton={false}
-        className="max-w-6xl! max-h-[90vh] flex flex-col gap-3 overflow-hidden overflow-x-hidden p-4 sm:max-w-[min(94vw,58rem)] sm:p-4"
-        onInteractOutside={e => {
-          const el = e.target as HTMLElement | null
-          if (el?.closest?.('[data-radix-popper-content-wrapper]')) return
-          if (el?.closest?.('[data-radix-select-content]')) return
-          if (el?.closest?.('[data-slot="dropdown-menu-content"]')) return
-          e.preventDefault()
-        }}
-        onPointerDownOutside={e => {
-          const el = e.target as HTMLElement | null
-          if (el?.closest?.('[data-radix-popper-content-wrapper]')) return
-          if (el?.closest?.('[data-radix-select-content]')) return
-          if (el?.closest?.('[data-slot="dropdown-menu-content"]')) return
-          e.preventDefault()
-        }}
-      >
-        <DialogHeader className="flex shrink-0 flex-row flex-wrap items-center gap-2 space-y-0 p-0 text-left sm:text-left">
-          <DialogTitle className="min-w-0 flex-1 basis-[min(100%,12rem)] text-lg font-semibold leading-tight sm:basis-auto">
-            {isReadOnly ? t('taskManagement.viewTask') : isEditMode ? t('taskManagement.editTask') : t('taskManagement.createTask')}
-          </DialogTitle>
-          <div className="ml-auto flex shrink-0 items-center gap-0.5">
-            {isEditMode && task && (
-              <Button
-                type="button"
-                variant="ghost"
-                size="icon"
-                className="h-8 w-8 text-muted-foreground hover:text-foreground"
-                aria-label={t('taskManagement.changeHistoryTitle')}
-                title={t('taskManagement.changeHistoryTitle')}
-                onClick={() => setHistoryDialogOpen(true)}
-              >
-                <History className="h-4 w-4" />
-              </Button>
-            )}
-            <DialogClose asChild>
-              <Button type="button" variant="ghost" size="icon" className="h-8 w-8 text-muted-foreground hover:text-foreground" aria-label={t('common.close')}>
-                <XIcon className="h-4 w-4" />
-              </Button>
-            </DialogClose>
-          </div>
-        </DialogHeader>
-        <div className="flex-1 min-h-0 overflow-y-auto overflow-x-hidden flex flex-col gap-2">
-          <div key={task?.id ?? 'create'} className="flex min-w-0 flex-col gap-3 py-1">
-            <div className="grid min-h-0 grid-cols-1 items-stretch gap-3 lg:grid-cols-[minmax(0,1.05fr)_minmax(17.5rem,22rem)] lg:gap-4">
-              {/* Trái: Content — textarea giãn theo chiều cao hàng (cùng cao cột phải trên lg) */}
-              <div className="flex min-h-[14rem] flex-col min-w-0 lg:min-h-0 lg:h-full">
-                <TaskDialogSection className="flex min-h-0 flex-1 flex-col" title={t('taskManagement.dialogSectionContent')}>
-                  <div className="flex min-h-0 flex-1 flex-col gap-2">
-                    <div className="grid shrink-0 gap-1">
-                      <Label htmlFor="task-title" className={TASK_DIALOG_LABEL_CLASS}>{t('taskManagement.taskTitle')}</Label>
-                      <IsolatedInput
-                        key={task?.id ?? 'create'}
-                        valueRef={titleRef}
-                        initialValue={task?.title ?? ''}
-                        id="task-title"
-                        placeholder={t('taskManagement.taskTitlePlaceholder')}
-                        className={cn('w-full', TASK_DIALOG_FIELD_INPUT_CLASS)}
-                        disabled={isReadOnly}
-                      />
-                    </div>
-                    <div className="flex min-h-0 flex-1 flex-col gap-1">
-                      <Label htmlFor="task-description" className={TASK_DIALOG_LABEL_CLASS}>{t('taskManagement.description')}</Label>
-                      <Suspense fallback={<TaskDescriptionEditorSkeleton />}>
-                        <TaskDescriptionEditor
-                          key={`${task?.id ?? 'create'}-desc`}
-                          valueRef={descriptionRef}
-                          initialValue={task?.description ?? ''}
-                          id="task-description"
-                          placeholder={t('taskManagement.descriptionPlaceholder')}
-                          disabled={isReadOnly}
-                          className="w-full min-h-0"
-                        />
-                      </Suspense>
-                    </div>
-                  </div>
-                </TaskDialogSection>
-              </div>
-
-              {/* Phải: General, Assignment, Timeline, Record — 2 ô / hàng */}
-              <div className="flex min-w-0 flex-col gap-3 lg:h-full lg:min-h-0">
-                <TaskDialogSection title={t('taskManagement.dialogSectionGeneral', 'General')}>
-                  <div className={TASK_DIALOG_RIGHT_GRID}>
-                    <div className="grid min-w-0 gap-1">
-                      <Label className={TASK_DIALOG_LABEL_CLASS}>{t('taskManagement.type')}</Label>
-                      <Combobox
-                        value={type}
-                        onValueChange={setType}
-                        options={typeOptions}
-                        className="w-full"
-                        disabled={isReadOnly}
-                        {...TASK_DIALOG_COMBOBOX_FIELD}
-                        triggerClassName={cn(TASK_DIALOG_COMBOBOX_FIELD.triggerClassName, '[&_svg]:text-inherit')}
-                      />
-                    </div>
-                    <div className="grid min-w-0 gap-1">
-                      <Label className={TASK_DIALOG_LABEL_CLASS}>{t('taskManagement.source')}</Label>
-                      <Input value={sourceDisplayName} disabled className={cn('w-full bg-muted', TASK_DIALOG_FIELD_INPUT_CLASS)} />
-                    </div>
-                    {!isMilestone ? (
-                    <div className="grid min-w-0 gap-1">
-                      <Label htmlFor="task-ticketId" className={TASK_DIALOG_LABEL_CLASS}>{t('taskManagement.ticketId')}</Label>
-                      <IsolatedInput
-                        key={task?.id ?? 'create'}
-                        valueRef={ticketIdRef}
-                        initialValue={(task as { ticketId?: string })?.ticketId ?? ''}
-                        id="task-ticketId"
-                        disabled={ticketIdDisabled || isReadOnly}
-                        placeholder={t('taskManagement.ticketIdAuto')}
-                        className={cn('w-full', TASK_DIALOG_FIELD_INPUT_CLASS, (ticketIdDisabled || isReadOnly) && 'bg-muted')}
-                      />
-                    </div>
-                    ) : null}
-                    <div className="grid min-w-0 gap-1">
-                      <Label htmlFor="task-project" className={TASK_DIALOG_LABEL_CLASS}>{t('taskManagement.project')}</Label>
-                      {isEditMode ? (
-                        <Input id="task-project" value={project} disabled className={cn('w-full bg-muted', TASK_DIALOG_FIELD_INPUT_CLASS)} />
-                      ) : (
-                        <Combobox
-                          value={projectId}
-                          onValueChange={setProjectId}
-                          options={projectOptions}
-                          placeholder={t('taskManagement.selectProject')}
-                          className="w-full"
-                          disabled={isReadOnly}
-                          {...TASK_DIALOG_COMBOBOX_FIELD}
-                        />
-                      )}
-                    </div>
-                  </div>
-                </TaskDialogSection>
-
-                <TaskDialogSection title={t('taskManagement.dialogSectionAssignment')}>
-                  <div className={TASK_DIALOG_RIGHT_GRID}>
-                    {isMilestone ? (
-                      <div className="grid min-w-0 gap-1 sm:col-span-2">
-                        <Label className={TASK_DIALOG_LABEL_CLASS}>{t('taskManagement.assignee')}</Label>
-                        <Combobox
-                          value={assigneeUserId || '_empty'}
-                          onValueChange={v => setAssigneeUserId(v === '_empty' ? null : v)}
-                          options={assigneeOptions}
-                          placeholder={t('taskManagement.selectAssignee')}
-                          className="w-full"
-                          disabled={isReadOnly}
-                          {...TASK_DIALOG_COMBOBOX_FIELD}
-                        />
-                      </div>
-                    ) : (
-                      <>
-                    <div className="grid min-w-0 gap-2 sm:col-span-2 sm:grid-cols-2 sm:items-end sm:gap-x-3">
-                      <div className="grid min-w-0 gap-1">
-                        <Label className={TASK_DIALOG_LABEL_CLASS}>{t('taskManagement.assignee')}</Label>
-                        <Combobox
-                          value={assigneeUserId || '_empty'}
-                          onValueChange={v => setAssigneeUserId(v === '_empty' ? null : v)}
-                          options={assigneeOptions}
-                          placeholder={t('taskManagement.selectAssignee')}
-                          className="w-full"
-                          disabled={isReadOnly}
-                          {...TASK_DIALOG_COMBOBOX_FIELD}
-                        />
-                      </div>
-                      <div className="grid min-w-0 gap-1">
-                        <Label className={TASK_DIALOG_LABEL_CLASS}>
-                          {t('taskManagement.progress')} ({progress}%)
+      <Dialog open={open} onOpenChange={onOpenChange}>
+        <DialogContent
+          showCloseButton={false}
+          className="max-w-6xl! max-h-[90vh] flex flex-col gap-3 overflow-hidden overflow-x-hidden p-4 sm:max-w-[min(94vw,58rem)] sm:p-4"
+          onInteractOutside={e => {
+            const el = e.target as HTMLElement | null
+            if (el?.closest?.('[data-radix-popper-content-wrapper]')) return
+            if (el?.closest?.('[data-radix-select-content]')) return
+            if (el?.closest?.('[data-slot="dropdown-menu-content"]')) return
+            e.preventDefault()
+          }}
+          onPointerDownOutside={e => {
+            const el = e.target as HTMLElement | null
+            if (el?.closest?.('[data-radix-popper-content-wrapper]')) return
+            if (el?.closest?.('[data-radix-select-content]')) return
+            if (el?.closest?.('[data-slot="dropdown-menu-content"]')) return
+            e.preventDefault()
+          }}
+        >
+          <DialogHeader className="flex shrink-0 flex-row flex-wrap items-center gap-2 space-y-0 p-0 text-left sm:text-left">
+            <DialogTitle className="min-w-0 flex-1 basis-[min(100%,12rem)] text-lg font-semibold leading-tight sm:basis-auto">
+              {isReadOnly ? t('taskManagement.viewTask') : isEditMode ? t('taskManagement.editTask') : t('taskManagement.createTask')}
+            </DialogTitle>
+            <div className="ml-auto flex shrink-0 items-center gap-0.5">
+              {isEditMode && task && (
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="icon"
+                  className="h-8 w-8 text-muted-foreground hover:text-foreground"
+                  aria-label={t('taskManagement.changeHistoryTitle')}
+                  title={t('taskManagement.changeHistoryTitle')}
+                  onClick={() => setHistoryDialogOpen(true)}
+                >
+                  <History className="h-4 w-4" />
+                </Button>
+              )}
+              <DialogClose asChild>
+                <Button type="button" variant="ghost" size="icon" className="h-8 w-8 text-muted-foreground hover:text-foreground" aria-label={t('common.close')}>
+                  <XIcon className="h-4 w-4" />
+                </Button>
+              </DialogClose>
+            </div>
+          </DialogHeader>
+          <div className="flex-1 min-h-0 overflow-y-auto overflow-x-hidden flex flex-col gap-2">
+            <div key={task?.id ?? 'create'} className="flex min-w-0 flex-col gap-3 py-1">
+              <div className="grid min-h-0 grid-cols-1 items-stretch gap-3 lg:grid-cols-[minmax(0,1.05fr)_minmax(17.5rem,22rem)] lg:gap-4">
+                {/* Trái: Content — textarea giãn theo chiều cao hàng (cùng cao cột phải trên lg) */}
+                <div className="flex min-h-[14rem] flex-col min-w-0 lg:min-h-0 lg:h-full">
+                  <TaskDialogSection className="flex min-h-0 flex-1 flex-col" title={t('taskManagement.dialogSectionContent')}>
+                    <div className="flex min-h-0 flex-1 flex-col gap-2">
+                      <div className="grid shrink-0 gap-1">
+                        <Label htmlFor="task-title" className={TASK_DIALOG_LABEL_CLASS}>
+                          {t('taskManagement.taskTitle')}
                         </Label>
-                        <div className="flex min-h-[28px] items-center pt-0.5">
-                          <ProgressSliderCommit value={progress} onChange={v => setProgress(v)} className="w-full" disabled={isReadOnly} />
-                        </div>
-                      </div>
-                    </div>
-                    <div className="grid min-w-0 gap-1">
-                      <Label className={TASK_DIALOG_LABEL_CLASS}>{t('taskManagement.status')}</Label>
-                      <Combobox value={status} onValueChange={setStatus} options={statusOptions} className="w-full" disabled={isReadOnly} {...TASK_DIALOG_COMBOBOX_FIELD} />
-                    </div>
-                    <div className="grid min-w-0 gap-1">
-                      <Label className={TASK_DIALOG_LABEL_CLASS}>{t('taskManagement.priority')}</Label>
-                      <Combobox value={priority} onValueChange={setPriority} options={priorityOptions} className="w-full" disabled={isReadOnly} {...TASK_DIALOG_COMBOBOX_FIELD} />
-                    </div>
-                      </>
-                    )}
-                  </div>
-                </TaskDialogSection>
-
-                <TaskDialogSection title={t('taskManagement.dialogSectionDates', 'Timeline')}>
-                  <div className={TASK_DIALOG_RIGHT_GRID}>
-                    <div className={cn('grid min-w-0 gap-1', isMilestone && 'sm:col-span-2')}>
-                      <Label className={TASK_DIALOG_LABEL_CLASS}>{isMilestone ? t('taskManagement.milestoneDate') : t('taskManagement.planStartDate')}</Label>
-                      <Popover open={planStartDateOpen} onOpenChange={setPlanStartDateOpen}>
-                        <PopoverTrigger asChild>
-                          <Button
-                            variant={isReadOnly ? 'ghost' : 'outline'}
-                            size="sm"
-                            disabled={isReadOnly}
-                            className={cn(TASK_DIALOG_DATE_TRIGGER_CLASS, TASK_DIALOG_FIELD_INPUT_CLASS, !planStartDate && 'text-muted-foreground')}
-                          >
-                            <CalendarIcon className="mr-2 h-4 w-4 shrink-0 text-primary" />
-                            {planStartDate
-                              ? format(parseLocalDate(planStartDate) ?? new Date(planStartDate), dateDisplayPattern, { locale })
-                              : t('taskManagement.selectDate')}
-                          </Button>
-                        </PopoverTrigger>
-                        <PopoverContent className="w-auto p-0" align="start">
-                          <Calendar
-                            locale={locale}
-                            mode="single"
-                            selected={toDate(planStartDate)}
-                            onSelect={d => {
-                              setPlanStartDateOpen(false)
-                              setPlanStartDate(fromDate(d))
-                            }}
-                            disabled={date => {
-                              if (isMilestone) return false
-                              const max = planEndDate ? (parseLocalDate(planEndDate) ?? new Date(planEndDate)) : undefined
-                              return max ? date > max : false
-                            }}
-                          />
-                        </PopoverContent>
-                      </Popover>
-                    </div>
-                    {!isMilestone ? (
-                      <>
-                    <div className="grid min-w-0 gap-1">
-                      <Label className={TASK_DIALOG_LABEL_CLASS}>{t('taskManagement.deadline')}</Label>
-                      <Popover open={planEndDateOpen} onOpenChange={setPlanEndDateOpen}>
-                        <PopoverTrigger asChild>
-                          <Button
-                            variant={isReadOnly ? 'ghost' : 'outline'}
-                            size="sm"
-                            disabled={isReadOnly}
-                            className={cn(TASK_DIALOG_DATE_TRIGGER_CLASS, TASK_DIALOG_FIELD_INPUT_CLASS, !planEndDate && 'text-muted-foreground')}
-                          >
-                            <CalendarIcon className="mr-2 h-4 w-4 shrink-0 text-primary" />
-                            {planEndDate ? format(parseLocalDate(planEndDate) ?? new Date(planEndDate), dateDisplayPattern, { locale }) : t('taskManagement.selectDate')}
-                          </Button>
-                        </PopoverTrigger>
-                        <PopoverContent className="w-auto p-0" align="start">
-                          <Calendar
-                            locale={locale}
-                            mode="single"
-                            selected={toDate(planEndDate)}
-                            onSelect={d => {
-                              setPlanEndDateOpen(false)
-                              setPlanEndDate(fromDate(d))
-                            }}
-                            disabled={date => {
-                              const max = actualEndDate ? (parseLocalDate(actualEndDate) ?? new Date(actualEndDate)) : undefined
-                              const min = planStartDate ? (parseLocalDate(planStartDate) ?? new Date(planStartDate)) : undefined
-                              if (max && date > max) return true
-                              if (min && date < min) return true
-                              return false
-                            }}
-                          />
-                        </PopoverContent>
-                      </Popover>
-                    </div>
-                    <div className="grid min-w-0 gap-1">
-                      <Label className={TASK_DIALOG_LABEL_CLASS}>{t('taskManagement.actualStartDate')}</Label>
-                      <Popover open={actualStartOpen} onOpenChange={setActualStartOpen}>
-                        <PopoverTrigger asChild>
-                          <Button
-                            variant={isReadOnly ? 'ghost' : 'outline'}
-                            size="sm"
-                            disabled={isReadOnly}
-                            className={cn(TASK_DIALOG_DATE_TRIGGER_CLASS, TASK_DIALOG_FIELD_INPUT_CLASS, !actualStartDate && 'text-muted-foreground')}
-                          >
-                            <CalendarIcon className="mr-2 h-4 w-4 shrink-0 text-primary" />
-                            {actualStartDate ? format(parseLocalDate(actualStartDate) ?? new Date(actualStartDate), dateDisplayPattern, { locale }) : t('taskManagement.selectDate')}
-                          </Button>
-                        </PopoverTrigger>
-                        <PopoverContent className="w-auto p-0" align="start">
-                          <Calendar
-                            locale={locale}
-                            mode="single"
-                            selected={toDate(actualStartDate)}
-                            onSelect={d => {
-                              setActualStartOpen(false)
-                              setActualStartDate(fromDate(d))
-                            }}
-                            disabled={date => {
-                              const maxStr = actualEndDate || planEndDate
-                              const max = maxStr ? (parseLocalDate(maxStr) ?? new Date(maxStr)) : undefined
-                              const min = planStartDate ? (parseLocalDate(planStartDate) ?? new Date(planStartDate)) : undefined
-                              if (max && date > max) return true
-                              if (min && date < min) return true
-                              return false
-                            }}
-                          />
-                        </PopoverContent>
-                      </Popover>
-                    </div>
-                    <div className="grid min-w-0 gap-1">
-                      <Label className={TASK_DIALOG_LABEL_CLASS}>{t('taskManagement.actualCompletionDate')}</Label>
-                      <Popover open={actualEndDateOpen} onOpenChange={setActualEndDateOpen}>
-                        <PopoverTrigger asChild>
-                          <Button
-                            variant={isReadOnly ? 'ghost' : 'outline'}
-                            size="sm"
-                            disabled={isReadOnly}
-                            className={cn(TASK_DIALOG_DATE_TRIGGER_CLASS, TASK_DIALOG_FIELD_INPUT_CLASS, !actualEndDate && 'text-muted-foreground')}
-                          >
-                            <CalendarIcon className="mr-2 h-4 w-4 shrink-0 text-primary" />
-                            {actualEndDate ? format(parseLocalDate(actualEndDate) ?? new Date(actualEndDate), dateDisplayPattern, { locale }) : t('taskManagement.selectDate')}
-                          </Button>
-                        </PopoverTrigger>
-                        <PopoverContent className="w-auto p-0" align="start">
-                          <Calendar
-                            locale={locale}
-                            mode="single"
-                            selected={toDate(actualEndDate)}
-                            onSelect={d => {
-                              setActualEndDateOpen(false)
-                              setActualEndDate(fromDate(d))
-                            }}
-                            disabled={date => {
-                              let min: Date | undefined = actualStartDate ? (parseLocalDate(actualStartDate) ?? new Date(actualStartDate)) : undefined
-                              if (planStartDate) {
-                                const ps = parseLocalDate(planStartDate) ?? new Date(planStartDate)
-                                if (!min || ps.getTime() < min.getTime()) min = ps
-                              }
-                              return min ? date < min : false
-                            }}
-                          />
-                        </PopoverContent>
-                      </Popover>
-                    </div>
-                      </>
-                    ) : null}
-                  </div>
-                </TaskDialogSection>
-
-                {isEditMode && task && (
-                  <TaskDialogSection title={t('taskManagement.dialogSectionMeta')}>
-                    <div className={TASK_DIALOG_RIGHT_GRID}>
-                      <div className="grid min-w-0 gap-1">
-                        <Label className={TASK_DIALOG_LABEL_CLASS}>{t('taskManagement.createdAt')}</Label>
-                        <Input
-                          value={task.createdAt ? format(new Date(task.createdAt), dateTimeDisplayPattern, { locale }) : '-'}
-                          disabled
-                          readOnly
-                          tabIndex={-1}
-                          className={cn('w-full bg-muted', TASK_DIALOG_FIELD_INPUT_CLASS)}
+                        <IsolatedInput
+                          key={task?.id ?? 'create'}
+                          valueRef={titleRef}
+                          initialValue={task?.title ?? ''}
+                          id="task-title"
+                          placeholder={t('taskManagement.taskTitlePlaceholder')}
+                          className={cn('w-full', TASK_DIALOG_FIELD_INPUT_CLASS)}
+                          disabled={isReadOnly}
                         />
                       </div>
-                      <div className="grid min-w-0 gap-1">
-                        <Label className={TASK_DIALOG_LABEL_CLASS}>{t('taskManagement.updatedAt')}</Label>
-                        <Input
-                          value={task.updatedAt ? format(new Date(task.updatedAt), dateTimeDisplayPattern, { locale }) : '-'}
-                          disabled
-                          readOnly
-                          tabIndex={-1}
-                          className={cn('w-full bg-muted', TASK_DIALOG_FIELD_INPUT_CLASS)}
-                        />
-                      </div>
-                      <div className="grid min-w-0 gap-1">
-                        <Label className={TASK_DIALOG_LABEL_CLASS}>{t('taskManagement.recordCreatedBy')}</Label>
-                        <div
-                          className={cn(
-                            'flex min-h-8 w-full items-center gap-2 rounded-md bg-muted px-2',
-                            TASK_DIALOG_FIELD_INPUT_CLASS
-                          )}
-                        >
-                          <Avatar className="h-5 w-5 shrink-0">
-                            {recordCreatedDisplay.avatarSrc ? (
-                              <AvatarImage src={recordCreatedDisplay.avatarSrc} alt="" className="object-cover" />
-                            ) : null}
-                            <AvatarFallback className="bg-primary/10 text-[10px] font-medium text-primary">
-                              {recordCreatedDisplay.initials}
-                            </AvatarFallback>
-                          </Avatar>
-                          <span className="min-w-0 flex-1 truncate text-sm text-foreground">{recordCreatedDisplay.nameOut}</span>
-                        </div>
-                      </div>
-                      <div className="grid min-w-0 gap-1">
-                        <Label className={TASK_DIALOG_LABEL_CLASS}>{t('taskManagement.recordUpdatedBy')}</Label>
-                        <div
-                          className={cn(
-                            'flex min-h-8 w-full items-center gap-2 rounded-md bg-muted px-2',
-                            TASK_DIALOG_FIELD_INPUT_CLASS
-                          )}
-                        >
-                          <Avatar className="h-5 w-5 shrink-0">
-                            {recordUpdatedDisplay.avatarSrc ? (
-                              <AvatarImage src={recordUpdatedDisplay.avatarSrc} alt="" className="object-cover" />
-                            ) : null}
-                            <AvatarFallback className="bg-primary/10 text-[10px] font-medium text-primary">
-                              {recordUpdatedDisplay.initials}
-                            </AvatarFallback>
-                          </Avatar>
-                          <span className="min-w-0 flex-1 truncate text-sm text-foreground">{recordUpdatedDisplay.nameOut}</span>
-                        </div>
+                      <div className="flex min-h-0 flex-1 flex-col gap-1">
+                        <Label htmlFor="task-description" className={TASK_DIALOG_LABEL_CLASS}>
+                          {t('taskManagement.description')}
+                        </Label>
+                        <Suspense fallback={<TaskDescriptionEditorSkeleton />}>
+                          <TaskDescriptionEditor
+                            key={`${task?.id ?? 'create'}-desc`}
+                            valueRef={descriptionRef}
+                            initialValue={task?.description ?? ''}
+                            id="task-description"
+                            disabled={isReadOnly}
+                            className="w-full min-h-0"
+                          />
+                        </Suspense>
                       </div>
                     </div>
                   </TaskDialogSection>
-                )}
-              </div>
-            </div>
+                </div>
 
-            {isEditMode && task && !isMilestone && (
-              <TaskDialogSection title={t('taskManagement.dialogSectionRelations')}>
-                <div className="grid grid-cols-1 sm:grid-cols-[minmax(0,1fr)_minmax(0,1fr)] gap-2 sm:gap-3 min-w-0">
-                  {/* Sub-tasks - cột trái */}
-                  <div className="min-w-0 overflow-hidden rounded-md bg-muted p-3">
-                    <Label className="mb-1 flex items-center gap-1 truncate text-sm font-semibold leading-none text-foreground">
-                      {t('taskManagement.subTasks', 'Sub-tasks')} ({children.length})
-                      {isLoadingRelations && <Loader2 className="h-3.5 w-3.5 animate-spin text-muted-foreground" />}
-                    </Label>
-                    <div className="flex min-w-0 flex-col gap-1.5">
-                      <div className="max-h-28 min-w-0 overflow-y-auto overflow-x-hidden [&>*+*]:mt-px">
-                        {isLoadingRelations ? (
-                          <p className="flex items-center gap-1 py-0.5 text-sm text-muted-foreground">{t('common.loading', 'Loading...')}</p>
-                        ) : children.length === 0 ? (
-                          <p className="py-0.5 text-sm text-muted-foreground">{t('taskManagement.noSubTasks', 'Chưa có sub-task')}</p>
+                {/* Phải: General, Assignment, Timeline, Record — 2 ô / hàng */}
+                <div className="flex min-w-0 flex-col gap-3 lg:h-full lg:min-h-0">
+                  <TaskDialogSection title={t('taskManagement.dialogSectionGeneral', 'General')}>
+                    <div className={TASK_DIALOG_RIGHT_GRID}>
+                      <div className="grid min-w-0 gap-1">
+                        <Label className={TASK_DIALOG_LABEL_CLASS}>{t('taskManagement.type')}</Label>
+                        <Combobox
+                          value={type}
+                          onValueChange={setType}
+                          options={typeOptions}
+                          className="w-full"
+                          disabled={isReadOnly}
+                          {...TASK_DIALOG_COMBOBOX_FIELD}
+                          triggerClassName={cn(TASK_DIALOG_COMBOBOX_FIELD.triggerClassName, '[&_svg]:text-inherit')}
+                        />
+                      </div>
+                      <div className="grid min-w-0 gap-1">
+                        <Label className={TASK_DIALOG_LABEL_CLASS}>{t('taskManagement.source')}</Label>
+                        <Input value={sourceDisplayName} disabled className={cn('w-full bg-muted', TASK_DIALOG_FIELD_INPUT_CLASS)} />
+                      </div>
+                      {!isMilestone ? (
+                        <div className="grid min-w-0 gap-1">
+                          <Label htmlFor="task-ticketId" className={TASK_DIALOG_LABEL_CLASS}>
+                            {t('taskManagement.ticketId')}
+                          </Label>
+                          <IsolatedInput
+                            key={task?.id ?? 'create'}
+                            valueRef={ticketIdRef}
+                            initialValue={(task as { ticketId?: string })?.ticketId ?? ''}
+                            id="task-ticketId"
+                            disabled={ticketIdDisabled || isReadOnly}
+                            placeholder={t('taskManagement.ticketIdAuto')}
+                            className={cn('w-full', TASK_DIALOG_FIELD_INPUT_CLASS, (ticketIdDisabled || isReadOnly) && 'bg-muted')}
+                          />
+                        </div>
+                      ) : null}
+                      <div className="grid min-w-0 gap-1">
+                        <Label htmlFor="task-project" className={TASK_DIALOG_LABEL_CLASS}>
+                          {t('taskManagement.project')}
+                        </Label>
+                        {isEditMode ? (
+                          <Input id="task-project" value={project} disabled className={cn('w-full bg-muted', TASK_DIALOG_FIELD_INPUT_CLASS)} />
                         ) : (
-                          children.map(c => (
-                            <div key={c.id} className={TASK_DIALOG_LIST_ROW_CLASS}>
-                              <span className="flex-1 truncate min-w-0">{c.ticketId ? `${c.ticketId} - ${c.title}` : c.title}</span>
-                              {!isReadOnly && (
-                                <Button
-                                  variant="ghost"
-                                  size="sm"
-                                  className="h-8 min-h-8 min-w-8 w-8 shrink-0 p-0 text-destructive hover:text-destructive"
-                                  onClick={async () => {
-                                    const payload: Record<string, unknown> = { parentId: null }
-                                    if (c.version !== undefined) payload.version = c.version
-                                    const res = await window.api.task.updateTask(c.id, payload)
-                                    if (res.status === 'success') {
-                                      loadRelations()
-                                      onRelationsChange?.()
-                                    } else if ((res as { code?: string }).code === 'VERSION_CONFLICT') {
-                                      toast.error(t('taskManagement.versionConflictError'))
-                                      loadRelations()
-                                      onRelationsChange?.()
-                                    } else {
-                                      toast.error(res.message || t('taskManagement.updateError'))
-                                    }
-                                  }}
-                                >
-                                  <Trash2 className="h-3.5 w-3.5" />
-                                </Button>
-                              )}
-                            </div>
-                          ))
+                          <Combobox
+                            value={projectId}
+                            onValueChange={setProjectId}
+                            options={projectOptions}
+                            placeholder={t('taskManagement.selectProject')}
+                            className="w-full"
+                            disabled={isReadOnly}
+                            {...TASK_DIALOG_COMBOBOX_FIELD}
+                          />
                         )}
                       </div>
-                      {!isReadOnly && (
+                    </div>
+                  </TaskDialogSection>
+
+                  <TaskDialogSection title={t('taskManagement.dialogSectionAssignment')}>
+                    <div className={TASK_DIALOG_RIGHT_GRID}>
+                      {isMilestone ? (
+                        <div className="grid min-w-0 gap-1 sm:col-span-2">
+                          <Label className={TASK_DIALOG_LABEL_CLASS}>{t('taskManagement.assignee')}</Label>
+                          <Combobox
+                            value={assigneeUserId || '_empty'}
+                            onValueChange={v => setAssigneeUserId(v === '_empty' ? null : v)}
+                            options={assigneeOptions}
+                            placeholder={t('taskManagement.selectAssignee')}
+                            className="w-full"
+                            disabled={isReadOnly}
+                            {...TASK_DIALOG_COMBOBOX_FIELD}
+                          />
+                        </div>
+                      ) : (
                         <>
-                          <Separator />
-                          <div className="flex min-w-0 flex-wrap gap-1.5 pt-0.5">
-                            <TaskPickerCombobox
-                              pickerMode="subtask"
-                              currentTaskId={task.id}
-                              contextProjectId={task.projectId ?? null}
-                              extraExcludeIds={subTaskPickerExcludeIds}
-                              value={addChildTaskId}
-                              onValueChange={setAddChildTaskId}
-                              emptyOptionLabel={t('taskManagement.selectTaskToAdd', 'Select task to add')}
-                              placeholder={t('taskManagement.selectTaskToAdd', 'Select task to add')}
-                              className="min-w-[100px] flex-1"
-                              triggerClassName={TASK_DIALOG_COMBOBOX_FIELD.triggerClassName}
-                              size={TASK_DIALOG_COMBOBOX_FIELD.size}
-                            />
-                            <Button
-                              size="sm"
-                              className="h-8 shrink-0 px-3 text-sm"
-                              disabled={!addChildTaskId}
-                              onClick={async () => {
-                                if (!addChildTaskId || !task) return
-                                const fresh = await window.api.task.getTask(addChildTaskId)
-                                if (fresh.status !== 'success' || !fresh.data) {
-                                  toast.error(fresh.message || t('taskManagement.updateError'))
-                                  return
-                                }
-                                const childVersion = (fresh.data as { version?: number }).version
-                                const payload: Record<string, unknown> = { parentId: task.id }
-                                if (childVersion !== undefined) payload.version = childVersion
-                                const res = await window.api.task.updateTask(addChildTaskId, payload)
-                                if (res.status === 'success') {
-                                  setAddChildTaskId('')
-                                  loadRelations()
-                                  onRelationsChange?.()
-                                } else if ((res as { code?: string }).code === 'VERSION_CONFLICT') {
-                                  toast.error(t('taskManagement.versionConflictError'))
-                                  loadRelations()
-                                  onRelationsChange?.()
-                                } else {
-                                  toast.error(res.message || t('taskManagement.updateError'))
-                                }
-                              }}
-                            >
-                              {t('common.add')}
-                            </Button>
+                          <div className="grid min-w-0 gap-2 sm:col-span-2 sm:grid-cols-2 sm:items-end sm:gap-x-3">
+                            <div className="grid min-w-0 gap-1">
+                              <Label className={TASK_DIALOG_LABEL_CLASS}>{t('taskManagement.assignee')}</Label>
+                              <Combobox
+                                value={assigneeUserId || '_empty'}
+                                onValueChange={v => setAssigneeUserId(v === '_empty' ? null : v)}
+                                options={assigneeOptions}
+                                placeholder={t('taskManagement.selectAssignee')}
+                                className="w-full"
+                                disabled={isReadOnly}
+                                {...TASK_DIALOG_COMBOBOX_FIELD}
+                              />
+                            </div>
+                            <div className="grid min-w-0 gap-1">
+                              <Label className={TASK_DIALOG_LABEL_CLASS}>
+                                {t('taskManagement.progress')} ({progress}%)
+                              </Label>
+                              <div className="flex min-h-[28px] items-center pt-0.5">
+                                <ProgressSliderCommit value={progress} onChange={v => setProgress(v)} className="w-full" disabled={isReadOnly} />
+                              </div>
+                            </div>
                           </div>
-                          <div className="flex gap-1.5">
-                            <IsolatedInput
-                              key={`addChild-${addChildResetKey}`}
-                              valueRef={addChildTitleRef}
-                              initialValue=""
-                              placeholder={t('taskManagement.subTaskTitlePlaceholder', 'Sub-task title')}
-                              className="h-8 flex-1 text-sm"
+                          <div className="grid min-w-0 gap-1">
+                            <Label className={TASK_DIALOG_LABEL_CLASS}>{t('taskManagement.status')}</Label>
+                            <Combobox value={status} onValueChange={setStatus} options={statusOptions} className="w-full" disabled={isReadOnly} {...TASK_DIALOG_COMBOBOX_FIELD} />
+                          </div>
+                          <div className="grid min-w-0 gap-1">
+                            <Label className={TASK_DIALOG_LABEL_CLASS}>{t('taskManagement.priority')}</Label>
+                            <Combobox
+                              value={priority}
+                              onValueChange={setPriority}
+                              options={priorityOptions}
+                              className="w-full"
+                              disabled={isReadOnly}
+                              {...TASK_DIALOG_COMBOBOX_FIELD}
                             />
-                            <Button
-                              size="sm"
-                              className="h-8 shrink-0 px-3 text-sm"
-                              onClick={async () => {
-                                const val = (addChildTitleRef.current ?? '').trim()
-                                if (!val) return
-                                const res = await window.api.task.createTaskChild(task.id, {
-                                  title: val,
-                                  status: 'new',
-                                })
-                                if (res.status === 'success') {
-                                  setAddChildResetKey(k => k + 1)
-                                  loadRelations()
-                                  onRelationsChange?.()
-                                } else {
-                                  toast.error(res.message || t('taskManagement.createError'))
-                                }
-                              }}
-                            >
-                              {t('common.add')}
-                            </Button>
                           </div>
                         </>
                       )}
                     </div>
-                  </div>
-                  {/* Links - cột phải */}
-                  <div className="min-w-0 overflow-hidden rounded-md bg-muted p-3">
-                    <Label className="mb-1 flex items-center gap-1 truncate text-sm font-semibold leading-none text-foreground">
-                      {t('taskManagement.links', 'Links')} ({links.outgoing.length + links.incoming.length})
-                      {isLoadingRelations && <Loader2 className="h-3.5 w-3.5 animate-spin text-muted-foreground" />}
-                    </Label>
-                    <div className="flex min-w-0 flex-col gap-1.5">
-                      <div className="max-h-28 min-w-0 overflow-y-auto overflow-x-hidden [&>*+*]:mt-px">
-                        {isLoadingRelations ? (
-                          <p className="flex items-center gap-1 py-0.5 text-sm text-muted-foreground">{t('common.loading', 'Loading...')}</p>
-                        ) : links.outgoing.length === 0 && links.incoming.length === 0 ? (
-                          <p className="py-0.5 text-sm text-muted-foreground">{t('taskManagement.noLinks', 'Chưa có link')}</p>
-                        ) : (
+                  </TaskDialogSection>
+
+                  <TaskDialogSection title={t('taskManagement.dialogSectionDates', 'Timeline')}>
+                    <div className={TASK_DIALOG_RIGHT_GRID}>
+                      <div className={cn('grid min-w-0 gap-1', isMilestone && 'sm:col-span-2')}>
+                        <Label className={TASK_DIALOG_LABEL_CLASS}>{isMilestone ? t('taskManagement.milestoneDate') : t('taskManagement.planStartDate')}</Label>
+                        <Popover open={planStartDateOpen} onOpenChange={setPlanStartDateOpen}>
+                          <PopoverTrigger asChild>
+                            <Button
+                              variant={isReadOnly ? 'ghost' : 'outline'}
+                              size="sm"
+                              disabled={isReadOnly}
+                              className={cn(TASK_DIALOG_DATE_TRIGGER_CLASS, TASK_DIALOG_FIELD_INPUT_CLASS, !planStartDate && 'text-muted-foreground')}
+                            >
+                              <CalendarIcon className="mr-2 h-4 w-4 shrink-0 text-primary" />
+                              {planStartDate ? format(parseLocalDate(planStartDate) ?? new Date(planStartDate), dateDisplayPattern, { locale }) : t('taskManagement.selectDate')}
+                            </Button>
+                          </PopoverTrigger>
+                          <PopoverContent className="w-auto p-0" align="start">
+                            <Calendar
+                              locale={locale}
+                              mode="single"
+                              selected={toDate(planStartDate)}
+                              onSelect={d => {
+                                setPlanStartDateOpen(false)
+                                setPlanStartDate(fromDate(d))
+                              }}
+                              disabled={date => {
+                                if (isMilestone) return false
+                                const max = planEndDate ? (parseLocalDate(planEndDate) ?? new Date(planEndDate)) : undefined
+                                return max ? date > max : false
+                              }}
+                            />
+                          </PopoverContent>
+                        </Popover>
+                      </div>
+                      {!isMilestone ? (
+                        <>
+                          <div className="grid min-w-0 gap-1">
+                            <Label className={TASK_DIALOG_LABEL_CLASS}>{t('taskManagement.deadline')}</Label>
+                            <Popover open={planEndDateOpen} onOpenChange={setPlanEndDateOpen}>
+                              <PopoverTrigger asChild>
+                                <Button
+                                  variant={isReadOnly ? 'ghost' : 'outline'}
+                                  size="sm"
+                                  disabled={isReadOnly}
+                                  className={cn(TASK_DIALOG_DATE_TRIGGER_CLASS, TASK_DIALOG_FIELD_INPUT_CLASS, !planEndDate && 'text-muted-foreground')}
+                                >
+                                  <CalendarIcon className="mr-2 h-4 w-4 shrink-0 text-primary" />
+                                  {planEndDate ? format(parseLocalDate(planEndDate) ?? new Date(planEndDate), dateDisplayPattern, { locale }) : t('taskManagement.selectDate')}
+                                </Button>
+                              </PopoverTrigger>
+                              <PopoverContent className="w-auto p-0" align="start">
+                                <Calendar
+                                  locale={locale}
+                                  mode="single"
+                                  selected={toDate(planEndDate)}
+                                  onSelect={d => {
+                                    setPlanEndDateOpen(false)
+                                    setPlanEndDate(fromDate(d))
+                                  }}
+                                  disabled={date => {
+                                    const max = actualEndDate ? (parseLocalDate(actualEndDate) ?? new Date(actualEndDate)) : undefined
+                                    const min = planStartDate ? (parseLocalDate(planStartDate) ?? new Date(planStartDate)) : undefined
+                                    if (max && date > max) return true
+                                    if (min && date < min) return true
+                                    return false
+                                  }}
+                                />
+                              </PopoverContent>
+                            </Popover>
+                          </div>
+                          <div className="grid min-w-0 gap-1">
+                            <Label className={TASK_DIALOG_LABEL_CLASS}>{t('taskManagement.actualStartDate')}</Label>
+                            <Popover open={actualStartOpen} onOpenChange={setActualStartOpen}>
+                              <PopoverTrigger asChild>
+                                <Button
+                                  variant={isReadOnly ? 'ghost' : 'outline'}
+                                  size="sm"
+                                  disabled={isReadOnly}
+                                  className={cn(TASK_DIALOG_DATE_TRIGGER_CLASS, TASK_DIALOG_FIELD_INPUT_CLASS, !actualStartDate && 'text-muted-foreground')}
+                                >
+                                  <CalendarIcon className="mr-2 h-4 w-4 shrink-0 text-primary" />
+                                  {actualStartDate
+                                    ? format(parseLocalDate(actualStartDate) ?? new Date(actualStartDate), dateDisplayPattern, { locale })
+                                    : t('taskManagement.selectDate')}
+                                </Button>
+                              </PopoverTrigger>
+                              <PopoverContent className="w-auto p-0" align="start">
+                                <Calendar
+                                  locale={locale}
+                                  mode="single"
+                                  selected={toDate(actualStartDate)}
+                                  onSelect={d => {
+                                    setActualStartOpen(false)
+                                    setActualStartDate(fromDate(d))
+                                  }}
+                                  disabled={date => {
+                                    const maxStr = actualEndDate || planEndDate
+                                    const max = maxStr ? (parseLocalDate(maxStr) ?? new Date(maxStr)) : undefined
+                                    const min = planStartDate ? (parseLocalDate(planStartDate) ?? new Date(planStartDate)) : undefined
+                                    if (max && date > max) return true
+                                    if (min && date < min) return true
+                                    return false
+                                  }}
+                                />
+                              </PopoverContent>
+                            </Popover>
+                          </div>
+                          <div className="grid min-w-0 gap-1">
+                            <Label className={TASK_DIALOG_LABEL_CLASS}>{t('taskManagement.actualCompletionDate')}</Label>
+                            <Popover open={actualEndDateOpen} onOpenChange={setActualEndDateOpen}>
+                              <PopoverTrigger asChild>
+                                <Button
+                                  variant={isReadOnly ? 'ghost' : 'outline'}
+                                  size="sm"
+                                  disabled={isReadOnly}
+                                  className={cn(TASK_DIALOG_DATE_TRIGGER_CLASS, TASK_DIALOG_FIELD_INPUT_CLASS, !actualEndDate && 'text-muted-foreground')}
+                                >
+                                  <CalendarIcon className="mr-2 h-4 w-4 shrink-0 text-primary" />
+                                  {actualEndDate
+                                    ? format(parseLocalDate(actualEndDate) ?? new Date(actualEndDate), dateDisplayPattern, { locale })
+                                    : t('taskManagement.selectDate')}
+                                </Button>
+                              </PopoverTrigger>
+                              <PopoverContent className="w-auto p-0" align="start">
+                                <Calendar
+                                  locale={locale}
+                                  mode="single"
+                                  selected={toDate(actualEndDate)}
+                                  onSelect={d => {
+                                    setActualEndDateOpen(false)
+                                    setActualEndDate(fromDate(d))
+                                  }}
+                                  disabled={date => {
+                                    let min: Date | undefined = actualStartDate ? (parseLocalDate(actualStartDate) ?? new Date(actualStartDate)) : undefined
+                                    if (planStartDate) {
+                                      const ps = parseLocalDate(planStartDate) ?? new Date(planStartDate)
+                                      if (!min || ps.getTime() < min.getTime()) min = ps
+                                    }
+                                    return min ? date < min : false
+                                  }}
+                                />
+                              </PopoverContent>
+                            </Popover>
+                          </div>
+                        </>
+                      ) : null}
+                    </div>
+                  </TaskDialogSection>
+
+                  {isEditMode && task && (
+                    <TaskDialogSection title={t('taskManagement.dialogSectionMeta')}>
+                      <div className={TASK_DIALOG_RIGHT_GRID}>
+                        <div className="grid min-w-0 gap-1">
+                          <Label className={TASK_DIALOG_LABEL_CLASS}>{t('taskManagement.createdAt')}</Label>
+                          <Input
+                            value={task.createdAt ? format(new Date(task.createdAt), dateTimeDisplayPattern, { locale }) : '-'}
+                            disabled
+                            readOnly
+                            tabIndex={-1}
+                            className={cn('w-full bg-muted', TASK_DIALOG_FIELD_INPUT_CLASS)}
+                          />
+                        </div>
+                        <div className="grid min-w-0 gap-1">
+                          <Label className={TASK_DIALOG_LABEL_CLASS}>{t('taskManagement.updatedAt')}</Label>
+                          <Input
+                            value={task.updatedAt ? format(new Date(task.updatedAt), dateTimeDisplayPattern, { locale }) : '-'}
+                            disabled
+                            readOnly
+                            tabIndex={-1}
+                            className={cn('w-full bg-muted', TASK_DIALOG_FIELD_INPUT_CLASS)}
+                          />
+                        </div>
+                        <div className="grid min-w-0 gap-1">
+                          <Label className={TASK_DIALOG_LABEL_CLASS}>{t('taskManagement.recordCreatedBy')}</Label>
+                          <div className={cn('flex min-h-8 w-full items-center gap-2 rounded-md bg-muted px-2', TASK_DIALOG_FIELD_INPUT_CLASS)}>
+                            <Avatar className="h-5 w-5 shrink-0">
+                              {recordCreatedDisplay.avatarSrc ? <AvatarImage src={recordCreatedDisplay.avatarSrc} alt="" className="object-cover" /> : null}
+                              <AvatarFallback className="bg-primary/10 text-[10px] font-medium text-primary">{recordCreatedDisplay.initials}</AvatarFallback>
+                            </Avatar>
+                            <span className="min-w-0 flex-1 truncate text-sm text-foreground">{recordCreatedDisplay.nameOut}</span>
+                          </div>
+                        </div>
+                        <div className="grid min-w-0 gap-1">
+                          <Label className={TASK_DIALOG_LABEL_CLASS}>{t('taskManagement.recordUpdatedBy')}</Label>
+                          <div className={cn('flex min-h-8 w-full items-center gap-2 rounded-md bg-muted px-2', TASK_DIALOG_FIELD_INPUT_CLASS)}>
+                            <Avatar className="h-5 w-5 shrink-0">
+                              {recordUpdatedDisplay.avatarSrc ? <AvatarImage src={recordUpdatedDisplay.avatarSrc} alt="" className="object-cover" /> : null}
+                              <AvatarFallback className="bg-primary/10 text-[10px] font-medium text-primary">{recordUpdatedDisplay.initials}</AvatarFallback>
+                            </Avatar>
+                            <span className="min-w-0 flex-1 truncate text-sm text-foreground">{recordUpdatedDisplay.nameOut}</span>
+                          </div>
+                        </div>
+                      </div>
+                    </TaskDialogSection>
+                  )}
+                </div>
+              </div>
+
+              {isEditMode && task && !isMilestone && (
+                <TaskDialogSection title={t('taskManagement.dialogSectionRelations')}>
+                  <div className="grid grid-cols-1 sm:grid-cols-[minmax(0,1fr)_minmax(0,1fr)] gap-2 sm:gap-3 min-w-0">
+                    {/* Sub-tasks - cột trái */}
+                    <div className="min-w-0 overflow-hidden rounded-md bg-muted p-3">
+                      <Label className="mb-1 flex items-center gap-1 truncate text-sm font-semibold leading-none text-foreground">
+                        {t('taskManagement.subTasks', 'Sub-tasks')} ({children.length})
+                        {isLoadingRelations && <Loader2 className="h-3.5 w-3.5 animate-spin text-muted-foreground" />}
+                      </Label>
+                      <div className="flex min-w-0 flex-col gap-1.5">
+                        <div className="max-h-28 min-w-0 overflow-y-auto overflow-x-hidden [&>*+*]:mt-px">
+                          {isLoadingRelations ? (
+                            <p className="flex items-center gap-1 py-0.5 text-sm text-muted-foreground">{t('common.loading', 'Loading...')}</p>
+                          ) : children.length === 0 ? (
+                            <p className="py-0.5 text-sm text-muted-foreground">{t('taskManagement.noSubTasks', 'Chưa có sub-task')}</p>
+                          ) : (
+                            children.map(c => (
+                              <div key={c.id} className={TASK_DIALOG_LIST_ROW_CLASS}>
+                                <span className="flex-1 truncate min-w-0">{c.ticketId ? `${c.ticketId} - ${c.title}` : c.title}</span>
+                                {!isReadOnly && (
+                                  <Button
+                                    variant="ghost"
+                                    size="sm"
+                                    className="h-8 min-h-8 min-w-8 w-8 shrink-0 p-0 text-destructive hover:text-destructive"
+                                    onClick={async () => {
+                                      const payload: Record<string, unknown> = { parentId: null }
+                                      if (c.version !== undefined) payload.version = c.version
+                                      const res = await window.api.task.updateTask(c.id, payload)
+                                      if (res.status === 'success') {
+                                        loadRelations()
+                                        onRelationsChange?.()
+                                      } else if ((res as { code?: string }).code === 'VERSION_CONFLICT') {
+                                        toast.error(t('taskManagement.versionConflictError'))
+                                        loadRelations()
+                                        onRelationsChange?.()
+                                      } else {
+                                        toast.error(res.message || t('taskManagement.updateError'))
+                                      }
+                                    }}
+                                  >
+                                    <Trash2 className="h-3.5 w-3.5" />
+                                  </Button>
+                                )}
+                              </div>
+                            ))
+                          )}
+                        </div>
+                        {!isReadOnly && (
                           <>
-                            {links.outgoing.map(l => {
-                              const config = LINK_TYPE_CONFIG[l.linkType] ?? { icon: Link2, badgeClass: TASK_LINK_TYPE_FALLBACK_BADGE }
-                              const Icon = config.icon
-                              return (
-                                <div key={l.id} className={TASK_DIALOG_LIST_ROW_CLASS}>
-                                  <span className={cn('inline-flex shrink-0 items-center gap-0.5 rounded px-1.5 py-0.5 text-sm font-medium', config.badgeClass)}>
-                                    <Icon className="size-3.5" />
-                                    {taskLinkTypeLabel(l.linkType)}
-                                  </span>
-                                  <span className="flex-1 truncate min-w-0">{l.toTicketId ? `${l.toTicketId} - ${l.toTitle || l.toTaskId}` : l.toTitle || l.toTaskId}</span>
-                                  {!isReadOnly && (
-                                    <Button
-                                      variant="ghost"
-                                      size="sm"
-                                      className="h-8 min-h-8 min-w-8 w-8 shrink-0 p-0 text-destructive hover:text-destructive"
-                                      onClick={async () => {
-                                        const res = await window.api.task.deleteTaskLink(task.id, l.id)
-                                        if (res.status === 'success') {
-                                          loadRelations()
-                                          onRelationsChange?.()
-                                        } else {
-                                          toast.error(res.message || t('taskManagement.updateError'))
-                                        }
-                                      }}
-                                    >
-                                      <Trash2 className="h-3.5 w-3.5" />
-                                    </Button>
-                                  )}
-                                </div>
-                              )
-                            })}
-                            {links.incoming.map(l => {
-                              const config = LINK_TYPE_CONFIG[l.linkType] ?? { icon: Link2, badgeClass: TASK_LINK_TYPE_FALLBACK_BADGE }
-                              const Icon = config.icon
-                              return (
-                                <div key={l.id} className={cn(TASK_DIALOG_LIST_ROW_CLASS, 'text-muted-foreground')}>
-                                  <span className={cn('inline-flex shrink-0 items-center gap-0.5 rounded px-1.5 py-0.5 text-sm font-medium', config.badgeClass)}>
-                                    <Icon className="size-3.5" />← {taskLinkTypeLabel(l.linkType)}
-                                  </span>
-                                  <span className="flex-1 truncate min-w-0">
-                                    {l.fromTicketId ? `${l.fromTicketId} - ${l.fromTitle || l.fromTaskId}` : l.fromTitle || l.fromTaskId}
-                                  </span>
-                                </div>
-                              )
-                            })}
+                            <Separator />
+                            <div className="flex min-w-0 flex-wrap gap-1.5 pt-0.5">
+                              <TaskPickerCombobox
+                                pickerMode="subtask"
+                                currentTaskId={task.id}
+                                contextProjectId={task.projectId ?? null}
+                                extraExcludeIds={subTaskPickerExcludeIds}
+                                value={addChildTaskId}
+                                onValueChange={setAddChildTaskId}
+                                emptyOptionLabel={t('taskManagement.selectTaskToAdd', 'Select task to add')}
+                                placeholder={t('taskManagement.selectTaskToAdd', 'Select task to add')}
+                                className="min-w-[100px] flex-1"
+                                triggerClassName={TASK_DIALOG_COMBOBOX_FIELD.triggerClassName}
+                                size={TASK_DIALOG_COMBOBOX_FIELD.size}
+                              />
+                              <Button
+                                size="sm"
+                                className="h-8 shrink-0 px-3 text-sm"
+                                disabled={!addChildTaskId}
+                                onClick={async () => {
+                                  if (!addChildTaskId || !task) return
+                                  const fresh = await window.api.task.getTask(addChildTaskId)
+                                  if (fresh.status !== 'success' || !fresh.data) {
+                                    toast.error(fresh.message || t('taskManagement.updateError'))
+                                    return
+                                  }
+                                  const childVersion = (fresh.data as { version?: number }).version
+                                  const payload: Record<string, unknown> = { parentId: task.id }
+                                  if (childVersion !== undefined) payload.version = childVersion
+                                  const res = await window.api.task.updateTask(addChildTaskId, payload)
+                                  if (res.status === 'success') {
+                                    setAddChildTaskId('')
+                                    loadRelations()
+                                    onRelationsChange?.()
+                                  } else if ((res as { code?: string }).code === 'VERSION_CONFLICT') {
+                                    toast.error(t('taskManagement.versionConflictError'))
+                                    loadRelations()
+                                    onRelationsChange?.()
+                                  } else {
+                                    toast.error(res.message || t('taskManagement.updateError'))
+                                  }
+                                }}
+                              >
+                                {t('common.add')}
+                              </Button>
+                            </div>
+                            <div className="flex gap-1.5">
+                              <IsolatedInput
+                                key={`addChild-${addChildResetKey}`}
+                                valueRef={addChildTitleRef}
+                                initialValue=""
+                                placeholder={t('taskManagement.subTaskTitlePlaceholder', 'Sub-task title')}
+                                className="h-8 flex-1 text-sm"
+                              />
+                              <Button
+                                size="sm"
+                                className="h-8 shrink-0 px-3 text-sm"
+                                onClick={async () => {
+                                  const val = (addChildTitleRef.current ?? '').trim()
+                                  if (!val) return
+                                  const res = await window.api.task.createTaskChild(task.id, {
+                                    title: val,
+                                    status: 'new',
+                                  })
+                                  if (res.status === 'success') {
+                                    setAddChildResetKey(k => k + 1)
+                                    loadRelations()
+                                    onRelationsChange?.()
+                                  } else {
+                                    toast.error(res.message || t('taskManagement.createError'))
+                                  }
+                                }}
+                              >
+                                {t('common.add')}
+                              </Button>
+                            </div>
                           </>
                         )}
                       </div>
-                      {!isReadOnly && (
-                        <>
-                          <Separator />
-                          <div className="flex gap-2 flex-wrap pt-1 min-w-0">
-                            <TaskPickerCombobox
-                              pickerMode="link"
-                              currentTaskId={task.id}
-                              value={addLinkToTaskId}
-                              onValueChange={setAddLinkToTaskId}
-                              emptyOptionLabel={t('taskManagement.selectTaskToLink', 'Select task')}
-                              placeholder={t('taskManagement.selectTaskToLink', 'Select task')}
-                              className="min-w-[100px] flex-1"
-                              triggerClassName={TASK_DIALOG_COMBOBOX_FIELD.triggerClassName}
-                              size={TASK_DIALOG_COMBOBOX_FIELD.size}
-                            />
-                            <Combobox
-                              value={addLinkType}
-                              onValueChange={setAddLinkType}
-                              options={linkTypeComboboxOptions}
-                              className="w-auto min-w-[10rem] max-w-[min(100%,18rem)] shrink-0"
-                              {...TASK_DIALOG_COMBOBOX_FIELD}
-                            />
-                            <Button
-                              size="sm"
-                              className="h-8 shrink-0 px-3 text-sm"
-                              disabled={!addLinkToTaskId}
-                              onClick={async () => {
-                                const res = await window.api.task.createTaskLink(task.id, addLinkToTaskId, addLinkType)
-                                if (res.status === 'success') {
-                                  setAddLinkToTaskId('')
-                                  loadRelations()
-                                  onRelationsChange?.()
-                                } else {
-                                  toast.error(res.message || t('taskManagement.updateError'))
-                                }
-                              }}
-                            >
-                              {t('common.add')}
-                            </Button>
-                          </div>
-                        </>
-                      )}
+                    </div>
+                    {/* Links - cột phải */}
+                    <div className="min-w-0 overflow-hidden rounded-md bg-muted p-3">
+                      <Label className="mb-1 flex items-center gap-1 truncate text-sm font-semibold leading-none text-foreground">
+                        {t('taskManagement.links', 'Links')} ({links.outgoing.length + links.incoming.length})
+                        {isLoadingRelations && <Loader2 className="h-3.5 w-3.5 animate-spin text-muted-foreground" />}
+                      </Label>
+                      <div className="flex min-w-0 flex-col gap-1.5">
+                        <div className="max-h-28 min-w-0 overflow-y-auto overflow-x-hidden [&>*+*]:mt-px">
+                          {isLoadingRelations ? (
+                            <p className="flex items-center gap-1 py-0.5 text-sm text-muted-foreground">{t('common.loading', 'Loading...')}</p>
+                          ) : links.outgoing.length === 0 && links.incoming.length === 0 ? (
+                            <p className="py-0.5 text-sm text-muted-foreground">{t('taskManagement.noLinks', 'Chưa có link')}</p>
+                          ) : (
+                            <>
+                              {links.outgoing.map(l => {
+                                const config = LINK_TYPE_CONFIG[l.linkType] ?? { icon: Link2, badgeClass: TASK_LINK_TYPE_FALLBACK_BADGE }
+                                const Icon = config.icon
+                                return (
+                                  <div key={l.id} className={TASK_DIALOG_LIST_ROW_CLASS}>
+                                    <span className={cn('inline-flex shrink-0 items-center gap-0.5 rounded px-1.5 py-0.5 text-sm font-medium', config.badgeClass)}>
+                                      <Icon className="size-3.5" />
+                                      {taskLinkTypeLabel(l.linkType)}
+                                    </span>
+                                    <span className="flex-1 truncate min-w-0">{l.toTicketId ? `${l.toTicketId} - ${l.toTitle || l.toTaskId}` : l.toTitle || l.toTaskId}</span>
+                                    {!isReadOnly && (
+                                      <Button
+                                        variant="ghost"
+                                        size="sm"
+                                        className="h-8 min-h-8 min-w-8 w-8 shrink-0 p-0 text-destructive hover:text-destructive"
+                                        onClick={async () => {
+                                          const res = await window.api.task.deleteTaskLink(task.id, l.id)
+                                          if (res.status === 'success') {
+                                            loadRelations()
+                                            onRelationsChange?.()
+                                          } else {
+                                            toast.error(res.message || t('taskManagement.updateError'))
+                                          }
+                                        }}
+                                      >
+                                        <Trash2 className="h-3.5 w-3.5" />
+                                      </Button>
+                                    )}
+                                  </div>
+                                )
+                              })}
+                              {links.incoming.map(l => {
+                                const config = LINK_TYPE_CONFIG[l.linkType] ?? { icon: Link2, badgeClass: TASK_LINK_TYPE_FALLBACK_BADGE }
+                                const Icon = config.icon
+                                return (
+                                  <div key={l.id} className={cn(TASK_DIALOG_LIST_ROW_CLASS, 'text-muted-foreground')}>
+                                    <span className={cn('inline-flex shrink-0 items-center gap-0.5 rounded px-1.5 py-0.5 text-sm font-medium', config.badgeClass)}>
+                                      <Icon className="size-3.5" />← {taskLinkTypeLabel(l.linkType)}
+                                    </span>
+                                    <span className="flex-1 truncate min-w-0">
+                                      {l.fromTicketId ? `${l.fromTicketId} - ${l.fromTitle || l.fromTaskId}` : l.fromTitle || l.fromTaskId}
+                                    </span>
+                                  </div>
+                                )
+                              })}
+                            </>
+                          )}
+                        </div>
+                        {!isReadOnly && (
+                          <>
+                            <Separator />
+                            <div className="flex gap-2 flex-wrap pt-1 min-w-0">
+                              <TaskPickerCombobox
+                                pickerMode="link"
+                                currentTaskId={task.id}
+                                value={addLinkToTaskId}
+                                onValueChange={setAddLinkToTaskId}
+                                emptyOptionLabel={t('taskManagement.selectTaskToLink', 'Select task')}
+                                placeholder={t('taskManagement.selectTaskToLink', 'Select task')}
+                                className="min-w-[100px] flex-1"
+                                triggerClassName={TASK_DIALOG_COMBOBOX_FIELD.triggerClassName}
+                                size={TASK_DIALOG_COMBOBOX_FIELD.size}
+                              />
+                              <Combobox
+                                value={addLinkType}
+                                onValueChange={setAddLinkType}
+                                options={linkTypeComboboxOptions}
+                                className="w-auto min-w-[10rem] max-w-[min(100%,18rem)] shrink-0"
+                                {...TASK_DIALOG_COMBOBOX_FIELD}
+                              />
+                              <Button
+                                size="sm"
+                                className="h-8 shrink-0 px-3 text-sm"
+                                disabled={!addLinkToTaskId}
+                                onClick={async () => {
+                                  const res = await window.api.task.createTaskLink(task.id, addLinkToTaskId, addLinkType)
+                                  if (res.status === 'success') {
+                                    setAddLinkToTaskId('')
+                                    loadRelations()
+                                    onRelationsChange?.()
+                                  } else {
+                                    toast.error(res.message || t('taskManagement.updateError'))
+                                  }
+                                }}
+                              >
+                                {t('common.add')}
+                              </Button>
+                            </div>
+                          </>
+                        )}
+                      </div>
                     </div>
                   </div>
-                </div>
-              </TaskDialogSection>
-            )}
+                </TaskDialogSection>
+              )}
+            </div>
           </div>
-        </div>
-        <DialogFooter className="shrink-0 flex-col-reverse gap-2 border-t border-border/60 pt-3 sm:flex-row sm:justify-between">
-          <div className="flex gap-1.5">
-            {isEditMode && onDelete && task && canDelete && !isReadOnly && (
-              <Button
-                variant="outline"
-                className="h-8 border-destructive/30 px-3 text-sm text-destructive hover:bg-destructive/10 hover:text-destructive"
-                onClick={() => setShowDeleteConfirm(true)}
-                disabled={isSubmitting}
-              >
-                <Trash2 className="mr-1.5 h-3.5 w-3.5" />
-                {t('common.delete')}
-              </Button>
-            )}
-          </div>
-          <div className="flex gap-1.5">
-            {!isReadOnly && (
-              <Button
-                variant={buttonVariant}
-                onClick={handleSubmit}
-                disabled={isSubmitting || (!isEditMode && !projectId)}
-                className={cn(
-                  'h-8 px-3 text-sm font-medium',
-                  isEditMode && 'text-emerald-600 hover:text-emerald-700 dark:text-emerald-400 dark:hover:text-emerald-300'
-                )}
-              >
-                {isSubmitting ? t('common.sending') : isEditMode ? t('common.update') : t('taskManagement.create')}
-              </Button>
-            )}
-          </div>
-        </DialogFooter>
-        <AlertDialog open={showDeleteConfirm} onOpenChange={setShowDeleteConfirm}>
-          <AlertDialogContent>
-            <AlertDialogHeader>
-              <AlertDialogTitle>{t('taskManagement.deleteTaskConfirmTitle')}</AlertDialogTitle>
-              <AlertDialogDescription>{t('taskManagement.deleteTaskConfirmDescription')}</AlertDialogDescription>
-            </AlertDialogHeader>
-            <AlertDialogFooter>
-              <AlertDialogCancel>{t('common.cancel')}</AlertDialogCancel>
-              <AlertDialogAction onClick={handleDelete} className="bg-destructive text-destructive-foreground hover:bg-destructive/90">
-                {t('common.delete')}
-              </AlertDialogAction>
-            </AlertDialogFooter>
-          </AlertDialogContent>
-        </AlertDialog>
-      </DialogContent>
-    </Dialog>
-    {isEditMode && task && (
-      <TaskChangeHistoryDialog
-        open={historyDialogOpen}
-        onOpenChange={setHistoryDialogOpen}
-        taskId={task.id}
-        resolveUserLabel={resolveUserLabelForHistory}
-      />
-    )}
+          <DialogFooter className="shrink-0 flex-col-reverse gap-2 border-t border-border/60 pt-3 sm:flex-row sm:justify-between">
+            <div className="flex gap-1.5">
+              {isEditMode && onDelete && task && canDelete && !isReadOnly && (
+                <Button
+                  variant="outline"
+                  className="h-8 border-destructive/30 px-3 text-sm text-destructive hover:bg-destructive/10 hover:text-destructive"
+                  onClick={() => setShowDeleteConfirm(true)}
+                  disabled={isSubmitting}
+                >
+                  <Trash2 className="mr-1.5 h-3.5 w-3.5" />
+                  {t('common.delete')}
+                </Button>
+              )}
+            </div>
+            <div className="flex gap-1.5">
+              {!isReadOnly && (
+                <Button
+                  variant={buttonVariant}
+                  onClick={handleSubmit}
+                  disabled={isSubmitting || (!isEditMode && !projectId)}
+                  className={cn('h-8 px-3 text-sm font-medium', isEditMode && 'text-emerald-600 hover:text-emerald-700 dark:text-emerald-400 dark:hover:text-emerald-300')}
+                >
+                  {isSubmitting ? t('common.sending') : isEditMode ? t('common.update') : t('taskManagement.create')}
+                </Button>
+              )}
+            </div>
+          </DialogFooter>
+          <AlertDialog open={showDeleteConfirm} onOpenChange={setShowDeleteConfirm}>
+            <AlertDialogContent>
+              <AlertDialogHeader>
+                <AlertDialogTitle>{t('taskManagement.deleteTaskConfirmTitle')}</AlertDialogTitle>
+                <AlertDialogDescription>{t('taskManagement.deleteTaskConfirmDescription')}</AlertDialogDescription>
+              </AlertDialogHeader>
+              <AlertDialogFooter>
+                <AlertDialogCancel>{t('common.cancel')}</AlertDialogCancel>
+                <AlertDialogAction onClick={handleDelete} className="bg-destructive text-destructive-foreground hover:bg-destructive/90">
+                  {t('common.delete')}
+                </AlertDialogAction>
+              </AlertDialogFooter>
+            </AlertDialogContent>
+          </AlertDialog>
+        </DialogContent>
+      </Dialog>
+      {isEditMode && task && (
+        <TaskChangeHistoryDialog open={historyDialogOpen} onOpenChange={setHistoryDialogOpen} taskId={task.id} resolveUserLabel={resolveUserLabelForHistory} />
+      )}
     </>
   )
 }

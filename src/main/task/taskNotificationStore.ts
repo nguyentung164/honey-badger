@@ -75,8 +75,8 @@ export async function insertTaskNotification(
 export async function getUnreadByUserId(userId: string, limit = DEFAULT_UNREAD_LIMIT): Promise<TaskNotificationRow[]> {
   if (!hasDbConfig()) return []
   const limitVal = Math.max(1, Math.min(limit, 100))
-  // Một biểu thức duy nhất cho PG: boolean hoặc legacy 0/1 (cast → boolean), tránh COALESCE(bool, 0).
-  const unreadWhere = '(NOT COALESCE(is_read::boolean, false))'
+  // PG: boolean và smallint/int legacy đều cast được sang int; không dùng ::boolean (smallint → boolean lỗi).
+  const unreadWhere = '(COALESCE(is_read::int, 0) = 0)'
   const rows = await query(
     `SELECT id, target_user_id, type, title, body, task_id, is_read, created_at
      FROM task_notifications

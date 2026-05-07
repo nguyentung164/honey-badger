@@ -3,6 +3,50 @@
 @plugin "@tailwindcss/typography";
 @custom-variant dark (&:is([data-theme-mode="dark"] *));
 
+/* Thu/mở rail meta Gantt: interpolate độ rộng (registered custom properties — Chrome 85+, Safari 15.4+) */
+@property --hb-gantt-meta-extra {
+  syntax: "<length>";
+  inherits: true;
+  initial-value: 0px;
+}
+@property --hb-gantt-col-assignee-w {
+  syntax: "<length>";
+  inherits: true;
+  initial-value: 0px;
+}
+@property --hb-gantt-col-status-w {
+  syntax: "<length>";
+  inherits: true;
+  initial-value: 0px;
+}
+@property --hb-gantt-col-priority-w {
+  syntax: "<length>";
+  inherits: true;
+  initial-value: 0px;
+}
+@property --hb-gantt-col-progress-w {
+  syntax: "<length>";
+  inherits: true;
+  initial-value: 0px;
+}
+
+[data-gantt-layout-root] {
+  transition:
+    box-shadow 300ms ease-out,
+    background-color 300ms ease-out,
+    --hb-gantt-meta-extra 240ms cubic-bezier(0.33, 1, 0.68, 1),
+    --hb-gantt-col-assignee-w 240ms cubic-bezier(0.33, 1, 0.68, 1),
+    --hb-gantt-col-status-w 240ms cubic-bezier(0.33, 1, 0.68, 1),
+    --hb-gantt-col-priority-w 240ms cubic-bezier(0.33, 1, 0.68, 1),
+    --hb-gantt-col-progress-w 240ms cubic-bezier(0.33, 1, 0.68, 1);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  [data-gantt-layout-root] {
+    transition: none !important;
+  }
+}
+
 @layer utilities {
   .dark\:hover\:bg-accent\/50 {
     @media (hover: hover) {

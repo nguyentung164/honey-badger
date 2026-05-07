@@ -1,23 +1,20 @@
 'use client'
 
-import {
-  closestCorners,
-  DndContext,
-  type DragEndEvent,
-  type DragOverEvent,
-  DragOverlay,
-  type DragStartEvent,
-  KeyboardSensor,
-  PointerSensor,
-  useDroppable,
-  useSensor,
-  useSensors,
-} from '@dnd-kit/core'
-import { arrayMove, SortableContext, sortableKeyboardCoordinates, useSortable, verticalListSortingStrategy } from '@dnd-kit/sortable'
-import { CSS } from '@dnd-kit/utilities'
 import { useVirtualizer } from '@tanstack/react-virtual'
-import { ArrowUpRight, Briefcase, ChevronRight, Layers, PanelLeftClose, SlidersHorizontal, Users } from 'lucide-react'
-import { type RefObject, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
+import { ArrowUpRight, Briefcase, ChevronDown, ChevronRight, Layers, PanelLeftClose, SlidersHorizontal, Users } from 'lucide-react'
+import {
+  createContext,
+  memo,
+  type PointerEvent as ReactPointerEvent,
+  type RefObject,
+  useCallback,
+  useContext,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+} from 'react'
 import { useTranslation } from 'react-i18next'
 import { Button } from '@/components/ui/button'
 import { Checkbox } from '@/components/ui/checkbox'
@@ -31,14 +28,8 @@ import { TaskBoardCard, type TaskBoardCardProps } from './TaskBoardCard'
 import type { TaskTableRowTask } from './TaskTableRow'
 import { taskStatusKanbanColumnBodyStyle, taskStatusKanbanHeaderStyle } from './taskStatusVisual'
 
-const COL_PREFIX = 'col::'
-
-/** Map task id → status column để highlight đích kéo O(1), không lặp nested mỗi cột. */
-function columnIsKanbanDropTarget(overId: string | null, columnCode: string, taskIdToColumn: Map<string, string>): boolean {
-  if (!overId) return false
-  if (overId === `${COL_PREFIX}${columnCode}`) return true
-  return taskIdToColumn.get(overId) === columnCode
-}
+/** Kích hoạt kéo sau khi di chuyển (px) — tránh nhầm với click. */
+const DRAG_ACTIVATION_PX = 8
 
 const LS_ORDER_KEY = 'honey_badger.taskKanban.colOrder.v2'
 const LS_WIP_KEY = 'honey_badger.taskKanban.wip.v1'
@@ -46,9 +37,9 @@ const LS_SWIM_KEY = 'honey_badger.taskKanban.swimlane.v1'
 const LS_COLLAPSED_KEY = 'honey_badger.taskKanban.collapsedCols.v1'
 const LS_ONLY_MINE_KEY = 'honey_badger.taskKanban.onlyMine.v1'
 
-/** Flat: virtual khi ≥ ngưỡng — không mount full list lúc drag (tránh đứng hình khi bắt kéo). */
+/** Flat: virtual khi ≥ ngưỡng — không mount full list. */
 const KANBAN_VIRTUAL_MIN_TASKS = 36
-const KANBAN_VIRTUAL_ESTIMATE_PX = 116
+const KANBAN_VIRTUAL_ESTIMATE_PX = 120
 
 export type KanbanMasterStatus = { code: string; name: string; is_active?: boolean; sort_order?: number }
 export type KanbanSwimlaneMode = 'flat' | 'assignee' | 'project'
@@ -69,6 +60,16 @@ function saveJsonLs(key: string, val: unknown) {
   } catch {
     /* ignore quota */
   }
+}
+
+function arrayMoveIds(ids: string[], from: number, to: number): string[] {
+  if (from === to || from < 0 || to < 0 || from >= ids.length || to >= ids.length) return ids
+  const next = [...ids]
+  const item = next[from]
+  if (item === undefined) return ids
+  next.splice(from, 1)
+  next.splice(to, 0, item)
+  return next
 }
 
 function sortedTasksForStatus(statusCode: string, rows: TaskTableRowTask[], orderByColumn: Record<string, string[]>): TaskTableRowTask[] {
@@ -133,7 +134,48 @@ function segmentedBySwimlane(sorted: TaskTableRowTask[], swim: KanbanSwimlaneMod
   return ordered.map(([laneId, g], i) => ({ key: `${laneId}_${i}`, title: g.title, tasks: g.tasks }))
 }
 
-function SortableKanbanCard({
+type KanbanDragContextValue = {
+  draggingTaskId: string | null
+  onCardPointerDown: (task: TaskTableRowTask, event: ReactPointerEvent<HTMLDivElement>) => void
+}
+
+const KanbanDragContext = createContext<KanbanDragContextValue | null>(null)
+
+/** Hit-test — bỏ qua card đang kéo (vẫn nằm trong DOM, opacity 0). */
+function resolveDropFromPoint(
+  clientX: number,
+  clientY: number,
+  ignoreTaskId: string | null,
+): { columnCode: string | null; overTaskId: string | null } {
+  let overTaskId: string | null = null
+  let columnCode: string | null = null
+  try {
+    const stack = document.elementsFromPoint(clientX, clientY)
+    for (const node of stack) {
+      if (!(node instanceof HTMLElement)) continue
+      const host = node.closest('[data-kanban-task-id]')
+      const tid = host?.getAttribute('data-kanban-task-id') ?? null
+      if (tid && tid !== ignoreTaskId) {
+        overTaskId = tid
+        break
+      }
+    }
+    for (const node of stack) {
+      if (!(node instanceof HTMLElement)) continue
+      const host = node.closest('[data-kanban-column]')
+      const col = host?.getAttribute('data-kanban-column') ?? null
+      if (col) {
+        columnCode = col
+        break
+      }
+    }
+  } catch {
+    /* ignore */
+  }
+  return { columnCode, overTaskId }
+}
+
+const DraggableKanbanCard = memo(function DraggableKanbanCard({
   task,
   cardPropsBase,
   getAssigneeDisplay,
@@ -149,22 +191,23 @@ function SortableKanbanCard({
   onToggleSelect?: (taskId: string) => void
 }) {
   const { t } = useTranslation()
-  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
-    id: task.id,
-    animateLayoutChanges: () => false,
-  })
-  const style = {
-    transform: CSS.Transform.toString(transform),
-    transition: isDragging ? undefined : transition,
+  const ctx = useContext(KanbanDragContext)
+  const dragging = ctx?.draggingTaskId === task.id
+
+  const onPointerDown = (e: ReactPointerEvent<HTMLDivElement>) => {
+    if (e.button !== 0) return
+    ctx?.onCardPointerDown(task, e)
   }
 
   return (
     <div
-      ref={setNodeRef}
-      style={style}
-      {...listeners}
-      {...attributes}
-      className={cn('rounded-md bg-card touch-none cursor-grab active:cursor-grabbing', isDragging && 'opacity-0')}
+      data-kanban-task-id={task.id}
+      onPointerDown={onPointerDown}
+      className={cn(
+        'rounded-md bg-card touch-none cursor-grab active:cursor-grabbing select-none',
+        dragging && 'opacity-0',
+      )}
+      style={{ touchAction: 'none' }}
     >
       <TaskBoardCard
         task={task}
@@ -199,7 +242,7 @@ function SortableKanbanCard({
       />
     </div>
   )
-}
+})
 
 function VirtualKanbanFlatList({
   tasks,
@@ -224,40 +267,36 @@ function VirtualKanbanFlatList({
     count: tasks.length,
     getScrollElement: () => scrollRef.current,
     estimateSize: () => KANBAN_VIRTUAL_ESTIMATE_PX,
-    overscan: 10,
+    overscan: 8,
     getItemKey: index => tasks[index]?.id ?? `__vacant:${String(index)}`,
   })
 
   useLayoutEffect(() => {
     rowVirtualizer.measure()
-    // Chỉ đo lại khi tập task trong cột đổi; không gắn `rowVirtualizer` — tránh measure() mỗi lần parent re-render (kéo thả gây đứng hình).
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tasksRowKey])
 
   return (
-    <SortableContext items={tasks.map(t => t.id)} strategy={verticalListSortingStrategy}>
-      <div className="relative w-full" style={{ height: rowVirtualizer.getTotalSize() }}>
-        {rowVirtualizer.getVirtualItems().map(vi => {
-          const task = tasks[vi.index]
-          return (
-            <div key={task.id} data-index={vi.index} ref={rowVirtualizer.measureElement} className="absolute left-0 w-full pb-2" style={{ top: vi.start }}>
-              <SortableKanbanCard
-                task={task}
-                cardPropsBase={cardPropsBase}
-                getAssigneeDisplay={getAssigneeDisplay}
-                onOpenTask={onCardClick}
-                selected={selectedTaskIds?.has(task.id)}
-                onToggleSelect={onToggleTaskSelect}
-              />
-            </div>
-          )
-        })}
-      </div>
-    </SortableContext>
+    <div className="relative w-full" style={{ height: rowVirtualizer.getTotalSize() }}>
+      {rowVirtualizer.getVirtualItems().map(vi => {
+        const task = tasks[vi.index]
+        return (
+          <div key={task.id} data-index={vi.index} ref={rowVirtualizer.measureElement} className="absolute left-0 w-full pb-2.5" style={{ top: vi.start }}>
+            <DraggableKanbanCard
+              task={task}
+              cardPropsBase={cardPropsBase}
+              getAssigneeDisplay={getAssigneeDisplay}
+              onOpenTask={onCardClick}
+              selected={selectedTaskIds?.has(task.id)}
+              onToggleSelect={onToggleTaskSelect}
+            />
+          </div>
+        )
+      })}
+    </div>
   )
 }
 
-// Khi đổi filter: reset scroll cột khi tập id task trong cột thay đổi (không reset khi chỉ reorder cùng tập).
 function columnTaskMembershipKey(tasks: TaskTableRowTask[]) {
   return tasks
     .map(t => t.id)
@@ -265,7 +304,7 @@ function columnTaskMembershipKey(tasks: TaskTableRowTask[]) {
     .join('\x1e')
 }
 
-function KanbanColumn(props: {
+const KanbanColumn = memo(function KanbanColumn(props: {
   statusCode: string
   label: string
   sortedTasks: TaskTableRowTask[]
@@ -277,12 +316,12 @@ function KanbanColumn(props: {
   onToggleTaskSelect?: (taskId: string) => void
   statusColorHex?: string
   wipLimit?: number
-  onCommitWip: (limit: number | undefined) => void
+  onCommitWip: (columnCode: string, limit: number | undefined) => void
   wipExceededLabel: string
   wipDialogTitle: string
   wipDialogSave: string
   collapsed?: boolean
-  onToggleCollapsed?: () => void
+  onToggleCollapsed?: (columnCode: string) => void
   ariaCollapseColumn?: string
   ariaExpandColumn?: string
   columnDropActive?: boolean
@@ -310,7 +349,6 @@ function KanbanColumn(props: {
     columnDropActive = false,
   } = props
   const scrollRef = useRef<HTMLDivElement>(null)
-  const { setNodeRef } = useDroppable({ id: `${COL_PREFIX}${statusCode}` })
   const headerTint = taskStatusKanbanHeaderStyle(statusColorHex)
   const columnBodyTint = taskStatusKanbanColumnBodyStyle(statusColorHex)
   const wipBad = wipLimit !== undefined && sortedTasks.length > wipLimit
@@ -331,13 +369,34 @@ function KanbanColumn(props: {
 
   const laneSegs = useMemo(() => segmentedBySwimlane(sortedTasks, swimlaneMode, getAssigneeDisplay), [sortedTasks, swimlaneMode, getAssigneeDisplay])
 
+  /** true = thu gọn (ẩn card) trong nhóm assignee/project — key duy nhất theo cột + lane. */
+  const [swimlaneGroupFolded, setSwimlaneGroupFolded] = useState<Record<string, boolean>>({})
+  const toggleSwimlaneGroupFold = useCallback((laneFoldKey: string) => {
+    setSwimlaneGroupFolded(prev => ({ ...prev, [laneFoldKey]: !prev[laneFoldKey] }))
+  }, [])
+
+  const { t } = useTranslation()
+
+  const handleColumnCollapseToggle = useCallback(() => {
+    onToggleCollapsed?.(statusCode)
+  }, [onToggleCollapsed, statusCode])
+
+  const handleWipCommit = useCallback(() => {
+    const n = wipDraft.trim() === '' ? undefined : Number(wipDraft)
+    if (n !== undefined && (Number.isNaN(n) || n < 1)) return
+    onCommitWip(statusCode, n)
+  }, [wipDraft, onCommitWip, statusCode])
+
   if (collapsed && onToggleCollapsed) {
     return (
-      <div ref={setNodeRef} className="flex w-11 shrink-0 flex-1 flex-col self-stretch min-h-0 overflow-hidden rounded-lg bg-muted/45 dark:bg-muted/30">
+      <div
+        data-kanban-column={statusCode}
+        className="flex w-11 shrink-0 flex-1 flex-col self-stretch min-h-0 overflow-hidden rounded-lg bg-muted/45 dark:bg-muted/30"
+      >
         <div className={cn('flex min-h-0 flex-1 flex-col items-center gap-2 px-1 py-2', columnDropActive && 'rounded-lg bg-primary/18 dark:bg-primary/22')}>
           <button
             type="button"
-            onClick={onToggleCollapsed}
+            onClick={handleColumnCollapseToggle}
             className="flex h-8 w-full shrink-0 items-center justify-center rounded text-muted-foreground hover:bg-muted hover:text-foreground"
             aria-label={ariaExpandColumn ?? 'Expand column'}
           >
@@ -357,7 +416,10 @@ function KanbanColumn(props: {
   }
 
   return (
-    <div ref={setNodeRef} className="flex min-h-0 min-w-[220px] flex-1 basis-0 flex-col self-stretch overflow-hidden rounded-lg bg-muted/45 dark:bg-muted/30">
+    <div
+      data-kanban-column={statusCode}
+      className="flex min-h-0 min-w-[220px] flex-1 basis-0 flex-col self-stretch overflow-hidden rounded-lg bg-muted/45 dark:bg-muted/30"
+    >
       <div className="shrink-0 rounded-t-lg px-2 py-1.5 text-xs font-semibold text-foreground" style={headerTint}>
         <div className="flex items-center gap-1.5 justify-between">
           <span className="min-w-0 truncate">
@@ -373,7 +435,7 @@ function KanbanColumn(props: {
                 type="button"
                 className="flex h-7 w-7 items-center justify-center rounded border border-border/60 bg-background/70 text-muted-foreground hover:text-foreground"
                 aria-label={ariaCollapseColumn ?? 'Collapse column'}
-                onClick={onToggleCollapsed}
+                onClick={handleColumnCollapseToggle}
               >
                 <PanelLeftClose className="h-3.5 w-3.5" />
               </button>
@@ -391,16 +453,7 @@ function KanbanColumn(props: {
               <PopoverContent align="start" className="w-56 space-y-2 p-3">
                 <Label className="text-xs">{wipDialogTitle}</Label>
                 <Input value={wipDraft} onChange={e => setWipDraft(e.target.value)} placeholder="∞" className="h-8 text-sm" inputMode="numeric" />
-                <Button
-                  size="sm"
-                  className="w-full h-8"
-                  type="button"
-                  onClick={() => {
-                    const n = wipDraft.trim() === '' ? undefined : Number(wipDraft)
-                    if (n !== undefined && (Number.isNaN(n) || n < 1)) return
-                    onCommitWip(n)
-                  }}
-                >
+                <Button size="sm" className="w-full h-8" type="button" onClick={handleWipCommit}>
                   {wipDialogSave}
                 </Button>
               </PopoverContent>
@@ -410,26 +463,52 @@ function KanbanColumn(props: {
       </div>
       <div ref={scrollRef} className="min-h-0 flex-1 basis-0 overflow-y-auto overflow-x-hidden" onWheel={e => e.stopPropagation()}>
         <div
-          className={cn('flex min-h-full flex-col gap-2 rounded-b-lg p-2', columnDropActive && 'bg-primary/18 dark:bg-primary/22')}
+          data-kanban-column={statusCode}
+          className={cn('flex min-h-full flex-col gap-2.5 rounded-b-lg p-2', columnDropActive && 'bg-primary/18 dark:bg-primary/22')}
           style={columnDropActive ? undefined : columnBodyTint}
         >
-          {laneSegs.map(seg =>
-            seg.title ? (
-              <div key={`${statusCode}-lane-${seg.key}`} className="space-y-1.5 pt-2 first:pt-0">
-                <div className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">{seg.title}</div>
-                <SortableContext items={seg.tasks.map(x => x.id)} strategy={verticalListSortingStrategy}>
-                  {seg.tasks.map(task => (
-                    <SortableKanbanCard
-                      key={task.id}
-                      task={task}
-                      cardPropsBase={cardPropsBase}
-                      getAssigneeDisplay={getAssigneeDisplay}
-                      onOpenTask={onCardClick}
-                      selected={selectedTaskIds?.has(task.id)}
-                      onToggleSelect={onToggleTaskSelect}
-                    />
-                  ))}
-                </SortableContext>
+          {laneSegs.map(seg => {
+            const laneFoldKey = `${statusCode}::${seg.key}`
+            const isLaneFolded = Boolean(swimlaneGroupFolded[laneFoldKey])
+
+            return seg.title ? (
+              <div key={`${statusCode}-lane-${seg.key}`} className="space-y-2.5">
+                <button
+                  type="button"
+                  onClick={() => toggleSwimlaneGroupFold(laneFoldKey)}
+                  className="flex w-full min-h-8 min-w-0 items-center gap-1 rounded-md px-1 py-1.5 text-left transition-colors hover:bg-muted/50"
+                  aria-expanded={!isLaneFolded}
+                  aria-label={
+                    isLaneFolded
+                      ? t('taskManagement.kanbanSwimlaneGroupExpand', {
+                          group: `${seg.title} (${seg.tasks.length})`,
+                        })
+                      : t('taskManagement.kanbanSwimlaneGroupCollapse', {
+                          group: `${seg.title} (${seg.tasks.length})`,
+                        })
+                  }
+                >
+                  <span className="flex min-w-0 flex-1 items-baseline gap-1.5 overflow-hidden">
+                    <span className="truncate text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">{seg.title}</span>
+                    <span className="shrink-0 text-[10px] font-medium tabular-nums text-muted-foreground">({seg.tasks.length})</span>
+                  </span>
+                  <span className="shrink-0 text-muted-foreground" aria-hidden>
+                    {isLaneFolded ? <ChevronRight className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
+                  </span>
+                </button>
+                {!isLaneFolded
+                  ? seg.tasks.map(task => (
+                      <DraggableKanbanCard
+                        key={task.id}
+                        task={task}
+                        cardPropsBase={cardPropsBase}
+                        getAssigneeDisplay={getAssigneeDisplay}
+                        onOpenTask={onCardClick}
+                        selected={selectedTaskIds?.has(task.id)}
+                        onToggleSelect={onToggleTaskSelect}
+                      />
+                    ))
+                  : null}
               </div>
             ) : swimlaneMode === 'flat' && seg.tasks.length >= KANBAN_VIRTUAL_MIN_TASKS ? (
               <VirtualKanbanFlatList
@@ -443,9 +522,9 @@ function KanbanColumn(props: {
                 onToggleTaskSelect={onToggleTaskSelect}
               />
             ) : (
-              <SortableContext key={`${statusCode}-flat`} items={seg.tasks.map(x => x.id)} strategy={verticalListSortingStrategy}>
+              <div key={`${statusCode}-flat`} className="flex flex-col gap-2.5">
                 {seg.tasks.map(task => (
-                  <SortableKanbanCard
+                  <DraggableKanbanCard
                     key={task.id}
                     task={task}
                     cardPropsBase={cardPropsBase}
@@ -455,15 +534,15 @@ function KanbanColumn(props: {
                     onToggleSelect={onToggleTaskSelect}
                   />
                 ))}
-              </SortableContext>
+              </div>
             )
-          )}
+          })}
           {sortedTasks.length === 0 ? <div className="rounded-b-lg bg-muted/25 py-8 text-center text-[11px] text-muted-foreground dark:bg-muted/20">—</div> : null}
         </div>
       </div>
     </div>
   )
-}
+})
 
 export function TaskKanbanBoard({
   tasks,
@@ -488,7 +567,6 @@ export function TaskKanbanBoard({
   selectedTaskIds?: Set<string>
   onToggleTaskSelect?: (taskId: string) => void
   currentUserId?: string | null
-  /** Ẩn nhóm swimlane và luôn flat (dev / không phải Admin-PL-PM). */
   disableSwimlanes?: boolean
 }) {
   const { t } = useTranslation()
@@ -497,8 +575,34 @@ export function TaskKanbanBoard({
   const [swimlaneMode, setSwimlaneMode] = useState<KanbanSwimlaneMode>(() => loadJsonLs(LS_SWIM_KEY, 'flat'))
   const [onlyMine, setOnlyMine] = useState(() => loadJsonLs<boolean>(LS_ONLY_MINE_KEY, false))
   const [collapsedCols, setCollapsedCols] = useState<string[]>(() => loadJsonLs(LS_COLLAPSED_KEY, []))
-  const [activeDragId, setActiveDragId] = useState<string | null>(null)
-  const [dragOverId, setDragOverId] = useState<string | null>(null)
+  const [draggingTaskId, setDraggingTaskId] = useState<string | null>(null)
+  const [dropHighlightColumnCode, setDropHighlightColumnCode] = useState<string | null>(null)
+
+  const draggingTaskIdRef = useRef<string | null>(null)
+
+  useEffect(() => {
+    draggingTaskIdRef.current = draggingTaskId
+  }, [draggingTaskId])
+
+  const overlayRef = useRef<HTMLDivElement | null>(null)
+  const overlayRafRef = useRef<number>(0)
+  const pendingDropRef = useRef<{ columnCode: string | null; overTaskId: string | null }>({ columnCode: null, overTaskId: null })
+  const dropHighlightColRef = useRef<string | null>(null)
+  const dragSessionRef = useRef<{
+    taskId: string
+    pointerId: number
+    sourceEl: HTMLElement | null
+    grabOffsetX: number
+    grabOffsetY: number
+    originX: number
+    originY: number
+    started: boolean
+  } | null>(null)
+
+  const visibleTasksRef = useRef<TaskTableRowTask[]>([])
+  const sortedByColumnRef = useRef<Record<string, TaskTableRowTask[]>>({})
+  const onMoveTaskRef = useRef(onMoveTask)
+  const persistOrderColRef = useRef<(code: string, ids: string[]) => void>(() => {})
 
   useEffect(() => {
     saveJsonLs(LS_ONLY_MINE_KEY, onlyMine)
@@ -513,25 +617,22 @@ export function TaskKanbanBoard({
     if (!uid && onlyMine) setOnlyMine(false)
   }, [currentUserId, onlyMine])
 
+  useEffect(() => {
+    onMoveTaskRef.current = onMoveTask
+  }, [onMoveTask])
+
   const collapsedSet = useMemo(() => new Set(collapsedCols), [collapsedCols])
   const swimlaneEffective = disableSwimlanes ? 'flat' : swimlaneMode
 
   const visibleTasks = useMemo(() => {
     const uid = (currentUserId || '').trim()
-    if (!onlyMine || !uid) return tasks
-    return tasks.filter(x => (x.assigneeUserId || '').trim() === uid)
+    const base = !onlyMine || !uid ? tasks : tasks.filter(x => (x.assigneeUserId || '').trim() === uid)
+    return base.filter(x => (x.type ?? 'bug') !== 'milestone')
   }, [tasks, onlyMine, currentUserId])
-
-  const activeDragTask = useMemo(() => {
-    if (!activeDragId) return null
-    return visibleTasks.find(x => x.id === activeDragId) ?? null
-  }, [activeDragId, visibleTasks])
 
   const toggleColCollapsed = useCallback((code: string) => {
     setCollapsedCols(prev => (prev.includes(code) ? prev.filter(c => c !== code) : [...prev, code]))
   }, [])
-
-  const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 8 } }), useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates }))
 
   useEffect(() => {
     if (disableSwimlanes) return
@@ -540,7 +641,7 @@ export function TaskKanbanBoard({
 
   const activeStatuses = useMemo(
     () => [...statuses].filter(s => s.is_active !== false).sort((a, b) => (a.sort_order ?? 0) - (b.sort_order ?? 0) || a.code.localeCompare(b.code)),
-    [statuses]
+    [statuses],
   )
 
   const orderedCodes = useMemo(() => {
@@ -561,151 +662,273 @@ export function TaskKanbanBoard({
     return o
   }, [visibleTasks, orderMap, orderedCodes])
 
-  /** task id → mã cột: highlight đích kéo O(1), không lặp list mỗi cột mỗi frame. */
-  const taskIdToColumnCode = useMemo(() => {
-    const m = new Map<string, string>()
-    for (const code of orderedCodes) {
-      for (const t of sortedByColumn[code] ?? []) m.set(t.id, code)
-    }
-    return m
-  }, [sortedByColumn, orderedCodes])
+  useEffect(() => {
+    visibleTasksRef.current = visibleTasks
+    sortedByColumnRef.current = sortedByColumn
+  }, [visibleTasks, sortedByColumn])
 
-  const dragOverIdRef = useRef<string | null>(null)
-
-  const persistOrderCol = (code: string, nextIds: string[]) => {
+  const persistOrderCol = useCallback((code: string, nextIds: string[]) => {
     setOrderMap(prev => {
       const n = { ...prev, [code]: nextIds }
       saveJsonLs(LS_ORDER_KEY, n)
       return n
     })
-  }
-
-  const handleDragStart = useCallback((event: DragStartEvent) => {
-    dragOverIdRef.current = null
-    setActiveDragId(String(event.active.id))
-    setDragOverId(null)
   }, [])
 
-  const handleDragOver = useCallback((event: DragOverEvent) => {
-    const next = event.over ? String(event.over.id) : null
-    if (dragOverIdRef.current === next) return
-    dragOverIdRef.current = next
-    setDragOverId(next)
+  useEffect(() => {
+    persistOrderColRef.current = persistOrderCol
+  }, [persistOrderCol])
+
+  const activeDragTask = useMemo(() => {
+    if (!draggingTaskId) return null
+    return visibleTasks.find(x => x.id === draggingTaskId) ?? null
+  }, [draggingTaskId, visibleTasks])
+
+  const handleCommitColumnWip = useCallback((columnCode: string, limit: number | undefined) => {
+    setWipMap(prev => {
+      const nx = { ...prev }
+      if (limit === undefined || limit < 1) delete nx[columnCode]
+      else nx[columnCode] = limit
+      saveJsonLs(LS_WIP_KEY, nx)
+      return nx
+    })
   }, [])
 
-  const handleDragCancel = useCallback(() => {
-    dragOverIdRef.current = null
-    setActiveDragId(null)
-    setDragOverId(null)
-  }, [])
+  const commitDrop = useCallback(async (taskId: string) => {
+    const { columnCode, overTaskId } = pendingDropRef.current
+    pendingDropRef.current = { columnCode: null, overTaskId: null }
+    setDraggingTaskId(null)
+    draggingTaskIdRef.current = null
+    dropHighlightColRef.current = null
+    setDropHighlightColumnCode(null)
 
-  const handleDragEnd = async (event: DragEndEvent) => {
-    dragOverIdRef.current = null
-    setActiveDragId(null)
-    setDragOverId(null)
-    const { active, over } = event
-    if (!over) return
+    if (!columnCode) return
 
-    const taskId = active.id as string
-    const activeRow = visibleTasks.find(x => x.id === taskId)
+    const visible = visibleTasksRef.current
+    const byCol = sortedByColumnRef.current
+    const activeRow = visible.find(x => x.id === taskId)
     if (!activeRow) return
 
-    const oid = String(over.id)
+    const moveTask = onMoveTaskRef.current
 
-    if (oid.startsWith(COL_PREFIX)) {
-      const tgt = oid.slice(COL_PREFIX.length)
-      if (tgt && tgt !== activeRow.status) {
-        await onMoveTask(taskId, tgt, activeRow.version)
+    if (overTaskId && overTaskId !== taskId) {
+      const overRow = visible.find(x => x.id === overTaskId)
+      if (!overRow) return
+
+      if (activeRow.status !== overRow.status) {
+        await moveTask(taskId, overRow.status, activeRow.version)
+        return
       }
+
+      const col = activeRow.status
+      const list = [...(byCol[col] ?? [])]
+      const oi = list.findIndex(x => x.id === taskId)
+      const ni = list.findIndex(x => x.id === overTaskId)
+      if (oi === -1 || ni === -1 || oi === ni) return
+      persistOrderColRef.current(
+        col,
+        arrayMoveIds(
+          list.map(x => x.id),
+          oi,
+          ni,
+        ),
+      )
       return
     }
 
-    const overRow = visibleTasks.find(x => x.id === oid)
-    if (!overRow) return
-
-    if (activeRow.status !== overRow.status) {
-      await onMoveTask(taskId, overRow.status, activeRow.version)
-      return
+    if (activeRow.status !== columnCode) {
+      await moveTask(taskId, columnCode, activeRow.version)
     }
+  }, [])
 
-    const col = activeRow.status
-    const list = [...(sortedByColumn[col] ?? [])]
-    const oi = list.findIndex(x => x.id === taskId)
-    const ni = list.findIndex(x => x.id === oid)
-    if (oi === -1 || ni === -1 || oi === ni) return
-    const ids = arrayMove(
-      list.map(x => x.id),
-      oi,
-      ni
-    )
-    persistOrderCol(col, ids)
-  }
+  const scheduleOverlayMove = useCallback((clientX: number, clientY: number) => {
+    const el = overlayRef.current
+    const sess = dragSessionRef.current
+    if (!el || !sess?.started) return
+    if (overlayRafRef.current) cancelAnimationFrame(overlayRafRef.current)
+    overlayRafRef.current = requestAnimationFrame(() => {
+      overlayRafRef.current = 0
+      el.style.transform = `translate3d(${Math.round(clientX - sess.grabOffsetX)}px, ${Math.round(clientY - sess.grabOffsetY)}px, 0)`
+    })
+  }, [])
+
+  const updateHighlightFromPoint = useCallback((clientX: number, clientY: number) => {
+    const ignore = draggingTaskIdRef.current
+    const { columnCode, overTaskId } = resolveDropFromPoint(clientX, clientY, ignore)
+    pendingDropRef.current = { columnCode, overTaskId }
+
+    if (dropHighlightColRef.current !== columnCode) {
+      dropHighlightColRef.current = columnCode
+      setDropHighlightColumnCode(columnCode)
+    }
+  }, [])
+
+  const onCardPointerDown = useCallback(
+    (task: TaskTableRowTask, event: ReactPointerEvent<HTMLDivElement>) => {
+      if (event.button !== 0) return
+      if (draggingTaskIdRef.current) return
+
+      const target = event.target as HTMLElement | null
+      if (target?.closest?.('button, a, input, textarea, [role="checkbox"], [data-no-kanban-drag]')) return
+
+      const cardEl = event.currentTarget
+      const rect = cardEl.getBoundingClientRect()
+      const grabOffsetX = event.clientX - rect.left
+      const grabOffsetY = event.clientY - rect.top
+
+      dragSessionRef.current = {
+        taskId: task.id,
+        pointerId: event.pointerId,
+        sourceEl: cardEl,
+        grabOffsetX,
+        grabOffsetY,
+        originX: event.clientX,
+        originY: event.clientY,
+        started: false,
+      }
+
+      const onMove = (ev: PointerEvent) => {
+        const sess = dragSessionRef.current
+        if (!sess || sess.taskId !== task.id) return
+
+        const dx = ev.clientX - sess.originX
+        const dy = ev.clientY - sess.originY
+        if (!sess.started) {
+          if (dx * dx + dy * dy < DRAG_ACTIVATION_PX * DRAG_ACTIVATION_PX) return
+          sess.started = true
+          draggingTaskIdRef.current = task.id
+          try {
+            cardEl.setPointerCapture(ev.pointerId)
+          } catch {
+            /* ignore */
+          }
+          setDraggingTaskId(task.id)
+          pendingDropRef.current = { columnCode: null, overTaskId: null }
+          dropHighlightColRef.current = null
+          setDropHighlightColumnCode(null)
+          document.body.style.userSelect = 'none'
+
+          requestAnimationFrame(() => {
+            const ov = overlayRef.current
+            const s = dragSessionRef.current
+            if (!ov || !s?.started) return
+            ov.style.transform = `translate3d(${Math.round(ev.clientX - s.grabOffsetX)}px, ${Math.round(ev.clientY - s.grabOffsetY)}px, 0)`
+          })
+        }
+
+        scheduleOverlayMove(ev.clientX, ev.clientY)
+        updateHighlightFromPoint(ev.clientX, ev.clientY)
+      }
+
+      const onUp = (ev: PointerEvent) => {
+        if (ev.pointerId !== event.pointerId) return
+        window.removeEventListener('pointermove', onMove)
+        window.removeEventListener('pointerup', onUp)
+        window.removeEventListener('pointercancel', onUp)
+
+        const sess = dragSessionRef.current
+        const hadDrag = sess?.started ?? false
+        const tid = sess?.taskId
+        dragSessionRef.current = null
+
+        if (sess?.sourceEl) {
+          try {
+            sess.sourceEl.releasePointerCapture(ev.pointerId)
+          } catch {
+            /* already released */
+          }
+        }
+        document.body.style.userSelect = ''
+        if (overlayRafRef.current) {
+          cancelAnimationFrame(overlayRafRef.current)
+          overlayRafRef.current = 0
+        }
+
+        if (hadDrag && tid) {
+          updateHighlightFromPoint(ev.clientX, ev.clientY)
+          void commitDrop(tid)
+        } else {
+          setDraggingTaskId(null)
+          draggingTaskIdRef.current = null
+          dropHighlightColRef.current = null
+          setDropHighlightColumnCode(null)
+          pendingDropRef.current = { columnCode: null, overTaskId: null }
+        }
+      }
+
+      window.addEventListener('pointermove', onMove, { passive: true })
+      window.addEventListener('pointerup', onUp)
+      window.addEventListener('pointercancel', onUp)
+    },
+    [commitDrop, scheduleOverlayMove, updateHighlightFromPoint],
+  )
+
+  const dragCtx = useMemo<KanbanDragContextValue>(
+    () => ({
+      draggingTaskId,
+      onCardPointerDown,
+    }),
+    [draggingTaskId, onCardPointerDown],
+  )
 
   return (
-    <div className="flex min-h-0 flex-1 flex-col gap-2 overflow-hidden">
-      <div className="flex shrink-0 flex-wrap items-center gap-2">
-        {!disableSwimlanes ? (
-          <>
-            <span className="text-muted-foreground text-xs">{t('taskManagement.boardSwimlanes')}</span>
-            <ToggleGroup
-              type="single"
-              value={swimlaneMode}
-              onValueChange={v => v && setSwimlaneMode(v as KanbanSwimlaneMode)}
-              variant="outline"
-              size="sm"
-              className="justify-start gap-px"
-            >
-              <ToggleGroupItem value="flat" className="h-8 gap-1 px-2 text-[11px]" title={t('taskManagement.kanbanSwimlaneOff')}>
-                <Layers className="h-3.5 w-3.5" />
-                <span className="hidden sm:inline">{t('taskManagement.kanbanSwimlaneOff')}</span>
-              </ToggleGroupItem>
-              <ToggleGroupItem value="assignee" className="h-8 gap-1 px-2 text-[11px]" title={t('taskManagement.kanbanSwimlaneAssignee')}>
-                <Users className="h-3.5 w-3.5" />
-                <span className="hidden sm:inline">{t('taskManagement.kanbanSwimlaneAssignee')}</span>
-              </ToggleGroupItem>
-              <ToggleGroupItem value="project" className="h-8 gap-1 px-2 text-[11px]" title={t('taskManagement.kanbanSwimlaneProject')}>
-                <Briefcase className="h-3.5 w-3.5" />
-                <span className="hidden sm:inline">{t('taskManagement.kanbanSwimlaneProject')}</span>
-              </ToggleGroupItem>
-            </ToggleGroup>
-          </>
-        ) : null}
-        <div
-          className={cn(
-            'flex min-w-0 shrink-0 items-center gap-2 rounded-md border border-border/60 bg-background/60 px-2 py-1',
-            !disableSwimlanes && 'ml-auto',
-          )}
-        >
-          <Switch
-            id="hb-kanban-only-mine"
-            size="sm"
-            checked={onlyMine && Boolean((currentUserId || '').trim())}
-            disabled={!(currentUserId || '').trim()}
-            onCheckedChange={v => setOnlyMine(Boolean(v))}
-          />
-          <Label
-            htmlFor="hb-kanban-only-mine"
-            className={cn('cursor-pointer truncate text-[11px] font-normal leading-none', !(currentUserId || '').trim() && 'cursor-not-allowed opacity-50')}
+    <KanbanDragContext.Provider value={dragCtx}>
+      <div className="flex min-h-0 flex-1 flex-col gap-2 overflow-hidden">
+        <div className="flex shrink-0 flex-wrap items-center gap-2">
+          {!disableSwimlanes ? (
+            <>
+              <span className="text-muted-foreground text-xs">{t('taskManagement.boardSwimlanes')}</span>
+              <ToggleGroup
+                type="single"
+                value={swimlaneMode}
+                onValueChange={v => v && setSwimlaneMode(v as KanbanSwimlaneMode)}
+                variant="outline"
+                size="sm"
+                className="justify-start gap-px"
+              >
+                <ToggleGroupItem value="flat" className="h-8 gap-1 px-2 text-[11px]" title={t('taskManagement.kanbanSwimlaneOff')}>
+                  <Layers className="h-3.5 w-3.5" />
+                  <span className="hidden sm:inline">{t('taskManagement.kanbanSwimlaneOff')}</span>
+                </ToggleGroupItem>
+                <ToggleGroupItem value="assignee" className="h-8 gap-1 px-2 text-[11px]" title={t('taskManagement.kanbanSwimlaneAssignee')}>
+                  <Users className="h-3.5 w-3.5" />
+                  <span className="hidden sm:inline">{t('taskManagement.kanbanSwimlaneAssignee')}</span>
+                </ToggleGroupItem>
+                <ToggleGroupItem value="project" className="h-8 gap-1 px-2 text-[11px]" title={t('taskManagement.kanbanSwimlaneProject')}>
+                  <Briefcase className="h-3.5 w-3.5" />
+                  <span className="hidden sm:inline">{t('taskManagement.kanbanSwimlaneProject')}</span>
+                </ToggleGroupItem>
+              </ToggleGroup>
+            </>
+          ) : null}
+          <div
+            className={cn(
+              'flex min-w-0 shrink-0 items-center gap-2 rounded-md border border-border/60 bg-background/60 px-2 py-1',
+              !disableSwimlanes && 'ml-auto',
+            )}
           >
-            {t('taskManagement.kanbanOnlyMyTasks')}
-          </Label>
+            <Switch
+              id="hb-kanban-only-mine"
+              size="sm"
+              checked={onlyMine && Boolean((currentUserId || '').trim())}
+              disabled={!(currentUserId || '').trim()}
+              onCheckedChange={v => setOnlyMine(Boolean(v))}
+            />
+            <Label
+              htmlFor="hb-kanban-only-mine"
+              className={cn('cursor-pointer truncate text-[11px] font-normal leading-none', !(currentUserId || '').trim() && 'cursor-not-allowed opacity-50')}
+            >
+              {t('taskManagement.kanbanOnlyMyTasks')}
+            </Label>
+          </div>
         </div>
-      </div>
 
-      <DndContext
-        sensors={sensors}
-        collisionDetection={closestCorners}
-        onDragStart={handleDragStart}
-        onDragOver={handleDragOver}
-        onDragCancel={handleDragCancel}
-        onDragEnd={e => void handleDragEnd(e)}
-      >
-        <div className="flex min-h-0 flex-1 gap-3 overflow-x-auto pb-2">
+        <div className="relative flex min-h-0 flex-1 gap-3 overflow-x-auto pb-2">
           {orderedCodes.map(code => {
             const sorted = sortedByColumn[code] ?? []
             const label = statuses.find(s => s.code === code)?.name ?? code
             const wipVal = wipMap[code]
-            const columnDropActive = Boolean(activeDragId) && columnIsKanbanDropTarget(dragOverId, code, taskIdToColumnCode)
+            const columnDropActive = Boolean(draggingTaskId) && dropHighlightColumnCode === code
             return (
               <KanbanColumn
                 key={code}
@@ -720,20 +943,12 @@ export function TaskKanbanBoard({
                 onToggleTaskSelect={onToggleTaskSelect}
                 statusColorHex={statusColorMap?.[code]}
                 wipLimit={wipVal}
-                onCommitWip={n => {
-                  setWipMap(prev => {
-                    const nx = { ...prev }
-                    if (n === undefined || n < 1) delete nx[code]
-                    else nx[code] = n
-                    saveJsonLs(LS_WIP_KEY, nx)
-                    return nx
-                  })
-                }}
+                onCommitWip={handleCommitColumnWip}
                 wipExceededLabel={t('taskManagement.kanbanWipExceeded', { limit: wipVal ?? sorted.length })}
                 wipDialogTitle={t('taskManagement.kanbanWipDialogTitle')}
                 wipDialogSave={t('taskManagement.kanbanWipSave')}
                 collapsed={collapsedSet.has(code)}
-                onToggleCollapsed={() => toggleColCollapsed(code)}
+                onToggleCollapsed={toggleColCollapsed}
                 ariaCollapseColumn={t('taskManagement.kanbanCollapseColumnAria', { column: label })}
                 ariaExpandColumn={t('taskManagement.kanbanExpandColumnAria', { column: label })}
                 columnDropActive={columnDropActive}
@@ -741,9 +956,18 @@ export function TaskKanbanBoard({
             )
           })}
         </div>
-        <DragOverlay className="z-[200]" dropAnimation={null}>
+
+        <div
+          ref={overlayRef}
+          className={cn(
+            'pointer-events-none fixed left-0 top-0 z-[200] min-w-[220px] max-w-[min(92vw,420px)] will-change-transform',
+            draggingTaskId ? 'opacity-100' : 'opacity-0 invisible',
+          )}
+          style={{ transform: 'translate3d(-9999px, -9999px, 0)' }}
+          aria-hidden={!draggingTaskId}
+        >
           {activeDragTask ? (
-            <div className="min-w-[220px] max-w-[min(92vw,420px)] cursor-grabbing rounded-md bg-card shadow-2xl">
+            <div className="cursor-grabbing rounded-md bg-card shadow-2xl">
               <TaskBoardCard
                 task={activeDragTask}
                 assigneeDisplay={getAssigneeDisplay(activeDragTask.assigneeUserId)}
@@ -756,8 +980,8 @@ export function TaskKanbanBoard({
               />
             </div>
           ) : null}
-        </DragOverlay>
-      </DndContext>
-    </div>
+        </div>
+      </div>
+    </KanbanDragContext.Provider>
   )
 }

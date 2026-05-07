@@ -2,15 +2,27 @@
 
 import { addDays, format, getDay, parse, startOfDay, startOfWeek } from 'date-fns'
 import { enUS, ja, vi } from 'date-fns/locale'
-import { type ComponentType, useCallback, useMemo, useRef, useState } from 'react'
+import type { DragEvent } from 'react'
+import { type ComponentType, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Calendar, dateFnsLocalizer, type EventProps, Navigate, type View as RbcView } from 'react-big-calendar'
 import withDragAndDrop from 'react-big-calendar/lib/addons/dragAndDrop'
+import { useTranslation } from 'react-i18next'
 import 'react-big-calendar/lib/css/react-big-calendar.css'
-import { ChevronDown, ChevronUp } from 'lucide-react'
+import { Briefcase, ChevronDown, ChevronRight, ChevronUp, Layers, Users } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Checkbox } from '@/components/ui/checkbox'
 import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group'
-import type { TaskTableRowTask } from './TaskTableRow'
+import { cn } from '@/lib/utils'
+import { PLAN_UNSCHED_TASK_DRAG_MIME } from './planUnschedTaskDragMime'
+import { isTaskBulkSelectable, type TaskTableRowTask } from './TaskTableRow'
+import {
+  bucketTasksByGroup,
+  loadTaskBoardRowGrouping,
+  loadUnschedCollapsedSegments,
+  saveTaskBoardRowGrouping,
+  saveUnschedCollapsedSegments,
+  type TaskBoardRowGrouping,
+} from './taskBoardGroupBuckets'
 import { taskStatusBarStyle } from './taskStatusVisual'
 export type TaskCalendarMessages = {
   agenda: string
@@ -122,6 +134,9 @@ export function TaskCalendarView({
   onToggleTaskSelect,
   statusColorMap,
   onUpdatePlanDates,
+  getAssigneeDisplay,
+  disableUnschedGrouping = false,
+  onApplyBulkTaskSelection,
 }: {
   tasks: TaskTableRowTask[]
   language: string
@@ -133,9 +148,39 @@ export function TaskCalendarView({
   /** Màu status master (giống bảng) */
   statusColorMap?: Record<string, string>
   onUpdatePlanDates?: (taskId: string, planStartDate: string, planEndDate: string, version?: number) => Promise<boolean>
+  /** Giống Gantt — nhóm Unschedule theo assignee / project */
+  getAssigneeDisplay?: (userId: string | null) => string
+  /** Khi true (vd. user không có quyền group) — Unschedule luôn flat */
+  disableUnschedGrouping?: boolean
+  /** Chọn/bỏ chọn hàng loạt theo nhóm Unschedule (giống Gantt) */
+  onApplyBulkTaskSelection?: (taskIds: string[], selected: boolean) => void
 }) {
   const culture = pickCulture(language?.split('-')[0] ?? 'en')
   const canEditPlans = Boolean(onUpdatePlanDates)
+  const { t } = useTranslation()
+
+  const taskById = useMemo(() => new Map(tasks.map(t => [t.id, t])), [tasks])
+  const draggingUnschedTaskIdRef = useRef<string | null>(null)
+
+  const [unschedGrouping, setUnschedGrouping] = useState<TaskBoardRowGrouping>(() => loadTaskBoardRowGrouping())
+
+  useEffect(() => {
+    saveTaskBoardRowGrouping(unschedGrouping)
+  }, [unschedGrouping])
+
+  const [collapsedUnschedGroupSegmentKeys, setCollapsedUnschedGroupSegmentKeys] = useState<Set<string>>(() => loadUnschedCollapsedSegments())
+
+  const toggleUnschedGroupCollapsed = useCallback((segmentKey: string) => {
+    setCollapsedUnschedGroupSegmentKeys(prev => {
+      const next = new Set(prev)
+      if (next.has(segmentKey)) next.delete(segmentKey)
+      else next.add(segmentKey)
+      saveUnschedCollapsedSegments(next)
+      return next
+    })
+  }, [])
+
+  const unschedGroupingEffective: TaskBoardRowGrouping = disableUnschedGrouping ? 'flat' : unschedGrouping
 
   const localizer = useMemo(
     () =>
@@ -172,6 +217,11 @@ export function TaskCalendarView({
     return { events: ev, unscheduled: un }
   }, [tasks])
 
+  const unscheduledGroups = useMemo(
+    () => bucketTasksByGroup(unscheduled, unschedGroupingEffective, getAssigneeDisplay, 'title'),
+    [unscheduled, unschedGroupingEffective, getAssigneeDisplay]
+  )
+
   const [view, setView] = useState<'month' | 'week' | 'day' | 'agenda'>('month')
   const [calendarDate, setCalendarDate] = useState(() => startOfDay(new Date()))
   /** Week/Day: thu gọn hàng all-day để nhìn rõ lưới giờ phía dưới */
@@ -206,6 +256,37 @@ export function TaskCalendarView({
       await persistFromInteraction(ce, interaction.start, interaction.end)
     },
     [persistFromInteraction]
+  )
+
+  const handleCalendarDragOver = useCallback((e: DragEvent) => {
+    if ([...e.dataTransfer.types].includes(PLAN_UNSCHED_TASK_DRAG_MIME)) {
+      e.preventDefault()
+    }
+  }, [])
+
+  const handleDropFromOutside = useCallback(
+    async (args: { start: Date | string; end: Date | string; allDay: boolean }) => {
+      const taskId = draggingUnschedTaskIdRef.current
+      draggingUnschedTaskIdRef.current = null
+      if (!taskId || !onUpdatePlanDates) return
+      const task = taskById.get(taskId)
+      if (!task) return
+      const s0 = parsePlanDate(task.planStartDate)
+      const e0 = parsePlanDate(task.planEndDate)
+      if (s0 && e0) return
+
+      const dropDay = startOfDay(new Date(args.start))
+      const endExclusive = toExclusiveEnd(dropDay)
+      const stub: CalEvent = {
+        title: task.title || '—',
+        start: dropDay,
+        end: endExclusive,
+        resource: task,
+        allDay: true,
+      }
+      await persistFromInteraction(stub, dropDay, endExclusive)
+    },
+    [onUpdatePlanDates, persistFromInteraction, taskById]
   )
 
   const rbcMessages = useMemo(
@@ -593,6 +674,8 @@ export function TaskCalendarView({
           resizable={canEditPlans}
           onEventDrop={(x: unknown) => void handleEventDrop(x as { event: object; start: Date; end: Date })}
           onEventResize={(x: unknown) => void handleEventResize(x as { event: object; start: Date; end: Date })}
+          onDragOver={canEditPlans ? handleCalendarDragOver : undefined}
+          onDropFromOutside={canEditPlans ? (x: unknown) => void handleDropFromOutside(x as { start: Date | string; end: Date | string; allDay: boolean }) : undefined}
           tooltipAccessor={(calEvent: object) => (calEvent as CalEvent).resource.title ?? ''}
           components={calendarComponents}
           eventPropGetter={eventPropGetter}
@@ -600,33 +683,142 @@ export function TaskCalendarView({
       </div>
 
       {unscheduled.length > 0 ? (
-        <div className="flex min-h-0 max-h-[min(40vh,18rem)] flex-col rounded-md border border-border/60 bg-muted/10 p-3">
-          <div className="mb-2 shrink-0 text-xs font-semibold text-muted-foreground">
-            {unscheduledLabel} ({unscheduled.length})
+        <div className="flex min-h-0 max-h-[min(40vh,18rem)] flex-col rounded-md border border-border/60 bg-muted/10 p-2 sm:p-3">
+          <div className="mb-2 flex min-w-0 flex-col gap-2 sm:mb-2.5 sm:flex-row sm:items-center sm:justify-between sm:gap-3">
+            <div className="min-w-0 shrink text-[10px] font-semibold text-muted-foreground sm:text-[11px]">
+              {unscheduledLabel} <span className="tabular-nums">({unscheduled.length})</span>
+            </div>
+            {!disableUnschedGrouping ? (
+              <ToggleGroup
+                type="single"
+                value={unschedGrouping}
+                onValueChange={v => v && setUnschedGrouping(v as TaskBoardRowGrouping)}
+                variant="outline"
+                size="sm"
+                className="w-full justify-start gap-px sm:w-auto"
+              >
+                <ToggleGroupItem
+                  value="flat"
+                  className="h-8 flex-1 px-2 sm:flex-none"
+                  title={t('taskManagement.ganttGroupingFlat')}
+                  aria-label={t('taskManagement.ganttGroupingFlat')}
+                >
+                  <Layers className="h-3.5 w-3.5 shrink-0" />
+                  <span className="hidden sm:inline">{t('taskManagement.ganttGroupingFlat')}</span>
+                </ToggleGroupItem>
+                <ToggleGroupItem
+                  value="assignee"
+                  className="h-8 flex-1 px-2 sm:flex-none"
+                  title={t('taskManagement.ganttGroupingByAssignee')}
+                  aria-label={t('taskManagement.ganttGroupingByAssignee')}
+                >
+                  <Users className="h-3.5 w-3.5 shrink-0" />
+                  <span className="hidden sm:inline">{t('taskManagement.ganttGroupingByAssignee')}</span>
+                </ToggleGroupItem>
+                <ToggleGroupItem
+                  value="project"
+                  className="h-8 flex-1 px-2 sm:flex-none"
+                  title={t('taskManagement.ganttGroupingByProject')}
+                  aria-label={t('taskManagement.ganttGroupingByProject')}
+                >
+                  <Briefcase className="h-3.5 w-3.5 shrink-0" />
+                  <span className="hidden sm:inline">{t('taskManagement.ganttGroupingByProject')}</span>
+                </ToggleGroupItem>
+              </ToggleGroup>
+            ) : null}
           </div>
-          <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain pr-1 [-ms-overflow-style:auto] [scrollbar-gutter:stable]">
-            <ul className="flex flex-wrap content-start gap-2 pb-1">
-              {unscheduled.map(t => {
-                const sh = statusColorMap?.[t.status]?.trim()
+          <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain [-ms-overflow-style:auto] [scrollbar-gutter:stable] sm:pr-0.5">
+            <div className="flex flex-col gap-3 sm:gap-3.5">
+              {unscheduledGroups.map(group => {
+                const hasHeader = Boolean(group.title)
+                const groupExpanded = !hasHeader || !collapsedUnschedGroupSegmentKeys.has(group.segmentKey)
+                const groupBulkIds = group.tasks.filter(isTaskBulkSelectable).map(t => t.id)
                 return (
-                  <li key={t.id} className="flex items-center gap-1 rounded border border-border/80 px-1 py-0.5 min-w-0">
-                    <div className="w-1 shrink-0 self-stretch rounded-sm min-h-[1.25rem]" style={{ backgroundColor: sh || 'hsl(var(--primary))' }} aria-hidden />
-                    {onToggleTaskSelect && (t.type ?? 'bug') !== 'milestone' ? (
-                      <Checkbox
-                        className="h-4 w-4 shrink-0"
-                        checked={selectedTaskIds?.has(t.id) ?? false}
-                        onCheckedChange={() => onToggleTaskSelect(t.id)}
-                        onClick={e => e.stopPropagation()}
-                        aria-label={t.title ? `Bulk select: ${t.title}` : 'Bulk select'}
-                      />
+                  <div key={group.segmentKey} className="min-w-0">
+                    {hasHeader ? (
+                      <div className="mb-1.5 flex min-h-[28px] min-w-0 items-center gap-1.5 border-b border-border/50 bg-muted px-2 sm:mb-2">
+                        <button
+                          type="button"
+                          className="flex h-6 w-6 shrink-0 items-center justify-center rounded-sm hover:bg-muted/80"
+                          onClick={() => toggleUnschedGroupCollapsed(group.segmentKey)}
+                          aria-expanded={groupExpanded}
+                          aria-label={groupExpanded ? t('taskManagement.ganttCollapseGroupSection') : t('taskManagement.ganttExpandGroupSection')}
+                        >
+                          {groupExpanded ? <ChevronDown className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />}
+                        </button>
+                        <Layers className="h-3.5 w-3.5 shrink-0 text-muted-foreground" aria-hidden />
+                        <span className="min-w-0 flex-1 truncate text-[10px] font-semibold uppercase tracking-wide text-muted-foreground/90 sm:text-[11px]">{group.title}</span>
+                        {onToggleTaskSelect && onApplyBulkTaskSelection && groupBulkIds.length > 0 ? (
+                          <Checkbox
+                            className="h-4 w-4 shrink-0"
+                            checked={
+                              groupBulkIds.every(id => selectedTaskIds?.has(id))
+                                ? true
+                                : groupBulkIds.some(id => selectedTaskIds?.has(id))
+                                  ? 'indeterminate'
+                                  : false
+                            }
+                            onCheckedChange={v => onApplyBulkTaskSelection(groupBulkIds, v === true)}
+                            onClick={e => e.stopPropagation()}
+                            aria-label={t('taskManagement.ganttBulkSelectGroupAria', { group: group.title })}
+                          />
+                        ) : null}
+                      </div>
                     ) : null}
-                    <button type="button" className="text-xs hover:bg-muted/60 max-w-full min-w-0 sm:max-w-[220px] truncate text-left" onClick={() => onSelectTask(t)}>
-                      {t.title || '—'}
-                    </button>
-                  </li>
+                    {groupExpanded ? (
+                      <ul className="grid grid-cols-1 gap-1 pb-0.5 min-[420px]:grid-cols-2 min-[420px]:gap-1.5 min-[640px]:grid-cols-3 min-[880px]:grid-cols-4 min-[1120px]:grid-cols-5 min-[1440px]:grid-cols-6">
+                        {group.tasks.map(task => {
+                          const sh = statusColorMap?.[task.status]?.trim()
+                          return (
+                            <li
+                              key={task.id}
+                              draggable={canEditPlans}
+                              onDragStart={
+                                canEditPlans
+                                  ? e => {
+                                    e.dataTransfer.setData(PLAN_UNSCHED_TASK_DRAG_MIME, task.id)
+                                    e.dataTransfer.setData('text/plain', task.id)
+                                    e.dataTransfer.effectAllowed = 'copyMove'
+                                    draggingUnschedTaskIdRef.current = task.id
+                                  }
+                                  : undefined
+                              }
+                              onDragEnd={canEditPlans ? () => (draggingUnschedTaskIdRef.current = null) : undefined}
+                              className={cn(
+                                'flex min-h-9 w-full min-w-0 items-center gap-1.5 rounded-md border border-border/80 bg-background/60 px-1.5 py-1 shadow-sm transition-colors hover:bg-muted/40 sm:min-h-8 sm:gap-2 sm:px-2 sm:py-1.5',
+                                canEditPlans && 'cursor-grab active:cursor-grabbing'
+                              )}
+                            >
+                              <div
+                                className="w-1 shrink-0 self-stretch rounded-sm min-h-[1.35rem] sm:min-h-[1.25rem]"
+                                style={{ backgroundColor: sh || 'hsl(var(--primary))' }}
+                                aria-hidden
+                              />
+                              {onToggleTaskSelect && (task.type ?? 'bug') !== 'milestone' ? (
+                                <Checkbox
+                                  className="h-4 w-4 shrink-0"
+                                  checked={selectedTaskIds?.has(task.id) ?? false}
+                                  onCheckedChange={() => onToggleTaskSelect(task.id)}
+                                  onClick={e => e.stopPropagation()}
+                                  aria-label={task.title ? `Bulk select: ${task.title}` : 'Bulk select'}
+                                />
+                              ) : null}
+                              <button
+                                type="button"
+                                className="min-w-0 flex-1 truncate text-left text-[10px] leading-tight hover:bg-muted/50 sm:text-[11px]"
+                                onClick={() => onSelectTask(task)}
+                              >
+                                {task.title || '—'}
+                              </button>
+                            </li>
+                          )
+                        })}
+                      </ul>
+                    ) : null}
+                  </div>
                 )
               })}
-            </ul>
+            </div>
           </div>
         </div>
       ) : null}

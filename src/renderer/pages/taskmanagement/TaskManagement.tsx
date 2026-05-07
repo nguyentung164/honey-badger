@@ -1328,6 +1328,17 @@ export function TaskManagement({ embedded = false }: { embedded?: boolean }) {
     })
   }, [])
 
+  const applyBulkTaskIdsSelection = useCallback((taskIds: string[], selected: boolean) => {
+    setSelectedTaskIds(prev => {
+      const next = new Set(prev)
+      for (const id of taskIds) {
+        if (selected) next.add(id)
+        else next.delete(id)
+      }
+      return next
+    })
+  }, [])
+
   const handleBulkApply = useCallback(
     async (patch: { status?: string; priority?: string; assigneeUserId?: string | null }) => {
       const sourceRows = taskView === 'table' ? tableTasks : boardTasks
@@ -1852,7 +1863,7 @@ export function TaskManagement({ embedded = false }: { embedded?: boolean }) {
     () => Object.fromEntries(priorities.filter((p): p is typeof p & { color: string } => Boolean(p.color)).map(p => [p.code, p.color])),
     [priorities]
   )
-  const typeColorMap = useMemo(() => {
+  const typeColorMap = useMemo((): Record<string, string> => {
     const fromDb = Object.fromEntries(types.filter((t): t is typeof t & { color: string } => Boolean(t.color)).map(t => [t.code, t.color]))
     return { ...fromDb, milestone: TASK_TYPE_MILESTONE_HEX }
   }, [types])
@@ -2158,6 +2169,10 @@ export function TaskManagement({ embedded = false }: { embedded?: boolean }) {
       monthly: t('taskManagement.ganttScaleMonthly'),
       unscheduled: t('taskManagement.ganttUnscheduled'),
       zoom: t('taskManagement.ganttZoom'),
+      layoutModeGroup: t('taskManagement.ganttLayoutModeLabel'),
+      layoutTimeline: t('taskManagement.ganttLayoutTimeline'),
+      layoutWorkload: t('taskManagement.ganttLayoutWorkload'),
+      layoutBoth: t('taskManagement.ganttLayoutBoth'),
       emptyScheduled: t('taskManagement.ganttEmptyScheduled'),
       fitRange: t('taskManagement.ganttFitRange'),
       goToToday: t('taskManagement.ganttGoToToday'),
@@ -3169,6 +3184,7 @@ export function TaskManagement({ embedded = false }: { embedded?: boolean }) {
                             onSelectTask={handleOpenTaskRow}
                             selectedTaskIds={selectedTaskIds}
                             onToggleTaskSelect={toggleBulkTaskSelection}
+                            onApplyBulkTaskSelection={applyBulkTaskIdsSelection}
                             onUpdatePlanDates={handleUpdatePlanDates}
                             disableRowGrouping={!canManageTaskRowGrouping}
                             workloadSegments={workloadSegments}
@@ -3188,8 +3204,11 @@ export function TaskManagement({ embedded = false }: { embedded?: boolean }) {
                             onSelectTask={handleOpenTaskRow}
                             selectedTaskIds={selectedTaskIds}
                             onToggleTaskSelect={toggleBulkTaskSelection}
+                            onApplyBulkTaskSelection={applyBulkTaskIdsSelection}
                             unscheduledLabel={t('taskManagement.calendarNoPlanDates')}
                             onUpdatePlanDates={handleUpdatePlanDates}
+                            getAssigneeDisplay={getAssigneeDisplay}
+                            disableUnschedGrouping={!canManageTaskRowGrouping}
                           />
                         )}
                       </div>
