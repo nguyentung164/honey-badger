@@ -3,7 +3,7 @@
 import type { Locale } from 'date-fns'
 import { addDays, addMonths, differenceInCalendarDays, format, getDay, startOfDay, startOfMonth } from 'date-fns'
 import { ChevronDown, ChevronRight, Crown, Lock, Pencil, Trash2 } from 'lucide-react'
-import type { ReactNode } from 'react'
+import type { ReactNode, RefObject } from 'react'
 import { useCallback, useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar'
@@ -90,6 +90,8 @@ type WorkloadProps = {
   /** Khi `segment` là `header` hoặc `body`: controlled mode để hai mount dùng chung Hours/Tasks. */
   displayMode?: WorkloadDisplayMode
   onDisplayModeChange?: (mode: WorkloadDisplayMode) => void
+  /** Ref vào vùng timeline (chartWidth) của strip header — parent đồng bộ translateX với Gantt, không mirror scroll. */
+  headerTimelineTrackRef?: RefObject<HTMLDivElement | null>
 }
 
 function isWeekend(d: Date): boolean {
@@ -211,17 +213,17 @@ function normalizeWorkloadDay(raw: WorkloadDayCell & Record<string, unknown>): W
     a0 == null || a0 === '' || (typeof a0 === 'number' && Number.isNaN(a0))
       ? null
       : (() => {
-          const n = Number(a0)
-          return Number.isFinite(n) ? n : null
-        })()
+        const n = Number(a0)
+        return Number.isFinite(n) ? n : null
+      })()
   const o0 = raw.overrideHours ?? raw.override_hours
   const overrideHours =
     o0 == null || o0 === '' || (typeof o0 === 'number' && Number.isNaN(o0))
       ? null
       : (() => {
-          const n = Number(o0)
-          return Number.isFinite(n) ? n : null
-        })()
+        const n = Number(o0)
+        return Number.isFinite(n) ? n : null
+      })()
   const tc0 = Number(raw.taskCount ?? raw.task_count)
   const taskCount = Number.isFinite(tc0) ? Math.max(0, Math.floor(tc0)) : 0
   const idsRaw = raw.taskIds ?? raw.task_ids
@@ -290,12 +292,13 @@ export function TaskGanttWorkload({
   segment = 'full',
   displayMode: displayModeProp,
   onDisplayModeChange,
+  headerTimelineTrackRef,
 }: WorkloadProps) {
   const { t } = useTranslation()
   const [internalDisplayMode, setInternalDisplayMode] = useState<WorkloadDisplayMode>('hours')
   const displayControlled = displayModeProp !== undefined && onDisplayModeChange !== undefined
-  const displayMode = displayControlled ? displayModeProp! : internalDisplayMode
-  const setDisplayMode = displayControlled ? onDisplayModeChange! : setInternalDisplayMode
+  const displayMode = displayControlled ? displayModeProp : internalDisplayMode
+  const setDisplayMode = displayControlled ? onDisplayModeChange : setInternalDisplayMode
   const [expandedUsers, setExpandedUsers] = useState<Set<string>>(new Set())
 
   const buckets = useMemo(() => buildBuckets(scale, start, totalDays, pixelPerDay), [scale, start, totalDays, pixelPerDay])
@@ -428,13 +431,13 @@ export function TaskGanttWorkload({
   const workloadHeaderRow = (
     <div
       className={cn(
-        'flex shrink-0 items-stretch border-b bg-muted',
+        'flex w-full min-w-0 shrink-0 items-stretch border-b bg-muted',
         showGridBorders ? 'border-border/70' : 'border-border/40'
       )}
       style={{ height: HEADER_H }}
     >
       <div
-        className="sticky left-0 flex shrink-0 items-center justify-between gap-2 border-r border-border/50 bg-muted px-3"
+        className="flex shrink-0 items-center justify-between gap-2 border-r border-border/50 bg-muted px-3"
         style={{ width: leftBlockWidth, zIndex: Z_WORKLOAD_HEADER_STRIP_META }}
       >
         <div className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">{t('taskManagement.workloadTitle')}</div>
@@ -447,21 +450,27 @@ export function TaskGanttWorkload({
           </ToggleGroupItem>
         </ToggleGroup>
       </div>
-      <div className="relative shrink-0 bg-muted text-[10px] text-muted-foreground" style={{ width: chartWidth }}>
-        <div aria-hidden className="pointer-events-none absolute inset-0 z-0 overflow-hidden">
-          {weekendColumnRects.map((r, i) => (
-            <div key={`wl-hdr-wk-${r.left}-${i}`} className="absolute top-0 bottom-0" style={{ left: r.left, width: r.width }} />
-          ))}
-        </div>
-        <div className="absolute inset-y-0 right-3 flex items-center justify-end text-[10px] text-muted-foreground/80">
-          {t('taskManagement.workloadHoursPerDayLabel', { hours: dailyCapacity })}
+      <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-x-hidden">
+        <div
+          ref={headerTimelineTrackRef}
+          className="relative min-h-0 flex-1 shrink-0 bg-muted text-[10px] text-muted-foreground will-change-transform"
+          style={{ width: chartWidth }}
+        >
+          <div aria-hidden className="pointer-events-none absolute inset-0 z-0 overflow-hidden">
+            {weekendColumnRects.map((r, i) => (
+              <div key={`wl-hdr-wk-${r.left}-${i}`} className="absolute top-0 bottom-0" style={{ left: r.left, width: r.width }} />
+            ))}
+          </div>
+          <div className="absolute inset-y-0 right-3 flex items-center justify-end text-[10px] text-muted-foreground/80">
+            {t('taskManagement.workloadHoursPerDayLabel', { hours: dailyCapacity })}
+          </div>
         </div>
       </div>
     </div>
   )
 
   if (segment === 'header') {
-    return <div className="bg-background" style={{ width: leftBlockWidth + chartWidth }}>{workloadHeaderRow}</div>
+    return <div className="w-full min-w-0 bg-background">{workloadHeaderRow}</div>
   }
 
   if (segment === 'body') {
@@ -470,165 +479,165 @@ export function TaskGanttWorkload({
         className={cn('relative bg-background', showGridBorders ? 'divide-y divide-border/60' : 'divide-y divide-border/40')}
         style={{ width: leftBlockWidth + chartWidth }}
       >
-      {empty ? (
-        <div className="sticky left-0 z-[2] bg-background px-3 py-3 text-xs text-muted-foreground" style={{ width: leftBlockWidth + Math.min(chartWidth, 720) }}>
-          {t('taskManagement.workloadEmpty')}
-        </div>
-      ) : null}
+        {empty ? (
+          <div className="sticky left-0 z-[2] bg-background px-3 py-3 text-xs text-muted-foreground" style={{ width: leftBlockWidth + Math.min(chartWidth, 720) }}>
+            {t('taskManagement.workloadEmpty')}
+          </div>
+        ) : null}
 
-      {users.map(user => {
-        const expanded = expandedUsers.has(user.userId)
-        const totalH = totalHoursPerUser.get(user.userId) ?? 0
-        const allowEditRow = data.canEditAll || user.userId === data.selfUserId
+        {users.map(user => {
+          const expanded = expandedUsers.has(user.userId)
+          const totalH = totalHoursPerUser.get(user.userId) ?? 0
+          const allowEditRow = data.canEditAll || user.userId === data.selfUserId
 
-        return (
-          <div key={user.userId} className="flex flex-col">
-            {/* biome-ignore lint/a11y/useSemanticElements: không dùng <button> bọc hàng — các ô có PopoverTrigger là <button> (invalid nesting). */}
-            <div
-              role="button"
-              tabIndex={0}
-              className={cn(
-                'group relative flex cursor-pointer items-stretch text-left transition-colors hover:bg-muted/40',
-                'focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-primary'
-              )}
-              style={{ height: ROW_H }}
-              onClick={() => toggleUser(user.userId)}
-              onKeyDown={e => {
-                if (e.key === 'Enter' || e.key === ' ') {
-                  e.preventDefault()
-                  toggleUser(user.userId)
-                }
-              }}
-              aria-expanded={expanded}
-              aria-label={user.name || user.userCode}
-            >
+          return (
+            <div key={user.userId} className="flex flex-col">
+              {/* biome-ignore lint/a11y/useSemanticElements: không dùng <button> bọc hàng — các ô có PopoverTrigger là <button> (invalid nesting). */}
               <div
-                className="sticky left-0 flex shrink-0 transform-gpu items-center gap-2 border-r border-border/50 bg-background px-3"
-                style={{ width: leftBlockWidth, zIndex: Z_WORKLOAD_STICKY_ROW_META }}
+                role="button"
+                tabIndex={0}
+                className={cn(
+                  'group relative flex cursor-pointer items-stretch text-left transition-colors hover:bg-muted/40',
+                  'focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-primary'
+                )}
+                style={{ height: ROW_H }}
+                onClick={() => toggleUser(user.userId)}
+                onKeyDown={e => {
+                  if (e.key === 'Enter' || e.key === ' ') {
+                    e.preventDefault()
+                    toggleUser(user.userId)
+                  }
+                }}
+                aria-expanded={expanded}
+                aria-label={user.name || user.userCode}
               >
-                <span className="text-muted-foreground/80 transition-transform" aria-hidden>
-                  {expanded ? <ChevronDown className="h-3.5 w-3.5" /> : <ChevronRight className="h-3.5 w-3.5" />}
-                </span>
-                <Avatar className="size-6 shrink-0">
-                  <AvatarImage src={getUserAvatarUrl?.(user.userId) ?? undefined} alt={user.name || user.userCode} />
-                  <AvatarFallback className="text-[10px]">{userInitials(user)}</AvatarFallback>
-                </Avatar>
-                <div className="flex min-w-0 flex-1 flex-col">
-                  <span className="truncate text-xs font-medium">{user.name || user.userCode}</span>
-                  <span className="flex items-center gap-1 text-[10px] text-muted-foreground">
-                    {user.role === 'pm' ? <Crown className="h-3 w-3 text-amber-500" aria-hidden /> : null}
-                    {user.role === 'pl' ? <Crown className="h-3 w-3 text-sky-500" aria-hidden /> : null}
-                    <span className="uppercase tracking-wide">{user.role}</span>
-                    {!allowEditRow ? <Lock className="ml-1 h-3 w-3" aria-hidden /> : null}
+                <div
+                  className="sticky left-0 flex shrink-0 transform-gpu items-center gap-2 border-r border-border/50 bg-background px-3"
+                  style={{ width: leftBlockWidth, zIndex: Z_WORKLOAD_STICKY_ROW_META }}
+                >
+                  <span className="text-muted-foreground/80 transition-transform" aria-hidden>
+                    {expanded ? <ChevronDown className="h-3.5 w-3.5" /> : <ChevronRight className="h-3.5 w-3.5" />}
                   </span>
+                  <Avatar className="size-6 shrink-0">
+                    <AvatarImage src={getUserAvatarUrl?.(user.userId) ?? undefined} alt={user.name || user.userCode} />
+                    <AvatarFallback className="text-[10px]">{userInitials(user)}</AvatarFallback>
+                  </Avatar>
+                  <div className="flex min-w-0 flex-1 flex-col">
+                    <span className="truncate text-xs font-medium">{user.name || user.userCode}</span>
+                    <span className="flex items-center gap-1 text-[10px] text-muted-foreground">
+                      {user.role === 'pm' ? <Crown className="h-3 w-3 text-amber-500" aria-hidden /> : null}
+                      {user.role === 'pl' ? <Crown className="h-3 w-3 text-sky-500" aria-hidden /> : null}
+                      <span className="uppercase tracking-wide">{user.role}</span>
+                      {!allowEditRow ? <Lock className="ml-1 h-3 w-3" aria-hidden /> : null}
+                    </span>
+                  </div>
+                  <span className="ml-auto shrink-0 rounded bg-muted/70 px-1.5 py-0.5 text-[10px] font-semibold tabular-nums text-foreground">{formatHours(totalH) || '0h'}</span>
                 </div>
-                <span className="ml-auto shrink-0 rounded bg-muted/70 px-1.5 py-0.5 text-[10px] font-semibold tabular-nums text-foreground">{formatHours(totalH) || '0h'}</span>
-              </div>
-              <div className="relative shrink-0" style={{ width: chartWidth }}>
-                <div aria-hidden className="pointer-events-none absolute inset-0 z-0 overflow-hidden">
-                  {weekendColumnRects.map((r, i) => (
-                    <div
-                      key={`wl-row-wk-${user.userId}-${r.left}-${i}`}
-                      className="absolute top-0 bottom-0 bg-slate-500/[0.07] dark:bg-slate-400/[0.04]"
-                      style={{ left: r.left, width: r.width }}
-                    />
-                  ))}
-                </div>
-                {showGridBorders ? (
-                  <div aria-hidden className="pointer-events-none absolute inset-0 z-[1] overflow-hidden">
-                    {verticalGridLeftPx.map(left => (
-                      <div key={`wl-row-grid-${user.userId}-${left}`} className="absolute top-0 bottom-0 w-px bg-border/55 dark:bg-border/35" style={{ left }} />
+                <div className="relative shrink-0" style={{ width: chartWidth }}>
+                  <div aria-hidden className="pointer-events-none absolute inset-0 z-0 overflow-hidden">
+                    {weekendColumnRects.map((r, i) => (
+                      <div
+                        key={`wl-row-wk-${user.userId}-${r.left}-${i}`}
+                        className="absolute top-0 bottom-0 bg-slate-500/[0.07] dark:bg-slate-400/[0.04]"
+                        style={{ left: r.left, width: r.width }}
+                      />
                     ))}
                   </div>
-                ) : null}
-                <div className="absolute inset-0 z-[2] flex min-h-0 min-w-0 items-stretch">
-                  {buckets.map((bucket, idx) => (
-                    <WorkloadBucketCell
-                      key={`${user.userId}-${idx}-${bucket.left}`}
-                      bucket={bucket}
-                      userId={user.userId}
-                      displayMode={displayMode}
-                      dailyCapacity={dailyCapacity}
-                      aggregate={aggregateBucketForUser}
-                      allowEdit={allowEditRow}
-                      cellMap={cellMap}
-                      canEditAll={data.canEditAll}
-                      onUpsertOverride={onUpsertOverride}
-                      locale={locale}
-                      showGridBorders={showGridBorders}
-                    />
-                  ))}
+                  {showGridBorders ? (
+                    <div aria-hidden className="pointer-events-none absolute inset-0 z-[1] overflow-hidden">
+                      {verticalGridLeftPx.map(left => (
+                        <div key={`wl-row-grid-${user.userId}-${left}`} className="absolute top-0 bottom-0 w-px bg-border/55 dark:bg-border/35" style={{ left }} />
+                      ))}
+                    </div>
+                  ) : null}
+                  <div className="absolute inset-0 z-[2] flex min-h-0 min-w-0 items-stretch">
+                    {buckets.map((bucket, idx) => (
+                      <WorkloadBucketCell
+                        key={`${user.userId}-${idx}-${bucket.left}`}
+                        bucket={bucket}
+                        userId={user.userId}
+                        displayMode={displayMode}
+                        dailyCapacity={dailyCapacity}
+                        aggregate={aggregateBucketForUser}
+                        allowEdit={allowEditRow}
+                        cellMap={cellMap}
+                        canEditAll={data.canEditAll}
+                        onUpsertOverride={onUpsertOverride}
+                        locale={locale}
+                        showGridBorders={showGridBorders}
+                      />
+                    ))}
+                  </div>
                 </div>
               </div>
-            </div>
 
-            {expanded ? (
-              <div className={cn('flex flex-col bg-muted/15', showGridBorders ? 'border-t border-border/60' : 'border-t border-border/30')}>
-                <div className="flex items-stretch" style={{ height: CAPACITY_ROW_H }}>
-                  <div
-                    className="sticky left-0 flex shrink-0 transform-gpu items-center gap-2 border-r border-border/40 bg-muted/40 px-3 text-[10px] font-medium uppercase tracking-wide text-muted-foreground"
-                    style={{ width: leftBlockWidth, zIndex: Z_WORKLOAD_STICKY_CAPACITY_META }}
-                  >
-                    {t('taskManagement.workloadCapacityRow')}
-                  </div>
-                  <div className="relative shrink-0" style={{ width: chartWidth }}>
-                    <div className="absolute inset-0 flex items-stretch">
-                      {buckets.map((bucket, idx) => {
-                        const agg = aggregateBucketForUser(user.userId, bucket)
-                        const cap = Math.max(1, agg.workingDays * dailyCapacity)
-                        const ratio = cap > 0 ? agg.hours / cap : 0
-                        const tone = bucketTone(ratio)
-                        const fillPct = Math.min(100, ratio * 100)
-                        return (
-                          <div
-                            key={`cap-${user.userId}-${idx}`}
-                            className={cn(
-                              'relative h-full',
-                              showGridBorders && 'border-r border-border/30 last:border-r-0',
-                              tone.bg
-                            )}
-                            style={{ left: 0, width: bucket.width }}
-                            title={ratio > 1 ? t('taskManagement.workloadOverloadTooltip') : undefined}
-                          >
+              {expanded ? (
+                <div className={cn('flex flex-col bg-muted/15', showGridBorders ? 'border-t border-border/60' : 'border-t border-border/30')}>
+                  <div className="flex items-stretch" style={{ height: CAPACITY_ROW_H }}>
+                    <div
+                      className="sticky left-0 flex shrink-0 transform-gpu items-center gap-2 border-r border-border/40 bg-muted/40 px-3 text-[10px] font-medium uppercase tracking-wide text-muted-foreground"
+                      style={{ width: leftBlockWidth, zIndex: Z_WORKLOAD_STICKY_CAPACITY_META }}
+                    >
+                      {t('taskManagement.workloadCapacityRow')}
+                    </div>
+                    <div className="relative shrink-0" style={{ width: chartWidth }}>
+                      <div className="absolute inset-0 flex items-stretch">
+                        {buckets.map((bucket, idx) => {
+                          const agg = aggregateBucketForUser(user.userId, bucket)
+                          const cap = Math.max(1, agg.workingDays * dailyCapacity)
+                          const ratio = cap > 0 ? agg.hours / cap : 0
+                          const tone = bucketTone(ratio)
+                          const fillPct = Math.min(100, ratio * 100)
+                          return (
                             <div
-                              aria-hidden
-                              className={cn('absolute inset-y-1 left-0 rounded-sm', ratio > 1 ? 'bg-rose-500/55' : ratio >= 1 ? 'bg-amber-500/55' : 'bg-emerald-500/55')}
-                              style={{ width: `${fillPct}%`, maxWidth: '100%' }}
-                            />
-                            <div className={cn('relative z-[1] flex h-full items-center justify-center text-[9px] font-semibold tabular-nums', tone.text)}>
-                              {agg.workingDays > 0 ? `${formatHours(agg.hours) || '0h'} / ${formatHours(cap) || '0h'}` : ''}
+                              key={`cap-${user.userId}-${idx}`}
+                              className={cn(
+                                'relative h-full',
+                                showGridBorders && 'border-r border-border/30 last:border-r-0',
+                                tone.bg
+                              )}
+                              style={{ left: 0, width: bucket.width }}
+                              title={ratio > 1 ? t('taskManagement.workloadOverloadTooltip') : undefined}
+                            >
+                              <div
+                                aria-hidden
+                                className={cn('absolute inset-y-1 left-0 rounded-sm', ratio > 1 ? 'bg-rose-500/55' : ratio >= 1 ? 'bg-amber-500/55' : 'bg-emerald-500/55')}
+                                style={{ width: `${fillPct}%`, maxWidth: '100%' }}
+                              />
+                              <div className={cn('relative z-[1] flex h-full items-center justify-center text-[9px] font-semibold tabular-nums', tone.text)}>
+                                {agg.workingDays > 0 ? `${formatHours(agg.hours) || '0h'} / ${formatHours(cap) || '0h'}` : ''}
+                              </div>
                             </div>
-                          </div>
-                        )
-                      })}
+                          )
+                        })}
+                      </div>
                     </div>
                   </div>
+                  {renderMiniGanttForUser ? (
+                    <div className="relative flex min-w-0 flex-col">
+                      {showGridBorders ? (
+                        <div
+                          aria-hidden
+                          className="pointer-events-none absolute top-0 bottom-0 z-[1] overflow-hidden"
+                          style={{ left: leftBlockWidth, width: chartWidth }}
+                        >
+                          {verticalGridLeftPx.map(left => (
+                            <div
+                              key={`wl-mini-${user.userId}-grid-${left}`}
+                              className="absolute top-0 bottom-0 w-px bg-border/85 dark:bg-border/70"
+                              style={{ left }}
+                            />
+                          ))}
+                        </div>
+                      ) : null}
+                      <div className="relative z-[2] flex min-w-0 flex-col">{renderMiniGanttForUser(user.userId)}</div>
+                    </div>
+                  ) : null}
                 </div>
-                {renderMiniGanttForUser ? (
-                  <div className="relative flex min-w-0 flex-col">
-                    {showGridBorders ? (
-                      <div
-                        aria-hidden
-                        className="pointer-events-none absolute top-0 bottom-0 z-[1] overflow-hidden"
-                        style={{ left: leftBlockWidth, width: chartWidth }}
-                      >
-                        {verticalGridLeftPx.map(left => (
-                          <div
-                            key={`wl-mini-${user.userId}-grid-${left}`}
-                            className="absolute top-0 bottom-0 w-px bg-border/85 dark:bg-border/70"
-                            style={{ left }}
-                          />
-                        ))}
-                      </div>
-                    ) : null}
-                    <div className="relative z-[2] flex min-w-0 flex-col">{renderMiniGanttForUser(user.userId)}</div>
-                  </div>
-                ) : null}
-              </div>
-            ) : null}
-          </div>
-        )
-      })}
+              ) : null}
+            </div>
+          )
+        })}
       </div>
     )
   }

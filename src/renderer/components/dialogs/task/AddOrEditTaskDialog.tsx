@@ -15,6 +15,7 @@ import {
   Clock,
   Eye,
   Headphones,
+  History,
   Link2,
   ListTodo,
   Loader2,
@@ -24,10 +25,11 @@ import {
   Trash2,
   Wrench,
   XCircle,
+  XIcon,
 } from 'lucide-react'
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { TaskChangeHistorySection } from '@/components/dialogs/task/TaskChangeHistorySection'
+import { TaskChangeHistoryDialog } from '@/components/dialogs/task/TaskChangeHistoryDialog'
 import { TaskDescriptionEditor } from '@/components/dialogs/task/TaskDescriptionEditor'
 import { TaskPickerCombobox } from '@/components/dialogs/task/TaskPickerCombobox'
 import {
@@ -44,7 +46,7 @@ import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar'
 import { Button } from '@/components/ui/button'
 import { Calendar } from '@/components/ui/calendar'
 import { Combobox } from '@/components/ui/combobox'
-import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog'
+import { Dialog, DialogClose, DialogContent, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
@@ -349,6 +351,7 @@ export function AddOrEditTaskDialog({
   const [actualEndDate, setActualEndDate] = useState('')
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false)
+  const [historyDialogOpen, setHistoryDialogOpen] = useState(false)
   const [planStartDateOpen, setPlanStartDateOpen] = useState(false)
   const [planEndDateOpen, setPlanEndDateOpen] = useState(false)
   const [children, setChildren] = useState<{ id: string; title: string; ticketId?: string; version?: number }[]>([])
@@ -371,6 +374,10 @@ export function AddOrEditTaskDialog({
 
   const isEditMode = !!task
   const isReadOnly = isEditMode && !canEdit
+
+  useEffect(() => {
+    if (!open) setHistoryDialogOpen(false)
+  }, [open])
 
   useEffect(() => {
     if (!open || !task?.id) {
@@ -776,8 +783,10 @@ export function AddOrEditTaskDialog({
   const fromDate = (d: Date | undefined) => (d ? format(d, 'yyyy-MM-dd') : '')
 
   return (
+    <>
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent
+        showCloseButton={false}
         className="max-w-6xl! max-h-[90vh] flex flex-col gap-3 overflow-hidden overflow-x-hidden p-4 sm:max-w-[min(94vw,58rem)] sm:p-4"
         onInteractOutside={e => {
           const el = e.target as HTMLElement | null
@@ -794,10 +803,30 @@ export function AddOrEditTaskDialog({
           e.preventDefault()
         }}
       >
-        <DialogHeader className="shrink-0 space-y-1 pb-0 text-left sm:text-left">
-          <DialogTitle className="text-lg font-semibold leading-tight">
+        <DialogHeader className="flex shrink-0 flex-row flex-wrap items-center gap-2 space-y-0 p-0 text-left sm:text-left">
+          <DialogTitle className="min-w-0 flex-1 basis-[min(100%,12rem)] text-lg font-semibold leading-tight sm:basis-auto">
             {isReadOnly ? t('taskManagement.viewTask') : isEditMode ? t('taskManagement.editTask') : t('taskManagement.createTask')}
           </DialogTitle>
+          <div className="ml-auto flex shrink-0 items-center gap-0.5">
+            {isEditMode && task && (
+              <Button
+                type="button"
+                variant="ghost"
+                size="icon"
+                className="h-8 w-8 text-muted-foreground hover:text-foreground"
+                aria-label={t('taskManagement.changeHistoryTitle')}
+                title={t('taskManagement.changeHistoryTitle')}
+                onClick={() => setHistoryDialogOpen(true)}
+              >
+                <History className="h-4 w-4" />
+              </Button>
+            )}
+            <DialogClose asChild>
+              <Button type="button" variant="ghost" size="icon" className="h-8 w-8 text-muted-foreground hover:text-foreground" aria-label={t('common.close')}>
+                <XIcon className="h-4 w-4" />
+              </Button>
+            </DialogClose>
+          </div>
         </DialogHeader>
         <div className="flex-1 min-h-0 overflow-y-auto overflow-x-hidden flex flex-col gap-2">
           <div key={task?.id ?? 'create'} className="flex min-w-0 flex-col gap-3 py-1">
@@ -1359,11 +1388,6 @@ export function AddOrEditTaskDialog({
                 </div>
               </TaskDialogSection>
             )}
-            {isEditMode && task && (
-              <TaskDialogSection title={t('taskManagement.dialogSectionHistory')}>
-                <TaskChangeHistorySection taskId={task.id} resolveUserLabel={resolveUserLabelForHistory} variant="embedded" />
-              </TaskDialogSection>
-            )}
           </div>
         </div>
         <DialogFooter className="shrink-0 flex-col-reverse gap-2 border-t border-border/60 pt-3 sm:flex-row sm:justify-between">
@@ -1412,5 +1436,14 @@ export function AddOrEditTaskDialog({
         </AlertDialog>
       </DialogContent>
     </Dialog>
+    {isEditMode && task && (
+      <TaskChangeHistoryDialog
+        open={historyDialogOpen}
+        onOpenChange={setHistoryDialogOpen}
+        taskId={task.id}
+        resolveUserLabel={resolveUserLabelForHistory}
+      />
+    )}
+    </>
   )
 }

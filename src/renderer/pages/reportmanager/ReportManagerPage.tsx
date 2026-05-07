@@ -30,7 +30,6 @@ export function ReportManagerPage() {
     const today = new Date()
     return { from: subDays(today, 30), to: today }
   })
-  const [datePickerOpen, setDatePickerOpen] = useState(false)
   const [isLoadingProjects, setIsLoadingProjects] = useState(false)
 
   useEffect(() => {
@@ -96,8 +95,6 @@ export function ReportManagerPage() {
             <DateRangePickerPopover
               dateRange={dateRange}
               onDateRangeChange={setDateRange}
-              open={datePickerOpen}
-              onOpenChange={setDatePickerOpen}
               allTimeLabel={t('dailyReport.selectDateRange')}
               confirmLabel={t('common.confirm')}
             />

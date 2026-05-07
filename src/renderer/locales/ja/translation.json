@@ -280,6 +280,8 @@
     "ganttSubtaskNoPlanDates": "計画の開始/終了がありません — タスクを開いて日程を設定",
     "ganttExpandGroupSection": "グループを展開",
     "ganttCollapseGroupSection": "グループを折りたたむ",
+    "ganttMetaRailCollapse": "列を隠す：担当・ステータス・優先度・進捗",
+    "ganttMetaRailExpand": "列を表示：担当・ステータス・優先度・進捗",
     "ganttTickWeekLine1": "第{{week}}週",
     "workloadTitle": "ワークロード",
     "workloadHours": "時間",

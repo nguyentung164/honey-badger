@@ -32,7 +32,7 @@ export function TaskChangeHistorySection({
 }: {
   taskId: string
   resolveUserLabel: (userId: string | null | undefined) => string
-  variant?: 'standalone' | 'embedded'
+  variant?: 'standalone' | 'embedded' | 'dialog'
 }) {
   const { t } = useTranslation()
   const [loading, setLoading] = useState(true)
@@ -77,10 +77,17 @@ export function TaskChangeHistorySection({
 
   const fieldLabel = (camel: string) => t(`taskManagement.historyField.${camel}`, camel)
   const embedded = variant === 'embedded'
+  const dialogMode = variant === 'dialog'
+  const compactChrome = embedded || dialogMode
 
   return (
-    <div className={cn('text-sm', embedded ? 'rounded-md border border-border/40 bg-muted/10 p-2' : 'rounded-md border border-border/60 bg-muted/10 p-3')}>
-      {!embedded ? <div className="mb-2 text-sm font-semibold text-foreground">{t('taskManagement.changeHistoryTitle')}</div> : null}
+    <div
+      className={cn(
+        'text-sm',
+        compactChrome ? 'rounded-md border border-border/40 bg-muted/10 p-2' : 'rounded-md border border-border/60 bg-muted/10 p-3',
+      )}
+    >
+      {!compactChrome ? <div className="mb-2 text-sm font-semibold text-foreground">{t('taskManagement.changeHistoryTitle')}</div> : null}
       {loading ? (
         <div className="flex items-center gap-2 py-4 text-muted-foreground">
           <GlowLoader className="h-6 w-6" />
@@ -89,7 +96,7 @@ export function TaskChangeHistorySection({
       ) : rows.length === 0 ? (
         <p className="text-muted-foreground">{t('taskManagement.changeHistoryEmpty')}</p>
       ) : (
-        <ul className="max-h-56 space-y-3 overflow-y-auto pr-1">
+        <ul className={cn('space-y-3 overflow-y-auto pr-1', dialogMode ? 'max-h-[min(65vh,28rem)]' : 'max-h-56')}>
           {rows.map(entry => (
             <li key={entry.id} className="border-b border-border/50 pb-2 last:border-0 last:pb-0">
               <div className="mb-1 flex flex-wrap items-center gap-x-2 gap-y-0.5 text-xs text-muted-foreground">

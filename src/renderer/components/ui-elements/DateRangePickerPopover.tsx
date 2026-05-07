@@ -3,7 +3,7 @@
 import { format } from 'date-fns'
 import { CalendarIcon } from 'lucide-react'
 import type { CSSProperties } from 'react'
-import { useEffect, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import type { DateRange } from 'react-day-picker'
 import { Button } from '@/components/ui/button'
 import { Calendar } from '@/components/ui/calendar'
@@ -16,16 +16,20 @@ import { useAppearanceStoreSelect } from '@/stores/useAppearanceStore'
 interface DateRangePickerPopoverProps {
   dateRange: DateRange | undefined
   onDateRangeChange: (range: DateRange | undefined) => void
-  open: boolean
-  onOpenChange: (open: boolean) => void
   allTimeLabel: string
   confirmLabel: string
   /** Đồng bộ với date range header Dashboard */
   disabled?: boolean
   /** Ưu tiên sau các class cố định (vd. `h-8` để khớp ô search). */
   triggerClassName?: string
-  /** Tooltip gốc trên nút mở lịch. */
+  /** Tooltip gốc trên nút mở lịch — native `title` có độ trễ ~0.5–1s của trình duyệt. */
   triggerTitle?: string
+  /**
+   * Mỗi lần giá trị **thay đổi** → đóng popover từ xa (vd. import, reset filter).
+   * `open` cố ý **không** lift lên cha: TaskManagement rất nặng — controlled open làm cả trang re-render
+   * trước khi Radix kịp mount Calendar → cảm giác “mở chậm”.
+   */
+  dismissSignal?: number
 }
 
 /**
@@ -35,19 +39,28 @@ interface DateRangePickerPopoverProps {
 export function DateRangePickerPopover({
   dateRange,
   onDateRangeChange,
-  open,
-  onOpenChange,
   allTimeLabel,
   confirmLabel,
   disabled = false,
   triggerClassName,
   triggerTitle,
+  dismissSignal,
 }: DateRangePickerPopoverProps) {
   const locale = getDateFnsLocale(i18n.language)
   const dateFormat = getDateOnlyPattern(i18n.language)
   const buttonVariant = useAppearanceStoreSelect(s => s.buttonVariant)
 
+  const [open, setOpen] = useState(false)
   const [draftRange, setDraftRange] = useState<DateRange | undefined>(dateRange)
+
+  const handleOpenChange = useCallback((next: boolean) => {
+    setOpen(next)
+  }, [])
+
+  useEffect(() => {
+    if (dismissSignal === undefined) return
+    setOpen(false)
+  }, [dismissSignal])
 
   useEffect(() => {
     if (open) {
@@ -58,14 +71,14 @@ export function DateRangePickerPopover({
   const handleConfirm = () => {
     if (draftRange?.from) {
       onDateRangeChange(draftRange)
-      onOpenChange(false)
+      setOpen(false)
     }
   }
 
   const handleClear = () => {
     setDraftRange(undefined)
     onDateRangeChange(undefined)
-    onOpenChange(false)
+    setOpen(false)
   }
 
   const displayText = dateRange?.from
@@ -75,7 +88,7 @@ export function DateRangePickerPopover({
     : allTimeLabel
 
   return (
-    <Popover open={open} onOpenChange={onOpenChange}>
+    <Popover open={open} onOpenChange={handleOpenChange}>
       <PopoverTrigger asChild>
         <Button
           variant={buttonVariant}
@@ -93,7 +106,13 @@ export function DateRangePickerPopover({
           <span className="min-w-0 flex-1 truncate text-left">{displayText}</span>
         </Button>
       </PopoverTrigger>
-      <PopoverContent className="w-auto p-0" align="start">
+      <PopoverContent
+        align="start"
+        className={cn(
+          'w-auto p-0',
+          'data-[state=open]:animate-none data-[state=closed]:animate-none',
+        )}
+      >
         <Calendar locale={locale} mode="range" defaultMonth={draftRange?.from ?? dateRange?.from} selected={draftRange} onSelect={setDraftRange} numberOfMonths={2} />
         <div className="flex gap-2 p-2 border-t">
           <Button variant={buttonVariant} size="sm" className="flex-1" onClick={handleClear}>

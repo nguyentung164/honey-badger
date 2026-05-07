@@ -280,6 +280,8 @@
     "ganttSubtaskNoPlanDates": "No plan start/end — open task to schedule",
     "ganttExpandGroupSection": "Expand group section",
     "ganttCollapseGroupSection": "Collapse group section",
+    "ganttMetaRailCollapse": "Hide columns: Assignee, Status, Priority, Progress",
+    "ganttMetaRailExpand": "Show columns: Assignee, Status, Priority, Progress",
     "ganttTickWeekLine1": "Week {{week}}",
     "workloadTitle": "Workload",
     "workloadHours": "Hours",

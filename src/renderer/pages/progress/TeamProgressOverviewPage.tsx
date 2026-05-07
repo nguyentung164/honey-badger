@@ -194,10 +194,7 @@ const TeamMemberDetailPanel = memo(function TeamMemberDetailPanel({
   const [tab, setTab] = useState<DetailTab>('trends')
 
   return (
-    <div
-      className={cn('min-w-0', embedInCard ? 'pt-0' : 'border-t border-border/40 pt-2')}
-      onClick={e => e.stopPropagation()}
-    >
+    <div className={cn('min-w-0', embedInCard ? 'pt-0' : 'border-t border-border/40 pt-2')}>
       {fromStr && toStr ? (
         <Tabs value={tab} onValueChange={v => setTab(v as DetailTab)} className="w-full">
           <TabsList className="h-9 min-h-9 flex-wrap gap-0.5">
@@ -345,7 +342,6 @@ export function TeamProgressOverviewPage() {
     const from = subDays(to, 89)
     return { from, to }
   })
-  const [rangeOpen, setRangeOpen] = useState(false)
   const [summaries, setSummaries] = useState<SummaryRow[]>([])
   /** user_id → danh sách tên dự án (dev/pl/pm), từ API */
   const [projectLabelByUserId, setProjectLabelByUserId] = useState<Record<string, string>>({})
@@ -554,8 +550,6 @@ export function TeamProgressOverviewPage() {
             <DateRangePickerPopover
               dateRange={dateRange}
               onDateRangeChange={setDateRange}
-              open={rangeOpen}
-              onOpenChange={setRangeOpen}
               allTimeLabel={t('teamProgress.selectRange')}
               confirmLabel={t('common.confirm')}
             />

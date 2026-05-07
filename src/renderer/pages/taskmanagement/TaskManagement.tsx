@@ -564,11 +564,8 @@ export function TaskManagement({ embedded = false }: { embedded?: boolean }) {
   })
   const [createdDateRange, setCreatedDateRange] = useState<DateRange | undefined>(undefined)
   const [updatedDateRange, setUpdatedDateRange] = useState<DateRange | undefined>(undefined)
-  const [mgmtTimelinePickerOpen, setMgmtTimelinePickerOpen] = useState(false)
-  const [mgmtCreatedPickerOpen, setMgmtCreatedPickerOpen] = useState(false)
-  const [mgmtUpdatedPickerOpen, setMgmtUpdatedPickerOpen] = useState(false)
-  /** Tab biểu đồ chỉ cần khoảng timeline chính — tách state mở Popover tránh trùng Tasks. */
-  const [chartTimelinePickerOpen, setChartTimelinePickerOpen] = useState(false)
+  /** Bump để đóng mọi DateRangePickerPopover (import / reset filter). Open của popover không lift — tránh re-render cả TaskManagement khi bấm mở lịch. */
+  const [dateRangePickerDismissSignal, setDateRangePickerDismissSignal] = useState(0)
   const [statusFilterSearch, setStatusFilterSearch] = useState('')
   const [priorityFilterSearch, setPriorityFilterSearch] = useState('')
   const [typeFilterSearch, setTypeFilterSearch] = useState('')
@@ -649,12 +646,7 @@ export function TaskManagement({ embedded = false }: { embedded?: boolean }) {
   }, [taskView])
 
   useEffect(() => {
-    if (isImporting) {
-      setMgmtTimelinePickerOpen(false)
-      setMgmtCreatedPickerOpen(false)
-      setMgmtUpdatedPickerOpen(false)
-      setChartTimelinePickerOpen(false)
-    }
+    if (isImporting) setDateRangePickerDismissSignal(s => s + 1)
   }, [isImporting])
 
   useEffect(() => {
@@ -850,10 +842,7 @@ export function TaskManagement({ embedded = false }: { embedded?: boolean }) {
     setCreatedDateRange(undefined)
     setUpdatedDateRange(undefined)
     setTaskPage(1)
-    setMgmtTimelinePickerOpen(false)
-    setMgmtCreatedPickerOpen(false)
-    setMgmtUpdatedPickerOpen(false)
-    setChartTimelinePickerOpen(false)
+    setDateRangePickerDismissSignal(s => s + 1)
     if (requiresManualMgmtApply) {
       setAppliedMgmtFilters(buildAppliedMgmtFromDraft('', [], [], [], [], [], undefined, undefined, undefined))
     }
@@ -2460,8 +2449,7 @@ export function TaskManagement({ embedded = false }: { embedded?: boolean }) {
                         <DateRangePickerPopover
                           dateRange={dateRange}
                           onDateRangeChange={setDateRange}
-                          open={mgmtTimelinePickerOpen}
-                          onOpenChange={setMgmtTimelinePickerOpen}
+                          dismissSignal={dateRangePickerDismissSignal}
                           allTimeLabel={t('taskManagement.chartAllTime')}
                           confirmLabel={t('common.confirm')}
                           disabled={isImporting}
@@ -2473,8 +2461,7 @@ export function TaskManagement({ embedded = false }: { embedded?: boolean }) {
                         <DateRangePickerPopover
                           dateRange={createdDateRange}
                           onDateRangeChange={setCreatedDateRange}
-                          open={mgmtCreatedPickerOpen}
-                          onOpenChange={setMgmtCreatedPickerOpen}
+                          dismissSignal={dateRangePickerDismissSignal}
                           allTimeLabel={t('taskManagement.chartAllTime')}
                           confirmLabel={t('common.confirm')}
                           disabled={isImporting}
@@ -2486,8 +2473,7 @@ export function TaskManagement({ embedded = false }: { embedded?: boolean }) {
                         <DateRangePickerPopover
                           dateRange={updatedDateRange}
                           onDateRangeChange={setUpdatedDateRange}
-                          open={mgmtUpdatedPickerOpen}
-                          onOpenChange={setMgmtUpdatedPickerOpen}
+                          dismissSignal={dateRangePickerDismissSignal}
                           allTimeLabel={t('taskManagement.chartAllTime')}
                           confirmLabel={t('common.confirm')}
                           disabled={isImporting}
@@ -3346,8 +3332,7 @@ export function TaskManagement({ embedded = false }: { embedded?: boolean }) {
                         <DateRangePickerPopover
                           dateRange={dateRange}
                           onDateRangeChange={setDateRange}
-                          open={chartTimelinePickerOpen}
-                          onOpenChange={setChartTimelinePickerOpen}
+                          dismissSignal={dateRangePickerDismissSignal}
                           allTimeLabel={t('taskManagement.chartAllTime')}
                           confirmLabel={t('common.confirm')}
                           disabled={isImporting}

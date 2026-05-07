@@ -279,6 +279,8 @@
     "ganttSubtaskNoPlanDates": "Chưa có ngày bắt đầu/kết thúc — mở task để lên lịch",
     "ganttExpandGroupSection": "Mở nhóm",
     "ganttCollapseGroupSection": "Thu gọn nhóm",
+    "ganttMetaRailCollapse": "Ẩn cột: Assignee, Status, Priority, Progress",
+    "ganttMetaRailExpand": "Hiện cột: Assignee, Status, Priority, Progress",
     "ganttTickWeekLine1": "Tuần {{week}}",
     "workloadTitle": "Workload",
     "workloadHours": "Giờ",

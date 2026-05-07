@@ -29,7 +29,6 @@ export function DailyReport() {
   const [projects, setProjects] = useState<{ id: string; name: string }[]>([])
   const [refreshKey, setRefreshKey] = useState(0)
   const [reportDialogOpen, setReportDialogOpen] = useState(false)
-  const [reportDatePickerOpen, setReportDatePickerOpen] = useState(false)
   const [plDateRange, setPlDateRange] = useState<DateRange | undefined>(() => {
     const today = new Date()
     return { from: today, to: today }
@@ -144,8 +143,6 @@ export function DailyReport() {
                   <DateRangePickerPopover
                     dateRange={plDateRange}
                     onDateRangeChange={setPlDateRange}
-                    open={reportDatePickerOpen}
-                    onOpenChange={setReportDatePickerOpen}
                     allTimeLabel={t('dailyReport.selectDateRange')}
                     confirmLabel={t('common.confirm')}
                   />
