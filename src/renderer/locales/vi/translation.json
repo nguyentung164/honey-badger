@@ -1148,6 +1148,16 @@
     "commitAmend": "Amend commit cuối",
     "commitAmendDisabledHint": "Tắt Auto Push để dùng Amend commit cuối.",
     "commitOptions": "Tùy chọn commit",
+    "quickCreatePr": {
+      "button": "Tạo PR",
+      "title": "Tạo pull request nhanh",
+      "tooltip": "Tạo PR cho nhánh hiện tại — dùng git remote GitHub và token đã lưu",
+      "currentBranch": "Nhánh hiện tại",
+      "targetBranch": "Nhánh đích",
+      "needLogin": "Vui lòng đăng nhập để tạo pull request.",
+      "detectRemoteFail": "Không xác định được owner/repo GitHub từ git remote. Thêm origin trỏ tới github.com (HTTPS hoặc SSH).",
+      "noTargetBranch": "Không có nhánh remote khác làm base merge. Hãy fetch từ remote hoặc chọn nhánh đích khác."
+    },
     "commitSignOff": "Thêm Signed-off-by",
     "switchBranch": {
       "title": "Phát hiện thay đổi chưa commit",

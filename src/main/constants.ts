@@ -453,6 +453,8 @@ export const IPC = {
     /** git merge-tree tr\u00ean clone \u2014 m\u1edf ph\u1ea1m vi conflct (kh\u00f4ng c\u00f3 tr\u00ean API GitHub). */
     PR_LOCAL_MERGE_CONFLICTS: 'pr:pr-local-merge-conflicts',
     BRANCH_LIST_REMOTE: 'pr:branch-list-remote',
+    /** owner/repo từ git remote (github.com) của worktree — không cần đăng ký PR Manager */
+    GITHUB_OWNER_REPO_FROM_CWD: 'pr:github-owner-repo-from-cwd',
     GITHUB_REMOTE_BRANCHES_EXIST: 'pr:github-remote-branches-exist',
     GITHUB_DELETE_REMOTE_BRANCH: 'pr:github-delete-remote-branch',
     REF_COMMIT_MESSAGES: 'pr:ref-commit-messages',

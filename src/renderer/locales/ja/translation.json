@@ -1152,6 +1152,16 @@
     "commitAmend": "直前のコミットを修正",
     "commitAmendDisabledHint": "Amend を使うには Auto Push をオフにしてください。",
     "commitOptions": "コミットオプション",
+    "quickCreatePr": {
+      "button": "PR を作成",
+      "title": "プルリクエストをすばやく作成",
+      "tooltip": "現在のブランチで PR を作成 — git remote（GitHub）と保存済みトークンを使用",
+      "currentBranch": "現在のブランチ",
+      "targetBranch": "マージ先ブランチ",
+      "needLogin": "プルリクエストを作成するにはログインしてください。",
+      "detectRemoteFail": "git remote から GitHub の owner/repo を判定できませんでした。github.com を指す origin（HTTPS または SSH）を設定してください。",
+      "noTargetBranch": "マージ先になる別のリモートブランチがありません。フェッチするか、別のベースブランチを選んでください。"
+    },
     "commitSignOff": "Signed-off-by を追加",
     "switchBranch": {
       "title": "未コミットの変更を検出",

@@ -1153,6 +1153,16 @@
     "commitAmend": "Amend last commit",
     "commitAmendDisabledHint": "Turn off Auto Push to use Amend last commit.",
     "commitOptions": "Commit options",
+    "quickCreatePr": {
+      "button": "Create PR",
+      "title": "Quick create pull request",
+      "tooltip": "Create a pull request for the current branch — uses git remote (GitHub) and your saved token",
+      "currentBranch": "Current branch",
+      "targetBranch": "Target branch",
+      "needLogin": "Please log in to create a pull request.",
+      "detectRemoteFail": "Could not resolve GitHub owner/repo from git remotes. Add an origin URL pointing to github.com (HTTPS or SSH).",
+      "noTargetBranch": "No other remote branch found to merge into. Fetch from remote or pick another base branch."
+    },
     "commitSignOff": "Add Signed-off-by",
     "switchBranch": {
       "title": "Uncommitted Changes Detected",

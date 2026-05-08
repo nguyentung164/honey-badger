@@ -670,6 +670,24 @@ export function registerPrIpcHandlers(): void {
     },
   )
 
+  ipcMain.handle(IPC.PR.GITHUB_OWNER_REPO_FROM_CWD, async (_e, cwd?: string) => {
+    try {
+      const dir = typeof cwd === 'string' ? cwd.trim() : ''
+      if (!dir) return { status: 'error' as const, message: 'Missing folder path' }
+      const remotes = await gitGetRemotes(dir)
+      if (remotes.status !== 'success') return { status: 'error' as const, message: remotes.message ?? 'Failed to read git remotes' }
+      const list = (remotes.data ?? []) as Array<{ name: string; refs: { fetch?: string; push?: string } }>
+      const origin = list.find(r => r.name === 'origin') ?? list[0]
+      const url = (origin?.refs?.fetch || origin?.refs?.push)?.trim()
+      if (!url) return { status: 'error' as const, message: 'No git remote URL (add origin pointing to GitHub)' }
+      const parsed = parseRemoteUrl(url)
+      if (!parsed) return { status: 'error' as const, message: 'Remote is not a github.com repository URL' }
+      return { status: 'success' as const, data: { owner: parsed.owner, repo: parsed.repo } }
+    } catch (err) {
+      return errResp(err)
+    }
+  })
+
   // ========== PR Operations ==========
   ipcMain.handle(
     IPC.PR.PR_CREATE,
@@ -687,6 +705,8 @@ export function registerPrIpcHandlers(): void {
         draft?: boolean
         openInBrowser?: boolean
         userId: string
+        /** Không ghi DB PR Manager / checkpoint — dùng Quick Create PR từ worktree */
+        skipPrManagerTracking?: boolean
       },
     ) => {
       try {
@@ -704,17 +724,19 @@ export function registerPrIpcHandlers(): void {
         })
         // PR \u0111\u00e3 t\u1ea1o th\u00e0nh c\u00f4ng \u2014 tracking kh\u00f4ng \u0111\u01b0\u1ee3c l\u00e0m fail c\u1ea3 request
         let trackingError: string | undefined
-        try {
-          await upsertTrackedBranch({
-            userId: input.userId,
-            projectId: input.projectId,
-            repoId: input.repoId,
-            branchName: input.head,
-          })
-          await applyPullRequestToCheckpoints({ projectId: input.projectId, repoId: input.repoId, pr })
-        } catch (err) {
-          trackingError = err instanceof Error ? err.message : String(err)
-          l.warn('PR tracking upsert failed after successful create:', trackingError)
+        if (!input.skipPrManagerTracking) {
+          try {
+            await upsertTrackedBranch({
+              userId: input.userId,
+              projectId: input.projectId,
+              repoId: input.repoId,
+              branchName: input.head,
+            })
+            await applyPullRequestToCheckpoints({ projectId: input.projectId, repoId: input.repoId, pr })
+          } catch (err) {
+            trackingError = err instanceof Error ? err.message : String(err)
+            l.warn('PR tracking upsert failed after successful create:', trackingError)
+          }
         }
         if (input.openInBrowser) {
           shell.openExternal(pr.htmlUrl).catch(() => {})

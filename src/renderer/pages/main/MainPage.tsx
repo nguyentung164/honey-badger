@@ -1,5 +1,5 @@
 'use client'
-import { Bug, CheckCircle, CircleAlert, HelpCircle, SendHorizontal, SlidersHorizontal, Sparkles, TableOfContents } from 'lucide-react' // Added icons
+import { Bug, CheckCircle, CircleAlert, GitPullRequest, HelpCircle, SendHorizontal, SlidersHorizontal, Sparkles, TableOfContents } from 'lucide-react' // Added icons
 import { IPC } from 'main/constants'
 import { lazy, memo, Suspense, useCallback, useEffect, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
@@ -34,6 +34,7 @@ import { cn } from '@/lib/utils'
 import { validateCommitMessage } from '@/lib/validateCommitMessage'
 import { GitStagingTable } from '@/pages/main/GitStagingTable'
 import { PrManagerToolbarPortalContext } from '@/pages/main/PrManagerToolbarPortalContext'
+import { QuickCreatePrDialog } from '@/pages/main/QuickCreatePrDialog'
 import { type FileData, SvnFileTable } from '@/pages/main/SvnFileTable'
 import { TaskToolbarPortalContext } from '@/pages/main/TaskToolbarPortalContext'
 import { TitleBar } from '@/pages/main/TitleBar'
@@ -61,6 +62,26 @@ const IsolatedTextarea = memo(function IsolatedTextarea({
 })
 
 const MAIN_PANEL_SIZES_KEY = 'main-panel-sizes-config'
+
+const MAIN_GIT_COMMIT_OPTIONS_KEY = 'main-git-commit-options'
+
+type GitCommitOptionsPersisted = { amend: boolean; signOff: boolean; autoPush: boolean }
+
+function readGitCommitOptionsFromStorage(): GitCommitOptionsPersisted {
+  const defaults: GitCommitOptionsPersisted = { amend: false, signOff: false, autoPush: false }
+  try {
+    const raw = localStorage.getItem(MAIN_GIT_COMMIT_OPTIONS_KEY)
+    if (!raw) return defaults
+    const parsed = JSON.parse(raw) as Partial<GitCommitOptionsPersisted>
+    return {
+      amend: typeof parsed.amend === 'boolean' ? parsed.amend : defaults.amend,
+      signOff: typeof parsed.signOff === 'boolean' ? parsed.signOff : defaults.signOff,
+      autoPush: typeof parsed.autoPush === 'boolean' ? parsed.autoPush : defaults.autoPush,
+    }
+  } catch {
+    return defaults
+  }
+}
 
 const TaskManagement = lazy(() => import('@/pages/taskmanagement/TaskManagement').then(m => ({ default: m.TaskManagement })))
 
@@ -443,9 +464,18 @@ export function MainPage() {
     findings: { ruleId: string; file: string; startLine?: number; repoLabel?: string; description?: string }[]
     onConfirm: () => void
   } | null>(null)
-  const [autoPush, setAutoPush] = useState(false)
-  const [commitAmend, setCommitAmend] = useState(false)
-  const [commitSignOff, setCommitSignOff] = useState(false)
+  const [autoPush, setAutoPush] = useState(() => readGitCommitOptionsFromStorage().autoPush)
+  const [commitAmend, setCommitAmend] = useState(() => readGitCommitOptionsFromStorage().amend)
+  const [commitSignOff, setCommitSignOff] = useState(() => readGitCommitOptionsFromStorage().signOff)
+
+  useEffect(() => {
+    try {
+      const payload: GitCommitOptionsPersisted = { amend: commitAmend, signOff: commitSignOff, autoPush }
+      localStorage.setItem(MAIN_GIT_COMMIT_OPTIONS_KEY, JSON.stringify(payload))
+    } catch {
+      /* ignore */
+    }
+  }, [commitAmend, commitSignOff, autoPush])
   const [showLoginDialog, setShowLoginDialog] = useState(false)
   const [showChangePasswordDialog, setShowChangePasswordDialog] = useState(false)
   const [shellView, setShellView] = useState<MainShellView>(() => getInitialMainPageShellView())
@@ -536,6 +566,7 @@ export function MainPage() {
   const [commitDialogTitle, setCommitDialogTitle] = useState('')
   const [commitCompletionMessage, setCommitCompletionMessage] = useState('')
   const [commitOperationStatus, setCommitOperationStatus] = useState<'success' | 'error' | undefined>(undefined)
+  const [quickPrDialogOpen, setQuickPrDialogOpen] = useState(false)
 
   const [panelSizes, setPanelSizes] = useState<MainPanelSizes>({
     topPanelSize: 50,
@@ -1083,6 +1114,7 @@ export function MainPage() {
 
   const activeRepoPath = isMultiRepo && effectivePaths.length > 0 ? (effectivePaths[Number(multiRepoActiveTab)] ?? effectivePaths[0]) : undefined
   const activeRepoLabel = isMultiRepo && effectiveLabels.length > 0 ? (effectiveLabels[Number(multiRepoActiveTab)] ?? effectiveLabels[0]) : undefined
+  const quickPrCwd = (isMultiRepo && activeRepoPath ? activeRepoPath : sourceFolder) || undefined
 
   return (
     <div className="flex h-screen w-full">
@@ -1359,66 +1391,107 @@ export function MainPage() {
                 </Button>
                 {/* Commit + Commit Options (Git) button group - Options left, Commit right */}
                 {versionControlSystem === 'git' ? (
-                  <div className="inline-flex rounded-md overflow-hidden [&_button]:rounded-none [&_button:first-child]:rounded-l-md [&_button:last-child]:rounded-r-md">
-                    <Popover>
-                      <Tooltip>
-                        <TooltipTrigger asChild>
-                          <PopoverTrigger asChild>
-                            <Button
-                              type="button"
-                              variant={variant}
-                              size="icon"
-                              className="h-9 w-9 shrink-0 border-r border-border text-foreground"
-                              aria-label={t('git.commitOptions')}
-                            >
-                              <SlidersHorizontal className="h-4 w-4" />
-                            </Button>
-                          </PopoverTrigger>
-                        </TooltipTrigger>
-                        <TooltipContent side="top">{t('git.commitOptions')}</TooltipContent>
-                      </Tooltip>
-                      <PopoverContent className="w-56 p-3" align="end" side="top">
-                        <div className="space-y-3">
-                          {autoPush ? (
-                            <Tooltip>
-                              <TooltipTrigger asChild>
-                                <label htmlFor="commit-amend-popover" className="flex items-center gap-2 cursor-not-allowed select-none opacity-60">
-                                  <Checkbox id="commit-amend-popover" checked={commitAmend} onCheckedChange={c => setCommitAmend(c === true)} disabled />
-                                  <span className="text-sm">{t('git.commitAmend')}</span>
-                                </label>
-                              </TooltipTrigger>
-                              <TooltipContent side="top">{t('git.commitAmendDisabledHint')}</TooltipContent>
-                            </Tooltip>
-                          ) : (
-                            <label htmlFor="commit-amend-popover" className="flex items-center gap-2 cursor-pointer select-none">
-                              <Checkbox id="commit-amend-popover" checked={commitAmend} onCheckedChange={c => setCommitAmend(c === true)} />
-                              <span className="text-sm">{t('git.commitAmend')}</span>
+                  <>
+                    <div className="inline-flex rounded-md overflow-hidden [&_button]:rounded-none [&_button:first-child]:rounded-l-md [&_button:last-child]:rounded-r-md">
+                      <Popover>
+                        <Tooltip>
+                          <TooltipTrigger asChild>
+                            <PopoverTrigger asChild>
+                              <Button
+                                type="button"
+                                variant={variant}
+                                size="icon"
+                                className="relative h-9 w-9 shrink-0 border-r border-border text-foreground"
+                                aria-label={t('git.commitOptions')}
+                              >
+                                <SlidersHorizontal className="h-4 w-4" />
+                                {autoPush ? (
+                                  <span
+                                    className="pointer-events-none absolute right-1 top-1 flex size-[9px] items-center justify-center rounded-[2px] bg-emerald-600/80 px-px text-[7px] leading-none text-white shadow-sm dark:bg-emerald-500/70"
+                                    aria-hidden
+                                  >
+                                    A
+                                  </span>
+                                ) : null}
+                              </Button>
+                            </PopoverTrigger>
+                          </TooltipTrigger>
+                          <TooltipContent side="top">{t('git.commitOptions')}</TooltipContent>
+                        </Tooltip>
+                        <PopoverContent className="w-56 p-3" align="end" side="top">
+                          <div className="space-y-3">
+                            {autoPush ? (
+                              <Tooltip>
+                                <TooltipTrigger asChild>
+                                  <label htmlFor="commit-amend-popover" className="flex items-center gap-2 cursor-not-allowed select-none opacity-60">
+                                    <Checkbox id="commit-amend-popover" checked={commitAmend} onCheckedChange={c => setCommitAmend(c === true)} disabled />
+                                    <span className="text-sm">{t('git.commitAmend')}</span>
+                                  </label>
+                                </TooltipTrigger>
+                                <TooltipContent side="top">{t('git.commitAmendDisabledHint')}</TooltipContent>
+                              </Tooltip>
+                            ) : (
+                              <label htmlFor="commit-amend-popover" className="flex items-center gap-2 cursor-pointer select-none">
+                                <Checkbox id="commit-amend-popover" checked={commitAmend} onCheckedChange={c => setCommitAmend(c === true)} />
+                                <span className="text-sm">{t('git.commitAmend')}</span>
+                              </label>
+                            )}
+                            <label htmlFor="commit-signoff-popover" className="flex items-center gap-2 cursor-pointer select-none">
+                              <Checkbox id="commit-signoff-popover" checked={commitSignOff} onCheckedChange={c => setCommitSignOff(c === true)} />
+                              <span className="text-sm">{t('git.commitSignOff')}</span>
                             </label>
-                          )}
-                          <label htmlFor="commit-signoff-popover" className="flex items-center gap-2 cursor-pointer select-none">
-                            <Checkbox id="commit-signoff-popover" checked={commitSignOff} onCheckedChange={c => setCommitSignOff(c === true)} />
-                            <span className="text-sm">{t('git.commitSignOff')}</span>
-                          </label>
-                          <label htmlFor="auto-push-popover" className="flex items-center gap-2 cursor-pointer select-none">
-                            <Checkbox id="auto-push-popover" checked={autoPush} onCheckedChange={checked => setAutoPush(checked === true)} />
-                            <span className="text-sm">{t('git.autoPush')}</span>
-                          </label>
-                        </div>
-                      </PopoverContent>
-                    </Popover>
-                    <Button
-                      id="commit-button"
-                      className={`relative ${isLoadingCommit ? 'border-effect' : ''} ${isAnyLoading ? 'cursor-progress' : ''} text-foreground`}
-                      variant={variant}
-                      onClick={() => {
-                        if (!isAnyLoading) {
-                          commitCode()
-                        }
-                      }}
-                    >
-                      {isLoadingCommit ? <GlowLoader /> : <SendHorizontal className="h-4 w-4" />} {t('common.commit')}
-                    </Button>
-                  </div>
+                            <label htmlFor="auto-push-popover" className="flex items-center gap-2 cursor-pointer select-none">
+                              <Checkbox id="auto-push-popover" checked={autoPush} onCheckedChange={checked => setAutoPush(checked === true)} />
+                              <span className="text-sm">{t('git.autoPush')}</span>
+                            </label>
+                          </div>
+                        </PopoverContent>
+                      </Popover>
+                      <Button
+                        id="commit-button"
+                        className={cn(
+                          'relative gap-1.5',
+                          isLoadingCommit && 'border-effect',
+                          isAnyLoading && 'cursor-progress',
+                          autoPush ? 'text-emerald-600 dark:text-emerald-400' : 'text-foreground'
+                        )}
+                        variant={variant}
+                        onClick={() => {
+                          if (!isAnyLoading) {
+                            commitCode()
+                          }
+                        }}
+                      >
+                        {isLoadingCommit ? <GlowLoader /> : <SendHorizontal className="h-4 w-4 shrink-0" />}
+                        {t('common.commit')}
+                      </Button>
+                    </div>
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <Button
+                          type="button"
+                          id="quick-create-pr-button"
+                          className="shrink-0 bg-emerald-600 text-white hover:bg-emerald-700 dark:bg-emerald-600 dark:text-white dark:hover:bg-emerald-700"
+                          disabled={isAnyLoading}
+                          onClick={() => {
+                            if (!user?.id || isGuest) {
+                              toast.warning(t('git.quickCreatePr.needLogin'))
+                              return
+                            }
+                            const cwd = activeRepoPath ?? sourceFolder
+                            if (!cwd?.trim()) {
+                              toast.warning(t('git.notAGitRepo'))
+                              return
+                            }
+                            setQuickPrDialogOpen(true)
+                          }}
+                        >
+                          <GitPullRequest className="h-4 w-4" /> {t('git.quickCreatePr.button')}
+                        </Button>
+                      </TooltipTrigger>
+                      <TooltipContent side="top">{t('git.quickCreatePr.tooltip')}</TooltipContent>
+                    </Tooltip>
+                  </>
                 ) : (
                   <Button
                     id="commit-button"
@@ -1508,6 +1581,8 @@ export function MainPage() {
             </AlertDialogContent>
           </AlertDialog>
         )}
+
+        <QuickCreatePrDialog open={quickPrDialogOpen} onOpenChange={setQuickPrDialogOpen} cwd={quickPrCwd} projectId={selectedProjectId} userId={user?.id ?? null} />
 
         {/* Commit/Push Realtime Log Dialog */}
         <VcsOperationLogDialog

@@ -770,6 +770,7 @@ declare global {
           message?: string
         }>
         onTrackedSyncProgress: (callback: (payload: { projectId: string; done: number; total: number; percent: number }) => void) => () => void
+        githubOwnerRepoFromCwd: (cwd: string) => Promise<{ status: string; data?: { owner: string; repo: string }; message?: string }>
         prCreate: (input: {
           projectId: string
           repoId: string
@@ -782,6 +783,7 @@ declare global {
           draft?: boolean
           openInBrowser?: boolean
           userId: string
+          skipPrManagerTracking?: boolean
         }) => Promise<{ status: string; data?: any; message?: string; trackingError?: string }>
         prMerge: (input: {
           projectId: string
@@ -1608,6 +1610,7 @@ contextBridge.exposeInMainWorld('api', {
       ipcRenderer.on(IPC.PR.EVENT_TRACKED_SYNC_PROGRESS, handler)
       return () => ipcRenderer.removeListener(IPC.PR.EVENT_TRACKED_SYNC_PROGRESS, handler)
     },
+    githubOwnerRepoFromCwd: (cwd: string) => ipcRenderer.invoke(IPC.PR.GITHUB_OWNER_REPO_FROM_CWD, cwd),
     prCreate: (input: {
       projectId: string
       repoId: string
@@ -1620,6 +1623,7 @@ contextBridge.exposeInMainWorld('api', {
       draft?: boolean
       openInBrowser?: boolean
       userId: string
+      skipPrManagerTracking?: boolean
     }) => ipcRenderer.invoke(IPC.PR.PR_CREATE, toStructuredCloneable(input)),
     prMerge: (input: {
       projectId: string
