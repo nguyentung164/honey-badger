@@ -67,6 +67,7 @@ import { GlowLoader } from '@/components/ui-elements/GlowLoader'
 import toast from '@/components/ui-elements/Toast'
 import i18n from '@/lib/i18n'
 import { TASK_TYPE_MILESTONE_BADGE_CLASS, TASK_TYPE_MILESTONE_COMBO_TEXT_CLASS, TASK_TYPE_MILESTONE_HEX, TASK_TYPE_MILESTONE_RING_CLASS } from '@/lib/taskTypeMilestoneTokens'
+import { toYyyyMmDd } from '@/lib/dateUtils'
 import { cn, getContrastingColor, hexToRgba } from '@/lib/utils'
 import { useTaskToolbarPortalTarget } from '@/pages/main/TaskToolbarPortalContext'
 import {
@@ -80,7 +81,13 @@ import { useTaskAuthStore } from '@/stores/useTaskAuthStore'
 import type { ChartTask } from './chartDataUtils'
 import { TaskBulkActionsBar } from './TaskBulkActionsBar'
 import { TaskCalendarView } from './TaskCalendarView'
-import { type GanttTaskLink, TaskGanttView, type TaskGanttViewLabels, Z_GANTT_BOARD_LOADING_OVERLAY } from './TaskGanttView'
+import {
+  type GanttTaskLink,
+  TaskGanttView,
+  type TaskGanttLayoutMode,
+  type TaskGanttViewLabels,
+  Z_GANTT_BOARD_LOADING_OVERLAY,
+} from './TaskGanttView'
 import type { WorkloadBoardSegment, WorkloadData, WorkloadOverrideUpsertInput } from './TaskGanttWorkload'
 import { TaskKanbanBoard } from './TaskKanbanBoard'
 import { TaskSavedViewsPopover } from './TaskSavedViewsPopover'
@@ -568,6 +575,21 @@ function mergeWorkloadSegmentsWithPendingPatches(serverSegments: WorkloadBoardSe
   }))
 }
 
+/** Workload API trả grid theo project, không theo facet task — lọc user theo cùng Assignee toolbar. `_empty` không có hàng workload → bỏ qua. */
+function filterWorkloadSegmentsByAssigneeSelection(segments: WorkloadBoardSegment[], assigneeUserIds: string[]): WorkloadBoardSegment[] {
+  if (assigneeUserIds.length === 0) return segments
+  const allow = new Set(assigneeUserIds.filter(id => id !== '_empty'))
+  if (allow.size === 0) {
+    return segments.map(s => ({ ...s, data: { ...s.data, users: [], days: [] } }))
+  }
+  return segments.map(s => {
+    const users = s.data.users.filter(u => allow.has(u.userId))
+    const ids = new Set(users.map(u => u.userId))
+    const days = s.data.days.filter(d => ids.has(d.userId))
+    return { ...s, data: { ...s.data, users, days } }
+  })
+}
+
 export function TaskManagement({ embedded = false }: { embedded?: boolean }) {
   const { t } = useTranslation()
   const location = useLocation()
@@ -662,6 +684,8 @@ export function TaskManagement({ embedded = false }: { embedded?: boolean }) {
   const [workloadSegments, setWorkloadSegments] = useState<WorkloadBoardSegment[]>([])
   const [workloadCapTruncated, setWorkloadCapTruncated] = useState<{ total: number; shown: number } | null>(null)
   const [workloadLoading, setWorkloadLoading] = useState(false)
+  /** Layout Gantt hiệu lực (Timeline / Workload / Both) — ẩn filter task-metadata khi chỉ Workload. */
+  const [ganttBoardLayoutEffective, setGanttBoardLayoutEffective] = useState<TaskGanttLayoutMode | null>(null)
   const workloadRequestIdRef = useRef(0)
   /** Override vừa lưu (theo ô) — merge sau mỗi GET cho đến khi server khớp. */
   const workloadOverridePatchesRef = useRef<Map<string, WorkloadOverridePendingPatch>>(new Map())
@@ -1301,12 +1325,14 @@ export function TaskManagement({ embedded = false }: { embedded?: boolean }) {
         toast.error(t('taskManagement.taskReadOnlyNoPermission'))
         return false
       }
+      const psNorm = planStartDate.trim() ? (toYyyyMmDd(planStartDate) ?? planStartDate.trim().slice(0, 10)) : ''
+      const peNorm = planEndDate.trim() ? (toYyyyMmDd(planEndDate) ?? planEndDate.trim().slice(0, 10)) : ''
       let previousSnapshot: Task[] = []
       setBoardTasks(prev => {
         previousSnapshot = prev
-        return prev.map(x => (x.id === taskId ? { ...x, planStartDate, planEndDate } : x))
+        return prev.map(x => (x.id === taskId ? { ...x, planStartDate: psNorm, planEndDate: peNorm } : x))
       })
-      const res = await window.api.task.updateDates(taskId, { planStartDate, planEndDate }, version)
+      const res = await window.api.task.updateDates(taskId, { planStartDate: psNorm, planEndDate: peNorm }, version)
       if (res.status === 'success') {
         setListRevision(r => r + 1)
         return true
@@ -2101,6 +2127,25 @@ export function TaskManagement({ embedded = false }: { embedded?: boolean }) {
     void fetchWorkload()
   }, [fetchWorkload])
 
+  const workloadSegmentsForGanttBoard = useMemo(
+    () => filterWorkloadSegmentsByAssigneeSelection(workloadSegments, assigneeFilter),
+    [workloadSegments, assigneeFilter]
+  )
+
+  const ganttToolbarWorkloadOnly = taskView === 'gantt' && ganttBoardLayoutEffective === 'workload'
+
+  useEffect(() => {
+    if (taskView !== 'gantt') setGanttBoardLayoutEffective(null)
+  }, [taskView])
+
+  /** Board chỉ Workload: toolbar không còn Type/Status/Priority — xóa facet để list task / Gantt mini không bị kẹt filter ẩn. */
+  useEffect(() => {
+    if (ganttBoardLayoutEffective !== 'workload') return
+    setTypeFilter(prev => (prev.length > 0 ? [] : prev))
+    setStatusFilter(prev => (prev.length > 0 ? [] : prev))
+    setPriorityFilter(prev => (prev.length > 0 ? [] : prev))
+  }, [ganttBoardLayoutEffective])
+
   const handleUpsertWorkloadOverride = useCallback(
     async (input: WorkloadOverrideUpsertInput) => {
       const pid = (input.projectId || '').trim()
@@ -2741,6 +2786,8 @@ export function TaskManagement({ embedded = false }: { embedded?: boolean }) {
                             )}
                           </PopoverContent>
                         </Popover>
+                        {!ganttToolbarWorkloadOnly ? (
+                          <>
                         <Popover>
                           <PopoverTrigger asChild>
                             <Button variant={buttonVariant} size="sm" className={cn('h-8 gap-1.5', typeFilter.length > 0 && TASK_MGMT_FILTER_TRIGGER_ACTIVE)}>
@@ -2992,6 +3039,8 @@ export function TaskManagement({ embedded = false }: { embedded?: boolean }) {
                             )}
                           </PopoverContent>
                         </Popover>
+                          </>
+                        ) : null}
                         {hasNarrowingFilters && (
                           <Button
                             variant="outline"
@@ -3187,12 +3236,13 @@ export function TaskManagement({ embedded = false }: { embedded?: boolean }) {
                             onApplyBulkTaskSelection={applyBulkTaskIdsSelection}
                             onUpdatePlanDates={handleUpdatePlanDates}
                             disableRowGrouping={!canManageTaskRowGrouping}
-                            workloadSegments={workloadSegments}
+                            workloadSegments={workloadSegmentsForGanttBoard}
                             workloadCapTruncated={workloadCapTruncated}
                             workloadLoading={workloadLoading}
                             onUpsertWorkloadOverride={handleUpsertWorkloadOverride}
                             taskLinks={ganttTaskLinks}
                             labels={taskGanttViewLabels}
+                            onBoardLayoutEffectiveChange={setGanttBoardLayoutEffective}
                           />
                         )}
                         {taskView === 'calendar' && (

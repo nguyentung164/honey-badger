@@ -10,6 +10,7 @@
 
 import { format } from 'date-fns'
 import type { DateRange } from 'react-day-picker'
+import { toYyyyMmDd } from '@/lib/dateUtils'
 
 export type TaskStatus = string
 export type TaskPriority = string
@@ -36,6 +37,8 @@ function toDateKeyFromISO(s: string | undefined): string | null {
   if (!s || typeof s !== 'string') return null
   const trimmed = s.trim()
   if (!trimmed) return null
+  const ymd = toYyyyMmDd(trimmed)
+  if (ymd) return ymd
   const d = new Date(trimmed)
   if (Number.isNaN(d.getTime())) return null
   return toDateKey(d)

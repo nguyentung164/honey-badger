@@ -5,21 +5,14 @@ import { randomUuidV7 } from 'shared/randomUuidV7'
 import { query, withTransaction } from './db'
 import { collectRedmineCsvProjectRefsForAuthorization, createTasksFromCsv, createUsersFromCsv, parseCSVRows } from './importCsv'
 import { isBooleanColumn, toDbBoolValue } from './pgPrTrackingStore'
+import { migrateUserProjectRolesProjectIdUkToGenerated } from './taskDbPatches'
 import { getNextTicketId } from './ticketSequence'
+import { calendarInputToPgTimestamptzSql, dbValueToCalendarYmd } from './calendarDate'
 
 function throwVersionConflict(): never {
   const e = new Error('Task not found or was modified by another user')
   ;(e as Error & { code: string }).code = 'VERSION_CONFLICT'
   throw e
-}
-
-/** ISO-8601 từ renderer (vd. …T…Z) chuẩn hóa thành YYYY-MM-DD HH:mm:ss cho cột Postgres `timestamp` (UTC). */
-function toMysqlDateTime(value: string | null | undefined): string | null {
-  if (value == null || value === '') return null
-  const d = new Date(value)
-  if (Number.isNaN(d.getTime())) return null
-  const p = (n: number) => String(n).padStart(2, '0')
-  return `${d.getUTCFullYear()}-${p(d.getUTCMonth() + 1)}-${p(d.getUTCDate())} ${p(d.getUTCHours())}:${p(d.getUTCMinutes())}:${p(d.getUTCSeconds())}`
 }
 
 export type TaskStatus = 'new' | 'in_progress' | 'in_review' | 'fixed' | 'cancelled' | 'done' | 'feedback'
@@ -173,10 +166,10 @@ function mapTask(row: any): Task {
     ticketId: row.ticket_id ?? '',
     project: row.project_name ?? '',
     projectId: row.project_id,
-    planStartDate: row.plan_start_date ? new Date(row.plan_start_date).toISOString() : '',
-    planEndDate: row.plan_end_date ? new Date(row.plan_end_date).toISOString() : '',
-    actualStartDate: row.actual_start_date ? new Date(row.actual_start_date).toISOString() : '',
-    actualEndDate: row.actual_end_date ? new Date(row.actual_end_date).toISOString() : '',
+    planStartDate: row.plan_start_date ? dbValueToCalendarYmd(row.plan_start_date as Date | string) : '',
+    planEndDate: row.plan_end_date ? dbValueToCalendarYmd(row.plan_end_date as Date | string) : '',
+    actualStartDate: row.actual_start_date ? dbValueToCalendarYmd(row.actual_start_date as Date | string) : '',
+    actualEndDate: row.actual_end_date ? dbValueToCalendarYmd(row.actual_end_date as Date | string) : '',
     createdAt: row.created_at ? new Date(row.created_at).toISOString() : '',
     updatedAt: row.updated_at ? new Date(row.updated_at).toISOString() : '',
     createdBy,
@@ -811,10 +804,10 @@ function mapManagementChartRow(row: any): TaskManagementChartRow {
     progress: row.progress ?? 0,
     priority: row.priority || 'medium',
     assigneeUserId: row.assignee_user_id ?? null,
-    planStartDate: row.plan_start_date ? new Date(row.plan_start_date).toISOString() : '',
-    planEndDate: row.plan_end_date ? new Date(row.plan_end_date).toISOString() : '',
-    actualEndDate: row.actual_end_date ? new Date(row.actual_end_date).toISOString() : '',
-    actualStartDate: row.actual_start_date ? new Date(row.actual_start_date).toISOString() : '',
+    planStartDate: row.plan_start_date ? dbValueToCalendarYmd(row.plan_start_date as Date | string) : '',
+    planEndDate: row.plan_end_date ? dbValueToCalendarYmd(row.plan_end_date as Date | string) : '',
+    actualEndDate: row.actual_end_date ? dbValueToCalendarYmd(row.actual_end_date as Date | string) : '',
+    actualStartDate: row.actual_start_date ? dbValueToCalendarYmd(row.actual_start_date as Date | string) : '',
     createdAt: row.created_at ? new Date(row.created_at).toISOString() : '',
     updatedAt: row.updated_at ? new Date(row.updated_at).toISOString() : '',
   }
@@ -1124,8 +1117,8 @@ export async function createTask(input: CreateTaskInput): Promise<Task> {
   const id = randomUuidV7()
   const creator = (input.createdBy || '').trim() || null
   await query(
-    `INSERT INTO tasks (id, project_id, title, description, assignee_user_id, status, progress, priority, type, source, ticket_id, plan_start_date, plan_end_date, actual_start_date, actual_end_date, created_by, updated_by, parent_id)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    `INSERT INTO tasks (id, project_id, title, description, assignee_user_id, status, progress, priority, type, source, ticket_id, plan_start_date, plan_end_date, actual_start_date, actual_end_date, created_by, updated_by, parent_id, version)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1)`,
     [
       id,
       projectId,
@@ -1138,10 +1131,10 @@ export async function createTask(input: CreateTaskInput): Promise<Task> {
       taskType,
       effectiveSource,
       ticketId,
-      input.planStartDate ? toMysqlDateTime(input.planStartDate) : null,
-      input.planEndDate ? toMysqlDateTime(input.planEndDate) : null,
-      input.actualStartDate ? toMysqlDateTime(input.actualStartDate) : null,
-      input.actualEndDate ? toMysqlDateTime(input.actualEndDate) : null,
+      input.planStartDate ? calendarInputToPgTimestamptzSql(input.planStartDate) : null,
+      input.planEndDate ? calendarInputToPgTimestamptzSql(input.planEndDate) : null,
+      input.actualStartDate ? calendarInputToPgTimestamptzSql(input.actualStartDate) : null,
+      input.actualEndDate ? calendarInputToPgTimestamptzSql(input.actualEndDate) : null,
       creator,
       creator,
       (input as any).parentId || null,
@@ -1259,19 +1252,19 @@ export async function updateTaskDates(
   const params: unknown[] = []
   if (dates.planStartDate !== undefined) {
     updates.push('plan_start_date = ?')
-    params.push(dates.planStartDate ? toMysqlDateTime(dates.planStartDate) : null)
+    params.push(dates.planStartDate ? calendarInputToPgTimestamptzSql(dates.planStartDate) : null)
   }
   if (dates.planEndDate !== undefined) {
     updates.push('plan_end_date = ?')
-    params.push(dates.planEndDate ? toMysqlDateTime(dates.planEndDate) : null)
+    params.push(dates.planEndDate ? calendarInputToPgTimestamptzSql(dates.planEndDate) : null)
   }
   if (dates.actualStartDate !== undefined) {
     updates.push('actual_start_date = ?')
-    params.push(dates.actualStartDate ? toMysqlDateTime(dates.actualStartDate) : null)
+    params.push(dates.actualStartDate ? calendarInputToPgTimestamptzSql(dates.actualStartDate) : null)
   }
   if (dates.actualEndDate !== undefined) {
     updates.push('actual_end_date = ?')
-    params.push(dates.actualEndDate ? toMysqlDateTime(dates.actualEndDate) : null)
+    params.push(dates.actualEndDate ? calendarInputToPgTimestamptzSql(dates.actualEndDate) : null)
   }
   if (updates.length === 0) return
   const before = await fetchTaskRowById(id)
@@ -1387,7 +1380,7 @@ export async function updateTask(id: string, input: UpdateTaskInput, updatedByUs
     if (key === 'type') await ensureMasterCodeExists('types', String(val))
     if (key === 'source') await ensureMasterCodeExists('sources', String(val))
     if (key === 'planStartDate' || key === 'planEndDate' || key === 'actualStartDate' || key === 'actualEndDate') {
-      val = val === null ? null : toMysqlDateTime(val as string)
+      val = val === null ? null : calendarInputToPgTimestamptzSql(val as string)
     }
     updates.push(`${dbKey} = ?`)
     params.push(val)
@@ -1599,8 +1592,8 @@ export async function createTaskChild(taskId: string, input: CreateTaskInput): P
   const id = randomUuidV7()
   const creator = (input.createdBy || '').trim() || null
   await query(
-    `INSERT INTO tasks (id, project_id, title, description, assignee_user_id, status, progress, priority, type, source, ticket_id, plan_start_date, plan_end_date, actual_start_date, actual_end_date, created_by, updated_by, parent_id)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    `INSERT INTO tasks (id, project_id, title, description, assignee_user_id, status, progress, priority, type, source, ticket_id, plan_start_date, plan_end_date, actual_start_date, actual_end_date, created_by, updated_by, parent_id, version)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1)`,
     [
       id,
       projectId,
@@ -1613,10 +1606,10 @@ export async function createTaskChild(taskId: string, input: CreateTaskInput): P
       taskType,
       effectiveSource,
       ticketId,
-      input.planStartDate ? toMysqlDateTime(input.planStartDate) : null,
-      input.planEndDate ? toMysqlDateTime(input.planEndDate) : null,
-      input.actualStartDate ? toMysqlDateTime(input.actualStartDate) : null,
-      input.actualEndDate ? toMysqlDateTime(input.actualEndDate) : null,
+      input.planStartDate ? calendarInputToPgTimestamptzSql(input.planStartDate) : null,
+      input.planEndDate ? calendarInputToPgTimestamptzSql(input.planEndDate) : null,
+      input.actualStartDate ? calendarInputToPgTimestamptzSql(input.actualStartDate) : null,
+      input.actualEndDate ? calendarInputToPgTimestamptzSql(input.actualEndDate) : null,
       creator,
       creator,
       taskId,
@@ -1856,7 +1849,10 @@ export async function setPasswordHash(userId: string, passwordHash: string): Pro
     if (result?.affectedRows === 0) throw new Error('Password record was modified by another user')
   } else {
     const id = randomUuidV7()
-    await query('INSERT INTO users_password (id, user_id, password_hash) VALUES (?, ?, ?)', [id, userId, passwordHash])
+    await query(
+      'INSERT INTO users_password (id, user_id, password_hash, version) VALUES (?, ?, ?, 1)',
+      [id, userId, passwordHash]
+    )
   }
 }
 
@@ -1907,7 +1903,12 @@ export async function setUserProjectRole(userId: string, projectId: string | nul
   const existing = await query<any[]>('SELECT id FROM user_project_roles WHERE user_id = ? AND (project_id IS NOT DISTINCT FROM ?) AND role = ?', [userId, projectId, role])
   if (existing?.length) return
   const id = randomUuidV7()
-  await query('INSERT INTO user_project_roles (id, user_id, project_id, role) VALUES (?, ?, ?, ?)', [id, userId, projectId, role])
+  await query('INSERT INTO user_project_roles (id, user_id, project_id, role, version) VALUES (?, ?, ?, ?, 1)', [
+    id,
+    userId,
+    projectId,
+    role,
+  ])
 }
 
 export async function removeUserProjectRole(userId: string, projectId: string | null, role: UserRole): Promise<void> {
@@ -2247,6 +2248,7 @@ export async function createTasksFromRedmineCsv(
   if (!tablesCheck?.length) {
     throw new Error('Database chưa được khởi tạo schema. Vui lòng khởi tạo schema trước khi import CSV.')
   }
+  await migrateUserProjectRolesProjectIdUkToGenerated()
   const refs = await collectRedmineCsvProjectRefsForAuthorization(rows)
   const visible = await getTaskListVisibleProjectIds(importerUserId, importerAppRole)
   if (visible !== null) {

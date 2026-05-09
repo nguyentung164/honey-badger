@@ -525,3 +525,52 @@ export async function migrateTasksTicketIdNullable(): Promise<void> {
   }
   tasksTicketIdNullableMigrationDone = true
 }
+
+let userProjectRolesProjectIdUkMigrationDone = false
+
+/**
+ * Older DBs may have `project_id_uk` as a plain NOT NULL column instead of GENERATED.
+ * Then INSERT (id, user_id, project_id, role) leaves `project_id_uk` NULL and fails.
+ * Replace with GENERATED ALWAYS AS (COALESCE(project_id, '___GLOBAL___')) STORED — matches schema.sql.
+ */
+export async function migrateUserProjectRolesProjectIdUkToGenerated(): Promise<void> {
+  if (userProjectRolesProjectIdUkMigrationDone || !hasDbConfig()) return
+
+  const rows = await query<{ gen: string }[]>(
+    `SELECT COALESCE(a.attgenerated::text, '') AS gen
+     FROM pg_attribute a
+     JOIN pg_class c ON c.oid = a.attrelid AND c.relkind = 'r'
+     JOIN pg_namespace n ON n.oid = c.relnamespace
+     WHERE n.nspname = current_schema()
+       AND c.relname = 'user_project_roles'
+       AND a.attname = 'project_id_uk'
+       AND a.attnum > 0
+       AND NOT a.attisdropped
+     LIMIT 1`
+  )
+  if (!Array.isArray(rows) || rows.length === 0) {
+    userProjectRolesProjectIdUkMigrationDone = true
+    return
+  }
+  const gen = (rows[0]?.gen ?? '').trim()
+  if (gen === 's') {
+    userProjectRolesProjectIdUkMigrationDone = true
+    return
+  }
+
+  try {
+    await query('ALTER TABLE user_project_roles DROP CONSTRAINT IF EXISTS uk_user_project_role')
+    await query('ALTER TABLE user_project_roles DROP COLUMN project_id_uk')
+    await query(
+      `ALTER TABLE user_project_roles ADD COLUMN project_id_uk VARCHAR(36)
+       GENERATED ALWAYS AS (COALESCE(project_id, '___GLOBAL___')) STORED NOT NULL`
+    )
+    await query(
+      'ALTER TABLE user_project_roles ADD CONSTRAINT uk_user_project_role UNIQUE (user_id, project_id_uk, role)'
+    )
+  } catch (e) {
+    l.error('[db] migrateUserProjectRolesProjectIdUkToGenerated failed', e)
+    return
+  }
+  userProjectRolesProjectIdUkMigrationDone = true
+}

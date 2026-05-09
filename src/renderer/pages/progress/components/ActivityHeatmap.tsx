@@ -3,6 +3,7 @@ import { memo, useEffect, useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Skeleton } from '@/components/ui/skeleton'
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
+import { toYyyyMmDd } from '@/lib/dateUtils'
 import { cn } from '@/lib/utils'
 import { type HeatmapDay, useProgressStore } from '@/stores/useProgressStore'
 import { SectionHeader } from './SectionHeader'
@@ -27,7 +28,10 @@ function getIntensityClass(score: number): string {
 function buildYearGrid(year: number, data: HeatmapDay[]) {
   const map = new Map<string, HeatmapDay>()
   for (const d of data) {
-    const key = typeof d.snapshot_date === 'string' ? d.snapshot_date.slice(0, 10) : new Date(d.snapshot_date).toISOString().slice(0, 10)
+    const key =
+      typeof d.snapshot_date === 'string'
+        ? d.snapshot_date.trim().slice(0, 10)
+        : (toYyyyMmDd(d.snapshot_date as Date | string) ?? '')
     map.set(key, d)
   }
 

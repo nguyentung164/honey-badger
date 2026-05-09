@@ -1,7 +1,7 @@
 'use client'
 
 import { Search, Trash2, User, UserPlus } from 'lucide-react'
-import { useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Button } from '@/components/ui/button'
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar'
@@ -52,6 +52,8 @@ export function ProjectMembersDialog({ open, onOpenChange, projectId, projectNam
   const [canManageDev, setCanManageDev] = useState(false)
   const [columnFilters, setColumnFilters] = useState<Record<string, string>>({})
   const [avatarUrls, setAvatarUrls] = useState<Record<string, string | null>>({})
+  /** Tăng mỗi lần bắt đầu load mới; response cũ (race với thêm/xóa member) không được apply. */
+  const membersFetchGen = useRef(0)
 
   const resolveAvatarSrc = (userId: string) =>
     userId === currentUser?.id ? (currentUser?.avatarUrl ?? avatarUrls[userId] ?? null) : (avatarUrls[userId] ?? null)
@@ -74,30 +76,38 @@ export function ProjectMembersDialog({ open, onOpenChange, projectId, projectNam
     }
   }, [open, isLoading, users, pls, devs, pms])
 
+  const loadMembersFromApi = useCallback((): Promise<void> => {
+    if (!projectId) return Promise.resolve()
+    membersFetchGen.current += 1
+    const gen = membersFetchGen.current
+    setIsLoading(true)
+    return window.api.task.getProjectMembers(projectId).then(res => {
+      if (gen !== membersFetchGen.current) return
+      if (res.status === 'success' && res.data) {
+        setPls(res.data.pls ?? [])
+        setDevs(res.data.devs ?? [])
+        setPms(res.data.pms ?? [])
+        setCanManagePl(isAdmin || canManagePlProp || (res.data.canManagePl ?? false))
+        setCanManagePm(isAdmin || canManagePmProp || (res.data.canManagePm ?? false))
+        setCanManageDev(isAdmin || canManageDevProp || (res.data.canManageDev ?? false))
+      } else {
+        setPls([])
+        setDevs([])
+        setPms([])
+        setCanManagePl(isAdmin || (canManagePlProp ?? false))
+        setCanManagePm(isAdmin || (canManagePmProp ?? false))
+        setCanManageDev(isAdmin || (canManageDevProp ?? false))
+      }
+    }).finally(() => {
+      if (gen === membersFetchGen.current) setIsLoading(false)
+    })
+  }, [projectId, isAdmin, canManagePlProp, canManagePmProp, canManageDevProp])
+
   useEffect(() => {
     if (open && projectId) {
-      setIsLoading(true)
-      window.api.task
-        .getProjectMembers(projectId)
-        .then(res => {
-          if (res.status === 'success' && res.data) {
-            setPls(res.data.pls ?? [])
-            setDevs(res.data.devs ?? [])
-            setPms(res.data.pms ?? [])
-            setCanManagePl(isAdmin || canManagePlProp || (res.data.canManagePl ?? false))
-            setCanManagePm(isAdmin || canManagePmProp || (res.data.canManagePm ?? false))
-            setCanManageDev(isAdmin || canManageDevProp || (res.data.canManageDev ?? false))
-          } else {
-            setPls([])
-            setDevs([])
-            setPms([])
-            setCanManagePl(isAdmin || (canManagePlProp ?? false))
-            setCanManagePm(isAdmin || (canManagePmProp ?? false))
-            setCanManageDev(isAdmin || (canManageDevProp ?? false))
-          }
-        })
-        .finally(() => setIsLoading(false))
+      void loadMembersFromApi()
     } else {
+      membersFetchGen.current += 1
       setPls([])
       setDevs([])
       setPms([])
@@ -106,7 +116,7 @@ export function ProjectMembersDialog({ open, onOpenChange, projectId, projectNam
       setSelectedPmIds(new Set())
       setColumnFilters({})
     }
-  }, [open, projectId, isAdmin, canManagePlProp, canManagePmProp, canManageDevProp])
+  }, [open, projectId, loadMembersFromApi])
 
   useEffect(() => {
     if (open && isAdmin) {
@@ -146,20 +156,22 @@ export function ProjectMembersDialog({ open, onOpenChange, projectId, projectNam
   const handleAddPl = async () => {
     if (!token || selectedPlIds.size === 0) return
     setIsSubmitting(true)
+    let anyFailed = false
     try {
       for (const uid of selectedPlIds) {
         const res = await window.api.user.setUserProjectRole(token, uid, projectId, 'pl')
-        if (res.status === 'success') {
-          const u = users.find(x => x.id === uid)
-          if (u) setPls(prev => [...prev, { userId: u.id, name: u.name, userCode: u.userCode }])
-        } else {
+        if (res.status !== 'success') {
+          anyFailed = true
           toast.error(res.message || 'Thêm PL thất bại')
           break
         }
       }
       setSelectedPlIds(new Set())
-      onSuccess?.()
-      toast.success(t('taskManagement.membersUpdated', 'Đã cập nhật thành viên'))
+      if (!anyFailed) {
+        await loadMembersFromApi()
+        onSuccess?.()
+        toast.success(t('taskManagement.membersUpdated', 'Đã cập nhật thành viên'))
+      }
     } catch (err) {
       toast.error(err instanceof Error ? err.message : 'Thất bại')
     } finally {
@@ -170,20 +182,22 @@ export function ProjectMembersDialog({ open, onOpenChange, projectId, projectNam
   const handleAddDev = async () => {
     if (!token || selectedDevIds.size === 0) return
     setIsSubmitting(true)
+    let anyFailed = false
     try {
       for (const uid of selectedDevIds) {
         const res = await window.api.user.setUserProjectRole(token, uid, projectId, 'dev')
-        if (res.status === 'success') {
-          const u = users.find(x => x.id === uid)
-          if (u) setDevs(prev => [...prev, { userId: u.id, name: u.name, userCode: u.userCode }])
-        } else {
+        if (res.status !== 'success') {
+          anyFailed = true
           toast.error(res.message || 'Thêm Dev thất bại')
           break
         }
       }
       setSelectedDevIds(new Set())
-      onSuccess?.()
-      toast.success(t('taskManagement.membersUpdated', 'Đã cập nhật thành viên'))
+      if (!anyFailed) {
+        await loadMembersFromApi()
+        onSuccess?.()
+        toast.success(t('taskManagement.membersUpdated', 'Đã cập nhật thành viên'))
+      }
     } catch (err) {
       toast.error(err instanceof Error ? err.message : 'Thất bại')
     } finally {
@@ -197,7 +211,7 @@ export function ProjectMembersDialog({ open, onOpenChange, projectId, projectNam
     try {
       const res = await window.api.user.removeUserProjectRole(token, userId, projectId, 'pl')
       if (res.status === 'success') {
-        setPls(prev => prev.filter(m => m.userId !== userId))
+        await loadMembersFromApi()
         onSuccess?.()
         toast.success(t('taskManagement.roleRemovedSuccess', 'Đã xóa role'))
       } else {
@@ -216,7 +230,7 @@ export function ProjectMembersDialog({ open, onOpenChange, projectId, projectNam
     try {
       const res = await window.api.user.removeUserProjectRole(token, userId, projectId, 'dev')
       if (res.status === 'success') {
-        setDevs(prev => prev.filter(m => m.userId !== userId))
+        await loadMembersFromApi()
         onSuccess?.()
         toast.success(t('taskManagement.roleRemovedSuccess', 'Đã xóa role'))
       } else {
@@ -232,20 +246,22 @@ export function ProjectMembersDialog({ open, onOpenChange, projectId, projectNam
   const handleAddPm = async () => {
     if (!token || selectedPmIds.size === 0) return
     setIsSubmitting(true)
+    let anyFailed = false
     try {
       for (const uid of selectedPmIds) {
         const res = await window.api.user.setUserProjectRole(token, uid, projectId, 'pm')
-        if (res.status === 'success') {
-          const u = users.find(x => x.id === uid)
-          if (u) setPms(prev => [...prev, { userId: u.id, name: u.name, userCode: u.userCode }])
-        } else {
+        if (res.status !== 'success') {
+          anyFailed = true
           toast.error(res.message || 'Thêm PM thất bại')
           break
         }
       }
       setSelectedPmIds(new Set())
-      onSuccess?.()
-      toast.success(t('taskManagement.membersUpdated', 'Đã cập nhật thành viên'))
+      if (!anyFailed) {
+        await loadMembersFromApi()
+        onSuccess?.()
+        toast.success(t('taskManagement.membersUpdated', 'Đã cập nhật thành viên'))
+      }
     } catch (err) {
       toast.error(err instanceof Error ? err.message : 'Thất bại')
     } finally {
@@ -259,7 +275,7 @@ export function ProjectMembersDialog({ open, onOpenChange, projectId, projectNam
     try {
       const res = await window.api.user.removeUserProjectRole(token, userId, projectId, 'pm')
       if (res.status === 'success') {
-        setPms(prev => prev.filter(m => m.userId !== userId))
+        await loadMembersFromApi()
         onSuccess?.()
         toast.success(t('taskManagement.roleRemovedSuccess', 'Đã xóa role'))
       } else {

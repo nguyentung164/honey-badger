@@ -52,7 +52,7 @@ import { Label } from '@/components/ui/label'
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
 import { Slider } from '@/components/ui/slider'
 import toast from '@/components/ui-elements/Toast'
-import { getDateOnlyPattern, getDateTimeDisplayPattern, parseLocalDate } from '@/lib/dateUtils'
+import { getDateOnlyPattern, getDateTimeDisplayPattern, parseLocalDate, toYyyyMmDd } from '@/lib/dateUtils'
 import i18n from '@/lib/i18n'
 import { isSerializedStateEmpty } from '@/lib/taskDescriptionEditorState'
 import { TASK_TYPE_MILESTONE_COMBO_TEXT_CLASS } from '@/lib/taskTypeMilestoneTokens'
@@ -834,6 +834,11 @@ export function AddOrEditTaskDialog({
     if (!isEditMode && !projectId) return
     setIsSubmitting(true)
     try {
+      /** Ngày kế hoạch/thực tế là "ngày lịch" — chuẩn yyyy-MM-dd theo giờ máy. Tránh gửi ISO UTC → main process lấy getUTCDate và trừ nhầm 1 ngày (vd. VN midnight). */
+      const planStartOut = planStartDate.trim() ? toYyyyMmDd(planStartDate) : undefined
+      const planEndOut = planEndDate.trim() ? toYyyyMmDd(planEndDate) : undefined
+      const actualStartOut = actualStartDate.trim() ? toYyyyMmDd(actualStartDate) : undefined
+      const actualEndOut = actualEndDate.trim() ? toYyyyMmDd(actualEndDate) : undefined
       if (isEditMode && task && onUpdate) {
         const result = await onUpdate(task.id, {
           title: titleVal,
@@ -846,10 +851,10 @@ export function AddOrEditTaskDialog({
           source,
           ticketId: type === 'milestone' ? '' : undefined,
           projectId: projectId || undefined,
-          planStartDate: planStartDate || undefined,
-          planEndDate: type === 'milestone' ? undefined : planEndDate || undefined,
-          actualStartDate: type === 'milestone' ? undefined : actualStartDate || undefined,
-          actualEndDate: type === 'milestone' ? undefined : actualEndDate || undefined,
+          planStartDate: planStartOut,
+          planEndDate: type === 'milestone' ? undefined : planEndOut,
+          actualStartDate: type === 'milestone' ? undefined : actualStartOut,
+          actualEndDate: type === 'milestone' ? undefined : actualEndOut,
           version: task.version,
         })
         if (result?.success) onOpenChange(false)
@@ -867,10 +872,10 @@ export function AddOrEditTaskDialog({
           ticketId: undefined,
           project: selectedProject?.name,
           projectId,
-          planStartDate: planStartDate || undefined,
-          planEndDate: type === 'milestone' ? undefined : planEndDate || undefined,
-          actualStartDate: type === 'milestone' ? undefined : actualStartDate || undefined,
-          actualEndDate: type === 'milestone' ? undefined : actualEndDate || undefined,
+          planStartDate: planStartOut,
+          planEndDate: type === 'milestone' ? undefined : planEndOut,
+          actualStartDate: type === 'milestone' ? undefined : actualStartOut,
+          actualEndDate: type === 'milestone' ? undefined : actualEndOut,
         })
       }
     } finally {

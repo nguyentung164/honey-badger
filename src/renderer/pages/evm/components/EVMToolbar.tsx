@@ -15,7 +15,7 @@ import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover
 import { Separator } from '@/components/ui/separator'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import toast from '@/components/ui-elements/Toast'
-import { formatDateDisplay, getDateFnsLocale, getDateOnlyPattern, parseLocalDate } from '@/lib/dateUtils'
+import { formatDateDisplay, getDateFnsLocale, getDateOnlyPattern, parseLocalDate, toYyyyMmDd } from '@/lib/dateUtils'
 import { buildWbsDayUnitsFromPlan } from '@/lib/evmCalculations'
 import {
   mapTaskLikeToWbsImportRow,
@@ -339,7 +339,7 @@ export function EVMToolbar({ activeEvmTab }: { activeEvmTab: EVMTabId }) {
       const reportDate =
         ensureRes.data?.reportDate && String(ensureRes.data.reportDate).length >= 10
           ? String(ensureRes.data.reportDate).slice(0, 10)
-          : new Date().toISOString().slice(0, 10)
+          : (toYyyyMmDd(new Date()) ?? '')
       const createdWbs = await addWbsRowsBatchToProject(selectedTaskProjectId, wbsRows)
       let importedAcCount = 0
       if (importAcSnapshots) {

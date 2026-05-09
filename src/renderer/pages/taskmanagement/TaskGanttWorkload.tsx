@@ -15,7 +15,7 @@ import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group'
 import { parseLocalDate, toYyyyMmDd } from '@/lib/dateUtils'
 import { cn } from '@/lib/utils'
 import { GanttTimelineGridOverlay } from './GanttTimelineGridOverlay'
-import { HB_GANTT_GRID_V_VAR, hbGantt } from './ganttLayoutCssVars'
+import { HB_GANTT_GRID_V_VAR, HB_GANTT_TODAY_LINE_MARK, hbGantt } from './ganttLayoutCssVars'
 
 export type WorkloadDayCell = {
   userId: string
@@ -109,6 +109,13 @@ type WorkloadProps = {
   onDisplayModeChange?: (mode: WorkloadDisplayMode) => void
   /** Ref vào vùng timeline (chartWidth) của strip header — parent đồng bộ translateX với Gantt, không mirror scroll. */
   headerTimelineTrackRef?: RefObject<HTMLDivElement | null>
+  /**
+   * Board chỉ Workload: vẽ ngày / lưới / T7–CN giống header Gantt.
+   * Board Both (`combine`): Gantt đã có dải ngày — tắt để không trùng.
+   */
+  showTimelineDayStrip?: boolean
+  /** Tick timeline từ parent (đồng bộ với Gantt). Chỉ dùng khi `showTimelineDayStrip`. */
+  timelineTicks?: { d: Date; left: number; line1: string; line2?: string; cellWidth: number }[]
 }
 
 function isWeekend(d: Date): boolean {
@@ -140,12 +147,16 @@ const Z_WORKLOAD_HEADER_STRIP_META = 0
 const Z_WORKLOAD_STICKY_ROW_META = 30
 /** Hàng capacity trong expanded block — trên mini-Gantt meta khi chồng lấn */
 const Z_WORKLOAD_STICKY_CAPACITY_META = 32
-/** Nút đóng/mở cột meta — khớp `Z_GANTT_BOARD_LOADING_OVERLAY` trên panel Gantt */
+/** Nút đóng/mở cột meta — khớp `Z_GANTT_META_RAIL_FLOATING_TOGGLE` (TaskGanttView), dưới overlay loading */
 const Z_WORKLOAD_META_RAIL_FLOATING_TOGGLE = 37
 /** Lưới dọc “xả” full chiều cao vùng chart — dưới các hàng khi viewport cao hơn nội dung */
 const Z_WORKLOAD_CHART_VGRID_BLEED = 1
-/** Đường Today — khớp `Z_GANTT_BODY_TODAY` trên Gantt */
-const Z_WORKLOAD_CHART_TODAY = 5
+/**
+ * Đường Today — **phải thấp hơn** lớp `body` (`Z_WORKLOAD_BODY_STACK`); trên lưới bleed (`Z_WORKLOAD_CHART_VGRID_BLEED`).
+ */
+const Z_WORKLOAD_CHART_TODAY = 1
+/** Lớp nội dung hàng workload — trên today line để frozen column luôn “thắng” stacking với sibling. */
+const Z_WORKLOAD_BODY_STACK = 5
 
 type Bucket = { left: number; width: number; startDate: Date; endDate: Date; days: Date[] }
 
@@ -426,6 +437,8 @@ export const TaskGanttWorkload = memo(function TaskGanttWorkload({
   displayMode: displayModeProp,
   onDisplayModeChange,
   headerTimelineTrackRef,
+  showTimelineDayStrip = true,
+  timelineTicks,
   workloadRowGrouping = 'project',
 }: WorkloadProps) {
   const { t } = useTranslation()
@@ -443,6 +456,12 @@ export const TaskGanttWorkload = memo(function TaskGanttWorkload({
     }
     return segments
   }, [workloadRowGrouping, segments, showActualBars])
+
+  /** Đã có ít nhất một segment có lưới user×ngày — segment khác chỉ `empty` sẽ không render (tránh lặp message). */
+  const boardHasRenderableWorkloadGrid = useMemo(
+    () => displaySegments.some(s => s.data.users.length > 0 && s.data.days.length > 0),
+    [displaySegments]
+  )
 
   const panelLayout: 'project' | 'flat' | 'assignee' =
     workloadRowGrouping === 'flat' ? 'flat' : workloadRowGrouping === 'assignee' ? 'assignee' : 'project'
@@ -487,7 +506,11 @@ export const TaskGanttWorkload = memo(function TaskGanttWorkload({
     })
   }, [])
 
-  const headerHoursPerDay = displaySegments[0]?.data.hoursPerDay ?? segments[0]?.data.hoursPerDay ?? 8
+  const headerHoursPerDay = useMemo(() => {
+    const filled = displaySegments.find(s => s.data.users.length > 0 && s.data.days.length > 0)
+    const pick = filled ?? displaySegments[0]
+    return pick?.data.hoursPerDay ?? segments[0]?.data.hoursPerDay ?? 8
+  }, [displaySegments, segments])
 
   const workloadHeaderRow = (
     <div
@@ -514,10 +537,47 @@ export const TaskGanttWorkload = memo(function TaskGanttWorkload({
       <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-x-hidden">
         <div
           ref={headerTimelineTrackRef}
-          className="relative min-h-0 flex-1 shrink-0 bg-muted text-[10px] text-muted-foreground will-change-transform"
-          style={{ width: chartWidth }}
+          className="relative isolate min-h-0 flex-1 shrink-0 bg-muted text-[10px] text-muted-foreground will-change-transform [contain:layout_paint_size]"
+          style={{ width: chartWidth, height: HEADER_H }}
         >
-          <div className="absolute inset-y-0 right-3 flex items-center justify-end text-[10px] text-muted-foreground/80">
+          {showTimelineDayStrip ? (
+            <>
+              <div aria-hidden className="pointer-events-none absolute inset-0 z-0 overflow-hidden">
+                {weekendColumnRects.map((r, i) => (
+                  <div
+                    key={`wl-hdr-wk-${r.left}-${i}`}
+                    className="absolute top-0 bottom-0 bg-slate-500/[0.11] dark:bg-slate-400/[0.05]"
+                    style={{ left: r.left, width: r.width }}
+                  />
+                ))}
+              </div>
+              <div
+                aria-hidden
+                className="pointer-events-none absolute inset-0 z-[1] overflow-hidden"
+                style={{ opacity: `var(${HB_GANTT_GRID_V_VAR}, 0)` }}
+              >
+                <GanttTimelineGridOverlay
+                  scale={scale}
+                  pixelPerDay={pixelPerDay}
+                  chartWidth={chartWidth}
+                  verticalGridLineLeftPx={verticalGridLeftPx}
+                />
+              </div>
+              {(timelineTicks ?? []).map(mark => (
+                <div
+                  key={`wl-hdr-tick-${+mark.d}-${mark.left}`}
+                  className="absolute top-0 z-[2] flex h-full flex-col items-center justify-center gap-px leading-tight text-center"
+                  style={{ left: mark.left, width: mark.cellWidth, height: HEADER_H }}
+                >
+                  <span className="w-full max-w-full truncate px-0.5 text-[9px] font-semibold text-muted-foreground">{mark.line1}</span>
+                  {mark.line2 != null && mark.line2 !== '' ? (
+                    <span className="w-full max-w-full truncate px-0.5 text-[9px] tabular-nums text-muted-foreground/90">{mark.line2}</span>
+                  ) : null}
+                </div>
+              ))}
+            </>
+          ) : null}
+          <div className="pointer-events-none absolute inset-y-0 right-3 z-[3] flex items-center justify-end text-[10px] text-muted-foreground/80">
             {t('taskManagement.workloadHoursPerDayLabel', { hours: headerHoursPerDay })}
           </div>
         </div>
@@ -546,6 +606,7 @@ export const TaskGanttWorkload = memo(function TaskGanttWorkload({
             projectId={seg.projectId}
             projectLabel={seg.projectLabel}
             panelLayout={panelLayout}
+            boardHasRenderableWorkloadGrid={boardHasRenderableWorkloadGrid}
             projectBodyVisible={panelLayout === 'project' ? !collapsedProjectIds.has(seg.projectId) : true}
             onToggleProjectSegmentCollapsed={() => toggleProjectSegmentCollapsed(seg.projectId)}
             data={seg.data}
@@ -601,9 +662,10 @@ export const TaskGanttWorkload = memo(function TaskGanttWorkload({
         ) : null}
         <div
           className={cn(
-            'relative z-[3] col-start-1 row-start-1 flex min-h-0 flex-col [&>*]:border-b',
+            'relative col-start-1 row-start-1 flex min-h-0 flex-col [&>*]:border-b',
             showGridBorders ? '[&>*]:border-b-border/60' : WL_NO_GRID_BODY_CHILD_B
           )}
+          style={{ zIndex: Z_WORKLOAD_BODY_STACK }}
         >
           {bodyInner}
         </div>
@@ -655,9 +717,10 @@ export const TaskGanttWorkload = memo(function TaskGanttWorkload({
           ) : null}
           <div
             className={cn(
-              'relative z-[3] col-start-1 row-start-1 flex min-h-0 flex-col [&>*]:border-b',
+              'relative col-start-1 row-start-1 flex min-h-0 flex-col [&>*]:border-b',
               showGridBorders ? '[&>*]:border-b-border/60' : WL_NO_GRID_BODY_CHILD_B
             )}
+            style={{ zIndex: Z_WORKLOAD_BODY_STACK }}
           >
             {bodyInner}
           </div>
@@ -731,17 +794,11 @@ function WorkloadTodayLineBleed({
   return (
     <div
       aria-hidden
-      className="pointer-events-none absolute inset-0 col-start-1 row-start-1 overflow-hidden"
-      style={{ zIndex: Z_WORKLOAD_CHART_TODAY }}
+      className="pointer-events-none absolute top-0 bottom-0 col-start-1 row-start-1 overflow-hidden"
+      style={{ ...hbGantt.chartAreaFromMetaRail(chartWidth), zIndex: Z_WORKLOAD_CHART_TODAY }}
     >
-      <div className="pointer-events-none absolute top-0 bottom-0 overflow-hidden" style={hbGantt.chartAreaFromMetaRail(chartWidth)}>
-        <div className="absolute inset-y-0 left-0 overflow-hidden" style={{ width: chartWidth }}>
-          <div
-            className="absolute top-0 bottom-0 w-[2px] -translate-x-1/2 bg-rose-600/65"
-            style={{ left: todayPxCenter }}
-            title={todayTitle}
-          />
-        </div>
+      <div className="absolute inset-y-0 left-0 overflow-hidden" style={{ width: chartWidth }}>
+        <div className={HB_GANTT_TODAY_LINE_MARK} style={{ left: todayPxCenter }} title={todayTitle} />
       </div>
     </div>
   )
@@ -800,6 +857,7 @@ function WorkloadProjectSegmentPanel({
   projectId,
   projectLabel,
   panelLayout,
+  boardHasRenderableWorkloadGrid,
   projectBodyVisible,
   onToggleProjectSegmentCollapsed,
   data,
@@ -823,6 +881,8 @@ function WorkloadProjectSegmentPanel({
   projectId: string
   projectLabel: string
   panelLayout: 'project' | 'flat' | 'assignee'
+  /** Board đã có ít nhất một segment có user + ô ngày — segment `empty` khác bị ẩn hẳn (không chỉ banner). */
+  boardHasRenderableWorkloadGrid: boolean
   /** Khớp Gantt `groupBodyVisible` — false khi thu gọn khối project. */
   projectBodyVisible: boolean
   onToggleProjectSegmentCollapsed: () => void
@@ -927,6 +987,10 @@ function WorkloadProjectSegmentPanel({
   const dailyCapacity = data?.hoursPerDay ?? 8
   const users = data.users
   const empty = users.length === 0 || data.days.length === 0
+
+  if (boardHasRenderableWorkloadGrid && empty) {
+    return null
+  }
 
   return (
     <div className="flex flex-col">

@@ -81,6 +81,7 @@ import {
   upsertUserProjectSourceFolder,
 } from '../task/pgTaskStore'
 import { deleteWorkloadOverride, getWorkload, upsertWorkloadOverride, type WorkloadOverrideInput } from '../task/pgWorkloadStore'
+import { runSeedMockWithElectronDb } from '../task/seedMockData'
 import { initTaskSchema } from '../task/schemaInit'
 import type { TaskNotificationType } from '../task/taskNotificationStore'
 import { insertTaskNotification, markAsRead } from '../task/taskNotificationStore'
@@ -293,6 +294,41 @@ export function registerTaskIpcHandlers() {
       return { recreated }
     } catch (error: any) {
       l.error('task:init-schema error:', error)
+      throw new Error(error?.message ?? String(error))
+    }
+  })
+
+  ipcMain.handle(IPC.TASK.SEED_MOCK_DATA, async _event => {
+    try {
+      const token = getTokenFromStore()
+      const session = token ? verifyToken(token) : null
+      if (!session) {
+        throw new Error('Đăng nhập là bắt buộc để seed dữ liệu mẫu.')
+      }
+      const adminOk = session.role === 'admin' || (await isAppAdmin(session.userId))
+      if (!adminOk) {
+        throw new Error('Chỉ tài khoản admin mới được chạy seed mock data.')
+      }
+      const host = (configurationStore.get('dbHost') ?? '').trim()
+      const database = (configurationStore.get('dbName') ?? '').trim()
+      if (!host || !database) {
+        throw new Error('Cấu hình DB host và database là bắt buộc.')
+      }
+      const portRaw = configurationStore.get('dbPort') ?? '5432'
+      const portNum = Number(portRaw)
+      const tls = configurationStore.get('dbTls') ?? 'auto'
+      await runSeedMockWithElectronDb({
+        host,
+        port: Number.isFinite(portNum) && portNum > 0 ? portNum : 5432,
+        user: (configurationStore.get('dbUser') ?? '').trim(),
+        password: configurationStore.get('dbPassword') ?? '',
+        database,
+        tls: tls === 'required' || tls === 'disabled' ? tls : 'auto',
+        pgSchema: (configurationStore.get('dbPgSchema') ?? 'public').trim() || 'public',
+      })
+      await resetPoolAndWait()
+    } catch (error: any) {
+      l.error('task:seed-mock-data error:', error)
       throw new Error(error?.message ?? String(error))
     }
   })

@@ -1,5 +1,6 @@
 import * as bcrypt from 'bcryptjs'
 import { randomUuidV7 } from 'shared/randomUuidV7'
+import { csvLegacyInputToPgSqlDatetime } from './calendarDate'
 import { query } from './db'
 
 const DEFAULT_PASSWORD = '123456'
@@ -69,25 +70,9 @@ export function parseCSVRows(content: string): string[][] {
   return colsSemicolon > colsComma && colsSemicolon >= 2 ? rowsSemicolon : rowsComma
 }
 
-/** Chuẩn hóa chuỗi thời gian nhập vào Postgres `timestamp`: YYYY-MM-DD HH:MM:SS (không ép timezone). */
-function toPgTimestampString(isoOrEmpty: string): string | null {
-  if (!isoOrEmpty?.trim()) return null
-  const s = isoOrEmpty.trim()
-  if (/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/.test(s)) return s
-  const d = new Date(s)
-  if (Number.isNaN(d.getTime())) return null
-  const y = d.getFullYear()
-  const m = String(d.getMonth() + 1).padStart(2, '0')
-  const day = String(d.getDate()).padStart(2, '0')
-  const h = String(d.getHours()).padStart(2, '0')
-  const min = String(d.getMinutes()).padStart(2, '0')
-  const sec = String(d.getSeconds()).padStart(2, '0')
-  return `${y}-${m}-${day} ${h}:${min}:${sec}`
-}
-
 const pad2 = (n: number) => String(n).padStart(2, '0')
 
-/** Parse Redmine date (DD-MM-YYYY hoặc DD-MM-YYYY HH:MM) → `toPgTimestampString` (YYYY-MM-DD HH:MM:SS), không convert timezone. */
+/** Parse Redmine date (DD-MM-YYYY hoặc DD-MM-YYYY HH:MM) → chuỗi SQL; sau đó `csvLegacyInputToPgSqlDatetime` khi bind Postgres. */
 function parseRedmineDate(s: string): string {
   if (!s?.trim()) return ''
   const trimmed = s.trim()
@@ -245,7 +230,7 @@ export async function createUsersFromCsv(rows: string[][], existingUsers: { user
     await query('INSERT INTO users (id, user_code, name, email) VALUES (?, ?, ?, ?)', [id, trimmedCode, trimmedName, ''])
     const pwId = randomUuidV7()
     const passwordHash = await bcrypt.hash(DEFAULT_PASSWORD, 10)
-    await query('INSERT INTO users_password (id, user_id, password_hash) VALUES (?, ?, ?)', [pwId, id, passwordHash])
+    await query('INSERT INTO users_password (id, user_id, password_hash, version) VALUES (?, ?, ?, 1)', [pwId, id, passwordHash])
     userByCode.set(trimmedCode.toLowerCase(), trimmedCode)
     created++
   }
@@ -359,7 +344,7 @@ export async function createTasksFromCsv(
       return existing[0]
     }
     const id = randomUuidV7()
-    await query('INSERT INTO projects (id, name) VALUES (?, ?)', [id, n])
+    await query('INSERT INTO projects (id, name, version) VALUES (?, ?, 1)', [id, n])
     const result = { id, name: n }
     projectCache.set(n, result)
     return result
@@ -417,10 +402,10 @@ export async function createTasksFromCsv(
             progress,
             priority,
             type,
-            toPgTimestampString(planEndDate),
-            toPgTimestampString(actualStartDate),
-            toPgTimestampString(actualEndDate),
-            toPgTimestampString(finalUpdatedAt) ?? toPgTimestampString(now),
+            csvLegacyInputToPgSqlDatetime(planEndDate),
+            csvLegacyInputToPgSqlDatetime(actualStartDate),
+            csvLegacyInputToPgSqlDatetime(actualEndDate),
+            csvLegacyInputToPgSqlDatetime(finalUpdatedAt) ?? csvLegacyInputToPgSqlDatetime(now),
             auditBy,
             existingTaskId,
           ]
@@ -433,8 +418,8 @@ export async function createTasksFromCsv(
         const finalUpdatedAtVal = finalUpdatedAt
         const creatorIns = createdBy?.trim() || null
         await query(
-          `INSERT INTO tasks (id, project_id, title, description, assignee_user_id, status, progress, priority, type, source, ticket_id, plan_start_date, plan_end_date, actual_start_date, actual_end_date, created_at, updated_at, created_by, updated_by)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          `INSERT INTO tasks (id, project_id, title, description, assignee_user_id, status, progress, priority, type, source, ticket_id, plan_start_date, plan_end_date, actual_start_date, actual_end_date, created_at, updated_at, created_by, updated_by, version)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1)`,
           [
             id,
             project.id,
@@ -447,12 +432,12 @@ export async function createTasksFromCsv(
             type,
             'redmine',
             ticketId,
-            toPgTimestampString(planStartDate),
-            toPgTimestampString(planEndDate),
-            toPgTimestampString(actualStartDate),
-            toPgTimestampString(actualEndDate),
-            toPgTimestampString(createdAtVal) ?? toPgTimestampString(now),
-            toPgTimestampString(finalUpdatedAtVal) ?? toPgTimestampString(now),
+            csvLegacyInputToPgSqlDatetime(planStartDate),
+            csvLegacyInputToPgSqlDatetime(planEndDate),
+            csvLegacyInputToPgSqlDatetime(actualStartDate),
+            csvLegacyInputToPgSqlDatetime(actualEndDate),
+            csvLegacyInputToPgSqlDatetime(createdAtVal) ?? csvLegacyInputToPgSqlDatetime(now),
+            csvLegacyInputToPgSqlDatetime(finalUpdatedAtVal) ?? csvLegacyInputToPgSqlDatetime(now),
             creatorIns,
             creatorIns,
           ]

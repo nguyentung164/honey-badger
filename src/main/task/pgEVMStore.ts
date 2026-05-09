@@ -2,6 +2,7 @@ import { EVM_DEFAULT_PHASES } from 'shared/evmDefaults'
 import { randomUuidV7 } from 'shared/randomUuidV7'
 import type { ACRow, EVMData, EVMMaster, EVMMasterUpdatePayload, EVMProject, EvmProjectRoleUser, WBSRow, WbsDayUnitRow, WbsMasterRow } from 'shared/types/evm'
 import { query, withTransaction } from './db'
+import { dbValueToCalendarYmd, todayCalendarYmd } from './calendarDate'
 import { migrateProjectsDropLegacyPmPlColumns } from './taskDbPatches'
 
 const PROJECT_SELECT_SQL = 'SELECT id, name as project_name, project_no, end_user, start_date, end_date, report_date FROM projects'
@@ -55,29 +56,6 @@ function parseIssueImportMapJson(raw: unknown): EVMMaster['issueImportMap'] | un
   return Object.keys(out).length ? (out as EVMMaster['issueImportMap']) : undefined
 }
 
-/**
- * Chuỗi ngày YYYY-MM-DD cho UI / khớp lưới local — không dùng toISOString (UTC),
- * vì chuẩn hóa DATE theo TZ server có thể lệch 1 ngày so với ngày lịch người dùng.
- */
-function toDateStr(val: Date | string | null | undefined): string {
-  if (val == null || val === '') return ''
-  if (typeof val === 'string') {
-    const s = val.trim()
-    if (/^\d{4}-\d{2}-\d{2}$/.test(s)) return s
-    const d = new Date(s)
-    if (Number.isNaN(d.getTime())) return s.length >= 10 ? s.slice(0, 10) : ''
-    return dateToLocalYmd(d)
-  }
-  return dateToLocalYmd(val)
-}
-
-function dateToLocalYmd(d: Date): string {
-  const y = d.getFullYear()
-  const m = String(d.getMonth() + 1).padStart(2, '0')
-  const day = String(d.getDate()).padStart(2, '0')
-  return `${y}-${m}-${day}`
-}
-
 function mapProject(row: Record<string, unknown>): EVMProject {
   const endRaw = row.end_user
   return {
@@ -85,9 +63,9 @@ function mapProject(row: Record<string, unknown>): EVMProject {
     projectNo: row.project_no != null ? String(row.project_no) : undefined,
     projectName: String(row.project_name ?? row.name ?? ''),
     endUser: endRaw != null ? String(endRaw) : undefined,
-    startDate: toDateStr(row.start_date as string),
-    endDate: toDateStr(row.end_date as string),
-    reportDate: toDateStr(row.report_date as string),
+    startDate: dbValueToCalendarYmd(row.start_date as string),
+    endDate: dbValueToCalendarYmd(row.end_date as string),
+    reportDate: dbValueToCalendarYmd(row.report_date as string),
   }
 }
 
@@ -132,10 +110,10 @@ function mapWbsMaster(row: Record<string, unknown>): WbsMasterRow {
     category: row.category != null ? String(row.category) : undefined,
     feature: row.feature != null ? String(row.feature) : undefined,
     note: row.note != null ? String(row.note) : undefined,
-    planStartDate: row.plan_start_date ? toDateStr(row.plan_start_date as string) : undefined,
-    planEndDate: row.plan_end_date ? toDateStr(row.plan_end_date as string) : undefined,
-    actualStartDate: row.actual_start_date ? toDateStr(row.actual_start_date as string) : undefined,
-    actualEndDate: row.actual_end_date ? toDateStr(row.actual_end_date as string) : undefined,
+    planStartDate: row.plan_start_date ? dbValueToCalendarYmd(row.plan_start_date as string) : undefined,
+    planEndDate: row.plan_end_date ? dbValueToCalendarYmd(row.plan_end_date as string) : undefined,
+    actualStartDate: row.actual_start_date ? dbValueToCalendarYmd(row.actual_start_date as string) : undefined,
+    actualEndDate: row.actual_end_date ? dbValueToCalendarYmd(row.actual_end_date as string) : undefined,
     assignee: row.assignee_user_id != null ? String(row.assignee_user_id) : undefined,
     assigneeName: row.assignee_name != null ? String(row.assignee_name) : undefined,
     bac: row.bac != null ? Number(row.bac) : undefined,
@@ -178,10 +156,10 @@ function mapWbsDetail(row: Record<string, unknown>): WBSRow {
     category: row.category != null ? String(row.category) : undefined,
     feature: row.feature != null ? String(row.feature) : undefined,
     task: row.task != null ? String(row.task) : undefined,
-    planStartDate: row.plan_start_date ? toDateStr(row.plan_start_date as string) : undefined,
-    planEndDate: row.plan_end_date ? toDateStr(row.plan_end_date as string) : undefined,
-    actualStartDate: row.actual_start_date ? toDateStr(row.actual_start_date as string) : undefined,
-    actualEndDate: row.actual_end_date ? toDateStr(row.actual_end_date as string) : undefined,
+    planStartDate: row.plan_start_date ? dbValueToCalendarYmd(row.plan_start_date as string) : undefined,
+    planEndDate: row.plan_end_date ? dbValueToCalendarYmd(row.plan_end_date as string) : undefined,
+    actualStartDate: row.actual_start_date ? dbValueToCalendarYmd(row.actual_start_date as string) : undefined,
+    actualEndDate: row.actual_end_date ? dbValueToCalendarYmd(row.actual_end_date as string) : undefined,
     assignee: (row.assignee_user_id ?? row.assignee) != null ? String(row.assignee_user_id ?? row.assignee) : undefined,
     assigneeName: row.assignee_name != null ? String(row.assignee_name) : undefined,
     percentDone: normalizeDetailPercentDone(row.progress ?? row.percent_done),
@@ -201,15 +179,15 @@ function mapAc(row: Record<string, unknown>): ACRow {
     id: String(row.id ?? ''),
     projectId: String(row.project_id ?? ''),
     no: Number(row.no ?? 0),
-    date: row.date ? toDateStr(row.date as string) : undefined,
+    date: row.date ? dbValueToCalendarYmd(row.date as string) : undefined,
     phase: row.phase != null ? String(row.phase) : undefined,
     category: row.category != null ? String(row.category) : undefined,
     feature: row.feature != null ? String(row.feature) : undefined,
     task: row.task != null ? String(row.task) : undefined,
-    planStartDate: row.plan_start_date ? toDateStr(row.plan_start_date as string) : undefined,
-    planEndDate: row.plan_end_date ? toDateStr(row.plan_end_date as string) : undefined,
-    actualStartDate: row.actual_start_date ? toDateStr(row.actual_start_date as string) : undefined,
-    actualEndDate: row.actual_end_date ? toDateStr(row.actual_end_date as string) : undefined,
+    planStartDate: row.plan_start_date ? dbValueToCalendarYmd(row.plan_start_date as string) : undefined,
+    planEndDate: row.plan_end_date ? dbValueToCalendarYmd(row.plan_end_date as string) : undefined,
+    actualStartDate: row.actual_start_date ? dbValueToCalendarYmd(row.actual_start_date as string) : undefined,
+    actualEndDate: row.actual_end_date ? dbValueToCalendarYmd(row.actual_end_date as string) : undefined,
     percentDone: row.percent_done != null && row.percent_done !== '' ? normalizeDetailPercentDone(row.percent_done) : undefined,
     assignee: row.assignee != null ? String(row.assignee) : undefined,
     workingHours: Number(row.working_hours ?? 0),
@@ -343,7 +321,7 @@ export async function getEVMData(projectId?: string): Promise<EVMData | null> {
 
   const wbsDayUnits: WbsDayUnitRow[] = (dayUnitRows ?? []).map(r => ({
     wbsId: String(r.wbs_id),
-    workDate: toDateStr(r.work_date as string),
+    workDate: dbValueToCalendarYmd(r.work_date as string),
     unit: Number(r.unit ?? 0),
   }))
 
@@ -356,15 +334,15 @@ export async function ensureProjectForEvm(projectId: string): Promise<EVMProject
   const rows = await query<Record<string, unknown>[]>('SELECT id, name, start_date FROM projects WHERE id = ?', [projectId])
   const row = rows?.[0]
   if (!row) throw new Error('Project not found')
-  const today = new Date().toISOString().slice(0, 10)
+  const today = todayCalendarYmd()
   const start = new Date()
   start.setMonth(start.getMonth() - 3)
   const end = new Date()
   end.setMonth(end.getMonth() + 3)
   if (!row.start_date) {
     await query('UPDATE projects SET start_date = ?, end_date = ?, report_date = ? WHERE id = ?', [
-      start.toISOString().slice(0, 10),
-      end.toISOString().slice(0, 10),
+      dbValueToCalendarYmd(start),
+      dbValueToCalendarYmd(end),
       today,
       projectId,
     ])
@@ -392,8 +370,7 @@ export async function getProjects(): Promise<EVMProject[]> {
  */
 export async function createProject(input: Partial<EVMProject>): Promise<EVMProject> {
   const id = input.id ?? randomUuidV7()
-  const today = new Date().toISOString().slice(0, 10)
-  const start = input.startDate ?? today
+  const today = todayCalendarYmd()
   const end = input.endDate ?? today
   const report = input.reportDate ?? today
 

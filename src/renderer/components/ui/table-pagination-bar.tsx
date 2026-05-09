@@ -79,7 +79,7 @@ export function TablePaginationBar({
   }
 
   return (
-    <div className={cn('shrink-0 w-full min-w-0 grid grid-cols-[1fr_auto_1fr] items-center gap-x-3 gap-y-1', className)}>
+    <div className={cn('shrink-0 w-full min-w-0 grid grid-cols-[1fr_auto_1fr] items-center gap-x-3 gap-y-1 py-1 px-2', className)}>
       <div className="flex min-w-0 items-center gap-3 justify-self-start">
         {leftSlot ?? (
           <>

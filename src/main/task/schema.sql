@@ -526,8 +526,8 @@ INSERT INTO users (id, user_code, name, email) VALUES
   ('00000000-0000-0000-0000-000000000000', 'admin', 'Admin', 'admin@localhost')
 ON CONFLICT (id) DO NOTHING;
 
-INSERT INTO users_password (id, user_id, password_hash) VALUES
-  ('00000000-0000-0000-0000-000000000001', '00000000-0000-0000-0000-000000000000', '$2b$10$IFrJ/ul4lT4kiFo29uQS3.UHq6WgijJwZO6g06dN6.lUiOGn1HsLW')
+INSERT INTO users_password (id, user_id, password_hash, version) VALUES
+  ('00000000-0000-0000-0000-000000000001', '00000000-0000-0000-0000-000000000000', '$2b$10$IFrJ/ul4lT4kiFo29uQS3.UHq6WgijJwZO6g06dN6.lUiOGn1HsLW', 1)
 ON CONFLICT (id) DO NOTHING;
 
 INSERT INTO app_admins (user_id) VALUES ('00000000-0000-0000-0000-000000000000')
@@ -904,3 +904,13 @@ ALTER TABLE pr_user_board_skip_branches ADD CONSTRAINT fk_pr_ub_skip_user FOREIG
 ALTER TABLE pr_user_board_skip_branches ADD CONSTRAINT fk_pr_ub_skip_project FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE CASCADE;
 ALTER TABLE pr_ai_assist_chats ADD CONSTRAINT fk_pr_ai_chat_user FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE;
 ALTER TABLE pr_ai_assist_chats ADD CONSTRAINT fk_pr_ai_chat_project FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE CASCADE;
+
+-- Existing databases: ensure omitted-version inserts and imports get a defined default
+ALTER TABLE users_password ALTER COLUMN version SET DEFAULT 1;
+UPDATE users_password SET version = 1 WHERE version IS NULL;
+ALTER TABLE tasks ALTER COLUMN version SET DEFAULT 1;
+UPDATE tasks SET version = 1 WHERE version IS NULL;
+ALTER TABLE projects ALTER COLUMN version SET DEFAULT 1;
+UPDATE projects SET version = 1 WHERE version IS NULL;
+ALTER TABLE user_project_roles ALTER COLUMN version SET DEFAULT 1;
+UPDATE user_project_roles SET version = 1 WHERE version IS NULL;

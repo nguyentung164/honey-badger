@@ -1,5 +1,6 @@
 import { randomUuidV7 } from 'shared/randomUuidV7'
 import { query } from './db'
+import { isoInstantToPgUtcDatetimeSql } from './calendarDate'
 
 const booleanColumnTypeCache = new Map<string, boolean>()
 
@@ -561,7 +562,7 @@ export async function upsertBranchCheckpoint(input: {
 
   const assigneesJson = 'ghPrAssignees' in input && input.ghPrAssignees != null ? JSON.stringify(input.ghPrAssignees) : null
   const labelsJson = 'ghPrLabels' in input && input.ghPrLabels != null ? JSON.stringify(input.ghPrLabels) : null
-  const updatedAtDb = 'ghPrUpdatedAt' in input ? toMysqlDateTime(input.ghPrUpdatedAt ?? null) : null
+  const updatedAtDb = 'ghPrUpdatedAt' in input ? isoInstantToPgUtcDatetimeSql(input.ghPrUpdatedAt ?? null) : null
   const existing = await query<any[]>(
     `SELECT id
      FROM pr_branch_checkpoints
@@ -677,15 +678,6 @@ export async function upsertBranchCheckpoint(input: {
   )
   const row = (await query<any[]>('SELECT * FROM pr_branch_checkpoints WHERE id = ?::varchar(36)', [id]))?.[0]
   return mapCheckpoint(row)
-}
-
-/** Chuyển ISO string về dạng 'YYYY-MM-DD HH:MM:SS' để ghi vào cột DATETIME. */
-function toMysqlDateTime(iso: string | null): string | null {
-  if (!iso) return null
-  const d = new Date(iso)
-  if (Number.isNaN(d.getTime())) return null
-  const pad = (n: number) => String(n).padStart(2, '0')
-  return `${d.getUTCFullYear()}-${pad(d.getUTCMonth() + 1)}-${pad(d.getUTCDate())} ` + `${pad(d.getUTCHours())}:${pad(d.getUTCMinutes())}:${pad(d.getUTCSeconds())}`
 }
 
 /** C\u00e1c checkpoint tr\u00f9ng repo + s\u1ed1 PR \u2014 \u0111\u1ed3ng b\u1ed9 gh_* sau merge/draft/close tr\u00ean GitHub. */

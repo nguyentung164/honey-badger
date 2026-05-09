@@ -1,6 +1,6 @@
 'use client'
 
-import { Cloud, Database, Layers, Link2, Loader2, Lock, Mail, Network, RefreshCw, Save, User } from 'lucide-react'
+import { Cloud, Database, Layers, Link2, Loader2, Lock, Mail, Network, RefreshCw, Save, Sprout, User } from 'lucide-react'
 import type { Configuration, TaskDbTlsMode } from 'main/types/types'
 import { memo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
@@ -51,6 +51,7 @@ export const IntegrationsTabContent = memo(function IntegrationsTabContent({
   const dbTls = useConfigurationStore(s => s.dbTls)
   const [testDbLoading, setTestDbLoading] = useState(false)
   const [initSchemaLoading, setInitSchemaLoading] = useState(false)
+  const [seedMockLoading, setSeedMockLoading] = useState(false)
 
   /** Đẩy cấu hình database từ Zustand sang main (electron-store) + reset pool, không broadcast — main mới đọc đúng khi test/init. */
   const pushTaskDbToMainSilent = async (): Promise<boolean> => {
@@ -103,6 +104,19 @@ export const IntegrationsTabContent = memo(function IntegrationsTabContent({
     }
   }
 
+  const handleSeedMockData = async () => {
+    setSeedMockLoading(true)
+    try {
+      if (!(await pushTaskDbToMainSilent())) return
+      await window.api.task.seedMockData()
+      toast.success(t('settings.db.seedMockSuccess', 'Mock sample data has been inserted'))
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : String(err) || t('settings.db.seedMockError', 'Seed mock data failed'))
+    } finally {
+      setSeedMockLoading(false)
+    }
+  }
+
   const sectionTriggerClass = 'hover:no-underline py-3 px-1 sm:px-2 items-center [&>svg:last-child]:self-center'
 
   return (
@@ -131,13 +145,33 @@ export const IntegrationsTabContent = memo(function IntegrationsTabContent({
                         </>
                       )}
                     </Button>
-                    <Button variant={buttonVariant} size="sm" onClick={handleInitSchema} disabled={!dbHost?.trim() || !dbName?.trim() || initSchemaLoading}>
+                    <Button
+                      variant={buttonVariant}
+                      size="sm"
+                      onClick={handleInitSchema}
+                      disabled={!dbHost?.trim() || !dbName?.trim() || initSchemaLoading || seedMockLoading}
+                    >
                       {initSchemaLoading ? (
                         <Loader2 className="h-4 w-4 animate-spin" />
                       ) : (
                         <>
                           <Layers className="h-4 w-4" />
                           {t('settings.db.initSchema', 'Init schema')}
+                        </>
+                      )}
+                    </Button>
+                    <Button
+                      variant={buttonVariant}
+                      size="sm"
+                      onClick={handleSeedMockData}
+                      disabled={!dbHost?.trim() || !dbName?.trim() || seedMockLoading || initSchemaLoading}
+                    >
+                      {seedMockLoading ? (
+                        <Loader2 className="h-4 w-4 animate-spin" />
+                      ) : (
+                        <>
+                          <Sprout className="h-4 w-4" />
+                          {t('settings.db.seedMockData', 'Seed mock data')}
                         </>
                       )}
                     </Button>

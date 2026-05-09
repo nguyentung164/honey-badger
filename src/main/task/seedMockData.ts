@@ -7,7 +7,7 @@
  * Tương thích cũ: TASK_DB_* cũng đọc được nếu chưa set APP_DB_*.
  * Ngẫu nhiên mỗi lần: gọi tsx trực tiếp và không set SEED_RANDOM (hoặc unset biến đó).
  * RNG: _uuidRng (UUID v7 khi seed) + _globalRng (EVM, notif, pick sau loop) + userDayRng(user, dayIdx) (task/commit/snapshot theo ngày)
- * Without env: uses app ConfigurationStore (run from Electron).
+ * From the app: Settings → Integrations → Seed mock data (đẩy cấu hình sang main rồi IPC); cần đăng nhập admin.
  */
 
 import * as bcrypt from 'bcryptjs'
@@ -29,7 +29,37 @@ function seedEnv(primary: string, fallback?: string): string {
   return ''
 }
 
+export type SeedMockDbConfig = {
+  host: string
+  port: number
+  user: string
+  password: string
+  database: string
+  /** auto | required | disabled — khớp TaskDbTlsMode từ Settings */
+  tls: string
+  pgSchema: string
+}
+
+let _electronSeedOverride: SeedMockDbConfig | null = null
+
+function sslForHostAndTls(tlsRaw: string, host: string): boolean | { rejectUnauthorized: boolean } {
+  const tls = (tlsRaw || 'auto').toLowerCase()
+  if (tls === 'disabled' || tls === 'off') return false
+  if (tls === 'required' || tls === 'on') return { rejectUnauthorized: false }
+  const h = host || ''
+  if (/\bsupabase\.co\b|\bpooler\.supabase\.com\b/i.test(h)) {
+    return { rejectUnauthorized: false }
+  }
+  if (process.env.APP_DB_SSL === 'true' || process.env.TASK_DB_SSL === 'true') {
+    return { rejectUnauthorized: false }
+  }
+  return false
+}
+
 function getSslForSeed(): boolean | { rejectUnauthorized: boolean } {
+  if (_electronSeedOverride) {
+    return sslForHostAndTls(_electronSeedOverride.tls, _electronSeedOverride.host)
+  }
   const tls = seedEnv('APP_DB_TLS', 'TASK_DB_TLS').toLowerCase()
   if (tls === 'disabled' || tls === 'off') return false
   if (tls === 'required' || tls === 'on') return { rejectUnauthorized: false }
@@ -46,6 +76,10 @@ function getSslForSeed(): boolean | { rejectUnauthorized: boolean } {
 // ========== Config: use env or app config ==========
 
 function getSeedPgSchema(): string {
+  if (_electronSeedOverride) {
+    const t = (_electronSeedOverride.pgSchema ?? 'public').trim()
+    return t !== '' ? t : 'public'
+  }
   const t = seedEnv('APP_DB_PG_SCHEMA', 'TASK_DB_PG_SCHEMA').trim()
   return t !== '' ? t : 'public'
 }
@@ -59,6 +93,17 @@ function seedDbPasswordFallback(): string {
 }
 
 function getDbConfig(): { host: string; port: number; user: string; password: string; database: string; ssl: boolean | { rejectUnauthorized: boolean } } {
+  if (_electronSeedOverride) {
+    const c = _electronSeedOverride
+    return {
+      host: (c.host || '').trim() || 'localhost',
+      port: Number.isFinite(c.port) && c.port > 0 ? c.port : 5432,
+      user: (c.user || '').trim() || 'postgres',
+      password: c.password ?? '',
+      database: (c.database || '').trim() || 'postgres',
+      ssl: sslForHostAndTls(c.tls, c.host),
+    }
+  }
   const ssl = getSslForSeed()
   return {
     host: seedEnv('APP_DB_HOST', 'TASK_DB_HOST') || 'localhost',
@@ -346,12 +391,40 @@ function roundWbsDetailProgress01(n: number): number {
   return Math.round(Math.min(1, Math.max(0, n)) * 100) / 100
 }
 
-/** Plan: phân bổ type mẫu */
+/** Plan: phân bổ type mẫu (không gồm milestone — milestone chỉ PL/Tiny PL seed qua weights mở rộng). */
 const TASK_TYPE_WEIGHTS: [string, number][] = [
   ['bug', 50],
   ['feature', 30],
   ['support', 12],
   ['task', 8],
+]
+
+const TASK_TYPE_WEIGHTS_WITH_MILESTONE: [string, number][] = [...TASK_TYPE_WEIGHTS, ['milestone', 3]]
+
+/** Ưu tiên milestone: medium/low (mốc ít khi critical). */
+const MILESTONE_PRIORITY_WEIGHTS: [string, number][] = [
+  ['medium', 48],
+  ['low', 38],
+  ['high', 12],
+  ['critical', 2],
+]
+
+const MILESTONE_TITLE_FRAGMENTS = [
+  'Go-live production',
+  'UAT ký nghiệm thu',
+  'Kết thúc Sprint hardening',
+  'Freeze scope — bắt đầu regression',
+  'Bàn giao môi trường staging cho QA',
+  'Mốc API contract lock (breaking change)',
+  'Release candidate 1 (tag RC1)',
+  'Hết hạn trial licence bên thứ 3',
+]
+
+const TASK_DESC_MILESTONE_BLOCKS = [
+  'Mốc dùng chung toàn project; không gán effort — chỉ theo dõi ngày trên Gantt.',
+  'Khi trễ mốc: nhánh release và WBS cần sync lại với PL/PM.',
+  'Stakeholder sign-off theo checklist sprint; không tính vào velocity dev.',
+  'Liên kết với gate UAT / go-live trong kế hoạch triển khai.',
 ]
 
 function seedTaskTitlePrefix(typ: string): string {
@@ -364,6 +437,8 @@ function seedTaskTitlePrefix(typ: string): string {
       return 'Support'
     case 'task':
       return 'Task'
+    case 'milestone':
+      return 'Milestone'
     default:
       return typ ? typ.charAt(0).toUpperCase() + typ.slice(1) : 'Task'
   }
@@ -434,6 +509,16 @@ const TASK_DESC_STATUS_NOTES: Record<string, string[]> = {
 
 function buildSeedTaskDescription(rnd: () => number, typ: string, status: string, ticketId: string): string {
   const env = pickRng(rnd, TASK_DESC_ENV)
+  if (typ === 'milestone') {
+    const partsMs: string[] = [`${ticketId} — Mốc dự án (${env}).`, pickRng(rnd, TASK_DESC_MILESTONE_BLOCKS)]
+    const notesMs = TASK_DESC_STATUS_NOTES[status]
+    if (notesMs && rnd() < 0.35) {
+      partsMs.push(pickRng(rnd, notesMs))
+    } else if (rnd() < 0.2) {
+      partsMs.push(`Tham chiếu: ${pickRng(rnd, ['Kế hoạch release', 'Biên bản PI planning', 'Roadmap Q', 'WBS phase gate'])}.`)
+    }
+    return partsMs.join('\n\n')
+  }
   const parts: string[] = [`Ticket ${ticketId} — Môi trường: ${env}.`]
   if (typ === 'bug') {
     parts.push(pickRng(rnd, TASK_DESC_BUG_BLOCKS))
@@ -588,7 +673,7 @@ function generateRealisticEvmWbsForProject(
 
   planners.forEach((dev, assigneeOrd) => {
     let segIx = 0
-    let startIdx = Math.min(assigneeOrd * 2 + Math.floor(rnd() * 5), Math.max(0, cal.length - minSeg))
+    let startIdx = Math.min(assigneeOrd * 5 + Math.floor(rnd() * 14), Math.max(0, cal.length - minSeg))
     while (startIdx <= cal.length - minSeg) {
       const maxLen = Math.min(maxSeg, cal.length - startIdx)
       const segLen = randBetweenRng(rnd, minSeg, maxLen)
@@ -734,6 +819,25 @@ function defaultRoleP1(dev: DevUser, indexInP1: number): 'dev' | 'pl' {
   return dev.roleP1 ?? (indexInP1 === 0 ? 'pl' : 'dev')
 }
 
+/** Milestone: một ngày làm việc trong tương lai (so với ngày seed hiện tại), không trước join. */
+function pickMilestonePlanStartStr(workingDays: Date[], dayIdx: number, joinDate: Date, rng: () => number): string {
+  if (workingDays.length === 0) return toDateStr(joinDate)
+  const jStr = toDateStr(joinDate)
+  let lowIdx = workingDays.findIndex(d => toDateStr(d) >= jStr)
+  if (lowIdx < 0) lowIdx = workingDays.length - 1
+  const baseIdx = Math.max(dayIdx, lowIdx)
+  const room = workingDays.length - 1 - baseIdx
+  if (room <= 0) return toDateStr(workingDays[baseIdx])
+  const jump = randBetweenRng(rng, Math.min(5, room), Math.min(120, room))
+  return toDateStr(workingDays[baseIdx + jump])
+}
+
+function canSeedMilestone(project: 'p1' | 'p2' | 'p3', dev: DevUser, devIdx: number, tinyIdx: number): boolean {
+  if (project === 'p1') return defaultRoleP1(dev, devIdx) === 'pl'
+  if (project === 'p2') return (dev.roleP2 ?? 'dev') === 'pl'
+  return tinyIdx === 0
+}
+
 /**
  * Người cập nhật cuối (updated_by): chủ yếu assignee; đôi khi PL/peer cùng project — đặc biệt in_review, feedback, cancelled.
  */
@@ -793,6 +897,19 @@ const PROFILE_CONFIG: Record<DevProfile, { tasksPerDay: [number, number]; commit
   below: { tasksPerDay: [3, 4], commitsPerDay: [4, 9], donePercent: 72, reportPercent: 85, reviewPercent: 55 },
   bad: { tasksPerDay: [2, 3], commitsPerDay: [2, 7], donePercent: 58, reportPercent: 70, reviewPercent: 40 },
   terrible: { tasksPerDay: [0, 2], commitsPerDay: [0, 4], donePercent: 45, reportPercent: 45, reviewPercent: 20 },
+}
+
+/** Giới hạn mock: mỗi user tối đa N task tạo trong cùng một ngày lịch, gộp cả P1 + P2 + P3 — tránh rank × scale tạo hàng chục task/ngày và chồng plan. */
+const SEED_MAX_TASKS_PER_USER_PER_DAY = 5
+
+/** Anchor lịch cho task thứ t trong batch cùng ngày — dời plan theo t ngày lịch để giảm trùng [plan_start, plan_end] cùng một ngày. */
+function seedPlanAnchorDay(anchorDay: Date, taskIndex: number): Date {
+  return addDays(anchorDay, taskIndex)
+}
+
+/** Chỉ số ngày làm việc cho milestone khi cùng batch (tránh nhiều milestone trùng anchor). */
+function seedMilestoneDayIdx(dayIdx: number, taskIndex: number, wdLen: number): number {
+  return Math.min(dayIdx + taskIndex, Math.max(0, wdLen - 1))
 }
 
 /** Xác suất commit đã chạy Coding rule check (dev hay quên → profile thấp hơn) */
@@ -932,10 +1049,68 @@ function progressForSimStatus(status: SimTaskStatus, rnd: () => number): number 
   }
 }
 
+/** Giờ làm gắn với daily report (project_user_daily_workload), đồng bộ evm_ac.working_hours. */
+function roundSeedWorkHours(n: number): number {
+  if (!Number.isFinite(n) || n < 0) return 0
+  return Math.min(24, Math.round(n * 100) / 100)
+}
+
+/**
+ * Tổng giờ làm theo user/ngày cho daily report:
+ * - 80% ngày: đúng 8h
+ * - 20% còn lại: under-time hoặc overtime (có ngày > 8h)
+ */
+function seedDailyReportTotalHours(userId: string, reportDate: string): number {
+  const rng = createSeededRng(hashToSeed(`seed-daily-hours-${userId}-${reportDate}`))
+  if (rng() < 0.8) return 8
+
+  const bucket = rng()
+  if (bucket < 0.4) {
+    const under = randBetweenRng(rng, 6, 7) + (rng() < 0.35 ? 0.5 : 0)
+    return roundSeedWorkHours(under)
+  }
+  if (bucket < 0.82) {
+    const overtime = randBetweenRng(rng, 9, 11) + (rng() < 0.5 ? 0.5 : 0)
+    return roundSeedWorkHours(overtime)
+  }
+  const heavy = randBetweenRng(rng, 12, 14) + (rng() < 0.35 ? 0.5 : 0)
+  return roundSeedWorkHours(heavy)
+}
+
+/**
+ * Chia tổng giờ trong ngày cho nhiều project cùng user+date.
+ * Giữ tổng chính xác (round 2 chữ số) và không vượt 24h/ngày.
+ */
+function splitSeedHoursAcrossProjects(totalHours: number, projectCount: number, userId: string, reportDate: string): number[] {
+  const n = Math.max(1, projectCount)
+  const cappedTotal = roundSeedWorkHours(Math.min(24, totalHours))
+  if (n === 1) return [cappedTotal]
+
+  const rng = createSeededRng(hashToSeed(`seed-daily-hours-split-${userId}-${reportDate}-${n}`))
+  const minPerProject = 0.5
+  const minTotal = minPerProject * n
+  if (cappedTotal <= minTotal) {
+    const equal = roundSeedWorkHours(cappedTotal / n)
+    const shares = new Array(n).fill(equal)
+    const sumEq = shares.reduce((s, x) => s + x, 0)
+    shares[n - 1] = roundSeedWorkHours(shares[n - 1] + (cappedTotal - sumEq))
+    return shares
+  }
+
+  const weights = new Array(n).fill(0).map(() => 0.6 + rng())
+  const weightSum = weights.reduce((s, x) => s + x, 0)
+  const remaining = cappedTotal - minTotal
+  const shares = weights.map(w => roundSeedWorkHours(minPerProject + (remaining * w) / weightSum))
+  const sum = shares.reduce((s, x) => s + x, 0)
+  shares[n - 1] = roundSeedWorkHours(shares[n - 1] + (cappedTotal - sum))
+  return shares
+}
+
 /**
  * Ngày bắt đầu kế hoạch: trước hoặc trùng ngày bắt đầu thực tế, không sau plan_end, không trước joinDate (khi hợp lệ).
+ * `taskOrdinal` tách các task tạo cùng ngày khỏi trùng plan_start; thêm nhiễu tránh dồn về join_date / act_start.
  */
-function planStartForSeedTask(planEndStr: string, actStart: string | null, joinDate: Date, status: SimTaskStatus, rnd: () => number): string {
+function planStartForSeedTask(planEndStr: string, actStart: string | null, joinDate: Date, status: SimTaskStatus, rnd: () => number, taskOrdinal?: number): string {
   const peRaw = planEndStr.includes('T') ? (planEndStr.split('T')[0] ?? planEndStr) : planEndStr
   const pe = new Date(`${peRaw}T00:00:00`)
   pe.setHours(0, 0, 0, 0)
@@ -949,21 +1124,44 @@ function planStartForSeedTask(planEndStr: string, actStart: string | null, joinD
 
   const minSpan = status === 'new' ? 1 : 2
   const maxSpan = status === 'new' ? 55 : 42
-  const span = randBetweenRng(rnd, minSpan, maxSpan)
+  const ordinalJitter = taskOrdinal != null ? (taskOrdinal % 11) + (Math.floor(taskOrdinal / 5) % 7) + (Math.floor(taskOrdinal / 13) % 4) : 0
+  const span = randBetweenRng(rnd, minSpan, maxSpan) + ordinalJitter
   let ps = addDays(pe, -span)
   if (ps < jd) ps = new Date(jd)
   if (ps > pe) ps = new Date(pe)
 
+  let actDay: Date | null = null
   if (actStart) {
     const asRaw = actStart.includes('T') ? (actStart.split('T')[0] ?? actStart) : actStart
     const as = new Date(`${asRaw}T00:00:00`)
     as.setHours(0, 0, 0, 0)
+    actDay = as
     if (ps > as) ps = new Date(as)
   }
 
   if (ps > pe) ps = new Date(pe)
   if (ps < jd) ps = new Date(jd)
   if (ps > pe) ps = new Date(pe)
+
+  const jdStr = toDateStr(jd)
+  const psStrBefore = toDateStr(ps)
+  if (psStrBefore === jdStr && rnd() < 0.48) {
+    const fwd = randBetweenRng(rnd, 1, 12)
+    const tryLater = addDays(ps, fwd)
+    if (tryLater.getTime() <= pe.getTime()) ps = tryLater
+  }
+
+  if (actDay && rnd() < 0.56) {
+    const asStr = toDateStr(actDay)
+    if (toDateStr(ps) === asStr) {
+      const back = randBetweenRng(rnd, 1, 18)
+      const earlier = addDays(ps, -back)
+      if (earlier.getTime() >= jd.getTime()) ps = earlier
+    }
+  }
+
+  if (ps > pe) ps = new Date(pe)
+  if (ps < jd) ps = new Date(jd)
   return toDateStr(ps)
 }
 
@@ -975,14 +1173,24 @@ function planStartForSeedTask(planEndStr: string, actStart: string | null, joinD
  * - cancelled: hủy trước khi làm hoặc dở dang; plan_end thường tương lai để tránh nhiễu “overdue” giả
  * - done: mix chu kỳ ngắn / trung / dài (feature epic vài tháng calendar, bug kẹt lâu)
  */
-function planTaskDates(opts: { anchorDay: Date; status: SimTaskStatus; typ: string; joinDate: Date; lateTaskPercent: number; rnd: () => number }): {
+function planTaskDates(opts: {
+  anchorDay: Date
+  status: SimTaskStatus
+  typ: string
+  joinDate: Date
+  lateTaskPercent: number
+  rnd: () => number
+  /** Thứ tự task trong ngày — làm loãng plan_start khi nhiều task cùng anchor */
+  taskOrdinal?: number
+}): {
   actStart: string | null
   actEnd: string | null
   planEnd: string
   planStart: string
   isLate: boolean
 } {
-  const { anchorDay, status, typ, joinDate, lateTaskPercent, rnd } = opts
+  const { anchorDay, status, typ, joinDate, lateTaskPercent, rnd, taskOrdinal } = opts
+  const ord = taskOrdinal
   const anchorStr = toDateStr(anchorDay)
 
   const jd = new Date(joinDate)
@@ -1001,7 +1209,7 @@ function planTaskDates(opts: { anchorDay: Date; status: SimTaskStatus; typ: stri
       actStart: null,
       actEnd: null,
       planEnd: planEndStr,
-      planStart: planStartForSeedTask(planEndStr, null, joinDate, 'new', rnd),
+      planStart: planStartForSeedTask(planEndStr, null, joinDate, 'new', rnd, ord),
       isLate: false,
     }
   }
@@ -1025,7 +1233,7 @@ function planTaskDates(opts: { anchorDay: Date; status: SimTaskStatus; typ: stri
       actStart: actStartStr,
       actEnd: null,
       planEnd: planEndStr,
-      planStart: planStartForSeedTask(planEndStr, actStartStr, joinDate, 'in_progress', rnd),
+      planStart: planStartForSeedTask(planEndStr, actStartStr, joinDate, 'in_progress', rnd, ord),
       isLate: false,
     }
   }
@@ -1048,7 +1256,7 @@ function planTaskDates(opts: { anchorDay: Date; status: SimTaskStatus; typ: stri
       actStart: actStartStr,
       actEnd: null,
       planEnd: planEndStr,
-      planStart: planStartForSeedTask(planEndStr, actStartStr, joinDate, 'in_review', rnd),
+      planStart: planStartForSeedTask(planEndStr, actStartStr, joinDate, 'in_review', rnd, ord),
       isLate: false,
     }
   }
@@ -1066,7 +1274,7 @@ function planTaskDates(opts: { anchorDay: Date; status: SimTaskStatus; typ: stri
       actStart: actStartStr,
       actEnd: toDateStr(fixClose),
       planEnd: planEndStr,
-      planStart: planStartForSeedTask(planEndStr, actStartStr, joinDate, 'fixed', rnd),
+      planStart: planStartForSeedTask(planEndStr, actStartStr, joinDate, 'fixed', rnd, ord),
       isLate: false,
     }
   }
@@ -1089,7 +1297,7 @@ function planTaskDates(opts: { anchorDay: Date; status: SimTaskStatus; typ: stri
       actStart: actStartStr,
       actEnd: null,
       planEnd: planEndStr,
-      planStart: planStartForSeedTask(planEndStr, actStartStr, joinDate, 'feedback', rnd),
+      planStart: planStartForSeedTask(planEndStr, actStartStr, joinDate, 'feedback', rnd, ord),
       isLate: false,
     }
   }
@@ -1102,7 +1310,7 @@ function planTaskDates(opts: { anchorDay: Date; status: SimTaskStatus; typ: stri
         actStart: null,
         actEnd: toDateStr(anchorDay),
         planEnd: planEndStr,
-        planStart: planStartForSeedTask(planEndStr, null, joinDate, 'cancelled', rnd),
+        planStart: planStartForSeedTask(planEndStr, null, joinDate, 'cancelled', rnd, ord),
         isLate: false,
       }
     }
@@ -1112,11 +1320,12 @@ function planTaskDates(opts: { anchorDay: Date; status: SimTaskStatus; typ: stri
     const planFuture = addDays(anchorDay, randBetweenRng(rnd, 20, 90))
     const planEndStr = toDateStr(planFuture)
     const actStartStr = toDateStr(startDay)
+    const rawCancelEnd = rnd() < 0.65 ? anchorStr : toDateStr(addDays(anchorDay, -randBetweenRng(rnd, 1, 8)))
     return {
       actStart: actStartStr,
-      actEnd: rnd() < 0.65 ? anchorStr : toDateStr(addDays(anchorDay, -randBetweenRng(rnd, 1, 8))),
+      actEnd: rawCancelEnd >= actStartStr ? rawCancelEnd : actStartStr,
       planEnd: planEndStr,
-      planStart: planStartForSeedTask(planEndStr, actStartStr, joinDate, 'cancelled', rnd),
+      planStart: planStartForSeedTask(planEndStr, actStartStr, joinDate, 'cancelled', rnd, ord),
       isLate: false,
     }
   }
@@ -1157,7 +1366,7 @@ function planTaskDates(opts: { anchorDay: Date; status: SimTaskStatus; typ: stri
     actStart,
     actEnd,
     planEnd: planEndStr,
-    planStart: planStartForSeedTask(planEndStr, actStart, joinDate, 'done', rnd),
+    planStart: planStartForSeedTask(planEndStr, actStart, joinDate, 'done', rnd, ord),
     isLate,
   }
 }
@@ -1176,6 +1385,44 @@ const RANK_SCALE: Record<string, number> = {
 
 // ========== Main seed ==========
 
+/**
+ * Chạy seed mock từ Settings (đã sync electron-store). Pool nội bộ của module được đóng sau khi xong.
+ */
+export async function runSeedMockWithElectronDb(config: SeedMockDbConfig): Promise<void> {
+  const host = (config.host || '').trim()
+  const database = (config.database || '').trim()
+  if (!host || !database) {
+    throw new Error('DB host và database là bắt buộc để seed mock.')
+  }
+  const pgSchema = (config.pgSchema || 'public').trim() || 'public'
+  if (!/^[a-zA-Z_][a-zA-Z0-9_]*$/.test(pgSchema)) {
+    throw new Error('PostgreSQL schema không hợp lệ: chỉ [a-zA-Z0-9_], đầu phải là chữ hoặc _.')
+  }
+  const portNum = Number(config.port)
+  _electronSeedOverride = {
+    host,
+    port: Number.isFinite(portNum) && portNum > 0 ? portNum : 5432,
+    user: (config.user || '').trim() || 'postgres',
+    password: config.password ?? '',
+    database,
+    tls: (config.tls || 'auto').trim() || 'auto',
+    pgSchema,
+  }
+  if (pool) {
+    await pool.end().catch(() => {})
+    pool = null
+  }
+  try {
+    await runSeedMockCore()
+  } finally {
+    if (pool) {
+      await pool.end().catch(() => {})
+      pool = null
+    }
+    _electronSeedOverride = null
+  }
+}
+
 export async function main(): Promise<void> {
   if (!USE_ENV) {
     console.error('Error: Khi chạy seed:mock ngoài Electron, phải set APP_DB_HOST và APP_DB_NAME (hoặc TASK_DB_HOST / TASK_DB_NAME).')
@@ -1184,6 +1431,10 @@ export async function main(): Promise<void> {
     )
     process.exit(1)
   }
+  await runSeedMockCore()
+}
+
+async function runSeedMockCore(): Promise<void> {
   const seedVal = process.env.SEED_RANDOM
   if (seedVal) {
     const seedNum = parseInt(seedVal, 10) || 0
@@ -1617,7 +1868,7 @@ export async function main(): Promise<void> {
         u.name,
         u.email,
       ])
-      await tx('INSERT INTO users_password (id, user_id, password_hash) VALUES (?, ?, ?) ON CONFLICT (user_id) DO NOTHING', [randomUUID(), u.id, passwordHash])
+      await tx('INSERT INTO users_password (id, user_id, password_hash, version) VALUES (?, ?, ?, 1) ON CONFLICT (user_id) DO NOTHING', [randomUUID(), u.id, passwordHash])
     }
   })
   // Đồng bộ id thực tế từ DB (ON CONFLICT DO NOTHING có thể bỏ qua khi user_code trùng → id trong memory != id trong DB)
@@ -1631,7 +1882,31 @@ export async function main(): Promise<void> {
   }
   console.log('Users inserted')
 
-  // 2. Projects
+  // 2. Projects — cleanup old seed data first for safe re-run
+  const SEED_PROJECT_NOS = ['ECOM', 'CRM', 'TINY']
+  const oldProjRows = (await query(`SELECT id FROM projects WHERE project_no IN (${SEED_PROJECT_NOS.map(() => '?').join(',')})`, SEED_PROJECT_NOS)) as { id: string }[]
+  if (oldProjRows.length > 0) {
+    const oldPids = oldProjRows.map(r => r.id)
+    const ph = oldPids.map(() => '?').join(',')
+    await query(`DELETE FROM task_notifications WHERE task_id IN (SELECT id FROM tasks WHERE project_id IN (${ph}))`, oldPids)
+    await query(`DELETE FROM task_notifications WHERE task_id IS NULL AND type IN ('achievement_unlocked', 'rank_up')`, [])
+    await query(`DELETE FROM task_links WHERE from_task_id IN (SELECT id FROM tasks WHERE project_id IN (${ph}))`, oldPids)
+    await query(`DELETE FROM tasks WHERE project_id IN (${ph})`, oldPids)
+    await query(`DELETE FROM task_ticket_sequences WHERE project_id IN (${ph})`, oldPids)
+    await query(`DELETE FROM evm_wbs_detail WHERE wbs_master_id IN (SELECT id FROM evm_wbs_master WHERE project_id IN (${ph}))`, oldPids)
+    await query(`DELETE FROM evm_wbs_master WHERE project_id IN (${ph})`, oldPids)
+    await query(`DELETE FROM evm_ac WHERE project_id IN (${ph})`, oldPids)
+    await query(`DELETE FROM evm_phases WHERE project_id IN (${ph})`, oldPids)
+    await query(`DELETE FROM daily_reports WHERE project_id IN (${ph})`, oldPids)
+    await query(`DELETE FROM project_user_daily_workload WHERE project_id IN (${ph})`, oldPids)
+    await query(`DELETE FROM commit_reviews WHERE source_folder_path IN (SELECT source_folder_path FROM user_project_source_folder WHERE project_id IN (${ph}))`, oldPids)
+    await query(`DELETE FROM git_commit_queue WHERE source_folder_path IN (SELECT source_folder_path FROM user_project_source_folder WHERE project_id IN (${ph}))`, oldPids)
+    await query(`DELETE FROM user_project_source_folder WHERE project_id IN (${ph})`, oldPids)
+    await query(`DELETE FROM user_project_roles WHERE project_id IN (${ph})`, oldPids)
+    await query(`DELETE FROM projects WHERE id IN (${ph})`, oldPids)
+    console.log(`Cleaned up old seed data for projects: ${SEED_PROJECT_NOS.join(', ')} (${oldPids.length} projects)`)
+  }
+
   const project1Id = randomUUID()
   const project2Id = randomUUID()
   const project3Id = randomUUID()
@@ -1639,7 +1914,7 @@ export async function main(): Promise<void> {
 
   const reportDateStr = toDateStr(endDate)
   const projectsCols = 'id, project_no, name, start_date, end_date, report_date, end_user, daily_report_reminder_time'
-  await query(`INSERT INTO projects (${projectsCols}) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`, [
+  await query(`INSERT INTO projects (${projectsCols}) VALUES (?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT (id) DO NOTHING`, [
     project1Id,
     'ECOM',
     'E-Commerce Platform',
@@ -1649,7 +1924,7 @@ export async function main(): Promise<void> {
     'Retail Corp',
     '17:00:00',
   ])
-  await query(`INSERT INTO projects (${projectsCols}) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`, [
+  await query(`INSERT INTO projects (${projectsCols}) VALUES (?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT (id) DO NOTHING`, [
     project2Id,
     'CRM',
     'Internal CRM',
@@ -1659,7 +1934,7 @@ export async function main(): Promise<void> {
     'Internal',
     '16:30:00',
   ])
-  await query(`INSERT INTO projects (${projectsCols}) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`, [
+  await query(`INSERT INTO projects (${projectsCols}) VALUES (?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT (id) DO NOTHING`, [
     project3Id,
     'TINY',
     'Tiny Team',
@@ -1690,7 +1965,7 @@ export async function main(): Promise<void> {
 
   for (let i = 0; i < devsP1.length; i++) {
     const u = devsP1[i]
-    await query('INSERT INTO user_project_roles (id, user_id, project_id, role) VALUES (?, ?, ?, ?) ON CONFLICT (user_id, project_id_uk, role) DO NOTHING', [
+    await query('INSERT INTO user_project_roles (id, user_id, project_id, role, version) VALUES (?, ?, ?, ?, 1) ON CONFLICT (user_id, project_id_uk, role) DO NOTHING', [
       randomUUID(),
       u.id,
       project1Id,
@@ -1700,7 +1975,7 @@ export async function main(): Promise<void> {
     upsfP1.push({ id: upsId, userId: u.id, projectId: project1Id, path: pathP1 })
   }
   for (const u of plOnlyUsers) {
-    await query('INSERT INTO user_project_roles (id, user_id, project_id, role) VALUES (?, ?, ?, ?) ON CONFLICT (user_id, project_id_uk, role) DO NOTHING', [
+    await query('INSERT INTO user_project_roles (id, user_id, project_id, role, version) VALUES (?, ?, ?, ?, 1) ON CONFLICT (user_id, project_id_uk, role) DO NOTHING', [
       randomUUID(),
       u.id,
       project1Id,
@@ -1718,7 +1993,7 @@ export async function main(): Promise<void> {
 
   for (let i = 0; i < devsP2.length; i++) {
     const u = devsP2[i]
-    await query('INSERT INTO user_project_roles (id, user_id, project_id, role) VALUES (?, ?, ?, ?) ON CONFLICT (user_id, project_id_uk, role) DO NOTHING', [
+    await query('INSERT INTO user_project_roles (id, user_id, project_id, role, version) VALUES (?, ?, ?, ?, 1) ON CONFLICT (user_id, project_id_uk, role) DO NOTHING', [
       randomUUID(),
       u.id,
       project2Id,
@@ -1737,7 +2012,7 @@ export async function main(): Promise<void> {
   for (let ti = 0; ti < tinyTeamDevs.length; ti++) {
     const u = tinyTeamDevs[ti]
     if (!u) continue
-    await query('INSERT INTO user_project_roles (id, user_id, project_id, role) VALUES (?, ?, ?, ?) ON CONFLICT (user_id, project_id_uk, role) DO NOTHING', [
+    await query('INSERT INTO user_project_roles (id, user_id, project_id, role, version) VALUES (?, ?, ?, ?, 1) ON CONFLICT (user_id, project_id_uk, role) DO NOTHING', [
       randomUUID(),
       u.id,
       project3Id,
@@ -2212,76 +2487,176 @@ export async function main(): Promise<void> {
   const radarCommitDayDecision = new Map<string, boolean>()
   const pendingDailyReportRows: PendingDailyReportRowTuple[] = []
   const pendingDailyReportDrsf: { userId: string; reportDate: string; upsfId: string }[] = []
+  /** Daily report workload (project-level), giờ sẽ được phân bổ theo user+date khi flush. */
+  const pendingReportWorkload: { userId: string; reportDate: string; projectId: string }[] = []
 
   async function flushPendingDailyReports(): Promise<void> {
-    if (pendingDailyReportRows.length === 0) {
-      pendingDailyReportDrsf.length = 0
-      return
+    if (pendingDailyReportRows.length > 0) {
+      const unique = new Map<string, PendingDailyReportRowTuple>()
+      const mergedProjectIds = new Map<string, Set<string>>()
+      for (const row of pendingDailyReportRows) {
+        const userId = row[1]
+        const reportDate = row[3]
+        const key = `${userId}|${reportDate}`
+        unique.set(key, row)
+        if (!mergedProjectIds.has(key)) mergedProjectIds.set(key, new Set())
+        try {
+          const pids = JSON.parse(row[2]) as string[]
+          for (const pid of pids) mergedProjectIds.get(key)?.add(pid)
+        } catch {
+          /* skip malformed */
+        }
+      }
+      const rowsToInsert: PendingDailyReportRowTuple[] = [...unique.entries()].map(([key, row]) => {
+        const pids = mergedProjectIds.get(key)
+        if (pids && pids.size > 1) {
+          return [row[0], row[1], JSON.stringify([...pids]), row[3], row[4], row[5]]
+        }
+        return row
+      })
+      for (let i = 0; i < rowsToInsert.length; i += INSERT_BATCH_SIZE) {
+        const chunk = rowsToInsert.slice(i, i + INSERT_BATCH_SIZE)
+        const ph = chunk.map(() => '(?, ?, ?, ?, ?, ?)').join(', ')
+        await query(
+          `INSERT INTO daily_reports (id, user_id, project_ids, report_date, work_description, selected_commits)
+           VALUES ${ph}
+           ON CONFLICT (user_id, report_date) DO UPDATE SET
+             work_description = EXCLUDED.work_description,
+             project_ids = EXCLUDED.project_ids,
+             selected_commits = EXCLUDED.selected_commits`,
+          chunk.flatMap(r => [...r])
+        )
+      }
     }
-    const unique = new Map<string, PendingDailyReportRowTuple>()
-    for (const row of pendingDailyReportRows) {
-      const userId = row[1]
-      const reportDate = row[3]
-      unique.set(`${userId}|${reportDate}`, row)
+
+    if (pendingDailyReportDrsf.length > 0) {
+      const keys = new Set<string>()
+      for (const d of pendingDailyReportDrsf) {
+        keys.add(`${d.userId}|${d.reportDate}`)
+      }
+      const pairs = [...keys].map(k => {
+        const sep = k.indexOf('|')
+        return { userId: k.slice(0, sep), reportDate: k.slice(sep + 1) }
+      })
+      const inPh = pairs.map(() => '(?,?)').join(',')
+      const flatParams = pairs.flatMap(p => [p.userId, p.reportDate])
+      const idRowsRaw = (await query(`SELECT id, user_id, report_date FROM daily_reports WHERE (user_id, report_date) IN (${inPh})`, flatParams)) as unknown
+      const idRows = idRowsRaw as { id: string; user_id: string; report_date: string | Date }[]
+      const idByKey = new Map<string, string>()
+      for (const r of idRows) {
+        const rd =
+          typeof r.report_date === 'string' ? (r.report_date.includes('T') ? (r.report_date.split('T')[0] ?? r.report_date) : r.report_date) : toDateStr(r.report_date as Date)
+        idByKey.set(`${r.user_id}|${rd}`, r.id)
+      }
+      const drsfRows: unknown[][] = []
+      for (const d of pendingDailyReportDrsf) {
+        const aid = idByKey.get(`${d.userId}|${d.reportDate}`)
+        if (aid) drsfRows.push([aid, d.upsfId, 0])
+      }
+      for (let i = 0; i < drsfRows.length; i += INSERT_BATCH_SIZE) {
+        const ch = drsfRows.slice(i, i + INSERT_BATCH_SIZE)
+        const ph2 = ch.map(() => '(?,?,?)').join(', ')
+        await query(
+          `INSERT INTO daily_report_source_folders (daily_report_id, user_project_source_folder_id, sort_order) VALUES ${ph2} ON CONFLICT (daily_report_id, user_project_source_folder_id) DO NOTHING`,
+          ch.flat()
+        )
+      }
     }
-    const rowsToInsert = [...unique.values()]
-    for (let i = 0; i < rowsToInsert.length; i += INSERT_BATCH_SIZE) {
-      const chunk = rowsToInsert.slice(i, i + INSERT_BATCH_SIZE)
-      const ph = chunk.map(() => '(?, ?, ?, ?, ?, ?)').join(', ')
-      await query(
-        `INSERT INTO daily_reports (id, user_id, project_ids, report_date, work_description, selected_commits)
-         VALUES ${ph}
-         ON CONFLICT (user_id, report_date) DO UPDATE SET work_description = EXCLUDED.work_description`,
-        chunk.flatMap(r => [...r])
-      )
+
+    if (pendingReportWorkload.length > 0) {
+      const uniqueByProject = new Map<string, { userId: string; reportDate: string; projectId: string }>()
+      for (const w of pendingReportWorkload) {
+        uniqueByProject.set(`${w.userId}|${w.reportDate}|${w.projectId}`, w)
+      }
+
+      const grouped = new Map<string, { userId: string; reportDate: string; projectIds: string[] }>()
+      for (const w of uniqueByProject.values()) {
+        const key = `${w.userId}|${w.reportDate}`
+        let g = grouped.get(key)
+        if (!g) {
+          g = { userId: w.userId, reportDate: w.reportDate, projectIds: [] }
+          grouped.set(key, g)
+        }
+        g.projectIds.push(w.projectId)
+      }
+
+      const wRows: { userId: string; reportDate: string; projectId: string; hours: number }[] = []
+      for (const g of grouped.values()) {
+        const totalHours = seedDailyReportTotalHours(g.userId, g.reportDate)
+        const alloc = splitSeedHoursAcrossProjects(totalHours, g.projectIds.length, g.userId, g.reportDate)
+        for (let i = 0; i < g.projectIds.length; i++) {
+          const pid = g.projectIds[i]
+          if (!pid) continue
+          wRows.push({
+            userId: g.userId,
+            reportDate: g.reportDate,
+            projectId: pid,
+            hours: alloc[i] ?? 0,
+          })
+        }
+      }
+
+      for (let i = 0; i < wRows.length; i += INSERT_BATCH_SIZE) {
+        const ch = wRows.slice(i, i + INSERT_BATCH_SIZE)
+        const phw = ch.map(() => '(?, ?, ?, ?::date, ?, NULL, NULL, 1, ?, ?)').join(', ')
+        await query(
+          `INSERT INTO project_user_daily_workload (id, project_id, user_id, work_date, actual_work_hours, override_hours, note, version, created_by, updated_by)
+           VALUES ${phw}
+           ON CONFLICT (project_id, user_id, work_date)
+           DO UPDATE SET
+             actual_work_hours = EXCLUDED.actual_work_hours,
+             version = project_user_daily_workload.version + 1,
+             updated_by = EXCLUDED.updated_by,
+             updated_at = NOW()`,
+          ch.flatMap(w => [randomUUID(), w.projectId, w.userId, w.reportDate, roundSeedWorkHours(w.hours), w.userId, w.userId])
+        )
+      }
     }
-    if (pendingDailyReportDrsf.length === 0) {
-      pendingDailyReportRows.length = 0
-      return
-    }
-    const keys = new Set<string>()
-    for (const d of pendingDailyReportDrsf) {
-      keys.add(`${d.userId}|${d.reportDate}`)
-    }
-    const pairs = [...keys].map(k => {
-      const sep = k.indexOf('|')
-      return { userId: k.slice(0, sep), reportDate: k.slice(sep + 1) }
-    })
-    const inPh = pairs.map(() => '(?,?)').join(',')
-    const flatParams = pairs.flatMap(p => [p.userId, p.reportDate])
-    const idRowsRaw = (await query(`SELECT id, user_id, report_date FROM daily_reports WHERE (user_id, report_date) IN (${inPh})`, flatParams)) as unknown
-    const idRows = idRowsRaw as { id: string; user_id: string; report_date: string | Date }[]
-    const idByKey = new Map<string, string>()
-    for (const r of idRows) {
-      const rd =
-        typeof r.report_date === 'string' ? (r.report_date.includes('T') ? (r.report_date.split('T')[0] ?? r.report_date) : r.report_date) : toDateStr(r.report_date as Date)
-      idByKey.set(`${r.user_id}|${rd}`, r.id)
-    }
-    const drsfRows: unknown[][] = []
-    for (const d of pendingDailyReportDrsf) {
-      const aid = idByKey.get(`${d.userId}|${d.reportDate}`)
-      if (aid) drsfRows.push([aid, d.upsfId, 0])
-    }
-    for (let i = 0; i < drsfRows.length; i += INSERT_BATCH_SIZE) {
-      const ch = drsfRows.slice(i, i + INSERT_BATCH_SIZE)
-      const ph2 = ch.map(() => '(?,?,?)').join(', ')
-      await query(
-        `INSERT INTO daily_report_source_folders (daily_report_id, user_project_source_folder_id, sort_order) VALUES ${ph2} ON CONFLICT (daily_report_id, user_project_source_folder_id) DO NOTHING`,
-        ch.flat()
-      )
-    }
+
     pendingDailyReportRows.length = 0
     pendingDailyReportDrsf.length = 0
+    pendingReportWorkload.length = 0
   }
 
   const taskUpdatePeersP1 = [...new Set([...devsP1.map(d => d.id), ...plOnlyUsers.map(u => u.id)])]
   const taskUpdatePeersP2 = [...new Set(devsP2.map(d => d.id))]
   const taskUpdatePeersP3 = [...new Set(tinyTeamDevs.map(d => d.id))]
+  let milestoneSeqP1 = 1
+  let milestoneSeqP2 = 1
+  let milestoneSeqP3 = 1
+
+  /**
+   * Tracks [plan_start, plan_end] windows for each user's tasks across ALL days.
+   * Persists throughout the entire day loop so we can count how many tasks are
+   * "active" (plan_start <= dateStr <= plan_end) on any given day, preventing
+   * more than SEED_MAX_TASKS_PER_USER_PER_DAY overlapping tasks on the Gantt.
+   */
+  const userPlanWindows = new Map<string, Array<{ ps: string; pe: string }>>()
+  const countActiveOnDay = (userId: string, dayStr: string): number => {
+    const wins = userPlanWindows.get(userId)
+    if (!wins || wins.length === 0) return 0
+    return wins.reduce((n, w) => n + (w.ps <= dayStr && w.pe >= dayStr ? 1 : 0), 0)
+  }
+  const registerPlanWindow = (userId: string, ps: string, pe: string) => {
+    let wins = userPlanWindows.get(userId)
+    if (!wins) {
+      wins = []
+      userPlanWindows.set(userId, wins)
+    }
+    wins.push({ ps, pe })
+  }
+  const pruneExpiredWindows = (dayStr: string) => {
+    for (const [uid, wins] of userPlanWindows) {
+      const kept = wins.filter(w => w.pe >= dayStr)
+      if (kept.length !== wins.length) userPlanWindows.set(uid, kept)
+    }
+  }
 
   for (let dayIdx = 0; dayIdx < workingDays.length; dayIdx++) {
     radarCommitDayDecision.clear()
     const day = workingDays[dayIdx]
     const dateStr = toDateStr(day)
+    pruneExpiredWindows(dateStr)
     if (dayIdx > 0 && dayIdx % 50 === 0) console.log(`  Day ${dayIdx + 1} / ${workingDays.length}...`)
 
     const wdLen = workingDays.length
@@ -2310,6 +2685,7 @@ export async function main(): Promise<void> {
       const baseTasks = taskFactor === 0 ? 0 : randBetweenRng(rnd, cfg.tasksPerDay[0], cfg.tasksPerDay[1])
       let numTasks = Math.max(0, Math.round(baseTasks * scale * rampUp * monFactor * taskFactor))
       if (dev.activityMode === 'commits_only') numTasks = 0
+      numTasks = Math.min(numTasks, Math.max(0, SEED_MAX_TASKS_PER_USER_PER_DAY - countActiveOnDay(dev.id, dateStr)))
       const statusWeightsFiltered = simTaskStatusWeights(cfg.donePercent, eff.inProgressBias).filter(([, w]) => Number(w) > 0) as [string, number][]
 
       let doneToday = 0
@@ -2317,18 +2693,62 @@ export async function main(): Promise<void> {
       let tasksOverdueOpenedToday = 0
       for (let t = 0; t < numTasks; t++) {
         const taskId = randomUUID()
+        const typ = pickWeightedRng(rnd, canSeedMilestone('p1', dev, devIdx, 0) ? TASK_TYPE_WEIGHTS_WITH_MILESTONE : TASK_TYPE_WEIGHTS)
+
+        if (typ === 'milestone') {
+          const msLabel = `MS-P1-${milestoneSeqP1++}`
+          const planStart = pickMilestonePlanStartStr(workingDays, seedMilestoneDayIdx(dayIdx, t, wdLen), joinDateP1, rnd)
+          const prio = pickWeightedRng(rnd, MILESTONE_PRIORITY_WEIGHTS)
+          const status: SimTaskStatus = planStart < dateStr ? (rnd() < 0.87 ? 'done' : 'new') : 'new'
+          const progress = status === 'done' ? 100 : 0
+          const assigneeMs = rnd() < 0.72 ? null : dev.id
+          tasksOverdueOpenedToday += seedOverdueOpenedForTask(status, null, dateStr)
+          acc.tasks++
+          if (status === 'done') {
+            doneToday++
+            onTimeDoneToday++
+            if (rnd() * 100 < 15) acc.early++
+            else acc.onTime++
+            if (prio === 'critical') acc.criticalDone++
+          }
+          const peerAudit = assigneeMs ?? dev.id
+          const createdAtStr = `${dateStr} 10:00:00`
+          batchTasks.add([
+            taskId,
+            project1Id,
+            `${seedTaskTitlePrefix('milestone')}: ${pickRng(rnd, MILESTONE_TITLE_FRAGMENTS)} — ${msLabel}`,
+            buildSeedTaskDescription(rnd, 'milestone', status, msLabel),
+            assigneeMs,
+            status,
+            progress,
+            prio,
+            'milestone',
+            'in_app',
+            null,
+            planStart,
+            null,
+            null,
+            null,
+            createdAtStr,
+            dev.id,
+            pickSeedTaskUpdatedById(rnd, status, peerAudit, taskUpdatePeersP1),
+          ])
+          await batchTasks.maybeFlush()
+          continue
+        }
+
         const ticketId = `P1-${taskSeqP1++}`
-        const typ = pickWeightedRng(rnd, TASK_TYPE_WEIGHTS)
         const prio = pickWeightedRng(rnd, TASK_PRIORITY_WEIGHTS)
         const status = (statusWeightsFiltered.length ? pickWeightedRng(rnd, statusWeightsFiltered) : 'done') as SimTaskStatus
         const progress = progressForSimStatus(status, rnd)
         const planned = planTaskDates({
-          anchorDay: day,
+          anchorDay: seedPlanAnchorDay(day, t),
           status,
           typ,
           joinDate: joinDateP1,
           lateTaskPercent: dev.lateTaskPercent,
           rnd,
+          taskOrdinal: t,
         })
         const { actStart, actEnd, planEnd, planStart, isLate } = planned
         tasksOverdueOpenedToday += seedOverdueOpenedForTask(status, planEnd, dateStr)
@@ -2366,6 +2786,7 @@ export async function main(): Promise<void> {
           pickSeedTaskUpdatedById(rnd, status, dev.id, taskUpdatePeersP1),
         ])
         await batchTasks.maybeFlush()
+        registerPlanWindow(dev.id, planStart, planEnd)
       }
 
       const baseCommits = commitFactor === 0 ? 0 : randBetweenRng(rnd, cfg.commitsPerDay[0], cfg.commitsPerDay[1])
@@ -2448,6 +2869,23 @@ export async function main(): Promise<void> {
         }
       }
 
+      const isOffDay = taskFactor === 0 && commitFactor === 0
+      const activeWbsP1 = lookupEvmWbsSegment(evmWbsSegmentsP1, dev.id, dateStr)
+      const evmHours = isOffDay ? 0 : randBetweenRng(rnd, 6, 8)
+      let evmPhaseP1: string
+      let evmNote: string
+      if (isOffDay) {
+        evmPhaseP1 = activeWbsP1?.phase ?? pickEvmAcPhase(rnd)
+        evmNote = dayType === 'business_trip' ? 'Công tác' : dayType === 'training' ? 'Training' : dayType === 'conference' ? 'Conference' : 'Nghỉ phép / Off'
+      } else if (activeWbsP1) {
+        evmPhaseP1 = activeWbsP1.phase
+        evmNote = activeWbsP1.task
+      } else {
+        evmPhaseP1 = pickEvmAcPhase(rnd)
+        evmNote = pickRng(rnd, WORK_DESCRIPTIONS)
+      }
+      const seg1 = activeWbsP1
+
       let doReport = streakTailDay || (commitsForDay.length > 0 && rnd() * 100 < cfg.reportPercent)
       if (doReport && !streakTailDay && commitsForDay.length > 0 && rnd() < PROFILE_SKIP_REPORT_DESPITE_COMMITS_P[dev.profile]) {
         doReport = false
@@ -2486,24 +2924,13 @@ export async function main(): Promise<void> {
           JSON.stringify(selectedCommits),
           upsf?.id ?? null
         )
+        pendingReportWorkload.push({
+          userId: dev.id,
+          reportDate: dateStr,
+          projectId: project1Id,
+        })
       }
 
-      const isOffDay = taskFactor === 0 && commitFactor === 0
-      const activeWbsP1 = lookupEvmWbsSegment(evmWbsSegmentsP1, dev.id, dateStr)
-      const evmHours = isOffDay ? 0 : randBetweenRng(rnd, 6, 8)
-      let evmPhaseP1: string
-      let evmNote: string
-      if (isOffDay) {
-        evmPhaseP1 = activeWbsP1?.phase ?? pickEvmAcPhase(rnd)
-        evmNote = dayType === 'business_trip' ? 'Công tác' : dayType === 'training' ? 'Training' : dayType === 'conference' ? 'Conference' : 'Nghỉ phép / Off'
-      } else if (activeWbsP1) {
-        evmPhaseP1 = activeWbsP1.phase
-        evmNote = activeWbsP1.task
-      } else {
-        evmPhaseP1 = pickEvmAcPhase(rnd)
-        evmNote = pickRng(rnd, WORK_DESCRIPTIONS)
-      }
-      const seg1 = activeWbsP1
       batchEvmAc.add([
         randomUUID(),
         project1Id,
@@ -2597,24 +3024,69 @@ export async function main(): Promise<void> {
         const baseTasksP2 = taskFactorP2 === 0 ? 0 : randBetweenRng(rndP2, cfg.tasksPerDay[0], cfg.tasksPerDay[1])
         let numTasksP2 = Math.max(0, Math.round(baseTasksP2 * scaleP2 * rampUpP2 * monFactorP2 * taskFactorP2))
         if (dev.activityMode === 'commits_only') numTasksP2 = 0
+        numTasksP2 = Math.min(numTasksP2, Math.max(0, SEED_MAX_TASKS_PER_USER_PER_DAY - countActiveOnDay(dev.id, dateStr)))
         const statusWeightsP2 = simTaskStatusWeights(cfg.donePercent, effP2.inProgressBias).filter(([, w]) => Number(w) > 0) as [string, number][]
         let doneTodayP2 = 0
         let onTimeDoneTodayP2 = 0
         let tasksOverdueOpenedTodayP2 = 0
         for (let t = 0; t < numTasksP2; t++) {
           const taskId = randomUUID()
+          const typ = pickWeightedRng(rndP2, canSeedMilestone('p2', dev, devIdx, 0) ? TASK_TYPE_WEIGHTS_WITH_MILESTONE : TASK_TYPE_WEIGHTS)
+
+          if (typ === 'milestone') {
+            const msLabel = `MS-P2-${milestoneSeqP2++}`
+            const planStart = pickMilestonePlanStartStr(workingDays, seedMilestoneDayIdx(dayIdx, t, wdLen), joinDateP2, rndP2)
+            const prio = pickWeightedRng(rndP2, MILESTONE_PRIORITY_WEIGHTS)
+            const status: SimTaskStatus = planStart < dateStr ? (rndP2() < 0.87 ? 'done' : 'new') : 'new'
+            const progress = status === 'done' ? 100 : 0
+            const assigneeMs = rndP2() < 0.72 ? null : dev.id
+            tasksOverdueOpenedTodayP2 += seedOverdueOpenedForTask(status, null, dateStr)
+            acc.tasks++
+            if (status === 'done') {
+              doneTodayP2++
+              onTimeDoneTodayP2++
+              if (rndP2() * 100 < 15) acc.early++
+              else acc.onTime++
+              if (prio === 'critical') acc.criticalDone++
+            }
+            const peerAuditP2 = assigneeMs ?? dev.id
+            const createdAtMsP2 = `${dateStr} 10:00:00`
+            batchTasks.add([
+              taskId,
+              project2Id,
+              `${seedTaskTitlePrefix('milestone')}: ${pickRng(rndP2, MILESTONE_TITLE_FRAGMENTS)} — ${msLabel}`,
+              buildSeedTaskDescription(rndP2, 'milestone', status, msLabel),
+              assigneeMs,
+              status,
+              progress,
+              prio,
+              'milestone',
+              'in_app',
+              null,
+              planStart,
+              null,
+              null,
+              null,
+              createdAtMsP2,
+              dev.id,
+              pickSeedTaskUpdatedById(rndP2, status, peerAuditP2, taskUpdatePeersP2),
+            ])
+            await batchTasks.maybeFlush()
+            continue
+          }
+
           const ticketId = `P2-${taskSeqP2++}`
-          const typ = pickWeightedRng(rndP2, TASK_TYPE_WEIGHTS)
           const prio = pickWeightedRng(rndP2, TASK_PRIORITY_WEIGHTS)
           const status = (statusWeightsP2.length ? pickWeightedRng(rndP2, statusWeightsP2) : 'done') as SimTaskStatus
           const progress = progressForSimStatus(status, rndP2)
           const plannedP2 = planTaskDates({
-            anchorDay: day,
+            anchorDay: seedPlanAnchorDay(day, t),
             status,
             typ,
             joinDate: joinDateP2,
             lateTaskPercent: dev.lateTaskPercent,
             rnd: rndP2,
+            taskOrdinal: t,
           })
           const { actStart, actEnd: actEndP2, planEnd: planEndP2, planStart: planStartP2, isLate: isLateP2 } = plannedP2
           tasksOverdueOpenedTodayP2 += seedOverdueOpenedForTask(status, planEndP2, dateStr)
@@ -2652,6 +3124,7 @@ export async function main(): Promise<void> {
             pickSeedTaskUpdatedById(rndP2, status, dev.id, taskUpdatePeersP2),
           ])
           await batchTasks.maybeFlush()
+          registerPlanWindow(dev.id, planStartP2, planEndP2)
         }
 
         const baseCommitsP2 = commitFactorP2 === 0 ? 0 : randBetweenRng(rndP2, cfg.commitsPerDay[0], cfg.commitsPerDay[1])
@@ -2731,6 +3204,23 @@ export async function main(): Promise<void> {
           }
         }
 
+        const isOffDayP2 = taskFactorP2 === 0 && commitFactorP2 === 0
+        const activeWbsP2 = lookupEvmWbsSegment(evmWbsSegmentsP2, dev.id, dateStr)
+        const evmHoursP2 = isOffDayP2 ? 0 : randBetweenRng(rndP2, 6, 8)
+        let evmPhaseP2: string
+        let evmNoteP2: string
+        if (isOffDayP2) {
+          evmPhaseP2 = activeWbsP2?.phase ?? pickEvmAcPhase(rndP2)
+          evmNoteP2 = dayTypeP2 === 'business_trip' ? 'Công tác' : dayTypeP2 === 'training' ? 'Training' : dayTypeP2 === 'conference' ? 'Conference' : 'Nghỉ / Off'
+        } else if (activeWbsP2) {
+          evmPhaseP2 = activeWbsP2.phase
+          evmNoteP2 = activeWbsP2.task
+        } else {
+          evmPhaseP2 = pickEvmAcPhase(rndP2)
+          evmNoteP2 = pickRng(rndP2, WORK_DESCRIPTIONS)
+        }
+        const seg2 = activeWbsP2
+
         let doReportP2 = streakTailDayP2 || (commitsForDayP2.length > 0 && rndP2() * 100 < cfg.reportPercent)
         if (doReportP2 && !streakTailDayP2 && commitsForDayP2.length > 0 && rndP2() < PROFILE_SKIP_REPORT_DESPITE_COMMITS_P[dev.profile]) {
           doReportP2 = false
@@ -2741,7 +3231,9 @@ export async function main(): Promise<void> {
           doReportP2 = false
         }
         if (doReportP2) {
-          acc.reports++
+          // Only count once per day across all projects (shared P1+P2 users would otherwise double-count)
+          const alreadyReportedToday = reportedByUserDay.get(dev.id)?.has(dayIdx) ?? false
+          if (!alreadyReportedToday) acc.reports++
           let setP2 = reportedByUserDay.get(dev.id)
           if (!setP2) {
             setP2 = new Set<number>()
@@ -2769,24 +3261,13 @@ export async function main(): Promise<void> {
             JSON.stringify(selectedCommits),
             upsf.id
           )
+          pendingReportWorkload.push({
+            userId: dev.id,
+            reportDate: dateStr,
+            projectId: project2Id,
+          })
         }
 
-        const isOffDayP2 = taskFactorP2 === 0 && commitFactorP2 === 0
-        const activeWbsP2 = lookupEvmWbsSegment(evmWbsSegmentsP2, dev.id, dateStr)
-        const evmHoursP2 = isOffDayP2 ? 0 : randBetweenRng(rndP2, 6, 8)
-        let evmPhaseP2: string
-        let evmNoteP2: string
-        if (isOffDayP2) {
-          evmPhaseP2 = activeWbsP2?.phase ?? pickEvmAcPhase(rndP2)
-          evmNoteP2 = dayTypeP2 === 'business_trip' ? 'Công tác' : dayTypeP2 === 'training' ? 'Training' : dayTypeP2 === 'conference' ? 'Conference' : 'Nghỉ / Off'
-        } else if (activeWbsP2) {
-          evmPhaseP2 = activeWbsP2.phase
-          evmNoteP2 = activeWbsP2.task
-        } else {
-          evmPhaseP2 = pickEvmAcPhase(rndP2)
-          evmNoteP2 = pickRng(rndP2, WORK_DESCRIPTIONS)
-        }
-        const seg2 = activeWbsP2
         batchEvmAc.add([
           randomUUID(),
           project2Id,
@@ -2883,24 +3364,69 @@ export async function main(): Promise<void> {
       const baseTasksT = taskFactorT === 0 ? 0 : randBetweenRng(rndT, cfgT.tasksPerDay[0], cfgT.tasksPerDay[1])
       let numTasksT = Math.max(0, Math.round(baseTasksT * scaleT * rampUpT * monFactorT * taskFactorT))
       if (dev.activityMode === 'commits_only') numTasksT = 0
+      numTasksT = Math.min(numTasksT, Math.max(0, SEED_MAX_TASKS_PER_USER_PER_DAY - countActiveOnDay(dev.id, dateStr)))
       const statusWeightsFilteredT = simTaskStatusWeights(cfgT.donePercent, effT.inProgressBias).filter(([, w]) => Number(w) > 0) as [string, number][]
       let doneTodayT = 0
       let onTimeDoneTodayT = 0
       let tasksOverdueOpenedTodayT = 0
       for (let t = 0; t < numTasksT; t++) {
         const taskId = randomUUID()
+        const typ = pickWeightedRng(rndT, canSeedMilestone('p3', dev, 0, tix) ? TASK_TYPE_WEIGHTS_WITH_MILESTONE : TASK_TYPE_WEIGHTS)
+
+        if (typ === 'milestone') {
+          const msLabel = `MS-P3-${milestoneSeqP3++}`
+          const planStart = pickMilestonePlanStartStr(workingDays, seedMilestoneDayIdx(dayIdx, t, wdLen), joinDateP3, rndT)
+          const prio = pickWeightedRng(rndT, MILESTONE_PRIORITY_WEIGHTS)
+          const status: SimTaskStatus = planStart < dateStr ? (rndT() < 0.87 ? 'done' : 'new') : 'new'
+          const progress = status === 'done' ? 100 : 0
+          const assigneeMs = rndT() < 0.72 ? null : dev.id
+          tasksOverdueOpenedTodayT += seedOverdueOpenedForTask(status, null, dateStr)
+          accT.tasks++
+          if (status === 'done') {
+            doneTodayT++
+            onTimeDoneTodayT++
+            if (rndT() * 100 < 15) accT.early++
+            else accT.onTime++
+            if (prio === 'critical') accT.criticalDone++
+          }
+          const peerAuditT = assigneeMs ?? dev.id
+          const createdAtMsT = `${dateStr} 10:00:00`
+          batchTasks.add([
+            taskId,
+            project3Id,
+            `${seedTaskTitlePrefix('milestone')}: ${pickRng(rndT, MILESTONE_TITLE_FRAGMENTS)} — ${msLabel}`,
+            buildSeedTaskDescription(rndT, 'milestone', status, msLabel),
+            assigneeMs,
+            status,
+            progress,
+            prio,
+            'milestone',
+            'in_app',
+            null,
+            planStart,
+            null,
+            null,
+            null,
+            createdAtMsT,
+            dev.id,
+            pickSeedTaskUpdatedById(rndT, status, peerAuditT, taskUpdatePeersP3),
+          ])
+          await batchTasks.maybeFlush()
+          continue
+        }
+
         const ticketId = `P3-${taskSeqP3++}`
-        const typ = pickWeightedRng(rndT, TASK_TYPE_WEIGHTS)
         const prio = pickWeightedRng(rndT, TASK_PRIORITY_WEIGHTS)
         const status = (statusWeightsFilteredT.length ? pickWeightedRng(rndT, statusWeightsFilteredT) : 'done') as SimTaskStatus
         const progress = progressForSimStatus(status, rndT)
         const plannedT = planTaskDates({
-          anchorDay: day,
+          anchorDay: seedPlanAnchorDay(day, t),
           status,
           typ,
           joinDate: joinDateP3,
           lateTaskPercent: dev.lateTaskPercent,
           rnd: rndT,
+          taskOrdinal: t,
         })
         const { actStart, actEnd, planEnd, planStart: planStartT, isLate } = plannedT
         tasksOverdueOpenedTodayT += seedOverdueOpenedForTask(status, planEnd, dateStr)
@@ -2937,6 +3463,7 @@ export async function main(): Promise<void> {
           pickSeedTaskUpdatedById(rndT, status, dev.id, taskUpdatePeersP3),
         ])
         await batchTasks.maybeFlush()
+        registerPlanWindow(dev.id, planStartT, planEnd)
       }
       const baseCommitsT = commitFactorT === 0 ? 0 : randBetweenRng(rndT, cfgT.commitsPerDay[0], cfgT.commitsPerDay[1])
       let numCommitsT: number
@@ -3009,6 +3536,23 @@ export async function main(): Promise<void> {
           rs.add(dayIdx)
         }
       }
+      const isOffT = taskFactorT === 0 && commitFactorT === 0
+      const activeWbsP3 = lookupEvmWbsSegment(evmWbsSegmentsP3, dev.id, dateStr)
+      const evmHoursT = isOffT ? 0 : randBetweenRng(rndT, 6, 8)
+      let evmPhaseP3: string
+      let evmNoteT: string
+      if (isOffT) {
+        evmPhaseP3 = activeWbsP3?.phase ?? pickEvmAcPhase(rndT)
+        evmNoteT = 'Nghỉ / Off'
+      } else if (activeWbsP3) {
+        evmPhaseP3 = activeWbsP3.phase
+        evmNoteT = activeWbsP3.task
+      } else {
+        evmPhaseP3 = pickEvmAcPhase(rndT)
+        evmNoteT = pickRng(rndT, WORK_DESCRIPTIONS)
+      }
+      const seg3 = activeWbsP3
+
       let doReportT = streakTailT || (commitsForDayT.length > 0 && rndT() * 100 < cfgT.reportPercent)
       if (doReportT && !streakTailT && commitsForDayT.length > 0 && rndT() < PROFILE_SKIP_REPORT_DESPITE_COMMITS_P[dev.profile]) {
         doReportT = false
@@ -3047,23 +3591,12 @@ export async function main(): Promise<void> {
           JSON.stringify(selT),
           upsfT.id
         )
+        pendingReportWorkload.push({
+          userId: dev.id,
+          reportDate: dateStr,
+          projectId: project3Id,
+        })
       }
-      const isOffT = taskFactorT === 0 && commitFactorT === 0
-      const activeWbsP3 = lookupEvmWbsSegment(evmWbsSegmentsP3, dev.id, dateStr)
-      const evmHoursT = isOffT ? 0 : randBetweenRng(rndT, 6, 8)
-      let evmPhaseP3: string
-      let evmNoteT: string
-      if (isOffT) {
-        evmPhaseP3 = activeWbsP3?.phase ?? pickEvmAcPhase(rndT)
-        evmNoteT = 'Nghỉ / Off'
-      } else if (activeWbsP3) {
-        evmPhaseP3 = activeWbsP3.phase
-        evmNoteT = activeWbsP3.task
-      } else {
-        evmPhaseP3 = pickEvmAcPhase(rndT)
-        evmNoteT = pickRng(rndT, WORK_DESCRIPTIONS)
-      }
-      const seg3 = activeWbsP3
       batchEvmAc.add([
         randomUUID(),
         project3Id,
@@ -3117,6 +3650,10 @@ export async function main(): Promise<void> {
   await batchSnapshots.flush()
   console.log('Batch inserts flushed')
 
+  await query('UPDATE task_ticket_sequences SET next_value = GREATEST(next_value, ?) WHERE project_id = ? AND source = ?', [taskSeqP1 + 1, project1Id, 'in_app'])
+  await query('UPDATE task_ticket_sequences SET next_value = GREATEST(next_value, ?) WHERE project_id = ? AND source = ?', [taskSeqP2 + 1, project2Id, 'in_app'])
+  await query('UPDATE task_ticket_sequences SET next_value = GREATEST(next_value, ?) WHERE project_id = ? AND source = ?', [taskSeqP3 + 1, project3Id, 'in_app'])
+
   // Tasks để test notification deadline (dev mở app thấy task sắp/bị quá hạn)
   const todayStr = toDateStr(endDate)
   const tomorrowStr = toDateStr(addDays(endDate, 1))
@@ -3127,8 +3664,8 @@ export async function main(): Promise<void> {
     const dtId = `P1-DT${i + 1}`
     const dtTyp = pickWeighted(TASK_TYPE_WEIGHTS)
     await query(
-      `INSERT INTO tasks (id, project_id, title, description, assignee_user_id, status, progress, priority, type, source, ticket_id, plan_start_date, plan_end_date, actual_start_date, created_by, updated_by)
-       VALUES (?, ?, ?, ?, ?, 'in_progress', ?, ?, ?, 'in_app', ?, ?, ?, ?, ?, ?)`,
+      `INSERT INTO tasks (id, project_id, title, description, assignee_user_id, status, progress, priority, type, source, ticket_id, plan_start_date, plan_end_date, actual_start_date, created_by, updated_by, version)
+       VALUES (?, ?, ?, ?, ?, 'in_progress', ?, ?, ?, 'in_app', ?, ?, ?, ?, ?, ?, 1)`,
       [
         randomUUID(),
         project1Id,
@@ -3152,8 +3689,8 @@ export async function main(): Promise<void> {
     const dmId = `P1-DM${i + 1}`
     const dmTyp = pickWeighted(TASK_TYPE_WEIGHTS)
     await query(
-      `INSERT INTO tasks (id, project_id, title, description, assignee_user_id, status, progress, priority, type, source, ticket_id, plan_start_date, plan_end_date, actual_start_date, created_by, updated_by)
-       VALUES (?, ?, ?, ?, ?, 'in_progress', ?, ?, ?, 'in_app', ?, ?, ?, ?, ?, ?)`,
+      `INSERT INTO tasks (id, project_id, title, description, assignee_user_id, status, progress, priority, type, source, ticket_id, plan_start_date, plan_end_date, actual_start_date, created_by, updated_by, version)
+       VALUES (?, ?, ?, ?, ?, 'in_progress', ?, ?, ?, 'in_app', ?, ?, ?, ?, ?, ?, 1)`,
       [
         randomUUID(),
         project1Id,
@@ -3177,8 +3714,8 @@ export async function main(): Promise<void> {
     const ovId = `P1-OV${i + 1}`
     const ovTyp = pickWeighted(TASK_TYPE_WEIGHTS)
     await query(
-      `INSERT INTO tasks (id, project_id, title, description, assignee_user_id, status, progress, priority, type, source, ticket_id, plan_start_date, plan_end_date, actual_start_date, created_by, updated_by)
-       VALUES (?, ?, ?, ?, ?, 'in_progress', ?, ?, ?, 'in_app', ?, ?, ?, ?, ?, ?)`,
+      `INSERT INTO tasks (id, project_id, title, description, assignee_user_id, status, progress, priority, type, source, ticket_id, plan_start_date, plan_end_date, actual_start_date, created_by, updated_by, version)
+       VALUES (?, ?, ?, ?, ?, 'in_progress', ?, ?, ?, 'in_app', ?, ?, ?, ?, ?, ?, 1)`,
       [
         randomUUID(),
         project1Id,
@@ -3208,8 +3745,8 @@ export async function main(): Promise<void> {
     const rv1 = `P1-RV${i + 1}`
     const rv1Typ = pickWeighted(TASK_TYPE_WEIGHTS)
     await query(
-      `INSERT INTO tasks (id, project_id, title, description, assignee_user_id, status, progress, priority, type, source, ticket_id, plan_start_date, plan_end_date, created_by, updated_by)
-       VALUES (?, ?, ?, ?, ?, 'in_review', 90, ?, ?, 'in_app', ?, ?, ?, ?, ?)`,
+      `INSERT INTO tasks (id, project_id, title, description, assignee_user_id, status, progress, priority, type, source, ticket_id, plan_start_date, plan_end_date, created_by, updated_by, version)
+       VALUES (?, ?, ?, ?, ?, 'in_review', 90, ?, ?, 'in_app', ?, ?, ?, ?, ?, 1)`,
       [
         taskId,
         project1Id,
@@ -3233,8 +3770,8 @@ export async function main(): Promise<void> {
     const rv2 = `P2-RV${i + 1}`
     const rv2Typ = pickWeighted(TASK_TYPE_WEIGHTS)
     await query(
-      `INSERT INTO tasks (id, project_id, title, description, assignee_user_id, status, progress, priority, type, source, ticket_id, plan_start_date, plan_end_date, created_by, updated_by)
-       VALUES (?, ?, ?, ?, ?, 'in_review', 85, ?, ?, 'in_app', ?, ?, ?, ?, ?)`,
+      `INSERT INTO tasks (id, project_id, title, description, assignee_user_id, status, progress, priority, type, source, ticket_id, plan_start_date, plan_end_date, created_by, updated_by, version)
+       VALUES (?, ?, ?, ?, ?, 'in_review', 85, ?, ?, 'in_app', ?, ?, ?, ?, ?, 1)`,
       [
         taskId,
         project2Id,
@@ -3256,17 +3793,499 @@ export async function main(): Promise<void> {
   }
   console.log('PL review test tasks inserted (in_review, 2 long unreviewed)')
 
-  // Task links & favorites (sample, after tasks inserted)
-  const taskIds = await query<{ id: string }[]>('SELECT id FROM tasks WHERE project_id = ? LIMIT 100', [project1Id])
-  const tids = Array.isArray(taskIds) ? taskIds : []
-  for (let i = 0; i < Math.min(30, tids.length - 1); i++) {
-    await query('INSERT INTO task_links (id, from_task_id, to_task_id, link_type) VALUES (?, ?, ?, ?) ON CONFLICT (from_task_id, to_task_id, link_type) DO NOTHING', [
-      randomUUID(),
-      tids[i]?.id,
-      tids[i + 1]?.id,
-      pick(['blocks', 'relates_to']),
-    ])
+  // Gantt: epic (root) + subtask (parent_id) + link blocks (FS) lịch nối tiếp — vẽ cây và mũi tên trên board.
+  {
+    const pickActive = (devs: DevUser[]) => devs.find(x => x.seedActivity !== 'none') ?? devs[0]
+    const leadP1 = pickActive(devsP1)
+    const mateP1 = devsP1.find(x => x.id !== leadP1.id && x.seedActivity !== 'none') ?? leadP1
+    const leadP2 = pickActive(devsP2)
+    const mateP2 = devsP2.find(x => x.id !== leadP2.id && x.seedActivity !== 'none') ?? leadP2
+    const tinyLeadG = pickActive(tinyTeamDevs)
+    const tinyMateG = tinyTeamDevs.find(x => x.id !== tinyLeadG.id && x.seedActivity !== 'none') ?? tinyLeadG
+    const wdLen = workingDays.length
+    if (wdLen >= 36) {
+      const iBase = Math.min(wdLen - 34, Math.max(6, Math.floor(wdLen * 0.28)))
+      const dayAt = (off: number) => workingDays[Math.min(Math.max(0, iBase + off), wdLen - 1)]
+
+      const insGanttTask = async (
+        id: string,
+        proj: string,
+        title: string,
+        ticket: string,
+        assignee: string,
+        pStart: Date,
+        pEnd: Date,
+        parentId: string | null,
+        progress: number,
+        typ: string,
+        peers: string[]
+      ) => {
+        const ps = toDateStr(pStart)
+        const pe = toDateStr(pEnd)
+        await query(
+          `INSERT INTO tasks (id, project_id, title, description, assignee_user_id, status, progress, priority, type, source, ticket_id, plan_start_date, plan_end_date, actual_start_date, actual_end_date, created_by, updated_by, parent_id, version)
+           VALUES (?, ?, ?, ?, ?, 'in_progress', ?, ?, ?, 'in_app', ?, ?, ?, ?, ?, ?, ?, ?, 1)`,
+          [
+            id,
+            proj,
+            title,
+            buildSeedTaskDescription(seedGlobalRand, typ, 'in_progress', ticket),
+            assignee,
+            progress,
+            pickWeighted(TASK_PRIORITY_WEIGHTS),
+            typ,
+            ticket,
+            ps,
+            pe,
+            ps,
+            null,
+            assignee,
+            pickSeedTaskUpdatedById(seedGlobalRand, 'in_progress', assignee, peers),
+            parentId,
+          ]
+        )
+      }
+
+      const insGanttDoneTask = async (
+        id: string,
+        proj: string,
+        title: string,
+        ticket: string,
+        assignee: string,
+        pStart: Date,
+        pEnd: Date,
+        parentId: string | null,
+        progress: number,
+        typ: string,
+        peers: string[]
+      ) => {
+        const ps = toDateStr(pStart)
+        const pe = toDateStr(pEnd)
+        await query(
+          `INSERT INTO tasks (id, project_id, title, description, assignee_user_id, status, progress, priority, type, source, ticket_id, plan_start_date, plan_end_date, actual_start_date, actual_end_date, created_by, updated_by, parent_id, version)
+           VALUES (?, ?, ?, ?, ?, 'done', ?, ?, ?, 'in_app', ?, ?, ?, ?, ?, ?, ?, ?, 1)`,
+          [
+            id,
+            proj,
+            title,
+            buildSeedTaskDescription(seedGlobalRand, typ, 'done', ticket),
+            assignee,
+            progress,
+            pickWeighted(TASK_PRIORITY_WEIGHTS),
+            typ,
+            ticket,
+            ps,
+            pe,
+            ps,
+            pe,
+            assignee,
+            pickSeedTaskUpdatedById(seedGlobalRand, 'done', assignee, peers),
+            parentId,
+          ]
+        )
+      }
+
+      const linkSafe = async (fromId: string, toId: string, linkType: 'blocks' | 'relates_to' | 'blocked_by') => {
+        await query('INSERT INTO task_links (id, from_task_id, to_task_id, link_type) VALUES (?, ?, ?, ?) ON CONFLICT (from_task_id, to_task_id, link_type) DO NOTHING', [
+          randomUUID(),
+          fromId,
+          toId,
+          linkType,
+        ])
+      }
+
+      const epic1 = randomUUID()
+      const epic2 = randomUUID()
+      const epic3 = randomUUID()
+      const e1c1 = randomUUID()
+      const e1c2 = randomUUID()
+      const e1c3 = randomUUID()
+      const e2c1 = randomUUID()
+      const e2c2 = randomUUID()
+      const e3c1 = randomUUID()
+      const e3c2 = randomUUID()
+
+      const e1s1Prog = 100
+      const e1s2Prog = 100
+      const e1s3Prog = 80
+      const e1Prog = Math.round((e1s1Prog + e1s2Prog + e1s3Prog) / 3)
+      await insGanttTask(epic1, project1Id, '[GANTT] Epic: Checkout & payment refactor', 'P1-GANTT-E1', leadP1.id, dayAt(0), dayAt(9), null, e1Prog, 'feature', taskUpdatePeersP1)
+      await insGanttDoneTask(e1c1, project1Id, '[GANTT] Sub: API contract & error mapping', 'P1-GANTT-E1-S1', mateP1.id, dayAt(0), dayAt(3), epic1, 100, 'task', taskUpdatePeersP1)
+      await insGanttDoneTask(
+        e1c2,
+        project1Id,
+        '[GANTT] Sub: Service implementation & tests',
+        'P1-GANTT-E1-S2',
+        leadP1.id,
+        dayAt(4),
+        dayAt(7),
+        epic1,
+        100,
+        'feature',
+        taskUpdatePeersP1
+      )
+      await insGanttTask(e1c3, project1Id, '[GANTT] Sub: Feature flag & telemetry', 'P1-GANTT-E1-S3', mateP1.id, dayAt(8), dayAt(9), epic1, e1s3Prog, 'task', taskUpdatePeersP1)
+
+      const e2s1Prog = 58
+      const e2s2Prog = 34
+      const e2Prog = Math.round((e2s1Prog + e2s2Prog) / 2)
+      await insGanttTask(epic2, project1Id, '[GANTT] Epic: Fraud rules engine', 'P1-GANTT-E2', mateP1.id, dayAt(11), dayAt(20), null, e2Prog, 'feature', taskUpdatePeersP1)
+      await insGanttTask(e2c1, project1Id, '[GANTT] Sub: Rule DSL & validation', 'P1-GANTT-E2-S1', leadP1.id, dayAt(11), dayAt(15), epic2, e2s1Prog, 'feature', taskUpdatePeersP1)
+      await insGanttTask(e2c2, project1Id, '[GANTT] Sub: Evaluation & rollout', 'P1-GANTT-E2-S2', mateP1.id, dayAt(16), dayAt(20), epic2, e2s2Prog, 'task', taskUpdatePeersP1)
+
+      const e3s1Prog = 22
+      const e3s2Prog = 8
+      const e3Prog = Math.round((e3s1Prog + e3s2Prog) / 2)
+      await insGanttTask(epic3, project1Id, '[GANTT] Epic: Admin reconciliations UI', 'P1-GANTT-E3', leadP1.id, dayAt(22), dayAt(31), null, e3Prog, 'feature', taskUpdatePeersP1)
+      await insGanttTask(
+        e3c1,
+        project1Id,
+        '[GANTT] Sub: Grid, filters, bulk actions',
+        'P1-GANTT-E3-S1',
+        mateP1.id,
+        dayAt(22),
+        dayAt(26),
+        epic3,
+        e3s1Prog,
+        'feature',
+        taskUpdatePeersP1
+      )
+      await insGanttTask(e3c2, project1Id, '[GANTT] Sub: Export & audit trail', 'P1-GANTT-E3-S2', leadP1.id, dayAt(27), dayAt(31), epic3, e3s2Prog, 'task', taskUpdatePeersP1)
+
+      await linkSafe(epic1, epic2, 'blocks')
+      await linkSafe(epic2, epic3, 'blocks')
+      await linkSafe(e1c2, e2c1, 'relates_to')
+
+      const epic4 = randomUUID()
+      const e4c1 = randomUUID()
+      const e4c2 = randomUUID()
+      const iDone = Math.max(0, iBase - 14)
+      const dayAtDone = (off: number) => workingDays[Math.min(Math.max(0, iDone + off), wdLen - 1)]
+      await insGanttDoneTask(
+        epic4,
+        project1Id,
+        '[GANTT] Epic: Auth token refresh (done)',
+        'P1-GANTT-E4',
+        leadP1.id,
+        dayAtDone(0),
+        dayAtDone(8),
+        null,
+        100,
+        'feature',
+        taskUpdatePeersP1
+      )
+      await insGanttDoneTask(e4c1, project1Id, '[GANTT] Sub: Token rotation logic', 'P1-GANTT-E4-S1', mateP1.id, dayAtDone(0), dayAtDone(4), epic4, 100, 'task', taskUpdatePeersP1)
+      await insGanttDoneTask(
+        e4c2,
+        project1Id,
+        '[GANTT] Sub: Session invalidation tests',
+        'P1-GANTT-E4-S2',
+        leadP1.id,
+        dayAtDone(5),
+        dayAtDone(8),
+        epic4,
+        100,
+        'task',
+        taskUpdatePeersP1
+      )
+      await linkSafe(e4c1, e4c2, 'blocks')
+      await linkSafe(epic4, epic1, 'blocks')
+
+      const p2Epic = randomUUID()
+      const p2s1 = randomUUID()
+      const p2s2 = randomUUID()
+      const p2s1Prog = 52
+      const p2s2Prog = 28
+      const p2EpicProg = Math.round((p2s1Prog + p2s2Prog) / 2)
+      await insGanttTask(p2Epic, project2Id, '[GANTT] Epic: CRM lead scoring', 'P2-GANTT-E1', leadP2.id, dayAt(4), dayAt(17), null, p2EpicProg, 'feature', taskUpdatePeersP2)
+      await insGanttTask(p2s1, project2Id, '[GANTT] Sub: Feature pipeline & storage', 'P2-GANTT-E1-S1', leadP2.id, dayAt(4), dayAt(10), p2Epic, p2s1Prog, 'task', taskUpdatePeersP2)
+      await insGanttTask(
+        p2s2,
+        project2Id,
+        '[GANTT] Sub: Calibration & monitoring',
+        'P2-GANTT-E1-S2',
+        leadP2.id,
+        dayAt(11),
+        dayAt(17),
+        p2Epic,
+        p2s2Prog,
+        'feature',
+        taskUpdatePeersP2
+      )
+      await linkSafe(p2s1, p2s2, 'blocks')
+
+      // Thêm nhiều cụm epic/subtask theo wave (P1/P2/P3) — theme thật, plan lệch nhau, chuỗi blocks trong epic.
+      type GanttWaveDef = {
+        frac: number
+        pid: string
+        peers: string[]
+        leadId: string
+        mateId: string
+        ticketEpic: string
+        epicTitle: string
+        epicOff0: number
+        epicOff1: number
+        doneCluster: boolean
+        subs: Array<{ title: string; ticket: string; typ: string; o0: number; o1: number; prog: number; lead: boolean }>
+      }
+      const extraGanttWaves: GanttWaveDef[] = [
+        {
+          frac: 0.055,
+          pid: project1Id,
+          peers: taskUpdatePeersP1,
+          leadId: leadP1.id,
+          mateId: mateP1.id,
+          ticketEpic: 'P1-GWT-OB-E1',
+          epicTitle: '[GANTT] Epic: Observability & SLO baselines',
+          epicOff0: 0,
+          epicOff1: 14,
+          doneCluster: false,
+          subs: [
+            { title: '[GANTT] Sub: RED metrics & burn-rate alerts', ticket: 'P1-GWT-OB-S1', typ: 'task', o0: 0, o1: 4, prog: 100, lead: true },
+            { title: '[GANTT] Sub: Trace sampling & tail sampling policy', ticket: 'P1-GWT-OB-S2', typ: 'feature', o0: 5, o1: 10, prog: 68, lead: false },
+            { title: '[GANTT] Sub: SLO dashboards & incident runbooks', ticket: 'P1-GWT-OB-S3', typ: 'task', o0: 11, o1: 14, prog: 35, lead: true },
+          ],
+        },
+        {
+          frac: 0.105,
+          pid: project2Id,
+          peers: taskUpdatePeersP2,
+          leadId: leadP2.id,
+          mateId: mateP2.id,
+          ticketEpic: 'P2-GWT-DX-E1',
+          epicTitle: '[GANTT] Epic: CRM data export & retention',
+          epicOff0: 0,
+          epicOff1: 12,
+          doneCluster: false,
+          subs: [
+            { title: '[GANTT] Sub: Column-level policies & PII masking', ticket: 'P2-GWT-DX-S1', typ: 'feature', o0: 0, o1: 6, prog: 74, lead: true },
+            { title: '[GANTT] Sub: Scheduled exports & audit log', ticket: 'P2-GWT-DX-S2', typ: 'task', o0: 7, o1: 12, prog: 41, lead: false },
+          ],
+        },
+        {
+          frac: 0.165,
+          pid: project1Id,
+          peers: taskUpdatePeersP1,
+          leadId: leadP1.id,
+          mateId: mateP1.id,
+          ticketEpic: 'P1-GWT-RL-E1',
+          epicTitle: '[GANTT] Epic: API rate limits & quota tiers',
+          epicOff0: 0,
+          epicOff1: 11,
+          doneCluster: false,
+          subs: [
+            { title: '[GANTT] Sub: Token bucket service & config surface', ticket: 'P1-GWT-RL-S1', typ: 'feature', o0: 0, o1: 5, prog: 82, lead: false },
+            { title: '[GANTT] Sub: Partner tier rollout & shadow mode', ticket: 'P1-GWT-RL-S2', typ: 'task', o0: 6, o1: 11, prog: 46, lead: true },
+          ],
+        },
+        {
+          frac: 0.375,
+          pid: project1Id,
+          peers: taskUpdatePeersP1,
+          leadId: leadP1.id,
+          mateId: mateP1.id,
+          ticketEpic: 'P1-GWT-SR-E1',
+          epicTitle: '[GANTT] Epic: Search & catalog browse',
+          epicOff0: 0,
+          epicOff1: 16,
+          doneCluster: false,
+          subs: [
+            { title: '[GANTT] Sub: Index pipeline & incremental refresh', ticket: 'P1-GWT-SR-S1', typ: 'feature', o0: 0, o1: 6, prog: 71, lead: true },
+            { title: '[GANTT] Sub: Facets, sort, zero-result UX', ticket: 'P1-GWT-SR-S2', typ: 'task', o0: 7, o1: 12, prog: 52, lead: false },
+            { title: '[GANTT] Sub: Typeahead abuse guard & perf budget', ticket: 'P1-GWT-SR-S3', typ: 'bug', o0: 13, o1: 16, prog: 24, lead: true },
+          ],
+        },
+        {
+          frac: 0.435,
+          pid: project2Id,
+          peers: taskUpdatePeersP2,
+          leadId: leadP2.id,
+          mateId: mateP2.id,
+          ticketEpic: 'P2-GWT-WH-E1',
+          epicTitle: '[GANTT] Epic: Webhooks & integration hub',
+          epicOff0: 0,
+          epicOff1: 15,
+          doneCluster: false,
+          subs: [
+            { title: '[GANTT] Sub: Delivery guarantees & DLQ replay', ticket: 'P2-GWT-WH-S1', typ: 'feature', o0: 0, o1: 6, prog: 62, lead: true },
+            { title: '[GANTT] Sub: Connector SDK & HMAC rotation', ticket: 'P2-GWT-WH-S2', typ: 'task', o0: 7, o1: 11, prog: 55, lead: false },
+            { title: '[GANTT] Sub: Admin UI — replay, pause, metrics', ticket: 'P2-GWT-WH-S3', typ: 'feature', o0: 12, o1: 15, prog: 30, lead: true },
+          ],
+        },
+        {
+          frac: 0.535,
+          pid: project1Id,
+          peers: taskUpdatePeersP1,
+          leadId: leadP1.id,
+          mateId: mateP1.id,
+          ticketEpic: 'P1-GWT-NT-E1',
+          epicTitle: '[GANTT] Epic: In-app notifications redesign',
+          epicOff0: 0,
+          epicOff1: 12,
+          doneCluster: false,
+          subs: [
+            { title: '[GANTT] Sub: Preference matrix & quiet hours', ticket: 'P1-GWT-NT-S1', typ: 'feature', o0: 0, o1: 6, prog: 88, lead: false },
+            { title: '[GANTT] Sub: Multi-channel fan-out & idempotency', ticket: 'P1-GWT-NT-S2', typ: 'task', o0: 7, o1: 12, prog: 44, lead: true },
+          ],
+        },
+        {
+          frac: 0.635,
+          pid: project2Id,
+          peers: taskUpdatePeersP2,
+          leadId: leadP2.id,
+          mateId: mateP2.id,
+          ticketEpic: 'P2-GWT-RP-E1',
+          epicTitle: '[GANTT] Epic: Reporting drill-down & saved views',
+          epicOff0: 0,
+          epicOff1: 14,
+          doneCluster: true,
+          subs: [
+            { title: '[GANTT] Sub: Aggregate service & query cache', ticket: 'P2-GWT-RP-S1', typ: 'feature', o0: 0, o1: 6, prog: 100, lead: true },
+            { title: '[GANTT] Sub: Dimension filters & URL state', ticket: 'P2-GWT-RP-S2', typ: 'task', o0: 7, o1: 11, prog: 100, lead: false },
+            { title: '[GANTT] Sub: Export parity & print layout', ticket: 'P2-GWT-RP-S3', typ: 'task', o0: 12, o1: 14, prog: 100, lead: true },
+          ],
+        },
+        {
+          frac: 0.078,
+          pid: project3Id,
+          peers: taskUpdatePeersP3,
+          leadId: tinyLeadG.id,
+          mateId: tinyMateG.id,
+          ticketEpic: 'P3-GWT-ST-E1',
+          epicTitle: '[GANTT] Epic: TINY — Reliability hardening sprint',
+          epicOff0: 0,
+          epicOff1: 13,
+          doneCluster: false,
+          subs: [
+            { title: '[GANTT] Sub: Error budget & flaky test quarantine', ticket: 'P3-GWT-ST-S1', typ: 'task', o0: 0, o1: 6, prog: 92, lead: true },
+            { title: '[GANTT] Sub: Rollback playbooks & release gates', ticket: 'P3-GWT-ST-S2', typ: 'feature', o0: 7, o1: 13, prog: 58, lead: false },
+          ],
+        },
+        {
+          frac: 0.805,
+          pid: project3Id,
+          peers: taskUpdatePeersP3,
+          leadId: tinyLeadG.id,
+          mateId: tinyMateG.id,
+          ticketEpic: 'P3-GWT-UX-E1',
+          epicTitle: '[GANTT] Epic: TINY — Onboarding & empty states',
+          epicOff0: 0,
+          epicOff1: 12,
+          doneCluster: false,
+          subs: [
+            { title: '[GANTT] Sub: First-run checklist & progressive disclosure', ticket: 'P3-GWT-UX-S1', typ: 'feature', o0: 0, o1: 5, prog: 66, lead: true },
+            { title: '[GANTT] Sub: Copy sweep & a11y pass', ticket: 'P3-GWT-UX-S2', typ: 'task', o0: 6, o1: 12, prog: 40, lead: false },
+          ],
+        },
+        {
+          frac: 0.715,
+          pid: project1Id,
+          peers: taskUpdatePeersP1,
+          leadId: leadP1.id,
+          mateId: mateP1.id,
+          ticketEpic: 'P1-GWT-PF-E1',
+          epicTitle: '[GANTT] Epic: Cache warming & read-path performance',
+          epicOff0: 0,
+          epicOff1: 13,
+          doneCluster: false,
+          subs: [
+            { title: '[GANTT] Sub: Hit ratio telemetry & eviction policy', ticket: 'P1-GWT-PF-S1', typ: 'task', o0: 0, o1: 6, prog: 77, lead: false },
+            { title: '[GANTT] Sub: Stampede protection & bulkhead', ticket: 'P1-GWT-PF-S2', typ: 'feature', o0: 7, o1: 13, prog: 51, lead: true },
+          ],
+        },
+      ]
+
+      const clusterMeta: { pid: string; epicId: string; firstSubId: string | null; lastSubId: string | null }[] = []
+      for (const wv of extraGanttWaves) {
+        const i0 = Math.min(wdLen - 22, Math.max(5, Math.floor(wdLen * wv.frac)))
+        const dayW = (off: number) => workingDays[Math.min(wdLen - 1, Math.max(0, i0 + off))]
+        const epicId = randomUUID()
+        const e0 = dayW(wv.epicOff0)
+        const e1 = dayW(wv.epicOff1)
+        const avgProg = Math.round(wv.subs.reduce((a, s) => a + s.prog, 0) / wv.subs.length)
+        const epicAssign = wv.leadId
+        if (wv.doneCluster) {
+          await insGanttDoneTask(epicId, wv.pid, wv.epicTitle, wv.ticketEpic, epicAssign, e0, e1, null, 100, 'feature', wv.peers)
+        } else {
+          await insGanttTask(epicId, wv.pid, wv.epicTitle, wv.ticketEpic, epicAssign, e0, e1, null, avgProg, 'feature', wv.peers)
+        }
+        const subIds: string[] = []
+        for (const s of wv.subs) {
+          const sid = randomUUID()
+          subIds.push(sid)
+          const asg = s.lead ? wv.leadId : wv.mateId
+          const s0 = dayW(s.o0)
+          const s1 = dayW(s.o1)
+          const subDone = wv.doneCluster || s.prog >= 99
+          if (subDone) {
+            await insGanttDoneTask(sid, wv.pid, s.title, s.ticket, asg, s0, s1, epicId, 100, s.typ, wv.peers)
+          } else {
+            await insGanttTask(sid, wv.pid, s.title, s.ticket, asg, s0, s1, epicId, s.prog, s.typ, wv.peers)
+          }
+        }
+        for (let si = 0; si < subIds.length - 1; si++) await linkSafe(subIds[si], subIds[si + 1], 'blocks')
+        clusterMeta.push({
+          pid: wv.pid,
+          epicId,
+          firstSubId: subIds[0] ?? null,
+          lastSubId: subIds.at(-1) ?? null,
+        })
+      }
+
+      const p1Clusters = clusterMeta.filter(c => c.pid === project1Id)
+      if (p1Clusters.length >= 2 && p1Clusters[0]?.lastSubId && p1Clusters[1]?.firstSubId) {
+        await linkSafe(p1Clusters[0].lastSubId, p1Clusters[1].firstSubId, 'relates_to')
+      }
+      const p2Clusters = clusterMeta.filter(c => c.pid === project2Id)
+      if (p2Clusters.length >= 2 && p2Clusters[0]?.lastSubId && p2Clusters[1]?.firstSubId) {
+        await linkSafe(p2Clusters[0].lastSubId, p2Clusters[1].firstSubId, 'relates_to')
+      }
+      if (clusterMeta.length > 3 && clusterMeta[0]?.lastSubId && clusterMeta[3]?.firstSubId) {
+        await linkSafe(clusterMeta[0].lastSubId, clusterMeta[3].firstSubId, 'relates_to')
+      }
+      if (clusterMeta.length > 8 && clusterMeta[7]?.lastSubId && clusterMeta[8]?.firstSubId) {
+        await linkSafe(clusterMeta[7].lastSubId, clusterMeta[8].firstSubId, 'relates_to')
+      }
+
+      console.log(`Gantt demo tasks: core + ${extraGanttWaves.length} extra waves (P1/P2/P3), subtask chains & cross-cluster relates_to`)
+    } else {
+      console.log('Gantt demo tasks: skipped (working day range too short)')
+    }
   }
+
+  // Task links: cặp cùng assignee + plan_end <= plan_start (ứng viên FS hợp lý), không milestone.
+  const insertSensibleTaskLinks = async (projectId: string, cap: number) => {
+    const rows = await query<{ from_id: string; to_id: string }>(
+      `SELECT t1.id AS from_id, t2.id AS to_id
+       FROM tasks t1
+       INNER JOIN tasks t2 ON t1.assignee_user_id = t2.assignee_user_id AND t1.project_id = t2.project_id
+       WHERE t1.project_id = ?
+         AND COALESCE(t1.type, '') <> 'milestone' AND COALESCE(t2.type, '') <> 'milestone'
+         AND t1.plan_end_date IS NOT NULL AND t2.plan_start_date IS NOT NULL
+         AND t1.plan_end_date::date <= t2.plan_start_date::date
+         AND t1.id <> t2.id
+       ORDER BY t1.plan_start_date::date, t1.id, t2.plan_start_date::date, t2.id
+       LIMIT ?`,
+      [projectId, cap]
+    )
+    const list = Array.isArray(rows) ? rows : []
+    for (const r of list) {
+      if (!r.from_id || !r.to_id) continue
+      const lt = seedGlobalRand() < 0.72 ? 'blocks' : 'relates_to'
+      await query('INSERT INTO task_links (id, from_task_id, to_task_id, link_type) VALUES (?, ?, ?, ?) ON CONFLICT (from_task_id, to_task_id, link_type) DO NOTHING', [
+        randomUUID(),
+        r.from_id,
+        r.to_id,
+        lt,
+      ])
+    }
+  }
+  await insertSensibleTaskLinks(project1Id, 140)
+  await insertSensibleTaskLinks(project2Id, 120)
+  await insertSensibleTaskLinks(project3Id, 80)
+
+  const taskIds = await query<{ id: string }[]>('SELECT id FROM tasks WHERE project_id = ? ORDER BY plan_start_date NULLS LAST, id LIMIT 100', [project1Id])
+  const tids = Array.isArray(taskIds) ? taskIds : []
   for (let i = 0; i < Math.min(25, tids.length); i++) {
     const dev = devsP1[i % devsP1.length]
     await query('INSERT INTO task_favorites (id, user_id, task_id) VALUES (?, ?, ?) ON CONFLICT (user_id, task_id) DO NOTHING', [randomUUID(), dev.id, tids[i]?.id])
@@ -3341,9 +4360,11 @@ export async function main(): Promise<void> {
     for (let i = lastDayIdx; i >= 0 && !reviewedByUserDay.get(userId)?.has(i); i--) count++
     return count
   }
+  const earnedAchievementsByUser = new Map<string, string[]>()
   for (const dev of allDevs) {
     const acc = devStatsAccum.get(dev.id) ?? defaultAccum()
-    const TASKS_DONE = acc.tasks
+    const TOTAL_TASKS = acc.tasks
+    const TASKS_DONE = acc.onTime + acc.early + acc.late
     const COMMITS = acc.commits
     const REPORTS = acc.reports
     const REVIEWS = acc.reviews
@@ -3398,7 +4419,7 @@ export async function main(): Promise<void> {
         reportStreak,
         toDateStr(endDate),
         TASKS_DONE,
-        TASKS_DONE,
+        TOTAL_TASKS,
         COMMITS,
         REVIEWS,
         REPORTS,
@@ -3418,41 +4439,46 @@ export async function main(): Promise<void> {
         acc.insertions,
         consecutiveNoReport,
         consecutiveNoReview,
-        toDateStr(endDate),
-        toDateStr(endDate),
-        toDateStr(endDate),
+        COMMITS > 0 ? toDateStr(endDate) : null,
+        REVIEWS > 0 ? toDateStr(endDate) : null,
+        REPORTS > 0 ? toDateStr(endDate) : null,
       ]
     )
 
-    // Award achievements based on thresholds
-    const achievementsToAward = [
-      { code: 'task_first', xp: 20 },
-      { code: 'task_10', xp: 30 },
-      { code: 'task_50', xp: 60 },
-      { code: 'task_100', xp: 120 },
-      { code: 'git_first_commit', xp: 20 },
-      { code: 'git_commits_50', xp: 40 },
-      { code: 'git_commits_200', xp: 80 },
-      { code: 'review_first', xp: 20 },
-      { code: 'report_first', xp: 15 },
-      { code: 'report_50', xp: 60 },
+    const achievementsToAward: { code: string; check: boolean }[] = [
+      { code: 'task_first', check: TASKS_DONE >= 1 },
+      { code: 'task_10', check: TASKS_DONE >= 10 },
+      { code: 'task_50', check: TASKS_DONE >= 50 },
+      { code: 'task_100', check: TASKS_DONE >= 100 },
+      { code: 'git_first_commit', check: COMMITS >= 1 },
+      { code: 'git_commits_50', check: COMMITS >= 50 },
+      { code: 'git_commits_200', check: COMMITS >= 200 },
+      { code: 'review_first', check: REVIEWS >= 1 },
+      { code: 'report_first', check: REPORTS >= 1 },
+      { code: 'report_50', check: REPORTS >= 50 },
     ]
+    const earned: string[] = []
     for (const ach of achievementsToAward) {
+      if (!ach.check) continue
+      earned.push(ach.code)
       await query(
         `INSERT INTO user_achievements (id, user_id, achievement_code, earned_count, first_earned_at, last_earned_at) VALUES (?, ?, ?, 1, NOW(), NOW())
          ON CONFLICT (user_id, achievement_code) DO NOTHING`,
         [randomUUID(), dev.id, ach.code]
       )
     }
+    earnedAchievementsByUser.set(dev.id, earned)
   }
 
-  // user_badge_display: max 3 pin mỗi user, random 0–2
-  const badgeCodes = ['task_first', 'task_10', 'task_50', 'task_100', 'git_first_commit', 'git_commits_50', 'review_first', 'report_first', 'report_50']
+  // user_badge_display: max 3 pin mỗi user, random 0–2 — only from earned achievements
   for (const dev of allDevs) {
-    const nPins = randBetween(0, 2)
+    const earned = earnedAchievementsByUser.get(dev.id)
+    if (!earned || earned.length === 0) continue
+    const nPins = Math.min(randBetween(0, 2), earned.length)
     const picked = new Set<string>()
     for (let i = 0; i < nPins; i++) {
-      const code = pick(badgeCodes.filter(c => !picked.has(c)))
+      const code = pick(earned.filter(c => !picked.has(c)))
+      if (!code) break
       picked.add(code)
       await query('INSERT INTO user_badge_display (user_id, achievement_code, display_order) VALUES (?, ?, ?) ON CONFLICT (user_id, achievement_code) DO NOTHING', [
         dev.id,

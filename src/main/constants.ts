@@ -302,6 +302,8 @@ export const IPC = {
     CHECK_TASK_API: 'task:check-task-api',
     CHECK_TASK_SCHEMA_APPLIED: 'task:check-task-schema-applied',
     INIT_TASK_SCHEMA: 'task:init-schema',
+    /** Admin only — chèn dữ liệu mẫu (mock) vào DB đã cấu hình; cần schema đã init */
+    SEED_MOCK_DATA: 'task:seed-mock-data',
     SELECT_CSV_FILE: 'task:select-csv-file',
     IMPORT_REDMINE_CSV: 'task:import-redmine-csv',
     GET_PROJECTS: 'task:get-projects',

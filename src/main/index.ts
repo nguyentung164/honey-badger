@@ -108,7 +108,9 @@ makeAppWithSingleInstanceLock(async () => {
           migrateUserDailySnapshotsUniqueConstraint,
           migrateTaskTypesAddMilestone,
           migrateTasksTicketIdNullable,
+          migrateUserProjectRolesProjectIdUkToGenerated,
         } = await import('./task/taskDbPatches')
+        await migrateUserProjectRolesProjectIdUkToGenerated().catch(() => {})
         await migratePrCheckpointGithubColumns().catch(() => {})
         await migratePrCheckpointTemplateHeaderGroup().catch(() => {})
         await migratePrManagerTablesUserIdColumns().catch(() => {})

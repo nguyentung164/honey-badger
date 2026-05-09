@@ -1,6 +1,7 @@
 import { parseISO } from 'date-fns'
 import { randomUuidV7 } from 'shared/randomUuidV7'
 import { query, withTransaction } from './db'
+import { dbValueToCalendarYmd } from './calendarDate'
 import { getProjectMembers } from './pgTaskStore'
 import { upsertActualWorkHoursInTransaction } from './pgWorkloadStore'
 
@@ -533,24 +534,11 @@ export interface ReportStatistics {
   dateTo?: string
 }
 
-function toDateStr(d: Date): string {
-  return d.toISOString().slice(0, 10)
-}
-
-/** Format ngày theo calendar local (YYYY-MM-DD), tránh lệch múi giờ khi DB trả về Date. */
-function toLocalDateStr(d: Date): string {
-  const y = d.getFullYear()
-  const m = String(d.getMonth() + 1).padStart(2, '0')
-  const day = String(d.getDate()).padStart(2, '0')
-  return `${y}-${m}-${day}`
-}
-
-/** Chuẩn hóa report_date từ DB (Date hoặc string) thành 'YYYY-MM-DD' để dùng làm key trong Map/Set. Dùng local date để khớp với List. */
+/** Chuẩn hóa report_date từ DB (Date hoặc string) thành 'YYYY-MM-DD' để dùng làm key trong Map/Set. */
 function normalizeReportDateKey(value: unknown): string {
-  if (value instanceof Date) return toLocalDateStr(value)
-  return String(value ?? '')
-    .trim()
-    .slice(0, 10)
+  if (value == null || value === '') return ''
+  if (value instanceof Date) return dbValueToCalendarYmd(value)
+  return dbValueToCalendarYmd(String(value))
 }
 
 export async function getReportStatistics(reportDate: string, projectId: string): Promise<ReportStatistics> {
@@ -583,8 +571,8 @@ export async function getReportStatistics(reportDate: string, projectId: string)
   const dateTo = new Date(`${reportDate}T12:00:00Z`)
   const dateFrom = new Date(dateTo)
   dateFrom.setUTCDate(dateFrom.getUTCDate() - 30)
-  const fromStr = toDateStr(dateFrom)
-  const toStr = toDateStr(dateTo)
+  const fromStr = dbValueToCalendarYmd(dateFrom)
+  const toStr = dbValueToCalendarYmd(dateTo)
 
   const devIds = devs.map(d => d.userId)
   const placeholders = devIds.map(() => '?').join(',')
@@ -612,7 +600,7 @@ export async function getReportStatistics(reportDate: string, projectId: string)
     const missed: string[] = []
     const cur = new Date(dateFromLocal)
     while (cur <= dateToLocal) {
-      const dStr = toLocalDateStr(cur)
+      const dStr = dbValueToCalendarYmd(cur)
       const day = cur.getDay()
       if (day !== 0 && day !== 6 && !reportedDates.has(dStr)) {
         missed.push(dStr)
@@ -722,7 +710,7 @@ export async function getReportStatisticsByDateRange(dateFrom: string, dateTo: s
   const cur = new Date(dateFromObj)
 
   while (cur <= dateToObj) {
-    const dStr = toLocalDateStr(cur)
+    const dStr = dbValueToCalendarYmd(cur)
     const day = cur.getDay()
     if (day !== 0 && day !== 6) {
       const reportedUserIds = reportedByDateMap.get(dStr) ?? new Set()
@@ -749,7 +737,7 @@ export async function getReportStatisticsByDateRange(dateFrom: string, dateTo: s
     const missed: string[] = []
     const cur2 = new Date(dateFromObj)
     while (cur2 <= dateToObj) {
-      const dStr = toLocalDateStr(cur2)
+      const dStr = dbValueToCalendarYmd(cur2)
       const day = cur2.getDay()
       if (day !== 0 && day !== 6 && !reportedDates.has(dStr)) {
         missed.push(dStr)

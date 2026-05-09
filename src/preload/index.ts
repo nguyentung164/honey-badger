@@ -596,6 +596,7 @@ declare global {
         checkTaskApi: () => Promise<{ ok: boolean; code?: string; error?: string }>
         checkTaskSchemaApplied: () => Promise<{ ok: true; applied: boolean } | { ok: false; code: 'APP_DB_NOT_CONFIGURED' | 'APP_DB_CHECK_FAILED'; error?: string }>
         initSchema: () => Promise<{ recreated: boolean }>
+        seedMockData: () => Promise<void>
         getProjects: () => Promise<{ status: string; data?: any; message?: string }>
         getProjectsForTaskUi: () => Promise<{ status: string; data?: any; message?: string }>
         getProjectsForUser: () => Promise<{ status: string; data?: any; message?: string }>
@@ -1499,6 +1500,7 @@ contextBridge.exposeInMainWorld('api', {
     checkTaskApi: () => ipcRenderer.invoke(IPC.TASK.CHECK_TASK_API),
     checkTaskSchemaApplied: () => ipcRenderer.invoke(IPC.TASK.CHECK_TASK_SCHEMA_APPLIED),
     initSchema: () => ipcRenderer.invoke(IPC.TASK.INIT_TASK_SCHEMA),
+    seedMockData: () => ipcRenderer.invoke(IPC.TASK.SEED_MOCK_DATA),
     getProjects: () => ipcRenderer.invoke(IPC.TASK.GET_PROJECTS),
     getProjectsForTaskUi: () => ipcRenderer.invoke(IPC.TASK.GET_PROJECTS_FOR_TASK_UI),
     getProjectsForUser: () => ipcRenderer.invoke(IPC.TASK.GET_PROJECTS_FOR_USER),

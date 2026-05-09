@@ -63,6 +63,12 @@ function toIsoDateLocal(d: Date): string {
   return `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`
 }
 
+/**
+ * Bảng `tasks` hiện chưa có cột est_md; để ô workload không trống khi đã có task gán trong span,
+ * coi mỗi task = 1 md kế hoạch rồi chia đều theo số ngày làm việc trong [plan_start, plan_end].
+ */
+const DEFAULT_TASK_PLAN_MD = 1
+
 function parseLocalDate(yyyyMmDd: string): Date | null {
   const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(yyyyMmDd)
   if (!m) {
@@ -141,7 +147,7 @@ async function fetchAssigneeFallbackUsers(userIds: string[]): Promise<WorkloadUs
 /**
  * Lấy workload trong khoảng [from, to] cho project.
  *
- * - derived: chia đều estMd*hoursPerDay / workingDaysInTaskSpan của task (estMd null/0 → 0).
+ * - derived: chia đều estMd*hoursPerDay / workingDaysInTaskSpan (chưa có est_md trên tasks → dùng DEFAULT_TASK_PLAN_MD).
  *   Mẫu số dùng TOÀN BỘ task span (không phụ thuộc range hiển thị) để cell phản ánh đúng tải/ngày.
  * - actual / override: lấy từ project_user_daily_workload theo (project, user, date).
  * - users: union (member project) ∪ (assignee xuất hiện trong tasks overlap range).
@@ -170,6 +176,7 @@ export async function getWorkload(input: { projectId: string; from: string; to: 
      FROM tasks
      WHERE project_id = ? AND assignee_user_id IS NOT NULL
        AND plan_start_date IS NOT NULL AND plan_end_date IS NOT NULL
+       AND COALESCE(type, 'bug') <> 'milestone'
        AND plan_start_date::date <= ?::date AND plan_end_date::date >= ?::date`,
     [projectId, to, from]
   )
@@ -208,9 +215,8 @@ export async function getWorkload(input: { projectId: string; from: string; to: 
     if (taskEnd.getTime() < taskStart.getTime()) continue
 
     const totalWorkingDays = countWorkingDays(taskStart, taskEnd, nonWorkingDates)
-    /** Tasks chưa có cột est_md trong schema hiện tại — derived = 0; UI vẫn hiển thị task_count và override. */
-    const estMd = 0
-    const perDay = totalWorkingDays > 0 && estMd > 0 ? (estMd * hoursPerDay) / totalWorkingDays : 0
+    const estMd = DEFAULT_TASK_PLAN_MD
+    const perDay = totalWorkingDays > 0 ? (estMd * hoursPerDay) / totalWorkingDays : 0
 
     const visibleStart = taskStart.getTime() > fromD.getTime() ? taskStart : fromD
     const visibleEnd = taskEnd.getTime() < toD.getTime() ? taskEnd : toD
@@ -311,10 +317,11 @@ export async function upsertWorkloadOverride(
   const ohNorm = oh == null || (typeof oh === 'number' && Number.isNaN(oh)) ? null : Number(oh)
 
   if (ohNorm === null && noteIn === null) {
-    const sel = await query<Record<string, unknown>>(
-      `SELECT id, version, actual_work_hours FROM ${PUDW} WHERE project_id = ? AND user_id = ? AND work_date = ? LIMIT 1`,
-      [projectId, userId, workDate]
-    )
+    const sel = await query<Record<string, unknown>>(`SELECT id, version, actual_work_hours FROM ${PUDW} WHERE project_id = ? AND user_id = ? AND work_date = ? LIMIT 1`, [
+      projectId,
+      userId,
+      workDate,
+    ])
     const cur = sel?.[0]
     if (!cur) return { overrideHours: null, note: null, version: 0, deleted: true }
     if (input.version !== undefined && Number(cur.version) !== input.version) {
@@ -326,22 +333,14 @@ export async function upsertWorkloadOverride(
     const hasActual = aw != null && aw !== '' && Number.isFinite(Number(aw))
     if (hasActual) {
       const nextVer = Number(cur.version) + 1
-      await query(`UPDATE ${PUDW} SET override_hours = NULL, note = NULL, version = ?, updated_by = ?, updated_at = NOW() WHERE id = ?`, [
-        nextVer,
-        actorUserId,
-        cur.id as string,
-      ])
+      await query(`UPDATE ${PUDW} SET override_hours = NULL, note = NULL, version = ?, updated_by = ?, updated_at = NOW() WHERE id = ?`, [nextVer, actorUserId, cur.id as string])
       return { overrideHours: null, note: null, version: nextVer, deleted: false }
     }
     await query(`DELETE FROM ${PUDW} WHERE id = ?`, [cur.id as string])
     return { overrideHours: null, note: null, version: 0, deleted: true }
   }
 
-  const sel = await query<Record<string, unknown>>(`SELECT id, version FROM ${PUDW} WHERE project_id = ? AND user_id = ? AND work_date = ? LIMIT 1`, [
-    projectId,
-    userId,
-    workDate,
-  ])
+  const sel = await query<Record<string, unknown>>(`SELECT id, version FROM ${PUDW} WHERE project_id = ? AND user_id = ? AND work_date = ? LIMIT 1`, [projectId, userId, workDate])
   const cur = sel?.[0]
   if (!cur) {
     const id = randomUuidV7()
@@ -401,11 +400,7 @@ export async function deleteWorkloadOverride(
     const hasActual = aw != null && aw !== '' && Number.isFinite(Number(aw))
     if (hasActual) {
       const nextVer = Number(cur.version) + 1
-      await query(`UPDATE ${PUDW} SET override_hours = NULL, note = NULL, version = ?, updated_by = ?, updated_at = NOW() WHERE id = ?`, [
-        nextVer,
-        actorUserId,
-        cur.id as string,
-      ])
+      await query(`UPDATE ${PUDW} SET override_hours = NULL, note = NULL, version = ?, updated_by = ?, updated_at = NOW() WHERE id = ?`, [nextVer, actorUserId, cur.id as string])
       return { deleted: false }
     }
     await query(`DELETE FROM ${PUDW} WHERE id = ?`, [cur.id as string])
@@ -451,14 +446,8 @@ export async function upsertActualWorkHoursInTransaction(
     }[]
     const cur = Array.isArray(sel) && sel[0] ? sel[0] : null
     if (!cur) return
-    await txQuery(`UPDATE ${PUDW} SET actual_work_hours = NULL, version = version + 1, updated_by = ?, updated_at = NOW() WHERE id = ?`, [
-      actorUserId,
-      cur.id,
-    ])
-    await txQuery(
-      `DELETE FROM ${PUDW} WHERE id = ? AND override_hours IS NULL AND actual_work_hours IS NULL AND (note IS NULL OR BTRIM(COALESCE(note, '')) = '')`,
-      [cur.id]
-    )
+    await txQuery(`UPDATE ${PUDW} SET actual_work_hours = NULL, version = version + 1, updated_by = ?, updated_at = NOW() WHERE id = ?`, [actorUserId, cur.id])
+    await txQuery(`DELETE FROM ${PUDW} WHERE id = ? AND override_hours IS NULL AND actual_work_hours IS NULL AND (note IS NULL OR BTRIM(COALESCE(note, '')) = '')`, [cur.id])
     return
   }
 

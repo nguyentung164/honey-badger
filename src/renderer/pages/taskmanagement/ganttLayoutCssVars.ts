@@ -57,6 +57,13 @@ export function hbGanttRootStyle(
 export const HB_GANTT_TIMELINE_GRID_V_LINE =
   'pointer-events-none absolute top-0 bottom-0 z-[1] w-px bg-border/85 dark:bg-border/70 transform-gpu'
 
+/**
+ * Vạch “today” trên timeline (Gantt body + workload bleed).
+ * `w-0` + `border-l-2 border-dashed` — nét đứt dọc, căn giữa qua `-translate-x-1/2` + `left`.
+ */
+export const HB_GANTT_TODAY_LINE_MARK =
+  'absolute top-0 bottom-0 w-0 -translate-x-1/2 border-l-2 border-dashed border-rose-600/65 dark:border-rose-500/65'
+
 /** Style fragments — chỉ dùng trong subtree đã có `hbGanttRootStyle` trên tổ tiên. */
 export const hbGantt = {
   leftBlock: {

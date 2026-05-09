@@ -2,7 +2,7 @@
 
 import type { ReactNode } from 'react'
 import { Progress } from '@/components/ui/progress'
-import { cn } from '@/lib/utils'
+import { cn, getProgressColor } from '@/lib/utils'
 import type { TaskTableRowTask } from './TaskTableRow'
 
 export type TaskBoardCardProps = {
@@ -42,6 +42,10 @@ export function TaskBoardCard({
   const ty = task.type ?? 'bug'
   const statusHex = statusColorMap[task.status]?.trim()
   const stripColor = statusHex || 'hsl(var(--primary))'
+  const progressPct =
+    typeof task.progress === 'number' && task.progress >= 0
+      ? Math.min(100, Math.max(0, Math.round(Number(task.progress) || 0)))
+      : null
   return (
     <div className="flex min-w-0 rounded-md bg-card shadow-sm transition-colors hover:bg-muted/30">
       <div className="w-1 shrink-0 self-stretch rounded-l-[calc(0.375rem-1px)]" style={{ backgroundColor: stripColor }} aria-hidden />
@@ -78,9 +82,13 @@ export function TaskBoardCard({
           {badgeRowTrailingSlot ? <div className="flex shrink-0 items-center self-start pt-px">{badgeRowTrailingSlot}</div> : null}
         </div>
         <div className="mt-1.5 text-[10px] text-muted-foreground truncate">{assigneeDisplay}</div>
-        {typeof task.progress === 'number' && task.progress >= 0 && (
+        {progressPct != null && (
           <div className="mt-1.5">
-            <Progress value={Math.min(100, Math.max(0, task.progress))} className="h-1" />
+            <Progress
+              value={progressPct}
+              className="h-1"
+              indicatorStyle={{ backgroundColor: getProgressColor(progressPct / 100) }}
+            />
           </div>
         )}
       </div>

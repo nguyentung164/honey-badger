@@ -18,9 +18,18 @@ import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import { GlowLoader } from '@/components/ui-elements/GlowLoader'
 import { parseLocalDate, toYyyyMmDd } from '@/lib/dateUtils'
+import { workingDaysBetweenInclusive } from '@/lib/evmCalculations'
 import { cn, getProgressColor } from '@/lib/utils'
 import { GanttTimelineGridOverlay } from './GanttTimelineGridOverlay'
-import { GANTT_LEADING_FIXED_W, GANTT_LEFT_META_FIXED_W, HB_GANTT_GRID_V_VAR, HB_GANTT_NAME_W_VAR, hbGantt, hbGanttRootStyle } from './ganttLayoutCssVars'
+import {
+  GANTT_LEADING_FIXED_W,
+  GANTT_LEFT_META_FIXED_W,
+  HB_GANTT_GRID_V_VAR,
+  HB_GANTT_NAME_W_VAR,
+  HB_GANTT_TODAY_LINE_MARK,
+  hbGantt,
+  hbGanttRootStyle,
+} from './ganttLayoutCssVars'
 import { PLAN_UNSCHED_TASK_DRAG_MIME } from './planUnschedTaskDragMime'
 import type { WorkloadBoardSegment, WorkloadDisplayMode, WorkloadOverrideUpsertInput } from './TaskGanttWorkload'
 import { WorkloadMetaRailFloatingToggle } from './TaskGanttWorkload'
@@ -183,8 +192,10 @@ const Z_GANTT_BODY_DEPENDENCIES = 3
 /** Đường Today trên chart — giữ trên hàng để dễ nhìn trên bar rỗng. */
 const Z_GANTT_BODY_TODAY = 5
 
-/** Lớp nổi trong panel Gantt: trên sticky (≤48), dưới Popover/DatePicker (`z-50`). Dùng cho overlay loading (`TaskManagement`) và nút đóng/mở cột meta. */
-export const Z_GANTT_BOARD_LOADING_OVERLAY = Z_GANTT_STICKY_TOP_HEADER + 1
+/** Nút đóng/mở rail meta — trên sticky (≤36); phải thấp hơn `Z_GANTT_BOARD_LOADING_OVERLAY` để overlay loading che nút. */
+export const Z_GANTT_META_RAIL_FLOATING_TOGGLE = Z_GANTT_STICKY_TOP_HEADER + 1
+/** Overlay loading toàn board (`TaskManagement`) — trên nút meta rail và sticky, dưới Popover/DatePicker (`z-50`). */
+export const Z_GANTT_BOARD_LOADING_OVERLAY = Z_GANTT_META_RAIL_FLOATING_TOGGLE + 1
 
 type GanttRowGrouping = TaskBoardRowGrouping
 
@@ -432,26 +443,63 @@ function resolveGanttActualBarDayRange(task: TaskTableRowTask): { start: Date; e
   return null
 }
 
+/** Có actual start nhưng chưa có actual end và task chưa terminal — mép phải thanh là «đến hôm nay», chưa phải ngày hoàn thành. */
+function ganttActualBarHasProvisionalEnd(task: TaskTableRowTask): boolean {
+  if (ganttStatusTerminalForActualBar(task.status)) return false
+  const aS = parsePlanDate(task.actualStartDate)
+  const aE = parsePlanDate(task.actualEndDate)
+  return Boolean(aS && !aE)
+}
+
 type GanttActualBarTone = 'late_start' | 'late_finish' | 'late_both' | 'early' | 'on_time'
 
-/**
- * So với plan: tách trễ bắt đầu / trễ kết thúc / cả hai; ưu tiên báo trễ deadline (`late_finish`) khi chỉ một mốc trễ kết thúc.
- */
-function ganttActualBarVarianceTone(planStart: Date, planEnd: Date, actual: { start: Date; end: Date }): GanttActualBarTone {
-  const ps = startOfDay(planStart).getTime()
-  const pe = startOfDay(planEnd).getTime()
-  const aS = startOfDay(actual.start).getTime()
-  const aE = startOfDay(actual.end).getTime()
-  const lateStart = aS > ps
-  const lateFinish = aE > pe
-  if (lateStart && lateFinish) return 'late_both'
-  if (lateFinish) return 'late_finish'
-  if (lateStart) return 'late_start'
+/** Chênh lệch ngày làm việc (NETWORKDAYS): + = muộn hơn mốc kế hoạch, 0 = trùng ngày, − = sớm hơn. */
+function ganttSignedWorkingDayDelta(planDay: Date, actualDay: Date, nonWorking: string[]): number {
+  const p = startOfDay(planDay)
+  const a = startOfDay(actualDay)
+  if (a.getTime() === p.getTime()) return 0
+  if (a.getTime() > p.getTime()) {
+    return workingDaysBetweenInclusive(addDays(p, 1), a, nonWorking)
+  }
+  return -workingDaysBetweenInclusive(addDays(a, 1), p, nonWorking)
+}
 
-  const earlyStart = aS < ps
-  const earlyFinish = aE < pe
-  if (earlyStart || earlyFinish) return 'early'
-  return 'on_time'
+/**
+ * So với plan (ngày làm việc): tách trễ bắt đầu / trễ kết thúc / cả hai; ưu tiên báo trễ deadline (`late_finish`) khi chỉ một mốc trễ kết thúc.
+ */
+function ganttActualBarWorkingVariance(
+  planStart: Date,
+  planEnd: Date,
+  actual: { start: Date; end: Date },
+  nonWorking: string[]
+): { startDelta: number; endDelta: number; tone: GanttActualBarTone } {
+  const startDelta = ganttSignedWorkingDayDelta(planStart, actual.start, nonWorking)
+  const endDelta = ganttSignedWorkingDayDelta(planEnd, actual.end, nonWorking)
+  const lateStart = startDelta > 0
+  const lateFinish = endDelta > 0
+  let tone: GanttActualBarTone
+  if (lateStart && lateFinish) tone = 'late_both'
+  else if (lateFinish) tone = 'late_finish'
+  else if (lateStart) tone = 'late_start'
+  else if (startDelta < 0 || endDelta < 0) tone = 'early'
+  else tone = 'on_time'
+  return { startDelta, endDelta, tone }
+}
+
+function ganttActualBarVarianceDayLinesFromDeltas(t: TFunction, startDelta: number, endDelta: number): string[] {
+  const startLine =
+    startDelta > 0
+      ? t('taskManagement.ganttActualVarStartLate', { count: startDelta })
+      : startDelta < 0
+        ? t('taskManagement.ganttActualVarStartEarly', { count: -startDelta })
+        : t('taskManagement.ganttActualVarStartOnPlan')
+  const endLine =
+    endDelta > 0
+      ? t('taskManagement.ganttActualVarEndLate', { count: endDelta })
+      : endDelta < 0
+        ? t('taskManagement.ganttActualVarEndEarly', { count: -endDelta })
+        : t('taskManagement.ganttActualVarEndOnPlan')
+  return [startLine, endLine]
 }
 
 function ganttActualBarStripSurfaceClass(tone: GanttActualBarTone): string {
@@ -463,7 +511,7 @@ function ganttActualBarStripSurfaceClass(tone: GanttActualBarTone): string {
     case 'late_start':
       return 'border-amber-950/35 bg-amber-600/90 dark:border-amber-300/28 dark:bg-amber-500/85'
     case 'early':
-      return 'border-sky-950/30 bg-sky-600/90 dark:border-sky-300/25 dark:bg-sky-500/85'
+      return 'border-emerald-900/22 bg-emerald-500/78 dark:border-emerald-300/18 dark:bg-emerald-400/74'
     default:
       return 'border-emerald-900/30 bg-emerald-600/88 dark:border-emerald-300/22 dark:bg-emerald-500/82'
   }
@@ -687,6 +735,8 @@ export type GanttVirtualSliceStableCtx = {
   start: Date
   pixelPerDay: number
   weekendColumnRects: { left: number; width: number }[]
+  /** Ngày nghỉ theo project (khớp workload / NETWORKDAYS) — key = `projectId`. */
+  planNonWorkingByProjectId: ReadonlyMap<string, readonly string[]>
   statusColorMap?: Record<string, string>
   selectedTaskIds?: Set<string>
   onToggleTaskSelect?: (taskId: string) => void
@@ -794,6 +844,7 @@ function renderGanttVirtualRowSlice(
     getPriorityIcon: stable.getPriorityIcon,
     getStatusToneClass: stable.getStatusToneClass,
     getPriorityToneClass: stable.getPriorityToneClass,
+    planNonWorkingDatesForTask: Array.from(stable.planNonWorkingByProjectId.get((flatRow.task.projectId ?? '').trim()) ?? []),
     showActualBars: actualChrome.showActualBars,
     locale: stable.locale,
     actualBarRangeTitle: actualChrome.actualBarRangeTitle,
@@ -974,7 +1025,7 @@ const GanttBodyChartLayers = memo(function GanttBodyChartLayers({
           aria-hidden
         >
           <div className="absolute inset-y-0 left-0 overflow-hidden" style={{ width: chartWidth }}>
-            <div className="absolute top-0 bottom-0 w-[2px] -translate-x-1/2 bg-rose-600/65" style={{ left: todayPxCenter }} title={todayMark} />
+            <div className={HB_GANTT_TODAY_LINE_MARK} style={{ left: todayPxCenter }} title={todayMark} />
           </div>
         </div>
       ) : null}
@@ -1099,6 +1150,7 @@ export function TaskGanttView({
   onUpsertWorkloadOverride,
   getUserAvatarUrl,
   taskLinks,
+  onBoardLayoutEffectiveChange,
 }: {
   tasks: TaskTableRowTask[]
   locale: Locale
@@ -1132,6 +1184,8 @@ export function TaskGanttView({
   getUserAvatarUrl?: (userId: string) => string | null | undefined
   /** Dependency links giữa các tasks — được load bulk từ server khi Gantt đang active. */
   taskLinks?: GanttTaskLink[]
+  /** Báo layout board hiệu lực (sau khi biết có workload hay không) — parent có thể điều chỉnh toolbar. */
+  onBoardLayoutEffectiveChange?: (mode: TaskGanttLayoutMode) => void
 }) {
   const { t } = useTranslation()
   const [scale, setScale] = useState<TaskGanttScale>('week')
@@ -1458,6 +1512,10 @@ export function TaskGanttView({
   /** Bảng workload có segment thật: header cố định ngoài overflow-y (không sticky dọc → hết lệch subpixel Chrome). */
   const workloadSplitScroll = Boolean(workloadDataAvailable && workloadSegments.length > 0)
   const toolbarLayoutValue: TaskGanttLayoutMode = workloadDataAvailable ? layoutMode : 'gantt'
+
+  useEffect(() => {
+    onBoardLayoutEffectiveChange?.(layoutModeEffective)
+  }, [layoutModeEffective, onBoardLayoutEffectiveChange])
 
   const tickMarks = useMemo(() => {
     const raw: { d: Date; left: number; line1: string; line2?: string }[] = []
@@ -1803,13 +1861,15 @@ export function TaskGanttView({
 
   const workloadScheduledRefs = useMemo(
     () =>
-      scheduled.map(t => ({
-        id: t.id,
-        projectId: (t.projectId ?? '').trim() || null,
-        assigneeUserId: t.assigneeUserId,
-        planStartDate: t.planStartDate,
-        planEndDate: t.planEndDate,
-      })),
+      scheduled
+        .filter(t => t.type !== 'milestone')
+        .map(t => ({
+          id: t.id,
+          projectId: (t.projectId ?? '').trim() || null,
+          assigneeUserId: t.assigneeUserId,
+          planStartDate: t.planStartDate,
+          planEndDate: t.planEndDate,
+        })),
     [scheduled]
   )
 
@@ -1867,6 +1927,8 @@ export function TaskGanttView({
       onUpsertOverride: onUpsertWorkloadOverride,
       getUserAvatarUrl,
       workloadRowGrouping: groupingEffective,
+      showTimelineDayStrip: !showCombineSplit,
+      timelineTicks: tickMarks,
     }),
     [
       workloadSegments,
@@ -1888,6 +1950,8 @@ export function TaskGanttView({
       onUpsertWorkloadOverride,
       getUserAvatarUrl,
       groupingEffective,
+      showCombineSplit,
+      tickMarks,
     ]
   )
 
@@ -2106,6 +2170,14 @@ export function TaskGanttView({
     }
   }, [showCombineSplit, showGanttMain, workloadSplitScroll, chartWidth, leftBlockWidth, scheduled.length, applyTimelineTransforms])
 
+  const planNonWorkingByProjectId = useMemo(() => {
+    const m = new Map<string, readonly string[]>()
+    for (const seg of workloadSegments) {
+      m.set(seg.projectId, seg.data.nonWorkingDates ?? [])
+    }
+    return m
+  }, [workloadSegments])
+
   const ganttVirtualSliceStable = useMemo(
     (): GanttVirtualSliceStableCtx => ({
       metaRailExpanded,
@@ -2113,6 +2185,7 @@ export function TaskGanttView({
       start,
       pixelPerDay,
       weekendColumnRects,
+      planNonWorkingByProjectId,
       statusColorMap,
       selectedTaskIds,
       onToggleTaskSelect,
@@ -2137,6 +2210,7 @@ export function TaskGanttView({
       start,
       pixelPerDay,
       weekendColumnRects,
+      planNonWorkingByProjectId,
       statusColorMap,
       selectedTaskIds,
       onToggleTaskSelect,
@@ -2238,6 +2312,7 @@ export function TaskGanttView({
           actualBarHintLateBoth={wg.actualBarHintLateBoth}
           actualBarHintEarly={wg.actualBarHintEarly}
           actualBarHintOntime={wg.actualBarHintOntime}
+          planNonWorkingDatesForTask={Array.from(planNonWorkingByProjectId.get((task.projectId ?? '').trim()) ?? [])}
           hasChildren={false}
           indentLevel={0}
           isExpanded={false}
@@ -2266,6 +2341,7 @@ export function TaskGanttView({
       getPriorityToneClass,
       locale,
       metaRailExpanded,
+      planNonWorkingByProjectId,
     ]
   )
 
@@ -2429,7 +2505,7 @@ export function TaskGanttView({
               ...hbGantt.metaRailToggleLeft,
               top: 'calc(50% + 20px)',
               transform: 'translate(-1px, -50%)',
-              zIndex: Z_GANTT_BOARD_LOADING_OVERLAY,
+              zIndex: Z_GANTT_META_RAIL_FLOATING_TOGGLE,
             }}
             onClick={e => {
               e.stopPropagation()
@@ -2815,6 +2891,7 @@ const GanttTaskRow = memo(function GanttTaskRow({
   actualBarHintLateBoth,
   actualBarHintEarly,
   actualBarHintOntime,
+  planNonWorkingDatesForTask,
   indentLevel = 0,
   hasChildren = false,
   isExpanded = false,
@@ -2850,6 +2927,8 @@ const GanttTaskRow = memo(function GanttTaskRow({
   actualBarHintLateBoth?: string
   actualBarHintEarly?: string
   actualBarHintOntime?: string
+  /** Ngày nghỉ project (YYYY-MM-DD) — khớp workload / NETWORKDAYS; rỗng = chỉ trừ cuối tuần. */
+  planNonWorkingDatesForTask?: string[]
   /** Mức indent cho sub-task (0 = root, 1 = child). */
   indentLevel?: number
   /** Task này có sub-task con hay không. */
@@ -2962,6 +3041,7 @@ const GanttTaskRow = memo(function GanttTaskRow({
 
   if (!sRaw || !eRaw || !sNorm || !eNorm) return null
 
+  const planNw = planNonWorkingDatesForTask ?? []
   const show = dragPreview ?? { start: sNorm, end: eNorm }
   const showOffset = differenceInCalendarDays(show.start, start)
   const showSpan = calendarSpanInclusive(show.start, show.end)
@@ -2978,6 +3058,10 @@ const GanttTaskRow = memo(function GanttTaskRow({
     tone: GanttActualBarTone
     sectionTitle: string
     rangeLine: string
+    planWorkdaySpan: number
+    actualCalendarSpan: number
+    provisionalEndHint: string
+    varianceLines: string[]
     hintText: string
   } | null = null
   if (actualDayRange) {
@@ -2990,7 +3074,7 @@ const GanttTaskRow = memo(function GanttTaskRow({
       const aw = Math.max(pixelPerDay * 0.5, (clE - clS + 1) * pixelPerDay)
       const maxW = chartWidth - al
       const sectionTitle = (actualBarRangeTitle ?? '').trim() || t('taskManagement.ganttActualBarRangeTitle')
-      const tone = ganttActualBarVarianceTone(sNorm, eNorm, actualDayRange)
+      const { tone, startDelta, endDelta } = ganttActualBarWorkingVariance(sNorm, eNorm, actualDayRange, planNw)
       let hintRaw: string | undefined
       switch (tone) {
         case 'late_start':
@@ -3010,15 +3094,27 @@ const GanttTaskRow = memo(function GanttTaskRow({
       }
       const hintText = (hintRaw ?? '').trim()
       const rangeLine = `${format(actualDayRange.start, 'P', { locale: dateLocale })} – ${format(actualDayRange.end, 'P', { locale: dateLocale })}`
+      const planWdForActualTip = workingDaysBetweenInclusive(sNorm, eNorm, planNw)
+      const actualCalSpan = calendarSpanInclusive(actualDayRange.start, actualDayRange.end)
+      const provisionalEndHint = ganttActualBarHasProvisionalEnd(task) ? (t('taskManagement.ganttActualBarProvisionalEndHint') ?? '').trim() : ''
+      const varianceLines = ganttActualBarVarianceDayLinesFromDeltas(t, startDelta, endDelta)
+      const variancePart = varianceLines.length ? ` · ${varianceLines.join(' · ')}` : ''
       const hintPart = hintText ? ` · ${hintText}` : ''
+      const planPartAria = t('taskManagement.ganttPlanDurationDays', { count: planWdForActualTip })
+      const actualCalAria = t('taskManagement.ganttActualCalendarDuration', { count: actualCalSpan })
+      const provPart = provisionalEndHint ? ` ${provisionalEndHint}` : ''
       actualStrip = {
         leftPx: al,
         widthPx: Math.min(aw, maxW),
         tone,
         sectionTitle,
         rangeLine,
+        planWorkdaySpan: planWdForActualTip,
+        actualCalendarSpan: actualCalSpan,
+        provisionalEndHint,
+        varianceLines,
         hintText,
-        title: `${sectionTitle}: ${rangeLine}${hintPart}`,
+        title: `${sectionTitle}: ${rangeLine}. ${t('taskManagement.ganttActualBarComparePlanWorkdays')}: ${planPartAria}. ${t('taskManagement.ganttActualBarCompareActualCalendar')}: ${actualCalAria}.${provPart}${variancePart}${hintPart}`,
       }
     }
   }
@@ -3039,8 +3135,10 @@ const GanttTaskRow = memo(function GanttTaskRow({
   const priorityLabel = getPriorityLabel(priority)
 
   const planRangeLine = `${format(show.start, 'P', { locale: dateLocale })} – ${format(show.end, 'P', { locale: dateLocale })}`
+  const planWorkdaySpan = workingDaysBetweenInclusive(show.start, show.end, planNw)
+  const planDurationCompact = t('taskManagement.ganttPlanBarDurationCompact', { count: planWorkdaySpan })
   const planBarTitleShort = task.title?.trim() ? task.title : t('taskManagement.ganttNoTitle')
-  const planBarAriaLabel = `${planBarTitleShort}. ${t('taskManagement.planStartDate')} / ${t('taskManagement.deadline')}: ${planRangeLine}. ${statusLabel}. ${priorityLabel}. ${assigneeText}. ${t('taskManagement.progress')} ${ganttProgressPercentDisplay(task.progress)}.`
+  const planBarAriaLabel = `${planBarTitleShort}. ${t('taskManagement.planStartDate')} / ${t('taskManagement.deadline')}: ${planRangeLine}. ${t('taskManagement.ganttPlanDurationAria', { count: planWorkdaySpan })}. ${statusLabel}. ${priorityLabel}. ${assigneeText}. ${t('taskManagement.progress')} ${ganttProgressPercentDisplay(task.progress)}.`
   const planProgressPct = ganttProgressClamped(task.progress)
   const planProgressColor = getProgressColor(planProgressPct / 100)
 
@@ -3168,7 +3266,7 @@ const GanttTaskRow = memo(function GanttTaskRow({
               <div
                 role="img"
                 aria-label={actualStrip.title}
-                className={cn('pointer-events-auto absolute z-[2] cursor-default rounded-sm border h-[5px]! shadow-sm', ganttActualBarStripSurfaceClass(actualStrip.tone))}
+                className={cn('pointer-events-auto absolute z-[2] cursor-default rounded-sm border h-[4px]! shadow-sm', ganttActualBarStripSurfaceClass(actualStrip.tone))}
                 style={{
                   left: actualStrip.leftPx,
                   width: actualStrip.widthPx,
@@ -3190,6 +3288,32 @@ const GanttTaskRow = memo(function GanttTaskRow({
                   {task.title?.trim() ? task.title : t('taskManagement.ganttNoTitle')}
                 </p>
                 <p className="relative mt-2 text-sm font-semibold tabular-nums leading-snug text-foreground">{actualStrip.rangeLine}</p>
+                <div className="relative mt-2 flex flex-wrap items-baseline gap-x-2 gap-y-1 border-t border-border/60 pt-2 text-[11px] leading-snug text-muted-foreground">
+                  <span>
+                    {t('taskManagement.ganttActualBarComparePlanWorkdays')}:
+                    <span className="ml-1 font-medium tabular-nums text-foreground">
+                      {t('taskManagement.ganttPlanDurationDays', { count: actualStrip.planWorkdaySpan })}
+                    </span>
+                  </span>
+                  <span className="text-muted-foreground/50" aria-hidden>
+                    ·
+                  </span>
+                  <span>
+                    {t('taskManagement.ganttActualBarCompareActualCalendar')}:
+                    <span className="ml-1 font-medium tabular-nums text-foreground">
+                      {t('taskManagement.ganttActualCalendarDuration', { count: actualStrip.actualCalendarSpan })}
+                    </span>
+                  </span>
+                </div>
+                {actualStrip.provisionalEndHint ? (
+                  <p className="relative mt-2 rounded-md border border-amber-500/35 bg-amber-500/[0.08] px-2 py-1.5 text-[11px] leading-snug text-foreground dark:border-amber-400/28 dark:bg-amber-500/10">
+                    {actualStrip.provisionalEndHint}
+                  </p>
+                ) : null}
+                <ul className="relative mt-2 space-y-1 border-t border-border/60 pt-2 text-[11px] leading-snug text-muted-foreground">
+                  <li className="tabular-nums">{actualStrip.varianceLines[0]}</li>
+                  <li className="tabular-nums">{actualStrip.varianceLines[1]}</li>
+                </ul>
                 {actualStrip.hintText ? (
                   <p className="relative mt-2 border-t border-border/60 pt-2 text-[11px] leading-snug text-muted-foreground">{actualStrip.hintText}</p>
                 ) : null}
@@ -3234,7 +3358,11 @@ const GanttTaskRow = memo(function GanttTaskRow({
                 style={{ lineHeight: `${planBarHeightPx}px` }}
                 onPointerDown={e => canDrag && beginDrag('move', e)}
                 onDoubleClick={handleOpenTask}
-              />
+              >
+                <span className="pointer-events-none block truncate text-center text-[10px] font-semibold tabular-nums text-foreground/90">
+                  {planDurationCompact}
+                </span>
+              </div>
               {canDrag ? (
                 <button
                   type="button"
@@ -3257,6 +3385,10 @@ const GanttTaskRow = memo(function GanttTaskRow({
               </p>
               <p className="relative mt-1 line-clamp-2 text-left text-xs font-medium leading-snug text-foreground">{planBarTitleShort}</p>
               <p className="relative mt-2 text-sm font-semibold tabular-nums leading-snug text-foreground">{planRangeLine}</p>
+              <p className="relative mt-1.5 text-[11px] tabular-nums leading-tight text-muted-foreground">
+                {t('taskManagement.ganttPlanDuration')}:{' '}
+                <span className="font-medium text-foreground">{t('taskManagement.ganttPlanDurationDays', { count: planWorkdaySpan })}</span>
+              </p>
               <div className="relative mt-2 h-1.5 w-full overflow-hidden rounded-full bg-primary/15 ring-1 ring-border/50">
                 <div className="h-full rounded-full transition-[width] duration-300 ease-out" style={{ width: `${planProgressPct}%`, backgroundColor: planProgressColor }} />
               </div>
