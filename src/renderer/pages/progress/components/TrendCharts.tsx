@@ -1,21 +1,11 @@
+import { TrendingUp } from 'lucide-react'
 import { memo, useEffect, useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { TrendingUp } from 'lucide-react'
-import {
-  Area,
-  Bar,
-  CartesianGrid,
-  ComposedChart,
-  Legend,
-  Line,
-  Tooltip,
-  XAxis,
-  YAxis,
-} from 'recharts'
+import { Area, Bar, CartesianGrid, ComposedChart, Legend, Line, Tooltip, XAxis, YAxis } from 'recharts'
 import { ChartContainer, ChartLegendContent, ChartTooltipContent } from '@/components/ui/chart'
 import { Skeleton } from '@/components/ui/skeleton'
 import { cn } from '@/lib/utils'
-import { useProgressStore, type TrendGranularity, type TrendMetric, type TrendPeriod, type TrendPoint } from '@/stores/useProgressStore'
+import { type TrendGranularity, type TrendMetric, type TrendPeriod, type TrendPoint, useProgressStore } from '@/stores/useProgressStore'
 import { SectionHeader } from './SectionHeader'
 
 function fmtLocalDate(d: Date): string {
@@ -61,10 +51,8 @@ export const TrendCharts = memo(function TrendCharts({
   noRootPadding?: boolean
 }) {
   const { t } = useTranslation()
-  const {
-    trend, trendPeriod, trendGranularity, trendMetrics, comparePrevious,
-    fetchTrend, setTrendPeriod, setTrendGranularity, toggleTrendMetric, setComparePrevious,
-  } = useProgressStore()
+  const { trend, trendPeriod, trendGranularity, trendMetrics, comparePrevious, fetchTrend, setTrendPeriod, setTrendGranularity, toggleTrendMetric, setComparePrevious } =
+    useProgressStore()
 
   const isIso = Boolean(isolated && dateFrom && dateTo)
   const [isoData, setIsoData] = useState<TrendPoint[] | null>(null)
@@ -123,8 +111,7 @@ export const TrendCharts = memo(function TrendCharts({
     const half = Math.floor(data.length / 2)
     const prev = data.slice(0, half)
     const curr = data.slice(half)
-    const sum = (arr: typeof data, key: keyof typeof data[0]) =>
-      arr.reduce((s, d) => s + Number(d[key] ?? 0), 0)
+    const sum = (arr: typeof data, key: keyof (typeof data)[0]) => arr.reduce((s, d) => s + Number(d[key] ?? 0), 0)
     const metrics: TrendMetric[] = ['commits', 'tasks', 'reviews']
     return metrics.map(m => ({
       key: m,
@@ -141,13 +128,7 @@ export const TrendCharts = memo(function TrendCharts({
 
   return (
     <div className={cn('space-y-5', noRootPadding ? 'p-0' : 'p-6')}>
-      {!hideTitle ? (
-        <SectionHeader
-          icon={<TrendingUp className="h-5 w-5 text-blue-500" />}
-          title={t('progress.trendCharts')}
-          description={t('progress.trendChartsDesc')}
-        />
-      ) : null}
+      {!hideTitle ? <SectionHeader icon={<TrendingUp className="h-5 w-5 text-blue-500" />} title={t('progress.trendCharts')} description={t('progress.trendChartsDesc')} /> : null}
 
       {/* Metric chips */}
       <div className="flex flex-wrap gap-1.5">
@@ -155,12 +136,7 @@ export const TrendCharts = memo(function TrendCharts({
           <button
             key={m.id}
             onClick={() => toggleEffMetric(m.id)}
-            className={cn(
-              'px-3 py-1 text-base rounded-md transition-colors',
-              effMetrics.includes(m.id)
-                ? 'text-white font-medium'
-                : 'hover:bg-accent text-muted-foreground',
-            )}
+            className={cn('px-3 py-1 text-base rounded-md transition-colors', effMetrics.includes(m.id) ? 'text-white font-medium' : 'hover:bg-accent text-muted-foreground')}
             style={effMetrics.includes(m.id) ? { background: m.color } : undefined}
           >
             {m.label}
@@ -178,10 +154,18 @@ export const TrendCharts = memo(function TrendCharts({
                 onClick={() => setTrendPeriod(p)}
                 className={cn(
                   'px-2.5 py-1 text-base rounded-md transition-colors',
-                  trendPeriod === p ? 'bg-blue-500/20 text-blue-700 dark:text-blue-400 font-medium' : 'hover:bg-accent text-muted-foreground',
+                  trendPeriod === p ? 'bg-blue-500/20 text-blue-700 dark:text-blue-400 font-medium' : 'hover:bg-accent text-muted-foreground'
                 )}
               >
-                {p === '7d' ? t('progress.period7d') : p === '1m' ? t('progress.period1m') : p === '3m' ? t('progress.period3m') : p === '6m' ? t('progress.period6m') : t('progress.period1y')}
+                {p === '7d'
+                  ? t('progress.period7d')
+                  : p === '1m'
+                    ? t('progress.period1m')
+                    : p === '3m'
+                      ? t('progress.period3m')
+                      : p === '6m'
+                        ? t('progress.period6m')
+                        : t('progress.period1y')}
               </button>
             ))}
           </div>
@@ -193,7 +177,7 @@ export const TrendCharts = memo(function TrendCharts({
               onClick={() => setEffGranularity(g)}
               className={cn(
                 'px-2.5 py-1 text-base rounded-md transition-colors',
-                effGranularity === g ? 'bg-slate-500/20 text-slate-700 dark:text-slate-300 font-medium' : 'hover:bg-accent text-muted-foreground',
+                effGranularity === g ? 'bg-slate-500/20 text-slate-700 dark:text-slate-300 font-medium' : 'hover:bg-accent text-muted-foreground'
               )}
             >
               {g === 'day' ? t('progress.granDay') : g === 'week' ? t('progress.granWeek') : t('progress.granMonth')}
@@ -202,68 +186,57 @@ export const TrendCharts = memo(function TrendCharts({
         </div>
         {!isIso && (
           <label className="flex items-center gap-1.5 text-base cursor-pointer select-none">
-            <input
-              type="checkbox"
-              checked={comparePrevious}
-              onChange={e => setComparePrevious(e.target.checked)}
-              className="rounded accent-blue-500"
-            />
+            <input type="checkbox" checked={comparePrevious} onChange={e => setComparePrevious(e.target.checked)} className="rounded accent-blue-500" />
             {t('progress.comparePrevious')}
           </label>
         )}
       </div>
 
       <div className="rounded-xl bg-muted/40 p-4">
-          {effLoading ? (
-            <Skeleton className="h-[280px] w-full rounded-xl" />
-          ) : chartData.length === 0 ? (
-            <div className="flex h-[280px] items-center justify-center text-base text-muted-foreground">
-              {t('progress.noData')}
-            </div>
-          ) : (
-            <ChartContainer config={chartConfig} className="h-[280px] w-full">
-              {(() => {
-                const hasLeftMetrics = effMetrics.includes('commits') || effMetrics.includes('lines_added')
-                const lineAxisId = hasLeftMetrics ? 'right' : 'left'
-                return (
-                  <ComposedChart data={chartData} margin={{ top: 16, right: 16, bottom: 0, left: 0 }}>
-                    <CartesianGrid strokeDasharray="3 3" className="stroke-muted" />
-                    <XAxis dataKey="period" tick={{ fontSize: 11, fill: 'var(--muted-foreground)' }} tickLine={false} />
-                    <YAxis yAxisId="left" tick={{ fontSize: 11, fill: 'var(--muted-foreground)' }} tickLine={false} axisLine={false} domain={[0, (max: number) => Math.ceil(max * 1.15) || 10]} />
-                    {hasLeftMetrics && (
-                      <YAxis yAxisId="right" orientation="right" tick={{ fontSize: 11, fill: 'var(--muted-foreground)' }} tickLine={false} axisLine={false} domain={[0, (max: number) => Math.ceil(max * 1.15) || 10]} />
-                    )}
-                    <Tooltip content={<ChartTooltipContent />} />
-                    <Legend content={<ChartLegendContent className="flex-wrap gap-x-4 gap-y-2 text-base" />} />
-                    {effMetrics.includes('commits') && (
-                      <Bar yAxisId="left" dataKey="commits" fill="var(--chart-1)" radius={[3, 3, 0, 0]} maxBarSize={28} />
-                    )}
-                    {effMetrics.includes('lines_added') && (
-                      <Area
-                        yAxisId="left"
-                        dataKey="lines_added"
-                        fill="var(--chart-4)"
-                        fillOpacity={0.18}
-                        stroke="var(--chart-4)"
-                        strokeWidth={1.5}
-                        dot={false}
-                        name="Lines (×100)"
-                      />
-                    )}
-                    {effMetrics.includes('tasks') && (
-                      <Line yAxisId={lineAxisId} dataKey="tasks" stroke="var(--chart-2)" strokeWidth={2} dot={false} />
-                    )}
-                    {effMetrics.includes('reviews') && (
-                      <Line yAxisId={lineAxisId} dataKey="reviews" stroke="var(--chart-3)" strokeWidth={2} dot={false} strokeDasharray="4 2" />
-                    )}
-                    {effMetrics.includes('reports') && (
-                      <Line yAxisId={lineAxisId} dataKey="reports" stroke="var(--chart-5)" strokeWidth={1.5} dot={false} />
-                    )}
-                  </ComposedChart>
-                )
-              })()}
-            </ChartContainer>
-          )}
+        {effLoading ? (
+          <Skeleton className="h-[280px] w-full rounded-xl" />
+        ) : chartData.length === 0 ? (
+          <div className="flex h-[280px] items-center justify-center text-base text-muted-foreground">{t('progress.noData')}</div>
+        ) : (
+          <ChartContainer config={chartConfig} className="h-[280px] w-full">
+            {(() => {
+              const hasLeftMetrics = effMetrics.includes('commits') || effMetrics.includes('lines_added')
+              const lineAxisId = hasLeftMetrics ? 'right' : 'left'
+              return (
+                <ComposedChart data={chartData} margin={{ top: 16, right: 16, bottom: 0, left: 0 }}>
+                  <CartesianGrid strokeDasharray="3 3" className="stroke-muted" />
+                  <XAxis dataKey="period" tick={{ fontSize: 11, fill: 'var(--muted-foreground)' }} tickLine={false} />
+                  <YAxis
+                    yAxisId="left"
+                    tick={{ fontSize: 11, fill: 'var(--muted-foreground)' }}
+                    tickLine={false}
+                    axisLine={false}
+                    domain={[0, (max: number) => Math.ceil(max * 1.15) || 10]}
+                  />
+                  {hasLeftMetrics && (
+                    <YAxis
+                      yAxisId="right"
+                      orientation="right"
+                      tick={{ fontSize: 11, fill: 'var(--muted-foreground)' }}
+                      tickLine={false}
+                      axisLine={false}
+                      domain={[0, (max: number) => Math.ceil(max * 1.15) || 10]}
+                    />
+                  )}
+                  <Tooltip content={<ChartTooltipContent />} />
+                  <Legend content={<ChartLegendContent className="flex-wrap gap-x-4 gap-y-2 text-base" />} />
+                  {effMetrics.includes('commits') && <Bar yAxisId="left" dataKey="commits" fill="var(--chart-1)" radius={[3, 3, 0, 0]} maxBarSize={28} />}
+                  {effMetrics.includes('lines_added') && (
+                    <Area yAxisId="left" dataKey="lines_added" fill="var(--chart-4)" fillOpacity={0.18} stroke="var(--chart-4)" strokeWidth={1.5} dot={false} name="Lines (×100)" />
+                  )}
+                  {effMetrics.includes('tasks') && <Line yAxisId={lineAxisId} dataKey="tasks" stroke="var(--chart-2)" strokeWidth={2} dot={false} />}
+                  {effMetrics.includes('reviews') && <Line yAxisId={lineAxisId} dataKey="reviews" stroke="var(--chart-3)" strokeWidth={2} dot={false} strokeDasharray="4 2" />}
+                  {effMetrics.includes('reports') && <Line yAxisId={lineAxisId} dataKey="reports" stroke="var(--chart-5)" strokeWidth={1.5} dot={false} />}
+                </ComposedChart>
+              )
+            })()}
+          </ChartContainer>
+        )}
       </div>
 
       {/* Delta summary — visible only when Compare toggle is on */}
@@ -279,9 +252,7 @@ export const TrendCharts = memo(function TrendCharts({
                 <span className="capitalize font-medium" style={{ color: metricColor ?? 'var(--muted-foreground)' }}>
                   {d.key}:
                 </span>
-                <span className={cn('font-semibold', up ? 'text-green-600' : 'text-red-500')}>
-                  {pct !== null ? (up ? `↑ +${pct}%` : `↓ ${pct}%`) : '—'}
-                </span>
+                <span className={cn('font-semibold', up ? 'text-green-600' : 'text-red-500')}>{pct !== null ? (up ? `↑ +${pct}%` : `↓ ${pct}%`) : '—'}</span>
               </div>
             )
           })}

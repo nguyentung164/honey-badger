@@ -144,10 +144,7 @@ export function AiUsageStatsDialog({ open, onOpenChange }: AiUsageStatsDialogPro
       const formatted = formatMoneyDisplay(n, currency)
       return (
         <>
-          <div
-            className="h-2.5 w-2.5 shrink-0 rounded-[2px]"
-            style={{ backgroundColor: item?.color ?? 'var(--chart-1)' }}
-          />
+          <div className="h-2.5 w-2.5 shrink-0 rounded-[2px]" style={{ backgroundColor: item?.color ?? 'var(--chart-1)' }} />
           <div className="flex flex-1 items-center justify-between gap-4 leading-none">
             <span className="text-muted-foreground">{t('aiUsage.cost')}</span>
             <span className="font-mono font-medium text-foreground tabular-nums">{formatted}</span>
@@ -203,7 +200,7 @@ export function AiUsageStatsDialog({ open, onOpenChange }: AiUsageStatsDialogPro
       <Dialog open={open} onOpenChange={onOpenChange}>
         <DialogContent
           className={cn('max-w-4xl! max-h-[90vh] overflow-y-auto gap-4')}
-          onInteractOutside={(e) => {
+          onInteractOutside={e => {
             const t = e.target
             if (t instanceof Element && t.closest('[data-slot="popover-content"]')) {
               e.preventDefault()
@@ -254,14 +251,7 @@ export function AiUsageStatsDialog({ open, onOpenChange }: AiUsageStatsDialogPro
               </span>
             )}
             <div className="flex-1" />
-            <Button
-              type="button"
-              variant={buttonVariant}
-              size="sm"
-              className="h-8 text-destructive"
-              disabled={!dbAvailable}
-              onClick={() => setClearOpen(true)}
-            >
+            <Button type="button" variant={buttonVariant} size="sm" className="h-8 text-destructive" disabled={!dbAvailable} onClick={() => setClearOpen(true)}>
               <Trash2 className="h-3.5 w-3.5 mr-1" />
               {t('aiUsage.clear')}
             </Button>
@@ -270,16 +260,12 @@ export function AiUsageStatsDialog({ open, onOpenChange }: AiUsageStatsDialogPro
             </Button>
           </div>
 
-          {needsFx && dbAvailable && (
-            <p className="text-xs text-amber-600 dark:text-amber-400">{t('aiUsage.needFxHint')}</p>
-          )}
+          {needsFx && dbAvailable && <p className="text-xs text-amber-600 dark:text-amber-400">{t('aiUsage.needFxHint')}</p>}
 
           {loading && !summary ? (
             <div className="py-12 text-center text-sm text-muted-foreground">{t('common.loading')}</div>
           ) : summary && !summary.dbAvailable ? (
-            <div className="rounded-md border-0 bg-card/40 px-4 py-8 text-center text-sm text-muted-foreground shadow-none">
-              {t('aiUsage.dbNotConfigured')}
-            </div>
+            <div className="rounded-md border-0 bg-card/40 px-4 py-8 text-center text-sm text-muted-foreground shadow-none">{t('aiUsage.dbNotConfigured')}</div>
           ) : summary && summary.totals.calls === 0 ? (
             <div className="py-12 text-center text-sm text-muted-foreground">{t('aiUsage.empty')}</div>
           ) : summary ? (
@@ -287,9 +273,7 @@ export function AiUsageStatsDialog({ open, onOpenChange }: AiUsageStatsDialogPro
               <div className="grid grid-cols-2 gap-1.5 sm:grid-cols-4 sm:gap-2">
                 <Card className={cn(KPI_CARD_FRAME, 'bg-card/40')}>
                   <CardHeader className="gap-0 px-3 py-2 pb-0">
-                    <CardTitle className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
-                      {t('aiUsage.totalCalls')}
-                    </CardTitle>
+                    <CardTitle className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">{t('aiUsage.totalCalls')}</CardTitle>
                   </CardHeader>
                   <CardContent className="px-3 pb-2 pt-0">
                     <span className="text-base font-semibold tabular-nums leading-none">{summary.totals.calls}</span>
@@ -297,38 +281,26 @@ export function AiUsageStatsDialog({ open, onOpenChange }: AiUsageStatsDialogPro
                 </Card>
                 <Card className={cn(KPI_CARD_FRAME, 'bg-card/40')}>
                   <CardHeader className="gap-0 px-3 py-2 pb-0">
-                    <CardTitle className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
-                      {t('aiUsage.totalInputTokens')}
-                    </CardTitle>
+                    <CardTitle className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">{t('aiUsage.totalInputTokens')}</CardTitle>
                   </CardHeader>
                   <CardContent className="px-3 pb-2 pt-0">
-                    <span className="font-mono text-base font-semibold tabular-nums leading-none">
-                      {summary.totals.inputTokens.toLocaleString()}
-                    </span>
+                    <span className="font-mono text-base font-semibold tabular-nums leading-none">{summary.totals.inputTokens.toLocaleString()}</span>
                   </CardContent>
                 </Card>
                 <Card className={cn(KPI_CARD_FRAME, 'bg-card/40')}>
                   <CardHeader className="gap-0 px-3 py-2 pb-0">
-                    <CardTitle className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
-                      {t('aiUsage.totalOutputTokens')}
-                    </CardTitle>
+                    <CardTitle className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">{t('aiUsage.totalOutputTokens')}</CardTitle>
                   </CardHeader>
                   <CardContent className="px-3 pb-2 pt-0">
-                    <span className="font-mono text-base font-semibold tabular-nums leading-none">
-                      {summary.totals.outputTokens.toLocaleString()}
-                    </span>
+                    <span className="font-mono text-base font-semibold tabular-nums leading-none">{summary.totals.outputTokens.toLocaleString()}</span>
                   </CardContent>
                 </Card>
                 <Card className={cn(KPI_CARD_FRAME, 'bg-card/40')}>
                   <CardHeader className="gap-0 px-3 py-2 pb-0">
-                    <CardTitle className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
-                      {t('aiUsage.totalCost')}
-                    </CardTitle>
+                    <CardTitle className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">{t('aiUsage.totalCost')}</CardTitle>
                   </CardHeader>
                   <CardContent className="px-3 pb-2 pt-0">
-                    <span className="font-mono text-base font-semibold tabular-nums leading-none">
-                      {formatMoney(summary.totals.costUsd, currency, fx)}
-                    </span>
+                    <span className="font-mono text-base font-semibold tabular-nums leading-none">{formatMoney(summary.totals.costUsd, currency, fx)}</span>
                   </CardContent>
                 </Card>
               </div>
@@ -341,25 +313,11 @@ export function AiUsageStatsDialog({ open, onOpenChange }: AiUsageStatsDialogPro
                     rechartsHeight={240}
                     className="aspect-auto mx-auto w-full justify-start p-0 [&_.recharts-responsive-container]:min-h-[240px]"
                   >
-                    <BarChart
-                      accessibilityLayer
-                      data={chartData}
-                      margin={{ top: 0, right: 0, left: 0, bottom: 0 }}
-                    >
+                    <BarChart accessibilityLayer data={chartData} margin={{ top: 0, right: 0, left: 0, bottom: 0 }}>
                       <CartesianGrid strokeDasharray="3 3" vertical={false} />
-                      <XAxis
-                        dataKey="name"
-                        tickLine={false}
-                        tickMargin={10}
-                        axisLine={false}
-                        interval={0}
-                      />
+                      <XAxis dataKey="name" tickLine={false} tickMargin={10} axisLine={false} interval={0} />
                       <YAxis width={44} tick={{ fontSize: 10 }} />
-                      <ChartTooltip
-                        content={
-                          <ChartTooltipContent formatter={chartTooltipFormatter} labelClassName="text-foreground" />
-                        }
-                      />
+                      <ChartTooltip content={<ChartTooltipContent formatter={chartTooltipFormatter} labelClassName="text-foreground" />} />
                       <Bar dataKey="cost" radius={4} name={t('aiUsage.cost')} maxBarSize={52}>
                         {chartData.map((entry: { fill: any }, i: number) => (
                           <Cell key={`cell-${i}`} fill={entry.fill} />
@@ -398,11 +356,7 @@ export function AiUsageStatsDialog({ open, onOpenChange }: AiUsageStatsDialogPro
                         <TableRow key={`${row.feature}\0${row.provider}\0${row.model}`}>
                           <TableCell className="text-xs font-medium">
                             {t(`aiUsage.featureLabels.${row.feature}`, { defaultValue: row.feature })}
-                            {row.unknownPricingCalls > 0 && (
-                              <span className="ml-1 text-[10px] text-amber-600 dark:text-amber-400">
-                                ({t('aiUsage.partialPricing')})
-                              </span>
-                            )}
+                            {row.unknownPricingCalls > 0 && <span className="ml-1 text-[10px] text-amber-600 dark:text-amber-400">({t('aiUsage.partialPricing')})</span>}
                           </TableCell>
                           <TableCell className="max-w-[7rem] truncate text-xs" title={t(`aiUsage.providerLabels.${row.provider}`, { defaultValue: row.provider })}>
                             {t(`aiUsage.providerLabels.${row.provider}`, { defaultValue: row.provider })}
@@ -413,9 +367,7 @@ export function AiUsageStatsDialog({ open, onOpenChange }: AiUsageStatsDialogPro
                           <TableCell className="text-xs text-right tabular-nums">{row.calls}</TableCell>
                           <TableCell className="text-xs text-right tabular-nums">{row.inputTokens.toLocaleString()}</TableCell>
                           <TableCell className="text-xs text-right tabular-nums">{row.outputTokens.toLocaleString()}</TableCell>
-                          <TableCell className="text-xs text-right tabular-nums">
-                            {formatMoney(row.costUsd, currency, fx)}
-                          </TableCell>
+                          <TableCell className="text-xs text-right tabular-nums">{formatMoney(row.costUsd, currency, fx)}</TableCell>
                         </TableRow>
                       )
                     )}

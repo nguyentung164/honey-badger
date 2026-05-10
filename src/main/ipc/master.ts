@@ -21,7 +21,7 @@ import {
   updateMasterSource,
   updateMasterStatus,
   updateMasterType,
-} from '../task/pgTaskStore'
+} from '../task/stores/pgTaskStore'
 
 function withAuthFromStore<T extends unknown[]>(handler: (event: IpcMainInvokeEvent, session: SessionData, ...args: T) => Promise<unknown>) {
   return async (event: IpcMainInvokeEvent, ...args: T) => {

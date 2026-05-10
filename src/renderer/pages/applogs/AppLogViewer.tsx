@@ -1,40 +1,18 @@
 'use client'
 
-import {
-  ArrowDownToLine,
-  Copy,
-  FileText,
-  Loader2,
-  Minus,
-  RefreshCw,
-  Search,
-  Square,
-  WrapText,
-  X,
-} from 'lucide-react'
+import { ArrowDownToLine, Copy, FileText, Loader2, Minus, RefreshCw, Search, Square, WrapText, X } from 'lucide-react'
 import { IPC } from 'main/constants'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import {
-  ContextMenu,
-  ContextMenuContent,
-  ContextMenuItem,
-  ContextMenuTrigger,
-} from '@/components/ui/context-menu'
-import { Input } from '@/components/ui/input'
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '@/components/ui/select'
 import { Button } from '@/components/ui/button'
-import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
+import { ContextMenu, ContextMenuContent, ContextMenuItem, ContextMenuTrigger } from '@/components/ui/context-menu'
+import { Input } from '@/components/ui/input'
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Switch } from '@/components/ui/switch'
+import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import toast from '@/components/ui-elements/Toast'
-import { useAppearanceStoreSelect } from '@/stores/useAppearanceStore'
 import { cn } from '@/lib/utils'
+import { useAppearanceStoreSelect } from '@/stores/useAppearanceStore'
 
 const LOG_LINE_REGEX = /\[(\d{2}:\d{2}:\d{2}\.\d{3})\] › \[([^\]]*)\] › \[(\w+)\] › (.*)/s
 const LAZY_LOAD_BATCH = 150
@@ -71,10 +49,6 @@ function getLevelClass(level?: LogLevel): string {
       return 'text-destructive bg-destructive/10'
     case 'WARN':
       return 'text-amber-600 dark:text-amber-400'
-    case 'INFO':
-    case 'DEBUG':
-    case 'VERBOSE':
-    case 'SILLY':
     default:
       return ''
   }
@@ -103,7 +77,7 @@ function LogContent({
 
   const filteredLines = useMemo(() => {
     const search = searchText.trim().toLowerCase()
-    return newestFirstLines.filter((line) => {
+    return newestFirstLines.filter(line => {
       const parsed = parseLogLine(line)
       if (levelFilter !== 'all' && parsed.level) {
         if (parsed.level.toUpperCase() !== levelFilter) return false
@@ -128,7 +102,7 @@ function LogContent({
   const loadMore = useCallback(() => {
     if (isLoadingMoreRef.current || !hasMoreRef.current) return
     isLoadingMoreRef.current = true
-    setVisibleCount((prev) => Math.min(prev + LAZY_LOAD_BATCH, filteredLengthRef.current))
+    setVisibleCount(prev => Math.min(prev + LAZY_LOAD_BATCH, filteredLengthRef.current))
     setTimeout(() => {
       isLoadingMoreRef.current = false
     }, 150)
@@ -151,10 +125,7 @@ function LogContent({
     }
   }, [visibleCount])
 
-  const displayedLines = useMemo(
-    () => filteredLines.slice(0, visibleCount),
-    [filteredLines, visibleCount]
-  )
+  const displayedLines = useMemo(() => filteredLines.slice(0, visibleCount), [filteredLines, visibleCount])
 
   const hasMore = visibleCount < filteredLines.length
 
@@ -179,7 +150,7 @@ function LogContent({
     const el = loadMoreRef.current
     if (!root || !el || !hasMore) return
     const observer = new IntersectionObserver(
-      (entries) => {
+      entries => {
         if (entries[0]?.isIntersecting) loadMore()
       },
       { root, rootMargin: `${LAZY_LOAD_THRESHOLD}px`, threshold: 0 }
@@ -220,16 +191,9 @@ function LogContent({
   }
 
   return (
-    <div
-      ref={scrollRef}
-      onScroll={handleScroll}
-      className="h-full min-h-0 overflow-y-auto overflow-x-auto font-mono text-xs bg-muted/30 rounded-lg border p-3"
-    >
+    <div ref={scrollRef} onScroll={handleScroll} className="h-full min-h-0 overflow-y-auto overflow-x-auto font-mono text-xs bg-muted/30 rounded-lg border p-3">
       {hasMore && (
-        <div
-          ref={loadMoreRef}
-          className="flex items-center justify-center py-4 text-muted-foreground text-xs shrink-0"
-        >
+        <div ref={loadMoreRef} className="flex items-center justify-center py-4 text-muted-foreground text-xs shrink-0">
           <Loader2 className="h-4 w-4 animate-spin mr-2" />
           {t('appLogs.loadingMore')}
         </div>
@@ -237,10 +201,7 @@ function LogContent({
       <div className="flex flex-col-reverse gap-0.5 min-w-max w-full">
         {displayedLines.map((line, idx) => {
           const parsed = parseLogLine(line)
-          const highlightParts =
-            searchRegex && line.toLowerCase().includes(searchText.trim().toLowerCase())
-              ? line.split(searchRegex)
-              : [line]
+          const highlightParts = searchRegex && line.toLowerCase().includes(searchText.trim().toLowerCase()) ? line.split(searchRegex) : [line]
 
           return (
             <ContextMenu key={idx}>
@@ -249,18 +210,13 @@ function LogContent({
                   role="button"
                   tabIndex={0}
                   onClick={() => onCopyLine(line)}
-                  onKeyDown={(e) => e.key === 'Enter' && onCopyLine(line)}
+                  onKeyDown={e => e.key === 'Enter' && onCopyLine(line)}
                   className={cn(
                     'flex py-0.5 px-1 -mx-1 rounded hover:bg-primary/20 dark:hover:bg-primary/25 cursor-pointer group min-w-max transition-colors',
                     getLevelClass(parsed.level)
                   )}
                 >
-                  <span
-                    className={cn(
-                      'break-all',
-                      lineWrap ? 'flex-1 whitespace-pre-wrap' : 'whitespace-nowrap min-w-max'
-                    )}
-                  >
+                  <span className={cn('break-all', lineWrap ? 'flex-1 whitespace-pre-wrap' : 'whitespace-nowrap min-w-max')}>
                     {highlightParts.map((part, i) =>
                       searchRegex && part.toLowerCase() === searchText.trim().toLowerCase() ? (
                         <mark key={i} className="bg-yellow-400/50 dark:bg-yellow-600/50 rounded">
@@ -302,10 +258,7 @@ export function AppLogViewer() {
   const [autoScroll, setAutoScroll] = useState(true)
   const [lineWrap, setLineWrap] = useState(false)
 
-  const allLogLines = useMemo(
-    () => logs.flatMap(l => l.lines),
-    [logs]
-  )
+  const allLogLines = useMemo(() => logs.flatMap(l => l.lines), [logs])
 
   const loadLogs = useCallback(async () => {
     setIsLoading(true)
@@ -376,11 +329,7 @@ export function AppLogViewer() {
                     onClick={loadLogs}
                     className="shadow-none focus-visible:ring-0 focus-visible:ring-offset-0 hover:bg-muted transition-colors rounded-sm h-[25px] w-[25px]"
                   >
-                    {isLoading ? (
-                      <Loader2 className="h-4 w-4 animate-spin" />
-                    ) : (
-                      <RefreshCw className="h-4 w-4" />
-                    )}
+                    {isLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />}
                   </Button>
                 </TooltipTrigger>
                 <TooltipContent>{t('appLogs.refresh')}</TooltipContent>
@@ -390,10 +339,18 @@ export function AppLogViewer() {
         </div>
         <div className="font-medium text-xs">{t('appLogs.title')}</div>
         <div className="flex gap-1" style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties}>
-          <button type="button" onClick={() => handleWindow('minimize')} className="w-10 h-8 flex items-center justify-center hover:bg-[var(--hover-bg)] hover:text-[var(--hover-fg)]">
+          <button
+            type="button"
+            onClick={() => handleWindow('minimize')}
+            className="w-10 h-8 flex items-center justify-center hover:bg-[var(--hover-bg)] hover:text-[var(--hover-fg)]"
+          >
             <Minus size={15.5} strokeWidth={1} absoluteStrokeWidth />
           </button>
-          <button type="button" onClick={() => handleWindow('maximize')} className="w-10 h-8 flex items-center justify-center hover:bg-[var(--hover-bg)] hover:text-[var(--hover-fg)]">
+          <button
+            type="button"
+            onClick={() => handleWindow('maximize')}
+            className="w-10 h-8 flex items-center justify-center hover:bg-[var(--hover-bg)] hover:text-[var(--hover-fg)]"
+          >
             <Square size={14.5} strokeWidth={1} absoluteStrokeWidth />
           </button>
           <button type="button" onClick={() => handleWindow('close')} className="w-10 h-8 flex items-center justify-center hover:bg-red-600 hover:text-white">
@@ -406,60 +363,55 @@ export function AppLogViewer() {
       <div className="flex-1 flex flex-col min-h-0 p-4 overflow-hidden">
         <div className="flex items-center justify-between gap-4 mb-3 shrink-0">
           <div className="flex items-center gap-2 flex-wrap" style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties}>
-              <div className="relative w-48">
-                <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-                <Input
-                  placeholder={t('appLogs.search')}
-                  value={searchText}
-                  onChange={e => setSearchText(e.target.value)}
-                  className="pl-8 h-8 text-sm"
-                />
-              </div>
-              <Select value={levelFilter} onValueChange={setLevelFilter}>
-                <SelectTrigger className="w-28 h-8">
-                  <SelectValue placeholder={t('appLogs.filterLevel')} />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="all">{t('appLogs.filterAll')}</SelectItem>
-                  <SelectItem value="INFO">INFO</SelectItem>
-                  <SelectItem value="WARN">WARN</SelectItem>
-                  <SelectItem value="ERROR">ERROR</SelectItem>
-                  <SelectItem value="DEBUG">DEBUG</SelectItem>
-                </SelectContent>
-              </Select>
-              <div className="flex items-center gap-2">
+            <div className="relative w-48">
+              <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+              <Input placeholder={t('appLogs.search')} value={searchText} onChange={e => setSearchText(e.target.value)} className="pl-8 h-8 text-sm" />
+            </div>
+            <Select value={levelFilter} onValueChange={setLevelFilter}>
+              <SelectTrigger className="w-28 h-8">
+                <SelectValue placeholder={t('appLogs.filterLevel')} />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">{t('appLogs.filterAll')}</SelectItem>
+                <SelectItem value="INFO">INFO</SelectItem>
+                <SelectItem value="WARN">WARN</SelectItem>
+                <SelectItem value="ERROR">ERROR</SelectItem>
+                <SelectItem value="DEBUG">DEBUG</SelectItem>
+              </SelectContent>
+            </Select>
+            <div className="flex items-center gap-2">
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button variant={buttonVariant} size="sm" className="h-8" onClick={handleCopyAll}>
+                    <Copy className="h-4 w-4" />
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent>{t('appLogs.copy')}</TooltipContent>
+              </Tooltip>
+              <div className="flex items-center gap-1.5">
                 <Tooltip>
                   <TooltipTrigger asChild>
-                    <Button variant={buttonVariant} size="sm" className="h-8" onClick={handleCopyAll}>
-                      <Copy className="h-4 w-4" />
-                    </Button>
+                    <div className="flex items-center gap-1.5">
+                      <ArrowDownToLine className="h-4 w-4 text-muted-foreground" />
+                      <Switch checked={autoScroll} onCheckedChange={setAutoScroll} className="scale-75" />
+                    </div>
                   </TooltipTrigger>
-                  <TooltipContent>{t('appLogs.copy')}</TooltipContent>
+                  <TooltipContent>{t('appLogs.scrollToBottom')}</TooltipContent>
                 </Tooltip>
-                <div className="flex items-center gap-1.5">
-                  <Tooltip>
-                    <TooltipTrigger asChild>
-                      <div className="flex items-center gap-1.5">
-                        <ArrowDownToLine className="h-4 w-4 text-muted-foreground" />
-                        <Switch checked={autoScroll} onCheckedChange={setAutoScroll} className="scale-75" />
-                      </div>
-                    </TooltipTrigger>
-                    <TooltipContent>{t('appLogs.scrollToBottom')}</TooltipContent>
-                  </Tooltip>
-                </div>
-                <div className="flex items-center gap-1.5">
-                  <Tooltip>
-                    <TooltipTrigger asChild>
-                      <div className="flex items-center gap-1.5">
-                        <WrapText className="h-4 w-4 text-muted-foreground" />
-                        <Switch checked={lineWrap} onCheckedChange={setLineWrap} className="scale-75" />
-                      </div>
-                    </TooltipTrigger>
-                    <TooltipContent>{t('appLogs.lineWrap')}</TooltipContent>
-                  </Tooltip>
-                </div>
+              </div>
+              <div className="flex items-center gap-1.5">
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <div className="flex items-center gap-1.5">
+                      <WrapText className="h-4 w-4 text-muted-foreground" />
+                      <Switch checked={lineWrap} onCheckedChange={setLineWrap} className="scale-75" />
+                    </div>
+                  </TooltipTrigger>
+                  <TooltipContent>{t('appLogs.lineWrap')}</TooltipContent>
+                </Tooltip>
               </div>
             </div>
+          </div>
         </div>
 
         <div className="flex-1 min-h-0 flex flex-col mt-0">
@@ -476,14 +428,7 @@ export function AppLogViewer() {
             </div>
           ) : (
             <div className="flex-1 min-h-0 overflow-hidden">
-              <LogContent
-                lines={allLogLines}
-                searchText={searchText}
-                levelFilter={levelFilter}
-                lineWrap={lineWrap}
-                autoScroll={autoScroll}
-                onCopyLine={handleCopyLine}
-              />
+              <LogContent lines={allLogLines} searchText={searchText} levelFilter={levelFilter} lineWrap={lineWrap} autoScroll={autoScroll} onCopyLine={handleCopyLine} />
             </div>
           )}
         </div>

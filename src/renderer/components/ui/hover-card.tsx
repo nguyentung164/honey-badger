@@ -30,4 +30,4 @@ function HoverCardContent({ className, align = 'center', sideOffset = 4, ...prop
   )
 }
 
-export { HoverCard, HoverCardTrigger, HoverCardContent }
+export { HoverCard, HoverCardContent, HoverCardTrigger }

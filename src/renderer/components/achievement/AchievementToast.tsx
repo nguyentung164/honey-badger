@@ -8,6 +8,7 @@ const ROTATING_STAR_SHAPE = (() => {
     return 'star' as const
   }
 })()
+
 import { X } from 'lucide-react'
 import { useCallback, useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
@@ -98,8 +99,14 @@ function SingleToast({ item, onRemove }: { item: ToastItemState; onRemove: (id: 
 const CONFETTI_COLORS = ['#FFD700', '#FFA500', '#FF69B4', '#7B68EE', '#00CED1']
 
 const RANK_SCALE = {
-  newbie: 0.4, contributor: 0.55, developer: 0.7, regular: 0.85,
-  pro: 1, expert: 1.15, master: 1.35, legend: 1.6,
+  newbie: 0.4,
+  contributor: 0.55,
+  developer: 0.7,
+  regular: 0.85,
+  pro: 1,
+  expert: 1.15,
+  master: 1.35,
+  legend: 1.6,
 } as const
 
 function fireStarBurstConfetti(scale: number) {

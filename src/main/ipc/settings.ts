@@ -12,8 +12,8 @@ import externalEditorStore from '../store/ExternalEditorStore'
 import mailServerStore from '../store/MailServerStore'
 import sourceFolderStore from '../store/SourceFolderStore'
 import webhookStore from '../store/WebhookStore'
-import { resetPool } from '../task/db'
-import { getCodingRulesGlobalOnly, getFirstAdminUserId, createCodingRule } from '../task/pgTaskStore'
+import { resetPool } from '../task/schema/db'
+import { createCodingRule, getCodingRulesGlobalOnly, getFirstAdminUserId } from '../task/stores/pgTaskStore'
 import { startFileWatcher } from '../utils/fileWatcher'
 
 const BACKUP_VERSION = 1
@@ -72,9 +72,7 @@ export function registerSettingsIpcHandlers() {
   /** Merge partial vào config trên disk — tránh ghi đè toàn bộ bằng snapshot Zustand chưa load (vd. logout). */
   ipcMain.handle(IPC.SETTING.CONFIGURATION.PATCH, (_, partial: Partial<ConfigurationSchema>) => {
     if (!partial || typeof partial !== 'object') return
-    const delta = Object.fromEntries(
-      Object.entries(partial).filter(([, v]) => v !== undefined),
-    ) as Partial<ConfigurationSchema>
+    const delta = Object.fromEntries(Object.entries(partial).filter(([, v]) => v !== undefined)) as Partial<ConfigurationSchema>
     if (Object.keys(delta).length === 0) return
     configurationStore.set({ ...configurationStore.store, ...delta })
     if (delta.multiRepoEnabled === false) {
@@ -85,9 +83,7 @@ export function registerSettingsIpcHandlers() {
 
   ipcMain.handle(IPC.SETTING.CONFIGURATION.PATCH_SILENT, (_, partial: Partial<ConfigurationSchema>) => {
     if (!partial || typeof partial !== 'object') return
-    const delta = Object.fromEntries(
-      Object.entries(partial).filter(([, v]) => v !== undefined),
-    ) as Partial<ConfigurationSchema>
+    const delta = Object.fromEntries(Object.entries(partial).filter(([, v]) => v !== undefined)) as Partial<ConfigurationSchema>
     if (Object.keys(delta).length === 0) return
     configurationStore.set({ ...configurationStore.store, ...delta })
     if (delta.multiRepoEnabled === false) {

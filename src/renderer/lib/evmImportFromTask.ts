@@ -139,17 +139,9 @@ export function mapTaskLikeToWbsImportRow(task: TaskLikeForEvmImport, options: M
  * Snapshot một dòng AC tại ngày báo cáo — cùng khóa Phase/Category/Feature/Task & lịch với WBS vừa import (giống sheet AC Excel).
  * `workingHours` = 0; bổ sung giờ thực tế trên UI sau.
  */
-export function mapWbsImportRowToAcSnapshotRow(
-  wbs: WbsImportRow,
-  reportDate: string,
-  descriptionPlain?: string,
-): Omit<ACRow, 'id' | 'projectId' | 'no'> {
+export function mapWbsImportRowToAcSnapshotRow(wbs: WbsImportRow, reportDate: string, descriptionPlain?: string): Omit<ACRow, 'id' | 'projectId' | 'no'> {
   const title = (wbs.task ?? '').trim()
-  const desc = (descriptionPlain ?? '')
-    .trim()
-    .replace(/\r\n/g, '\n')
-    .replace(/\n+/g, ' ')
-    .replace(/\s+/g, ' ')
+  const desc = (descriptionPlain ?? '').trim().replace(/\r\n/g, '\n').replace(/\n+/g, ' ').replace(/\s+/g, ' ')
   let workContents: string | undefined
   if (title && desc) {
     const short = desc.length > 400 ? `${desc.slice(0, 400)}…` : desc

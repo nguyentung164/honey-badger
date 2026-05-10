@@ -79,28 +79,14 @@ export function GitHubTokenDialog({ open, onOpenChange, currentStatus, onChanged
         <div className="space-y-2">
           <Label>{t('prManager.tokenDialog.label')}</Label>
           <div className="relative">
-            <Input
-              type={show ? 'text' : 'password'}
-              value={token}
-              onChange={e => setToken(e.target.value)}
-              placeholder={t('prManager.tokenDialog.placeholder')}
-              className="pr-9"
-            />
-            <button
-              type="button"
-              onClick={() => setShow(s => !s)}
-              className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
-            >
+            <Input type={show ? 'text' : 'password'} value={token} onChange={e => setToken(e.target.value)} placeholder={t('prManager.tokenDialog.placeholder')} className="pr-9" />
+            <button type="button" onClick={() => setShow(s => !s)} className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground">
               {show ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
             </button>
           </div>
           <button
             type="button"
-            onClick={() =>
-              void window.api.system.open_external_url(
-                'https://github.com/settings/tokens/new?scopes=repo,workflow&description=honey-badger',
-              )
-            }
+            onClick={() => void window.api.system.open_external_url('https://github.com/settings/tokens/new?scopes=repo,workflow&description=honey-badger')}
             className="inline-flex items-center gap-1 text-xs text-blue-600 underline-offset-2 hover:underline dark:text-blue-400"
           >
             {t('prManager.tokenDialog.createNew')} <ExternalLink className="h-3 w-3" />

@@ -117,9 +117,7 @@ function DayHolidaysTooltipPanel({ dayDate, features, locale, showLunar }: { day
             {jp.map(f => (
               <div key={f.id}>
                 <div>{f.name}</div>
-                {f.jpTooltipSubtitle != null && f.jpTooltipSubtitle !== '' && (
-                  <div className="mt-0.5 text-[11px] leading-snug text-muted-foreground">{f.jpTooltipSubtitle}</div>
-                )}
+                {f.jpTooltipSubtitle != null && f.jpTooltipSubtitle !== '' && <div className="mt-0.5 text-[11px] leading-snug text-muted-foreground">{f.jpTooltipSubtitle}</div>}
               </div>
             ))}
           </div>
@@ -227,16 +225,9 @@ const OutOfBoundsDay = ({ day, lunarLabel }: OutOfBoundsDayProps) => {
   const compact = density === 'compact'
 
   return (
-    <div
-      className={cn(
-        'relative flex h-full w-full flex-col bg-secondary text-muted-foreground',
-        compact ? 'gap-0.5 p-0.5' : 'gap-0.5 p-1 text-xs'
-      )}
-    >
+    <div className={cn('relative flex h-full w-full flex-col bg-secondary text-muted-foreground', compact ? 'gap-0.5 p-0.5' : 'gap-0.5 p-1 text-xs')}>
       <span className={cn('tabular-nums', compact ? 'text-base font-semibold text-foreground' : '')}>{day}</span>
-      {lunarLabel != null && lunarLabel !== '' && (
-        <span className={cn('leading-tight', compact ? 'text-[10px]' : 'text-[10px] opacity-90', lunarTextClass)}>{lunarLabel}</span>
-      )}
+      {lunarLabel != null && lunarLabel !== '' && <span className={cn('leading-tight', compact ? 'text-[10px]' : 'text-[10px] opacity-90', lunarTextClass)}>{lunarLabel}</span>}
     </div>
   )
 }
@@ -336,22 +327,13 @@ export const CalendarBody = ({ features, children }: CalendarBodyProps) => {
 
     const todayShellClass = isToday && featuresForDay.length === 0 ? 'bg-primary/12 dark:bg-primary/18' : undefined
 
-    const holidayList = (
-      <div className={cn('min-w-0 w-full space-y-0.5', compact && 'text-xs')}>
-        {featuresForDay.slice(0, 3).map(feature => children({ feature }))}
-      </div>
-    )
+    const holidayList = <div className={cn('min-w-0 w-full space-y-0.5', compact && 'text-xs')}>{featuresForDay.slice(0, 3).map(feature => children({ feature }))}</div>
 
     const lunarLabel = showLunar ? formatVietnameseLunarCompact(dayDate) : null
 
     cells.push({
       content: (
-        <div
-          className={cn(
-            'relative flex flex-1 min-h-0 w-full min-w-0 flex-col',
-            compact ? 'gap-0.5 p-0.5' : 'gap-1 p-1 text-muted-foreground text-xs'
-          )}
-        >
+        <div className={cn('relative flex flex-1 min-h-0 w-full min-w-0 flex-col', compact ? 'gap-0.5 p-0.5' : 'gap-1 p-1 text-muted-foreground text-xs')}>
           <div className={cn('flex flex-col', compact ? 'gap-0' : 'gap-0.5')}>
             <span
               className={cn(
@@ -364,9 +346,7 @@ export const CalendarBody = ({ features, children }: CalendarBodyProps) => {
             >
               {day}
             </span>
-            {lunarLabel != null && (
-              <span className={cn('leading-tight', compact ? 'text-[10px]' : 'text-[10px] opacity-90', lunarTextClass)}>{lunarLabel}</span>
-            )}
+            {lunarLabel != null && <span className={cn('leading-tight', compact ? 'text-[10px]' : 'text-[10px] opacity-90', lunarTextClass)}>{lunarLabel}</span>}
           </div>
           {featuresForDay.length > 0 ? (
             <Tooltip>

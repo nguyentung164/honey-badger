@@ -7,18 +7,11 @@ import { formatDateDisplay } from '@/lib/dateUtils'
 import type { EVMTimeSeriesPoint } from '@/lib/evmCalculations'
 import { cn } from '@/lib/utils'
 
-function tooltipFormatter(
-  value: unknown,
-  name: string | number,
-  item: { color?: string },
-) {
+function tooltipFormatter(value: unknown, name: string | number, item: { color?: string }) {
   const formatted = value != null && typeof value === 'number' ? value.toFixed(2) : String(value ?? '')
   return (
     <>
-      <div
-        className="h-2.5 w-2.5 shrink-0 rounded-[2px]"
-        style={{ backgroundColor: item?.color ?? 'var(--chart-1)' }}
-      />
+      <div className="h-2.5 w-2.5 shrink-0 rounded-[2px]" style={{ backgroundColor: item?.color ?? 'var(--chart-1)' }} />
       <div className="flex flex-1 items-center justify-between leading-none">
         <span className="text-muted-foreground">{String(name)}</span>
         <span className="font-mono font-medium text-foreground tabular-nums">{formatted}</span>
@@ -61,17 +54,9 @@ export function EVMChartsEarnedValue({ data, className }: { data: EVMTimeSeriesP
     <ChartContainer config={chartConfig} className={cn('aspect-auto min-h-[200px] w-full min-w-0', className)}>
       <AreaChart data={data} margin={{ top: 10, right: 12, left: 0, bottom: 0 }}>
         <CartesianGrid strokeDasharray="3 3" />
-        <XAxis
-          dataKey="date"
-          tickLine={false}
-          tickMargin={8}
-          minTickGap={28}
-          tickFormatter={tickFormatter}
-        />
+        <XAxis dataKey="date" tickLine={false} tickMargin={8} minTickGap={28} tickFormatter={tickFormatter} />
         <YAxis tickLine={false} tickMargin={8} width={40} />
-        <ChartTooltip
-          content={<ChartTooltipContent formatter={tooltipFormatter} labelFormatter={labelFormatter} />}
-        />
+        <ChartTooltip content={<ChartTooltipContent formatter={tooltipFormatter} labelFormatter={labelFormatter} />} />
         <Area type="monotone" dataKey="pv" stroke={chartConfig.pv.color} fill={chartConfig.pv.color} fillOpacity={0.3} name={chartConfig.pv.label} />
         <Area type="monotone" dataKey="ev" stroke={chartConfig.ev.color} fill={chartConfig.ev.color} fillOpacity={0.3} name={chartConfig.ev.label} />
         <Area type="monotone" dataKey="ac" stroke={chartConfig.ac.color} fill={chartConfig.ac.color} fillOpacity={0.3} name={chartConfig.ac.label} />
@@ -87,17 +72,9 @@ export function EVMChartsVariance({ data, className }: { data: EVMTimeSeriesPoin
     <ChartContainer config={chartConfig} className={cn('aspect-auto min-h-[200px] w-full min-w-0', className)}>
       <LineChart data={data} margin={{ top: 10, right: 12, left: 0, bottom: 0 }}>
         <CartesianGrid strokeDasharray="3 3" />
-        <XAxis
-          dataKey="date"
-          tickLine={false}
-          tickMargin={8}
-          minTickGap={28}
-          tickFormatter={tickFormatter}
-        />
+        <XAxis dataKey="date" tickLine={false} tickMargin={8} minTickGap={28} tickFormatter={tickFormatter} />
         <YAxis tickLine={false} tickMargin={8} width={40} />
-        <ChartTooltip
-          content={<ChartTooltipContent formatter={tooltipFormatter} labelFormatter={labelFormatter} />}
-        />
+        <ChartTooltip content={<ChartTooltipContent formatter={tooltipFormatter} labelFormatter={labelFormatter} />} />
         <ReferenceLine y={0} stroke="var(--muted-foreground)" strokeDasharray="3 3" />
         <Line type="monotone" dataKey="cv" stroke={chartConfig.cv.color} dot={false} name={chartConfig.cv.label} />
         <Line type="monotone" dataKey="sv" stroke={chartConfig.sv.color} dot={false} name={chartConfig.sv.label} />
@@ -113,17 +90,9 @@ export function EVMChartsIndices({ data, className }: { data: EVMTimeSeriesPoint
     <ChartContainer config={chartConfig} className={cn('aspect-auto min-h-[200px] w-full min-w-0', className)}>
       <LineChart data={data} margin={{ top: 10, right: 12, left: 0, bottom: 0 }}>
         <CartesianGrid strokeDasharray="3 3" />
-        <XAxis
-          dataKey="date"
-          tickLine={false}
-          tickMargin={8}
-          minTickGap={28}
-          tickFormatter={tickFormatter}
-        />
+        <XAxis dataKey="date" tickLine={false} tickMargin={8} minTickGap={28} tickFormatter={tickFormatter} />
         <YAxis tickLine={false} tickMargin={8} width={40} domain={[0, 'auto']} />
-        <ChartTooltip
-          content={<ChartTooltipContent formatter={tooltipFormatter} labelFormatter={labelFormatter} />}
-        />
+        <ChartTooltip content={<ChartTooltipContent formatter={tooltipFormatter} labelFormatter={labelFormatter} />} />
         <ReferenceLine y={1} stroke="var(--muted-foreground)" strokeDasharray="3 3" label={{ value: '1', position: 'right' }} />
         <Line type="monotone" dataKey="spi" stroke={chartConfig.spi.color} dot={false} name={chartConfig.spi.label} />
         <Line type="monotone" dataKey="cpi" stroke={chartConfig.cpi.color} dot={false} name={chartConfig.cpi.label} />

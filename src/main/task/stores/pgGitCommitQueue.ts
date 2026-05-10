@@ -1,4 +1,4 @@
-import { query } from './db'
+import { query } from '../schema/db'
 
 export interface GitCommitQueueRecord {
   commitHash: string
@@ -69,24 +69,22 @@ export async function addToQueue(record: GitCommitQueueRecord): Promise<void> {
 }
 
 export async function getFromQueue(commitHash: string): Promise<GitCommitQueueRecord | null> {
-  const rows = await query<
-    {
-      commit_hash: string
-      commit_user: string
-      commit_time: string
-      commit_message: string
-      added_files: string
-      modified_files: string
-      deleted_files: string
-      has_check_coding_rule: number
-      has_check_spotbugs: number
-      branch_name: string | null
-      insertions: number | null
-      deletions: number | null
-      changes: number | null
-      source_folder_path: string | null
-    }[]
-  >(
+  const rows = await query<{
+    commit_hash: string
+    commit_user: string
+    commit_time: string
+    commit_message: string
+    added_files: string
+    modified_files: string
+    deleted_files: string
+    has_check_coding_rule: number
+    has_check_spotbugs: number
+    branch_name: string | null
+    insertions: number | null
+    deletions: number | null
+    changes: number | null
+    source_folder_path: string | null
+  }>(
     'SELECT commit_hash, commit_user, commit_time, commit_message, added_files, modified_files, deleted_files, has_check_coding_rule, has_check_spotbugs, branch_name, insertions, deletions, changes, source_folder_path FROM git_commit_queue WHERE commit_hash = ?',
     [commitHash]
   )
@@ -114,24 +112,22 @@ export async function getFromQueue(commitHash: string): Promise<GitCommitQueueRe
 export async function getManyFromQueue(commitHashes: string[]): Promise<Record<string, GitCommitQueueRecord>> {
   if (commitHashes.length === 0) return {}
   const placeholders = commitHashes.map(() => '?').join(',')
-  const rows = await query<
-    {
-      commit_hash: string
-      commit_user: string
-      commit_time: string
-      commit_message: string
-      added_files: string
-      modified_files: string
-      deleted_files: string
-      has_check_coding_rule: number
-      has_check_spotbugs: number
-      branch_name: string | null
-      insertions: number | null
-      deletions: number | null
-      changes: number | null
-      source_folder_path: string | null
-    }[]
-  >(
+  const rows = await query<{
+    commit_hash: string
+    commit_user: string
+    commit_time: string
+    commit_message: string
+    added_files: string
+    modified_files: string
+    deleted_files: string
+    has_check_coding_rule: number
+    has_check_spotbugs: number
+    branch_name: string | null
+    insertions: number | null
+    deletions: number | null
+    changes: number | null
+    source_folder_path: string | null
+  }>(
     `SELECT commit_hash, commit_user, commit_time, commit_message, added_files, modified_files, deleted_files, has_check_coding_rule, has_check_spotbugs, branch_name, insertions, deletions, changes, source_folder_path FROM git_commit_queue WHERE commit_hash IN (${placeholders})`,
     commitHashes
   )
@@ -159,24 +155,22 @@ export async function getManyFromQueue(commitHashes: string[]): Promise<Record<s
 }
 
 export async function getAllFromQueue(): Promise<Record<string, GitCommitQueueRecord>> {
-  const rows = await query<
-    {
-      commit_hash: string
-      commit_user: string
-      commit_time: string
-      commit_message: string
-      added_files: string
-      modified_files: string
-      deleted_files: string
-      has_check_coding_rule: number
-      has_check_spotbugs: number
-      branch_name: string | null
-      insertions: number | null
-      deletions: number | null
-      changes: number | null
-      source_folder_path: string | null
-    }[]
-  >(
+  const rows = await query<{
+    commit_hash: string
+    commit_user: string
+    commit_time: string
+    commit_message: string
+    added_files: string
+    modified_files: string
+    deleted_files: string
+    has_check_coding_rule: number
+    has_check_spotbugs: number
+    branch_name: string | null
+    insertions: number | null
+    deletions: number | null
+    changes: number | null
+    source_folder_path: string | null
+  }>(
     'SELECT commit_hash, commit_user, commit_time, commit_message, added_files, modified_files, deleted_files, has_check_coding_rule, has_check_spotbugs, branch_name, insertions, deletions, changes, source_folder_path FROM git_commit_queue'
   )
   if (!Array.isArray(rows)) return {}

@@ -7,8 +7,8 @@ import { useTranslation } from 'react-i18next'
 import { Area, AreaChart, Bar, BarChart, CartesianGrid, Cell, ComposedChart, Line, LineChart, Pie, PieChart, XAxis, YAxis } from 'recharts'
 import { ChartContainer, ChartLegend, ChartLegendContent, ChartTooltip, ChartTooltipContent } from '@/components/ui/chart'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
-import i18n from '@/lib/i18n'
 import { getDateFnsLocale, getMonthDayOnlyPattern } from '@/lib/dateUtils'
+import i18n from '@/lib/i18n'
 import { type ChartTask, computeBurndownData, computeBurnupData, computeCFDData, computeCompletionTrendData } from './chartDataUtils'
 
 const CHART_TYPE_LS_PREFIX = 'task-management-chart-chartType:v1:'
@@ -169,18 +169,8 @@ interface TaskChartsProps {
   persistSessionScope?: string
 }
 
-export function TaskCharts({
-  tasks,
-  users,
-  statuses = [],
-  priorities = [],
-  dateRange,
-  persistSessionScope,
-}: TaskChartsProps) {
-  const statusColorMap = useMemo(
-    () => Object.fromEntries(statuses.filter((s): s is MasterItem & { color: string } => Boolean(s.color)).map(s => [s.code, s.color])),
-    [statuses]
-  )
+export function TaskCharts({ tasks, users, statuses = [], priorities = [], dateRange, persistSessionScope }: TaskChartsProps) {
+  const statusColorMap = useMemo(() => Object.fromEntries(statuses.filter((s): s is MasterItem & { color: string } => Boolean(s.color)).map(s => [s.code, s.color])), [statuses])
   const priorityColorMap = useMemo(
     () => Object.fromEntries(priorities.filter((p): p is MasterItem & { color: string } => Boolean(p.color)).map(p => [p.code, p.color])),
     [priorities]
@@ -223,19 +213,10 @@ export function TaskCharts({
   )
 
   // Burndown / Burnup / CFD / Completion: O(ngày × task) — chỉ tính khi đúng tab để tránh đứng UI khi mở Chart.
-  const burndownData = useMemo(
-    () => (chartType === 'burndown' ? computeBurndownData(tasks, dateRange) : []),
-    [chartType, tasks, dateRange]
-  )
-  const burnupData = useMemo(
-    () => (chartType === 'burnup' ? computeBurnupData(tasks, dateRange) : []),
-    [chartType, tasks, dateRange]
-  )
+  const burndownData = useMemo(() => (chartType === 'burndown' ? computeBurndownData(tasks, dateRange) : []), [chartType, tasks, dateRange])
+  const burnupData = useMemo(() => (chartType === 'burnup' ? computeBurnupData(tasks, dateRange) : []), [chartType, tasks, dateRange])
   const cfdData = useMemo(() => (chartType === 'cfd' ? computeCFDData(tasks, dateRange) : []), [chartType, tasks, dateRange])
-  const completionTrendData = useMemo(
-    () => (chartType === 'completionTrend' ? computeCompletionTrendData(tasks, dateRange) : []),
-    [chartType, tasks, dateRange]
-  )
+  const completionTrendData = useMemo(() => (chartType === 'completionTrend' ? computeCompletionTrendData(tasks, dateRange) : []), [chartType, tasks, dateRange])
   const statusData = useMemo(() => computeStatusData(tasks, statusColorMap), [tasks, statusColorMap])
   const priorityData = useMemo(() => computePriorityData(tasks, priorityColorMap), [tasks, priorityColorMap])
   const assigneeData = useMemo(() => computeAssigneeData(tasks, getAssigneeDisplay), [tasks, getAssigneeDisplay])

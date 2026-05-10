@@ -55,9 +55,7 @@ export function RepoRegistryTab({ projectId, userId, repos, onRefresh }: Props) 
       if (res.status === 'success') {
         const added = res.data?.added ?? []
         const skipped = res.data?.skipped ?? []
-        toast.success(
-          t('prManager.repoRegistry.autodetectSuccess', { added: added.length, skipped: skipped.length })
-        )
+        toast.success(t('prManager.repoRegistry.autodetectSuccess', { added: added.length, skipped: skipped.length }))
         onRefresh()
       } else {
         toast.error(res.message || t('prManager.repoRegistry.autodetectFail'))
@@ -72,10 +70,11 @@ export function RepoRegistryTab({ projectId, userId, repos, onRefresh }: Props) 
       toast.error(t('prManager.repoRegistry.toastNameUrl'))
       return
     }
+    if (!userId) return
     setSubmitting(true)
     try {
       const res = await window.api.pr.repoUpsert({
-        userId: userId!,
+        userId,
         projectId,
         name: name.trim(),
         remoteUrl: remoteUrl.trim(),
@@ -96,8 +95,8 @@ export function RepoRegistryTab({ projectId, userId, repos, onRefresh }: Props) 
   }
 
   const handleDelete = async () => {
-    if (!deleteId) return
-    const res = await window.api.pr.repoRemove(userId!, deleteId)
+    if (!deleteId || !userId) return
+    const res = await window.api.pr.repoRemove(userId, deleteId)
     if (res.status === 'success') {
       toast.success(t('prManager.repoRegistry.deleteOk'))
       setDeleteId(null)
@@ -115,12 +114,7 @@ export function RepoRegistryTab({ projectId, userId, repos, onRefresh }: Props) 
         <Button size="sm" variant="outline" onClick={onRefresh} className="gap-1">
           <RefreshCw className="h-3.5 w-3.5" /> {t('prManager.repoRegistry.refresh')}
         </Button>
-        <Button
-          size="sm"
-          variant="outline"
-          onClick={() => setAddOpen(true)}
-          className={cn('ml-auto', PR_MANAGER_ACCENT_OUTLINE_BTN, PR_MANAGER_ACCENT_OUTLINE_SURFACE)}
-        >
+        <Button size="sm" variant="outline" onClick={() => setAddOpen(true)} className={cn('ml-auto', PR_MANAGER_ACCENT_OUTLINE_BTN, PR_MANAGER_ACCENT_OUTLINE_SURFACE)}>
           <Plus className="h-3.5 w-3.5" /> {t('prManager.repoRegistry.addRepo')}
         </Button>
       </div>
@@ -182,11 +176,7 @@ export function RepoRegistryTab({ projectId, userId, repos, onRefresh }: Props) 
             </div>
             <div className="space-y-1">
               <Label className="text-xs">{t('prManager.repoRegistry.remoteUrl')}</Label>
-              <Input
-                value={remoteUrl}
-                onChange={e => setRemoteUrl(e.target.value)}
-                placeholder={t('prManager.repoRegistry.remoteUrlPh')}
-              />
+              <Input value={remoteUrl} onChange={e => setRemoteUrl(e.target.value)} placeholder={t('prManager.repoRegistry.remoteUrlPh')} />
             </div>
             <div className="space-y-1">
               <Label className="text-xs">{t('prManager.repoRegistry.localPath')}</Label>

@@ -148,12 +148,7 @@ function collectVnPublicHolidayDays(years: number[], nameLang: string): { public
   return { publicOffDayKeys, weekendHolidayDays }
 }
 
-function buildVnCompensatoryFeatures(
-  displayYear: number,
-  nameLang: string,
-  status: HolidayFeatureStatus,
-  t: TFunction,
-): Feature[] {
+function buildVnCompensatoryFeatures(displayYear: number, nameLang: string, status: HolidayFeatureStatus, t: TFunction): Feature[] {
   const years = [displayYear - 1, displayYear, displayYear + 1]
   const { publicOffDayKeys, weekendHolidayDays } = collectVnPublicHolidayDays(years, nameLang)
   const usedCompensatory = new Set<string>()
@@ -183,12 +178,7 @@ function buildVnCompensatoryFeatures(
   return out
 }
 
-function buildHolidayFeatures(
-  year: number,
-  nameLang: string,
-  statuses: { jp: HolidayFeatureStatus; vn: HolidayFeatureStatus },
-  t: TFunction,
-): Feature[] {
+function buildHolidayFeatures(year: number, nameLang: string, statuses: { jp: HolidayFeatureStatus; vn: HolidayFeatureStatus }, t: TFunction): Feature[] {
   try {
     const out: Feature[] = []
     const jpViByDayRule = jpHolidayNameByDayRule(year, 'vi')
@@ -216,8 +206,7 @@ function buildHolidayFeatures(
           const mapKey = `${dayKey}|${ruleKey}`
           const viName = status.countryCode === 'jp' ? jpViByDayRule.get(mapKey) : undefined
           const enName = status.countryCode === 'jp' ? jpEnByDayRule.get(mapKey) : undefined
-          const jpTooltipSubtitle =
-            status.countryCode === 'jp' ? computeJpTooltipSubtitle(h.name, viName, enName, nameLang) : undefined
+          const jpTooltipSubtitle = status.countryCode === 'jp' ? computeJpTooltipSubtitle(h.name, viName, enName, nameLang) : undefined
           out.push({
             id: `${status.id}-${dayKey}-${ruleKey}`,
             name: h.name,

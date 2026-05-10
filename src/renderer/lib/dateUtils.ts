@@ -49,12 +49,7 @@ export function parseLocalDate(dateStr: string | null | undefined): Date | undef
 /** Convert date string/Date to YYYY-MM-DD (local, no timezone shift). */
 export function toYyyyMmDd(dateStr: string | Date | null | undefined): string | undefined {
   if (!dateStr) return undefined
-  const d =
-    typeof dateStr === 'string'
-      ? /^\d{4}-\d{2}-\d{2}$/.test(dateStr)
-        ? parseLocalDate(dateStr)
-        : new Date(dateStr)
-      : dateStr
+  const d = typeof dateStr === 'string' ? (/^\d{4}-\d{2}-\d{2}$/.test(dateStr) ? parseLocalDate(dateStr) : new Date(dateStr)) : dateStr
   if (!d || Number.isNaN(d.getTime())) return undefined
   return format(d, 'yyyy-MM-dd')
 }
@@ -66,12 +61,7 @@ export function toYyyyMmDd(dateStr: string | Date | null | undefined): string | 
 export function formatDateByLocale(dateStr: string | Date | null | undefined, language: string): string {
   if (!dateStr) return ''
   try {
-    const d =
-      typeof dateStr === 'string'
-        ? /^\d{4}-\d{2}-\d{2}$/.test(dateStr)
-          ? parseLocalDate(dateStr)
-          : new Date(dateStr)
-        : dateStr
+    const d = typeof dateStr === 'string' ? (/^\d{4}-\d{2}-\d{2}$/.test(dateStr) ? parseLocalDate(dateStr) : new Date(dateStr)) : dateStr
     if (!d || Number.isNaN(d.getTime())) return ''
     const datePart = format(d, getDateOnlyPattern(language))
     const timePart = format(d, 'HH:mm:ss')
@@ -85,12 +75,7 @@ export function formatDateByLocale(dateStr: string | Date | null | undefined, la
 export function formatDateDisplay(dateStr: string | Date | null | undefined, language: string): string {
   if (!dateStr) return '-'
   try {
-    const d =
-      typeof dateStr === 'string'
-        ? /^\d{4}-\d{2}-\d{2}$/.test(dateStr)
-          ? parseLocalDate(dateStr)
-          : new Date(dateStr)
-        : dateStr
+    const d = typeof dateStr === 'string' ? (/^\d{4}-\d{2}-\d{2}$/.test(dateStr) ? parseLocalDate(dateStr) : new Date(dateStr)) : dateStr
     if (!d || Number.isNaN(d.getTime())) return '-'
     return format(d, getDateOnlyPattern(language))
   } catch {
@@ -101,11 +86,7 @@ export function formatDateDisplay(dateStr: string | Date | null | undefined, lan
 /** Chuỗi nhãn kỳ cho bảng chuỗi EVM (đồng bộ với nhóm Ngày / Tháng / Quý). */
 export type EvmSeriesPeriodGranularity = 'day' | 'month' | 'quarter'
 
-export function formatEvmTimeSeriesPeriodCell(
-  dateStr: string,
-  granularity: EvmSeriesPeriodGranularity,
-  language: string
-): string {
+export function formatEvmTimeSeriesPeriodCell(dateStr: string, granularity: EvmSeriesPeriodGranularity, language: string): string {
   if (granularity === 'day') return formatDateDisplay(dateStr, language)
   const d = parseLocalDate(dateStr)
   if (!d) return '-'

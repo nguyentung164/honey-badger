@@ -16,16 +16,10 @@ import {
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog'
 import { Button } from '@/components/ui/button'
-import toast from '@/components/ui-elements/Toast'
-import {
-  extractGitConflictHunks,
-  hasConflictMarkers,
-  lineNumberAtOffset,
-  parseConflictMarkers,
-  resolveSingleConflictHunk,
-} from '@/lib/conflictMarkers'
-import { useAppearanceStore } from '@/stores/useAppearanceStore'
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
+import toast from '@/components/ui-elements/Toast'
+import { extractGitConflictHunks, hasConflictMarkers, lineNumberAtOffset, parseConflictMarkers, resolveSingleConflictHunk } from '@/lib/conflictMarkers'
+import { useAppearanceStore } from '@/stores/useAppearanceStore'
 
 const CONFLICT_APPLY_CMD = 'honey-badger.conflict.applyHunk'
 
@@ -78,7 +72,9 @@ export function ConflictEditor({
         clearTimeout(conflictVisualTimerRef.current)
         conflictVisualTimerRef.current = null
       }
-      mountDisposablesRef.current.forEach(d => d.dispose())
+      for (const d of mountDisposablesRef.current) {
+        d.dispose()
+      }
       mountDisposablesRef.current = []
     }
   }, [])
@@ -108,8 +104,7 @@ export function ConflictEditor({
 
     const blocks = parseConflictMarkers(value)
     const newDecorations: Monaco.editor.IModelDeltaDecoration[] = blocks.map(block => {
-      const className =
-        block.type === 'separator' ? 'conflict-marker-separator' : block.type === 'ours' ? 'conflict-marker-ours' : 'conflict-marker-theirs'
+      const className = block.type === 'separator' ? 'conflict-marker-separator' : block.type === 'ours' ? 'conflict-marker-ours' : 'conflict-marker-theirs'
       return {
         range: new monaco.Range(block.startLine, 1, block.endLine, 1),
         options: {
@@ -133,7 +128,7 @@ export function ConflictEditor({
         flushConflictVisuals(editor, monaco)
       }, CONFLICT_VISUAL_DEBOUNCE_MS)
     },
-    [flushConflictVisuals],
+    [flushConflictVisuals]
   )
 
   const goNeighborConflict = useCallback((direction: -1 | 1) => {
@@ -163,7 +158,9 @@ export function ConflictEditor({
       monacoRef.current = monaco
       const model = editor.getModel()
 
-      mountDisposablesRef.current.forEach(d => d.dispose())
+      for (const d of mountDisposablesRef.current) {
+        d.dispose()
+      }
       mountDisposablesRef.current = []
       clearConflictVisualDebounce()
 
@@ -172,7 +169,7 @@ export function ConflictEditor({
       mountDisposablesRef.current.push(
         editor.onDidChangeModelContent(() => {
           scheduleConflictVisuals(editor, monaco)
-        }),
+        })
       )
 
       if (enableConflictCodeLens && model) {
@@ -190,7 +187,7 @@ export function ConflictEditor({
             ed.pushUndoStop()
             clearConflictVisualDebounce()
             flushConflictVisuals(ed, monaco)
-          }),
+          })
         )
 
         mountDisposablesRef.current.push(
@@ -240,19 +237,12 @@ export function ConflictEditor({
                 return { lenses, dispose: () => {} }
               },
               resolveCodeLens: (_model, lens) => lens,
-            },
-          ),
+            }
+          )
         )
       }
     },
-    [
-      clearConflictVisualDebounce,
-      enableConflictCodeLens,
-      flushConflictVisuals,
-      language,
-      scheduleConflictVisuals,
-      t,
-    ],
+    [clearConflictVisualDebounce, enableConflictCodeLens, flushConflictVisuals, language, scheduleConflictVisuals, t]
   )
 
   const doSave = useCallback(
@@ -266,7 +256,7 @@ export function ConflictEditor({
         setIsSaving(false)
       }
     },
-    [onSave, t],
+    [onSave, t]
   )
 
   const handleSaveClick = useCallback(() => {
@@ -288,8 +278,7 @@ export function ConflictEditor({
     void doSave(editor.getValue())
   }, [doSave])
 
-  const primaryDisabled =
-    isSaving || (disablePrimaryWhenConflicted && hasMarkers)
+  const primaryDisabled = isSaving || (disablePrimaryWhenConflicted && hasMarkers)
 
   const editorTheme = themeMode === 'dark' ? 'vs-dark' : 'vs'
   const editorOptions: Monaco.editor.IStandaloneEditorConstructionOptions = useMemo(() => {
@@ -324,9 +313,7 @@ export function ConflictEditor({
             <div className="flex items-center gap-1 shrink-0 flex-wrap justify-end">
               {conflictCount > 0 && (
                 <>
-                  <span className="text-xs font-medium text-destructive tabular-nums whitespace-nowrap mr-1">
-                    {t('conflictEditor.conflictsCount', { count: conflictCount })}
-                  </span>
+                  <span className="text-xs font-medium text-destructive tabular-nums whitespace-nowrap mr-1">{t('conflictEditor.conflictsCount', { count: conflictCount })}</span>
                   <Tooltip>
                     <TooltipTrigger asChild>
                       <Button type="button" variant="ghost" size="icon" className="h-7 w-7" aria-label={t('conflictEditor.codeLensHint')}>
@@ -337,25 +324,11 @@ export function ConflictEditor({
                       {t('conflictEditor.codeLensHint')}
                     </TooltipContent>
                   </Tooltip>
-                  <Button
-                    type="button"
-                    variant="outline"
-                    size="sm"
-                    className="h-7 gap-0 px-2"
-                    onClick={() => goNeighborConflict(-1)}
-                    disabled={conflictCount === 0}
-                  >
+                  <Button type="button" variant="outline" size="sm" className="h-7 gap-0 px-2" onClick={() => goNeighborConflict(-1)} disabled={conflictCount === 0}>
                     <ChevronUp className="h-3 w-3 mr-0.5" />
                     {t('conflictEditor.prevConflict')}
                   </Button>
-                  <Button
-                    type="button"
-                    variant="outline"
-                    size="sm"
-                    className="h-7 gap-0 px-2"
-                    onClick={() => goNeighborConflict(1)}
-                    disabled={conflictCount === 0}
-                  >
+                  <Button type="button" variant="outline" size="sm" className="h-7 gap-0 px-2" onClick={() => goNeighborConflict(1)} disabled={conflictCount === 0}>
                     {t('conflictEditor.nextConflict')}
                     <ChevronDown className="h-3 w-3 ml-0.5" />
                   </Button>
@@ -373,15 +346,7 @@ export function ConflictEditor({
           </div>
         </div>
         <div className="flex-1 min-h-0">
-          <Editor
-            path={filePath}
-            height="100%"
-            language={language}
-            theme={editorTheme}
-            defaultValue={initialContent}
-            options={editorOptions}
-            onMount={handleEditorMount}
-          />
+          <Editor path={filePath} height="100%" language={language} theme={editorTheme} defaultValue={initialContent} options={editorOptions} onMount={handleEditorMount} />
         </div>
 
         <AlertDialog open={showUnresolvedConfirm} onOpenChange={setShowUnresolvedConfirm}>

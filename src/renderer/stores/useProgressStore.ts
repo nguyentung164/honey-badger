@@ -179,14 +179,7 @@ type ProgressStore = {
   fetchTrend: (userId: string, from: string, to: string, granularity: TrendGranularity, force?: boolean) => Promise<void>
   fetchRadar: (userId: string, yearMonth: string, force?: boolean) => Promise<void>
   fetchTaskPerf: (userId: string, from: string, to: string, force?: boolean, projectId?: string | null) => Promise<void>
-  fetchQuality: (
-    userId: string,
-    weeksBack: number,
-    force?: boolean,
-    teamUserIds?: string[] | null,
-    from?: string | null,
-    to?: string | null,
-  ) => Promise<void>
+  fetchQuality: (userId: string, weeksBack: number, force?: boolean, teamUserIds?: string[] | null, from?: string | null, to?: string | null) => Promise<void>
   fetchProductiveHours: (userId: string, weeksBack: number, force?: boolean, from?: string | null, to?: string | null) => Promise<void>
   fetchHighlights: (userId: string, yearMonth: string, force?: boolean) => Promise<void>
 
@@ -283,16 +276,16 @@ export const useProgressStore = create<ProgressStore>((set, get) => ({
     const key = `${userId}|${year}`
     const s = get().heatmap
     if (!force && s.cacheKey === key && s.data) return
-    set((st) => ({ heatmap: { ...st.heatmap, loading: true, error: null } }))
+    set(st => ({ heatmap: { ...st.heatmap, loading: true, error: null } }))
     try {
       const res = await window.api.progress.getHeatmap(userId, year)
       if (res?.status === 'success') {
         set({ heatmap: { data: res.data ?? null, loading: false, error: null, cacheKey: key } })
       } else {
-        set((st) => ({ heatmap: { ...st.heatmap, loading: false, error: res?.message ?? 'Error' } }))
+        set(st => ({ heatmap: { ...st.heatmap, loading: false, error: res?.message ?? 'Error' } }))
       }
     } catch (e: any) {
-      set((st) => ({ heatmap: { ...st.heatmap, loading: false, error: e?.message ?? 'Error' } }))
+      set(st => ({ heatmap: { ...st.heatmap, loading: false, error: e?.message ?? 'Error' } }))
     }
   },
 
@@ -300,16 +293,16 @@ export const useProgressStore = create<ProgressStore>((set, get) => ({
     const key = `${userId}|${from}|${to}|${granularity}`
     const s = get().trend
     if (!force && s.cacheKey === key && s.data) return
-    set((st) => ({ trend: { ...st.trend, loading: true, error: null } }))
+    set(st => ({ trend: { ...st.trend, loading: true, error: null } }))
     try {
       const res = await window.api.progress.getTrend(userId, from, to, granularity)
       if (res?.status === 'success') {
         set({ trend: { data: res.data ?? null, loading: false, error: null, cacheKey: key } })
       } else {
-        set((st) => ({ trend: { ...st.trend, loading: false, error: res?.message ?? 'Error' } }))
+        set(st => ({ trend: { ...st.trend, loading: false, error: res?.message ?? 'Error' } }))
       }
     } catch (e: any) {
-      set((st) => ({ trend: { ...st.trend, loading: false, error: e?.message ?? 'Error' } }))
+      set(st => ({ trend: { ...st.trend, loading: false, error: e?.message ?? 'Error' } }))
     }
   },
 
@@ -317,16 +310,16 @@ export const useProgressStore = create<ProgressStore>((set, get) => ({
     const key = `${userId}|${yearMonth}`
     const s = get().radar
     if (!force && s.cacheKey === key && s.data) return
-    set((st) => ({ radar: { ...st.radar, loading: true, error: null } }))
+    set(st => ({ radar: { ...st.radar, loading: true, error: null } }))
     try {
       const res = await window.api.progress.getRadar(userId, yearMonth)
       if (res?.status === 'success') {
         set({ radar: { data: res.data, loading: false, error: null, cacheKey: key } })
       } else {
-        set((st) => ({ radar: { ...st.radar, loading: false, error: res?.message ?? 'Error' } }))
+        set(st => ({ radar: { ...st.radar, loading: false, error: res?.message ?? 'Error' } }))
       }
     } catch (e: any) {
-      set((st) => ({ radar: { ...st.radar, loading: false, error: e?.message ?? 'Error' } }))
+      set(st => ({ radar: { ...st.radar, loading: false, error: e?.message ?? 'Error' } }))
     }
   },
 
@@ -334,16 +327,16 @@ export const useProgressStore = create<ProgressStore>((set, get) => ({
     const key = `${userId}|${from}|${to}|${projectId ?? ''}`
     const s = get().taskPerf
     if (!force && s.cacheKey === key && s.data) return
-    set((st) => ({ taskPerf: { ...st.taskPerf, loading: true, error: null } }))
+    set(st => ({ taskPerf: { ...st.taskPerf, loading: true, error: null } }))
     try {
       const res = await window.api.progress.getTaskPerformance(userId, from, to, projectId ?? undefined)
       if (res?.status === 'success') {
         set({ taskPerf: { data: res.data, loading: false, error: null, cacheKey: key } })
       } else {
-        set((st) => ({ taskPerf: { ...st.taskPerf, loading: false, error: res?.message ?? 'Error' } }))
+        set(st => ({ taskPerf: { ...st.taskPerf, loading: false, error: res?.message ?? 'Error' } }))
       }
     } catch (e: any) {
-      set((st) => ({ taskPerf: { ...st.taskPerf, loading: false, error: e?.message ?? 'Error' } }))
+      set(st => ({ taskPerf: { ...st.taskPerf, loading: false, error: e?.message ?? 'Error' } }))
     }
   },
 
@@ -352,16 +345,16 @@ export const useProgressStore = create<ProgressStore>((set, get) => ({
     const key = `${userId}|${weeksBack}|${teamKey}|${from ?? ''}|${to ?? ''}`
     const s = get().quality
     if (!force && s.cacheKey === key && s.data) return
-    set((st) => ({ quality: { ...st.quality, loading: true, error: null } }))
+    set(st => ({ quality: { ...st.quality, loading: true, error: null } }))
     try {
       const res = await window.api.progress.getQualityTrend(userId, weeksBack, teamUserIds ?? undefined, from ?? undefined, to ?? undefined)
       if (res?.status === 'success') {
         set({ quality: { data: res.data, loading: false, error: null, cacheKey: key } })
       } else {
-        set((st) => ({ quality: { ...st.quality, loading: false, error: res?.message ?? 'Error' } }))
+        set(st => ({ quality: { ...st.quality, loading: false, error: res?.message ?? 'Error' } }))
       }
     } catch (e: any) {
-      set((st) => ({ quality: { ...st.quality, loading: false, error: e?.message ?? 'Error' } }))
+      set(st => ({ quality: { ...st.quality, loading: false, error: e?.message ?? 'Error' } }))
     }
   },
 
@@ -369,16 +362,16 @@ export const useProgressStore = create<ProgressStore>((set, get) => ({
     const key = `${userId}|${weeksBack}|${from ?? ''}|${to ?? ''}`
     const s = get().productiveHours
     if (!force && s.cacheKey === key && s.data) return
-    set((st) => ({ productiveHours: { ...st.productiveHours, loading: true, error: null } }))
+    set(st => ({ productiveHours: { ...st.productiveHours, loading: true, error: null } }))
     try {
       const res = await window.api.progress.getProductiveHours(userId, weeksBack, from ?? undefined, to ?? undefined)
       if (res?.status === 'success') {
         set({ productiveHours: { data: res.data ?? null, loading: false, error: null, cacheKey: key } })
       } else {
-        set((st) => ({ productiveHours: { ...st.productiveHours, loading: false, error: res?.message ?? 'Error' } }))
+        set(st => ({ productiveHours: { ...st.productiveHours, loading: false, error: res?.message ?? 'Error' } }))
       }
     } catch (e: any) {
-      set((st) => ({ productiveHours: { ...st.productiveHours, loading: false, error: e?.message ?? 'Error' } }))
+      set(st => ({ productiveHours: { ...st.productiveHours, loading: false, error: e?.message ?? 'Error' } }))
     }
   },
 
@@ -386,29 +379,29 @@ export const useProgressStore = create<ProgressStore>((set, get) => ({
     const key = `${userId}|${yearMonth}`
     const s = get().highlights
     if (!force && s.cacheKey === key && s.data) return
-    set((st) => ({ highlights: { ...st.highlights, loading: true, error: null } }))
+    set(st => ({ highlights: { ...st.highlights, loading: true, error: null } }))
     try {
       const res = await window.api.progress.getMonthlyHighlights(userId, yearMonth)
       if (res?.status === 'success') {
         set({ highlights: { data: res.data, loading: false, error: null, cacheKey: key } })
       } else {
-        set((st) => ({ highlights: { ...st.highlights, loading: false, error: res?.message ?? 'Error' } }))
+        set(st => ({ highlights: { ...st.highlights, loading: false, error: res?.message ?? 'Error' } }))
       }
     } catch (e: any) {
-      set((st) => ({ highlights: { ...st.highlights, loading: false, error: e?.message ?? 'Error' } }))
+      set(st => ({ highlights: { ...st.highlights, loading: false, error: e?.message ?? 'Error' } }))
     }
   },
 
-  setTrendPeriod: (p) => set({ trendPeriod: p }),
-  setTrendGranularity: (g) => set({ trendGranularity: g }),
-  toggleTrendMetric: (m) =>
-    set((st) => ({
-      trendMetrics: st.trendMetrics.includes(m) ? st.trendMetrics.filter((x) => x !== m) : [...st.trendMetrics, m],
+  setTrendPeriod: p => set({ trendPeriod: p }),
+  setTrendGranularity: g => set({ trendGranularity: g }),
+  toggleTrendMetric: m =>
+    set(st => ({
+      trendMetrics: st.trendMetrics.includes(m) ? st.trendMetrics.filter(x => x !== m) : [...st.trendMetrics, m],
     })),
-  setComparePrevious: (v) => set({ comparePrevious: v }),
-  setQualityWeeksBack: (w) => set({ qualityWeeksBack: w }),
-  setProductiveWeeksBack: (w) => set({ productiveWeeksBack: w }),
-  setHighlightsYearMonth: (ym) => set({ highlightsYearMonth: ym }),
-  setRadarYearMonth: (ym) => set({ radarYearMonth: ym }),
-  setHeatmapYear: (y) => set({ heatmapYear: y }),
+  setComparePrevious: v => set({ comparePrevious: v }),
+  setQualityWeeksBack: w => set({ qualityWeeksBack: w }),
+  setProductiveWeeksBack: w => set({ productiveWeeksBack: w }),
+  setHighlightsYearMonth: ym => set({ highlightsYearMonth: ym }),
+  setRadarYearMonth: ym => set({ radarYearMonth: ym }),
+  setHeatmapYear: y => set({ heatmapYear: y }),
 }))

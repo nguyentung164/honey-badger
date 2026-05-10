@@ -1,5 +1,5 @@
-import { Client, Pool, type PoolClient } from 'pg'
-import configurationStore from '../store/ConfigurationStore'
+import { Client, Pool, type PoolClient, type QueryResultRow } from 'pg'
+import configurationStore from '../../store/ConfigurationStore'
 
 let pool: Pool | null = null
 let poolResetPromise: Promise<void> | null = null
@@ -162,12 +162,23 @@ async function execWithRetries<T>(runner: () => Promise<T>): Promise<T> {
   }
 }
 
-export async function query<T extends Record<string, unknown> = Record<string, unknown>>(sql: string, params?: unknown[]): Promise<T[]> {
+/** `T` là kiểu một dòng; hàm trả về mảng các dòng. */
+export async function query<T extends QueryResultRow = QueryResultRow>(sql: string, params?: unknown[]): Promise<T[]> {
   return execWithRetries(async () => {
     const p = getPool()
     const { text, values } = sqlPlaceholdersToPg(sql, params)
     const res = await p.query<T>(text, values as [])
     return res.rows
+  })
+}
+
+/** INSERT/UPDATE/DELETE: trả về số dòng như `affectedRows` MySQL (Postgres `rowCount`). */
+export async function exec(sql: string, params?: unknown[]): Promise<{ affectedRows: number }> {
+  return execWithRetries(async () => {
+    const p = getPool()
+    const { text, values } = sqlPlaceholdersToPg(sql, params)
+    const res = await p.query(text, values as [])
+    return { affectedRows: res.rowCount ?? 0 }
   })
 }
 
@@ -423,7 +434,9 @@ export async function executeSchemaSql(sql: string): Promise<void> {
 
 export type TransactionQuery = (sql: string, params?: unknown[]) => Promise<unknown>
 
-export async function withTransaction<T>(fn: (txQuery: TransactionQuery) => Promise<T>): Promise<T> {
+export type TransactionExec = (sql: string, params?: unknown[]) => Promise<{ affectedRows: number }>
+
+export async function withTransaction<T>(fn: (txQuery: TransactionQuery, txExec: TransactionExec) => Promise<T>): Promise<T> {
   const p = getPool()
   const client = await p.connect()
   const txQuery: TransactionQuery = async (sql: string, params?: unknown[]) => {
@@ -431,9 +444,14 @@ export async function withTransaction<T>(fn: (txQuery: TransactionQuery) => Prom
     const res = await client.query(text, values as [])
     return res.rows
   }
+  const txExec: TransactionExec = async (sql: string, params?: unknown[]) => {
+    const { text, values } = sqlPlaceholdersToPg(sql, params)
+    const res = await client.query(text, values as [])
+    return { affectedRows: res.rowCount ?? 0 }
+  }
   try {
     await client.query('BEGIN')
-    const result = await fn(txQuery)
+    const result = await fn(txQuery, txExec)
     await client.query('COMMIT')
     return result
   } catch (err) {

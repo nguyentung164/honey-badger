@@ -104,11 +104,7 @@ export function lineNumberAtOffset(content: string, offset: number): number {
 }
 
 /** Giải quyết một hunk conflict (giữ các hunk khác nguyên). */
-export function resolveSingleConflictHunk(
- content: string,
- hunkIndex: number,
- choice: 'ours' | 'theirs' | 'both',
-): string {
+export function resolveSingleConflictHunk(content: string, hunkIndex: number, choice: 'ours' | 'theirs' | 'both'): string {
   const normalized = content.replace(/\r\n/g, '\n')
   const hunks = extractGitConflictHunks(normalized)
   if (hunkIndex < 0 || hunkIndex >= hunks.length) return content
@@ -129,10 +125,7 @@ export function resolveSingleConflictHunk(
   return normalized.slice(0, h.start) + replacement + normalized.slice(h.end)
 }
 
-export function buildResolvedFromHunkChoices(
-  original: string,
-  choices: ('ours' | 'theirs')[],
-): { ok: true; result: string } | { ok: false; error: string } {
+export function buildResolvedFromHunkChoices(original: string, choices: ('ours' | 'theirs')[]): { ok: true; result: string } | { ok: false; error: string } {
   const normalized = original.replace(/\r\n/g, '\n')
   const hunks = extractGitConflictHunks(normalized)
   if (hunks.length !== choices.length) {

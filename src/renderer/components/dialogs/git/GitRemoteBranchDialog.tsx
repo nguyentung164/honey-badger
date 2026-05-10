@@ -6,15 +6,9 @@ import { useTranslation } from 'react-i18next'
 import { Button } from '@/components/ui/button'
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { Label } from '@/components/ui/label'
-import { cn } from '@/lib/utils'
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '@/components/ui/select'
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import toast from '@/components/ui-elements/Toast'
+import { cn } from '@/lib/utils'
 import logger from '@/services/logger'
 import { useAppearanceStoreSelect } from '@/stores/useAppearanceStore'
 
@@ -30,14 +24,7 @@ interface GitRemoteBranchDialogProps {
   cwd?: string
 }
 
-export function GitRemoteBranchDialog({
-  open,
-  onOpenChange,
-  mode,
-  currentBranch,
-  onConfirm,
-  cwd,
-}: GitRemoteBranchDialogProps) {
+export function GitRemoteBranchDialog({ open, onOpenChange, mode, currentBranch, onConfirm, cwd }: GitRemoteBranchDialogProps) {
   const { t } = useTranslation()
   const buttonVariant = useAppearanceStoreSelect(s => s.buttonVariant)
   const [remotes, setRemotes] = useState<string[]>([])
@@ -51,23 +38,14 @@ export function GitRemoteBranchDialog({
     if (!open) return
     setIsLoading(true)
     try {
-      const [remotesRes, branchesRes] = await Promise.all([
-        window.api.git.get_remotes(cwd),
-        window.api.git.get_branches(cwd),
-      ])
-      const remoteNames =
-        remotesRes?.status === 'success' && remotesRes.data
-          ? Object.keys(remotesRes.data as Record<string, unknown>)
-          : ['origin']
+      const [remotesRes, branchesRes] = await Promise.all([window.api.git.get_remotes(cwd), window.api.git.get_branches(cwd)])
+      const remoteNames = remotesRes?.status === 'success' && remotesRes.data ? Object.keys(remotesRes.data as Record<string, unknown>) : ['origin']
       setRemotes(remoteNames)
       if (remoteNames.length && !remoteNames.includes(remote)) setRemote(remoteNames[0])
 
-      const localAll =
-        branchesRes?.status === 'success' && branchesRes.data?.local?.all
-          ? (branchesRes.data.local.all as string[])
-          : []
+      const localAll = branchesRes?.status === 'success' && branchesRes.data?.local?.all ? (branchesRes.data.local.all as string[]) : []
       setBranches(localAll)
-      const defaultBranch = currentBranch && localAll.includes(currentBranch) ? currentBranch : localAll[0] ?? ''
+      const defaultBranch = currentBranch && localAll.includes(currentBranch) ? currentBranch : (localAll[0] ?? '')
       setBranch(defaultBranch)
     } catch (error) {
       logger.error('Error loading remotes/branches:', error)
@@ -100,9 +78,7 @@ export function GitRemoteBranchDialog({
       <DialogContent className="max-w-[420px] gap-3 p-4 sm:max-w-sm">
         <DialogHeader className="space-y-1">
           <DialogTitle className="text-base leading-tight">{t(titleKey)}</DialogTitle>
-          <DialogDescription className="text-xs leading-snug text-muted-foreground">
-            {t('git.remoteBranch.description')}
-          </DialogDescription>
+          <DialogDescription className="text-xs leading-snug text-muted-foreground">{t('git.remoteBranch.description')}</DialogDescription>
         </DialogHeader>
         {isLoading ? (
           <div className="flex items-center justify-center py-5">
@@ -155,21 +131,10 @@ export function GitRemoteBranchDialog({
           </div>
         )}
         <DialogFooter className="gap-2 sm:gap-2">
-          <Button
-            size="sm"
-            variant={buttonVariant}
-            onClick={() => onOpenChange(false)}
-            disabled={isSubmitting}
-          >
+          <Button size="sm" variant={buttonVariant} onClick={() => onOpenChange(false)} disabled={isSubmitting}>
             {t('common.cancel')}
           </Button>
-          <Button
-            size="sm"
-            variant={buttonVariant}
-            onClick={handleConfirm}
-            disabled={isLoading || isSubmitting || !remote || !branch}
-            className="gap-1.5"
-          >
+          <Button size="sm" variant={buttonVariant} onClick={handleConfirm} disabled={isLoading || isSubmitting || !remote || !branch} className="gap-1.5">
             {isSubmitting ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : null}
             {t(confirmKey)}
           </Button>

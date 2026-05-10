@@ -415,10 +415,7 @@ export function ShowLog() {
           }
 
           // Git: giữ nguyên thứ tự từ backend (giống git log). SVN: sort theo số revision giảm dần.
-          const finalEntries =
-            useVcs === 'git'
-              ? parsedEntries
-              : [...parsedEntries].sort((a, b) => parseInt(b.revision, 10) - parseInt(a.revision, 10))
+          const finalEntries = useVcs === 'git' ? parsedEntries : [...parsedEntries].sort((a, b) => parseInt(b.revision, 10) - parseInt(a.revision, 10))
 
           // Set all state in one batch to avoid extra render cycle - UI shows data immediately
           setAllLogData(finalEntries)
@@ -617,27 +614,27 @@ export function ShowLog() {
       },
       ...(effectiveVersionControlSystem === 'git'
         ? [
-          {
-            accessorKey: 'email',
-            size: 200,
-            minSize: 150,
-            header: ({ column }) => (
-              <Button className="!p-0 !h-7 !bg-transparent !hover:bg-transparent" variant="ghost" onClick={() => column.toggleSorting()}>
-                {t('dialog.showLogs.email')}
-                <span className="pr-0.5">
-                  {!column.getIsSorted()}
-                  {column.getIsSorted() === 'asc' && '↑'}
-                  {column.getIsSorted() === 'desc' && '↓'}
-                </span>
-              </Button>
-            ),
-            cell: ({ row }) => (
-              <div className="truncate" title={row.original.email ?? ''}>
-                {row.original.email ?? '-'}
-              </div>
-            ),
-          } as ColumnDef<LogEntry>,
-        ]
+            {
+              accessorKey: 'email',
+              size: 200,
+              minSize: 150,
+              header: ({ column }) => (
+                <Button className="!p-0 !h-7 !bg-transparent !hover:bg-transparent" variant="ghost" onClick={() => column.toggleSorting()}>
+                  {t('dialog.showLogs.email')}
+                  <span className="pr-0.5">
+                    {!column.getIsSorted()}
+                    {column.getIsSorted() === 'asc' && '↑'}
+                    {column.getIsSorted() === 'desc' && '↓'}
+                  </span>
+                </Button>
+              ),
+              cell: ({ row }) => (
+                <div className="truncate" title={row.original.email ?? ''}>
+                  {row.original.email ?? '-'}
+                </div>
+              ),
+            } as ColumnDef<LogEntry>,
+          ]
         : []),
       {
         accessorKey: 'action',

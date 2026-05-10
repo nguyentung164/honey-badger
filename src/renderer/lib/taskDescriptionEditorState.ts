@@ -89,17 +89,7 @@ function collectPlainTextFromNode(node: unknown): string {
   const children = n.children
   if (!Array.isArray(children)) return ''
   const inner = children.map(collectPlainTextFromNode).join('')
-  const blockTypes = new Set([
-    'paragraph',
-    'heading',
-    'quote',
-    'list',
-    'listitem',
-    'code',
-    'table',
-    'tablecell',
-    'tablerow',
-  ])
+  const blockTypes = new Set(['paragraph', 'heading', 'quote', 'list', 'listitem', 'code', 'table', 'tablecell', 'tablerow'])
   if (blockTypes.has(n.type ?? '')) {
     return inner ? `${inner}\n` : '\n'
   }

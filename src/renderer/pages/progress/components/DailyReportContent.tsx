@@ -31,14 +31,8 @@ export function DailyReportContent({ selectedUserId, selectedUserName }: DailyRe
   if (!user) {
     return (
       <div className="space-y-6 p-6 bg-muted/20">
-        <SectionHeader
-          icon={<ClipboardList className="h-4 w-4 text-amber-600 dark:text-amber-400" />}
-          title={t('dailyReport.open')}
-          description={t('progress.dailyReportDesc')}
-        />
-        <div className="flex flex-1 items-center justify-center py-16 text-muted-foreground">
-          {t('dailyReport.pleaseLogin')}
-        </div>
+        <SectionHeader icon={<ClipboardList className="h-4 w-4 text-amber-600 dark:text-amber-400" />} title={t('dailyReport.open')} description={t('progress.dailyReportDesc')} />
+        <div className="flex flex-1 items-center justify-center py-16 text-muted-foreground">{t('dailyReport.pleaseLogin')}</div>
       </div>
     )
   }
@@ -52,9 +46,7 @@ export function DailyReportContent({ selectedUserId, selectedUserName }: DailyRe
           </div>
           <div className="min-w-0">
             <h2 className="text-base font-semibold leading-tight">
-              {isViewingOtherUser && selectedUserName
-                ? `${t('dailyReport.open')} — ${selectedUserName}`
-                : t('dailyReport.open')}
+              {isViewingOtherUser && selectedUserName ? `${t('dailyReport.open')} — ${selectedUserName}` : t('dailyReport.open')}
             </h2>
             <p className="text-xs text-muted-foreground mt-0.5">{t('progress.dailyReportDesc')}</p>
           </div>
@@ -62,12 +54,7 @@ export function DailyReportContent({ selectedUserId, selectedUserName }: DailyRe
         <div className="flex items-center gap-2 shrink-0">
           <Tooltip>
             <TooltipTrigger asChild>
-              <Button
-                type="button"
-                variant="outline"
-                size="sm"
-                onClick={() => setRefreshKey(k => k + 1)}
-              >
+              <Button type="button" variant="outline" size="sm" onClick={() => setRefreshKey(k => k + 1)}>
                 <RefreshCw className="h-4 w-4" />
               </Button>
             </TooltipTrigger>
@@ -85,12 +72,7 @@ export function DailyReportContent({ selectedUserId, selectedUserName }: DailyRe
           }
         >
           <div className="flex-1 min-h-0 overflow-hidden flex flex-col">
-            <DevReportHistory
-              refreshKey={refreshKey}
-              onOpenEditReport={() => {}}
-              targetUserId={selectedUserId ?? undefined}
-              isViewingOtherUser={isViewingOtherUser}
-            />
+            <DevReportHistory refreshKey={refreshKey} onOpenEditReport={() => {}} targetUserId={selectedUserId ?? undefined} isViewingOtherUser={isViewingOtherUser} />
           </div>
         </Suspense>
       </div>

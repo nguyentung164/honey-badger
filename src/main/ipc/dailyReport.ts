@@ -2,21 +2,21 @@ import { ipcMain } from 'electron'
 import l from 'electron-log'
 import { IPC } from 'main/constants'
 import { log as gitLog } from '../git/log'
-import { onDailyReport } from '../task/achievementService'
+import { log as svnLog } from '../svn/log'
+import { onDailyReport } from '../task/achievement/achievementService'
 import { getTokenFromStore, verifyToken } from '../task/auth'
-import { getUserEmailById } from '../task/pgTaskStore'
 import {
+  type DailyReportInput,
   getDailyReportByUserAndDate,
   getDailyReportHistoryByUser,
   getReportStatistics,
   getReportStatisticsByDateRange,
   listDailyReportsForPl,
   listDailyReportsForPlByDateRange,
-  saveDailyReport,
-  type DailyReportInput,
   type SelectedCommit,
-} from '../task/pgDailyReport'
-import { log as svnLog } from '../svn/log'
+  saveDailyReport,
+} from '../task/stores/pgDailyReport'
+import { getUserEmailById } from '../task/stores/pgTaskStore'
 
 function withAuthFromStore<T extends unknown[]>(
   handler: (event: Electron.IpcMainInvokeEvent, session: { userId: string; name: string; role: string }, ...args: T) => Promise<unknown>
@@ -55,7 +55,9 @@ export function registerDailyReportIpcHandlers() {
         }
         const now = new Date()
         const today = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`
-        const reportDate = String(input.reportDate || '').trim().slice(0, 10)
+        const reportDate = String(input.reportDate || '')
+          .trim()
+          .slice(0, 10)
         if (reportDate < today) {
           const isPlOrAdmin = session.role === 'pl' || session.role === 'pm' || session.role === 'admin'
           if (!isPlOrAdmin) {
@@ -63,7 +65,12 @@ export function registerDailyReportIpcHandlers() {
           }
         }
         await saveDailyReport(session.userId, input)
-        onDailyReport(session.userId, String(input.reportDate || '').trim().slice(0, 10)).catch(() => {})
+        onDailyReport(
+          session.userId,
+          String(input.reportDate || '')
+            .trim()
+            .slice(0, 10)
+        ).catch(() => {})
         return { status: 'success' as const }
       } catch (error: unknown) {
         l.error('daily-report:save error:', error)
@@ -98,7 +105,7 @@ export function registerDailyReportIpcHandlers() {
 
         const userEmail = await getUserEmailById(session.userId)
         const gitAuthorFilter = userEmail || session.name
-        const svnAuthorPrefix = userEmail?.includes('@') ? userEmail.split('@')[0] : (session.name || '')
+        const svnAuthorPrefix = userEmail?.includes('@') ? userEmail.split('@')[0] : session.name || ''
 
         if (vcsType === 'git') {
           const result = await gitLog('.', {
@@ -144,7 +151,10 @@ export function registerDailyReportIpcHandlers() {
           .filter(entry => entry)
         const commits: SelectedCommit[] = []
         for (const block of entries) {
-          const lines = block.split('\n').map(l => l.trim()).filter(Boolean)
+          const lines = block
+            .split('\n')
+            .map(l => l.trim())
+            .filter(Boolean)
           const headerMatch = lines[0]?.match(/^r(\d+)\s+\|\s+(.+?)\s+\|\s+(.+?)\s+\|/)
           if (!headerMatch) continue
           const [, revision, author, dateStr] = headerMatch
@@ -185,7 +195,7 @@ export function registerDailyReportIpcHandlers() {
           const { folders, reportDate } = params
           const userEmail = await getUserEmailById(session.userId)
           const gitAuthorFilter = userEmail || session.name
-          const svnAuthorPrefix = userEmail?.includes('@') ? userEmail.split('@')[0] : (session.name || '')
+          const svnAuthorPrefix = userEmail?.includes('@') ? userEmail.split('@')[0] : session.name || ''
           if (!folders?.length || folders.length > 10) {
             return { status: 'error' as const, data: [], message: 'folders required, max 10' }
           }
@@ -238,7 +248,10 @@ export function registerDailyReportIpcHandlers() {
                 .filter(entry => entry)
               const commits: SelectedCommit[] = []
               for (const block of entries) {
-                const lines = block.split('\n').map(l => l.trim()).filter(Boolean)
+                const lines = block
+                  .split('\n')
+                  .map(l => l.trim())
+                  .filter(Boolean)
                 const headerMatch = lines[0]?.match(/^r(\d+)\s+\|\s+(.+?)\s+\|\s+(.+?)\s+\|/)
                 if (!headerMatch) continue
                 const [, revision, auth, dateStr] = headerMatch
@@ -314,27 +327,18 @@ export function registerDailyReportIpcHandlers() {
 
   ipcMain.handle(
     IPC.DAILY_REPORT.GET_MY_HISTORY,
-    withAuthFromStore(
-      async (
-        _event,
-        session,
-        params: { dateFrom: string; dateTo: string; limit?: number; offset?: number; targetUserId?: string }
-      ) => {
-        try {
-          const { dateFrom, dateTo, limit, offset, targetUserId } = params
-          const isPlOrAdmin = session.role === 'pl' || session.role === 'pm' || session.role === 'admin'
-          const userId =
-            targetUserId && targetUserId !== session.userId && isPlOrAdmin
-              ? targetUserId
-              : session.userId
-          const list = await getDailyReportHistoryByUser(userId, dateFrom, dateTo, limit, offset)
-          return { status: 'success' as const, data: list }
-        } catch (error: unknown) {
-          l.error('daily-report:get-my-history error:', error)
-          return { status: 'error' as const, message: error instanceof Error ? error.message : String(error) }
-        }
+    withAuthFromStore(async (_event, session, params: { dateFrom: string; dateTo: string; limit?: number; offset?: number; targetUserId?: string }) => {
+      try {
+        const { dateFrom, dateTo, limit, offset, targetUserId } = params
+        const isPlOrAdmin = session.role === 'pl' || session.role === 'pm' || session.role === 'admin'
+        const userId = targetUserId && targetUserId !== session.userId && isPlOrAdmin ? targetUserId : session.userId
+        const list = await getDailyReportHistoryByUser(userId, dateFrom, dateTo, limit, offset)
+        return { status: 'success' as const, data: list }
+      } catch (error: unknown) {
+        l.error('daily-report:get-my-history error:', error)
+        return { status: 'error' as const, message: error instanceof Error ? error.message : String(error) }
       }
-    )
+    })
   )
 
   ipcMain.handle(

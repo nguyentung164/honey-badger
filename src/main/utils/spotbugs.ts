@@ -143,11 +143,11 @@ export async function runSpotBugs(filePaths: string[]): Promise<any> {
     const baseCommand = `"${spotbugsExecutable}" -textui -xml:withMessages -output "${outputXml}" ${sourcepathArg} -nested:true -low`
     const WIN_CMD_LIMIT = 30000
     let command: string
-    if (process.platform === 'win32' && (baseCommand + ' ' + inlineArgs).length > WIN_CMD_LIMIT) {
+    if (process.platform === 'win32' && `${baseCommand} ${inlineArgs}`.length > WIN_CMD_LIMIT) {
       const responseFilePath = path.join(tempDir, 'spotbugs-args.txt')
       fs.writeFileSync(responseFilePath, classFilePaths.join('\n'))
       command = `${baseCommand} @"${responseFilePath}"`
-      l.info(`Command too long (${(baseCommand + ' ' + inlineArgs).length} chars), using response file: ${responseFilePath}`)
+      l.info(`Command too long (${`${baseCommand} ${inlineArgs}`.length} chars), using response file: ${responseFilePath}`)
     } else {
       command = `${baseCommand} ${inlineArgs}`
     }
@@ -280,11 +280,7 @@ export function parseSpotBugsResult(xmlContent: string): any {
     // Phân tích các lỗi
     const bugInstances: any[] = []
     const rawBugInstances = bugCollection.BugInstance
-    const bugInstanceList: any[] = Array.isArray(rawBugInstances)
-      ? rawBugInstances
-      : rawBugInstances
-        ? [rawBugInstances]
-        : []
+    const bugInstanceList: any[] = Array.isArray(rawBugInstances) ? rawBugInstances : rawBugInstances ? [rawBugInstances] : []
     bugInstanceList.forEach((instance: any, index: number) => {
       if (!instance) return
 

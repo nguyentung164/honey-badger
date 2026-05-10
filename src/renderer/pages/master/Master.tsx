@@ -4,6 +4,7 @@ import { Folder, Link2, Minus, MoreVertical, Pencil, Plus, RefreshCw, Shield, Sq
 import { IPC } from 'main/constants'
 import { lazy, Suspense, useCallback, useEffect, useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
+import type { EVMProject } from 'shared/types/evm'
 import {
   AlertDialog,
   AlertDialogAction,
@@ -16,8 +17,8 @@ import {
 } from '@/components/ui/alert-dialog'
 import { Button } from '@/components/ui/button'
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from '@/components/ui/dropdown-menu'
-import { TablePaginationBar } from '@/components/ui/table-pagination-bar'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
+import { TablePaginationBar } from '@/components/ui/table-pagination-bar'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import { GlowLoader } from '@/components/ui-elements/GlowLoader'
@@ -25,14 +26,10 @@ import toast from '@/components/ui-elements/Toast'
 import { cn } from '@/lib/utils'
 import { useAppearanceStoreSelect } from '@/stores/useAppearanceStore'
 import { useTaskAuthStore } from '@/stores/useTaskAuthStore'
-
-import type { EVMProject } from 'shared/types/evm'
 import type { LinkProjectToolbarApi } from './LinkProjectTabContent'
 
 const AddOrEditUserDialog = lazy(() => import('@/components/dialogs/task/AddOrEditUserDialog').then(m => ({ default: m.AddOrEditUserDialog })))
-const EvmProjectInfoDialogLazy = lazy(() =>
-  import('@/pages/evm/components/EvmProjectInfoDialog').then(m => ({ default: m.EvmProjectInfoDialog }))
-)
+const EvmProjectInfoDialogLazy = lazy(() => import('@/pages/evm/components/EvmProjectInfoDialog').then(m => ({ default: m.EvmProjectInfoDialog })))
 const SetPasswordDialog = lazy(() => import('@/components/dialogs/task/SetPasswordDialog').then(m => ({ default: m.SetPasswordDialog })))
 const SetRoleDialog = lazy(() => import('@/components/dialogs/task/SetRoleDialog').then(m => ({ default: m.SetRoleDialog })))
 const ProjectMembersDialog = lazy(() => import('@/components/dialogs/task/ProjectMembersDialog').then(m => ({ default: m.ProjectMembersDialog })))
@@ -128,16 +125,10 @@ export function Master() {
   const [linkProjectToolbar, setLinkProjectToolbar] = useState<LinkProjectToolbarApi | null>(null)
 
   const userTotalPages = Math.max(1, Math.ceil(users.length / userPageSize))
-  const paginatedUsers = useMemo(
-    () => users.slice((userPage - 1) * userPageSize, userPage * userPageSize),
-    [users, userPage, userPageSize]
-  )
+  const paginatedUsers = useMemo(() => users.slice((userPage - 1) * userPageSize, userPage * userPageSize), [users, userPage, userPageSize])
 
   const projectTotalPages = Math.max(1, Math.ceil(projects.length / projectPageSize))
-  const paginatedProjects = useMemo(
-    () => projects.slice((projectPage - 1) * projectPageSize, projectPage * projectPageSize),
-    [projects, projectPage, projectPageSize]
-  )
+  const paginatedProjects = useMemo(() => projects.slice((projectPage - 1) * projectPageSize, projectPage * projectPageSize), [projects, projectPage, projectPageSize])
 
   useEffect(() => {
     if (userPage > userTotalPages) setUserPage(1)
@@ -294,20 +285,23 @@ export function Master() {
     setShowEvmProjectInfo(true)
   }, [])
 
-  const openEvmProjectEdit = useCallback(async (proj: { id: string; name: string; version?: number }) => {
-    try {
-      const res = await window.api.evm.ensureProjectForEvm(proj.id)
-      if (res.status !== 'success' || !res.data) {
-        toast.error(res.message ?? t('taskManagement.updateError'))
-        return
+  const openEvmProjectEdit = useCallback(
+    async (proj: { id: string; name: string; version?: number }) => {
+      try {
+        const res = await window.api.evm.ensureProjectForEvm(proj.id)
+        if (res.status !== 'success' || !res.data) {
+          toast.error(res.message ?? t('taskManagement.updateError'))
+          return
+        }
+        setEvmProjectForDialog(res.data as EVMProject)
+        setEvmProjectDialogMode('edit')
+        setShowEvmProjectInfo(true)
+      } catch {
+        toast.error(t('taskManagement.updateError'))
       }
-      setEvmProjectForDialog(res.data as EVMProject)
-      setEvmProjectDialogMode('edit')
-      setShowEvmProjectInfo(true)
-    } catch {
-      toast.error(t('taskManagement.updateError'))
-    }
-  }, [t])
+    },
+    [t]
+  )
 
   const handleMasterEvmPersistSuccess = useCallback(async () => {
     await loadData()
@@ -454,10 +448,18 @@ export function Master() {
             </div>
           </div>
           <div className="flex items-center gap-1" style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties}>
-            <button type="button" onClick={() => handleWindow('minimize')} className="w-10 h-8 flex items-center justify-center hover:bg-[var(--hover-bg)] hover:text-[var(--hover-fg)]">
+            <button
+              type="button"
+              onClick={() => handleWindow('minimize')}
+              className="w-10 h-8 flex items-center justify-center hover:bg-[var(--hover-bg)] hover:text-[var(--hover-fg)]"
+            >
               <Minus size={15.5} strokeWidth={1} absoluteStrokeWidth />
             </button>
-            <button type="button" onClick={() => handleWindow('maximize')} className="w-10 h-8 flex items-center justify-center hover:bg-[var(--hover-bg)] hover:text-[var(--hover-fg)]">
+            <button
+              type="button"
+              onClick={() => handleWindow('maximize')}
+              className="w-10 h-8 flex items-center justify-center hover:bg-[var(--hover-bg)] hover:text-[var(--hover-fg)]"
+            >
               <Square size={14.5} strokeWidth={1} absoluteStrokeWidth />
             </button>
             <button type="button" onClick={() => handleWindow('close')} className="w-10 h-8 flex items-center justify-center hover:bg-red-600 hover:text-white">
@@ -575,7 +577,7 @@ export function Master() {
               mode={evmProjectDialogMode}
               useStore={false}
               canEditReminder={
-                evmProjectDialogMode === 'edit' && !!evmProjectForDialog?.id
+                evmProjectDialogMode === 'edit' && evmProjectForDialog?.id
                   ? user?.role === 'admin' ||
                     !!projectMembersMap[evmProjectForDialog.id]?.canManagePl ||
                     !!projectMembersMap[evmProjectForDialog.id]?.canManagePm ||
@@ -703,12 +705,7 @@ export function Master() {
                   {projects.length === 0 ? (
                     <div className="flex flex-col items-center justify-center flex-1 text-muted-foreground py-12">
                       <p>{t('taskManagement.noProjects', 'No projects yet.')}</p>
-                      <Button
-                        variant={buttonVariant}
-                        size="sm"
-                        onClick={() => openEvmProjectCreate()}
-                        className="mt-2"
-                      >
+                      <Button variant={buttonVariant} size="sm" onClick={() => openEvmProjectCreate()} className="mt-2">
                         <Plus className="mr-2 h-4 w-4" />
                         {t('taskManagement.addProject')}
                       </Button>
@@ -768,11 +765,11 @@ export function Master() {
                                           projectMembersMap[proj.id]?.canManagePl ||
                                           projectMembersMap[proj.id]?.canManagePm ||
                                           projectMembersMap[proj.id]?.canManageDev) && (
-                                            <DropdownMenuItem onClick={() => setProjectToManageMembers({ id: proj.id, name: proj.name })}>
-                                              <Users2 className="h-4 w-4" />
-                                              {t('taskManagement.manageMembers', 'Quản lý thành viên')}
-                                            </DropdownMenuItem>
-                                          )}
+                                          <DropdownMenuItem onClick={() => setProjectToManageMembers({ id: proj.id, name: proj.name })}>
+                                            <Users2 className="h-4 w-4" />
+                                            {t('taskManagement.manageMembers', 'Quản lý thành viên')}
+                                          </DropdownMenuItem>
+                                        )}
                                         <DropdownMenuSeparator />
                                         <DropdownMenuItem variant="destructive" onClick={() => setProjectToDelete(proj)}>
                                           <Trash2 className="h-4 w-4" />

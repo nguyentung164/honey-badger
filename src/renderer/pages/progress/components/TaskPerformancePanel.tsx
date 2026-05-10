@@ -4,9 +4,9 @@ import { useTranslation } from 'react-i18next'
 import { Bar, BarChart, CartesianGrid, Cell, Line, LineChart, Pie, PieChart, ReferenceLine, Tooltip, XAxis, YAxis } from 'recharts'
 import { ChartContainer, ChartTooltipContent } from '@/components/ui/chart'
 import { Skeleton } from '@/components/ui/skeleton'
-import { TooltipContent, TooltipProvider, Tooltip as UITooltip, TooltipTrigger } from '@/components/ui/tooltip'
+import { TooltipContent, TooltipProvider, TooltipTrigger, Tooltip as UITooltip } from '@/components/ui/tooltip'
 import { cn } from '@/lib/utils'
-import { useProgressStore, type TaskPerformanceData } from '@/stores/useProgressStore'
+import { type TaskPerformanceData, useProgressStore } from '@/stores/useProgressStore'
 import { SectionHeader } from './SectionHeader'
 
 const TYPE_COLORS: Record<string, string> = {
@@ -164,14 +164,23 @@ export const TaskPerformancePanel = memo(function TaskPerformancePanel({
         <>
           {/* Stat cards */}
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-            <StatCard label={t('progress.onTimeRate')} value={`${onTimeRate}%`} highlight={onTimeRate >= 80 ? 'green' : onTimeRate >= 60 ? 'neutral' : 'red'} tooltip={t('progress.onTimeRateTooltip')} />
+            <StatCard
+              label={t('progress.onTimeRate')}
+              value={`${onTimeRate}%`}
+              highlight={onTimeRate >= 80 ? 'green' : onTimeRate >= 60 ? 'neutral' : 'red'}
+              tooltip={t('progress.onTimeRateTooltip')}
+            />
             <StatCard
               label={t('progress.avgDelay')}
               value={totals.avg_delay_days != null ? `${Number(totals.avg_delay_days) > 0 ? '+' : ''}${Number(totals.avg_delay_days).toFixed(1)} ${t('progress.days')}` : '—'}
               highlight={totals.avg_delay_days != null && totals.avg_delay_days <= 0 ? 'green' : 'red'}
               tooltip={t('progress.avgDelayTooltip')}
             />
-            <StatCard label={t('progress.avgCycle')} value={totals.avg_cycle_days != null ? `${Number(totals.avg_cycle_days).toFixed(1)} ${t('progress.days')}` : '—'} tooltip={t('progress.avgCycleTooltip')} />
+            <StatCard
+              label={t('progress.avgCycle')}
+              value={totals.avg_cycle_days != null ? `${Number(totals.avg_cycle_days).toFixed(1)} ${t('progress.days')}` : '—'}
+              tooltip={t('progress.avgCycleTooltip')}
+            />
             <StatCard label={t('progress.totalDone')} value={String(totals.total_done)} sub={t('progress.last6Months')} tooltip={t('progress.totalDoneTooltip')} />
           </div>
 
@@ -186,7 +195,13 @@ export const TaskPerformancePanel = memo(function TaskPerformancePanel({
                     <CartesianGrid strokeDasharray="3 3" className="stroke-muted" />
                     <XAxis dataKey="month" tick={{ fontSize: 10, fill: 'var(--muted-foreground)' }} tickLine={false} />
                     <YAxis domain={[0, 100]} tick={{ fontSize: 10, fill: 'var(--muted-foreground)' }} tickLine={false} axisLine={false} unit="%" />
-                    <ReferenceLine y={80} stroke="var(--chart-1)" strokeOpacity={0.45} strokeDasharray="4 2" label={{ value: '80%', fontSize: 10, fill: 'var(--muted-foreground)' }} />
+                    <ReferenceLine
+                      y={80}
+                      stroke="var(--chart-1)"
+                      strokeOpacity={0.45}
+                      strokeDasharray="4 2"
+                      label={{ value: '80%', fontSize: 10, fill: 'var(--muted-foreground)' }}
+                    />
                     <Tooltip content={<ChartTooltipContent />} formatter={v => [`${v}%`]} />
                     <Line dataKey="rate" stroke="var(--chart-2)" strokeWidth={2} dot={{ r: 3, fill: 'var(--chart-2)' }} name="On-time %" />
                   </LineChart>
@@ -213,7 +228,16 @@ export const TaskPerformancePanel = memo(function TaskPerformancePanel({
                         const entry = payload[0]
                         const color = (entry.payload as { color: string }).color
                         return (
-                          <div style={{ backgroundColor: 'var(--popover)', border: '1px solid var(--border)', borderRadius: 8, fontSize: 11, color: 'var(--popover-foreground)', padding: '6px 10px' }}>
+                          <div
+                            style={{
+                              backgroundColor: 'var(--popover)',
+                              border: '1px solid var(--border)',
+                              borderRadius: 8,
+                              fontSize: 11,
+                              color: 'var(--popover-foreground)',
+                              padding: '6px 10px',
+                            }}
+                          >
                             <div className="flex items-center gap-1.5">
                               <div className="h-2.5 w-2.5 rounded-full shrink-0" style={{ background: color }} />
                               <span className="capitalize font-medium">{entry.name}</span>

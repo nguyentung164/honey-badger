@@ -26,10 +26,7 @@ export function matchesEvmPhaseFilterForAcGantt(rowPhase: string | null | undefi
 }
 
 /** Gantt AC: dòng chưa gán assignee vẫn hiển thị khi đang lọc một assignee (tránh mất dữ liệu). */
-export function matchesEvmAssigneeFilterForAcGantt(
-  rowAssignee: string | null | undefined,
-  filterAssignee: string
-): boolean {
+export function matchesEvmAssigneeFilterForAcGantt(rowAssignee: string | null | undefined, filterAssignee: string): boolean {
   const sel = !filterAssignee?.trim() || filterAssignee === 'all' ? 'all' : filterAssignee.trim()
   if (sel === 'all') return true
   const a = (rowAssignee ?? '').trim()

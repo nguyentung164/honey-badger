@@ -1,9 +1,9 @@
 import { EVM_DEFAULT_PHASES } from 'shared/evmDefaults'
 import { randomUuidV7 } from 'shared/randomUuidV7'
 import type { ACRow, EVMData, EVMMaster, EVMMasterUpdatePayload, EVMProject, EvmProjectRoleUser, WBSRow, WbsDayUnitRow, WbsMasterRow } from 'shared/types/evm'
-import { query, withTransaction } from './db'
-import { dbValueToCalendarYmd, todayCalendarYmd } from './calendarDate'
-import { migrateProjectsDropLegacyPmPlColumns } from './taskDbPatches'
+import { dbValueToCalendarYmd, todayCalendarYmd } from '../calendarDate'
+import { query, withTransaction } from '../schema/db'
+import { migrateProjectsDropLegacyPmPlColumns } from '../schema/taskDbPatches'
 
 const PROJECT_SELECT_SQL = 'SELECT id, name as project_name, project_no, end_user, start_date, end_date, report_date FROM projects'
 
@@ -71,7 +71,7 @@ function mapProject(row: Record<string, unknown>): EVMProject {
 
 /** PM/PL từ `user_project_roles` (chip trong UI). */
 export async function listEvmProjectPmPlUsers(projectId: string): Promise<EvmProjectRoleUser[]> {
-  const rows = await query<{ user_id: string; user_code: string; name: string; role: string }[]>(
+  const rows = await query<{ user_id: string; user_code: string; name: string; role: string }>(
     `SELECT u.id as user_id, u.user_code, u.name, upr.role
      FROM user_project_roles upr
      INNER JOIN users u ON u.id = upr.user_id
@@ -199,7 +199,7 @@ type EvmAssigneeEntry = { code: string; name?: string; userCode?: string }
 
 /** Thành viên dự án (`user_project_roles` → users): danh sách Assignee cho EVM. */
 async function fetchProjectMemberAssignees(projectId: string): Promise<EvmAssigneeEntry[]> {
-  const rows = await query<{ id: string; user_code: string; name: string }[]>(
+  const rows = await query<{ id: string; user_code: string; name: string }>(
     `SELECT DISTINCT u.id, u.user_code, u.name
      FROM user_project_roles upr
      INNER JOIN users u ON u.id = upr.user_id
@@ -267,32 +267,32 @@ export async function getEVMData(projectId?: string): Promise<EVMData | null> {
   let project: EVMProject | null = null
   const projSql = `${PROJECT_SELECT_SQL} WHERE `
   if (projectId) {
-    const rows = await query<Record<string, unknown>[]>(`${projSql} id = ?`, [projectId])
+    const rows = await query<Record<string, unknown>>(`${projSql} id = ?`, [projectId])
     project = rows?.[0] ? mapProject(rows[0]) : null
   }
   if (!project) {
-    const rows = await query<Record<string, unknown>[]>(`${projSql} start_date IS NOT NULL ORDER BY updated_at DESC LIMIT 1`)
+    const rows = await query<Record<string, unknown>>(`${projSql} start_date IS NOT NULL ORDER BY updated_at DESC LIMIT 1`)
     project = rows?.[0] ? mapProject(rows[0]) : null
   }
   if (!project) return null
 
   const [masterWbsRows, wbsRows, acRows, masterRows, dayUnitRows] = await Promise.all([
-    query<Record<string, unknown>[]>(
+    query<Record<string, unknown>>(
       `SELECT m.*, u.name as assignee_name FROM evm_wbs_master m
        LEFT JOIN users u ON m.assignee_user_id = u.id
        WHERE m.project_id = ? ORDER BY m.sort_no ASC, m.id ASC`,
       [project.id]
     ),
-    query<Record<string, unknown>[]>(
+    query<Record<string, unknown>>(
       `SELECT w.*, ts.name as status_name, u.name as assignee_name FROM evm_wbs_details w
        LEFT JOIN task_statuses ts ON w.status = ts.code
        LEFT JOIN users u ON w.assignee_user_id = u.id
        WHERE w.project_id = ? ORDER BY w.no ASC`,
       [project.id]
     ),
-    query<Record<string, unknown>[]>('SELECT * FROM evm_ac WHERE project_id = ? ORDER BY no', [project.id]),
-    query<Record<string, unknown>[]>('SELECT * FROM evm_master WHERE project_id = ?', [project.id]),
-    query<{ wbs_id: string; work_date: string | Date; unit: number }[]>(
+    query<Record<string, unknown>>('SELECT * FROM evm_ac WHERE project_id = ? ORDER BY no', [project.id]),
+    query<Record<string, unknown>>('SELECT * FROM evm_master WHERE project_id = ?', [project.id]),
+    query<{ wbs_id: string; work_date: string | Date; unit: number }>(
       `SELECT d.wbs_id, d.work_date, d.unit FROM evm_wbs_day_unit d
        INNER JOIN evm_wbs_details w ON w.id = d.wbs_id AND w.project_id = ?
        ORDER BY d.wbs_id, d.work_date`,
@@ -331,7 +331,7 @@ export async function getEVMData(projectId?: string): Promise<EVMData | null> {
 /** Đảm bảo project có EVM setup (start_date, evm_master). Dùng khi import vào project từ Task Management. */
 export async function ensureProjectForEvm(projectId: string): Promise<EVMProject> {
   await migrateProjectsDropLegacyPmPlColumns()
-  const rows = await query<Record<string, unknown>[]>('SELECT id, name, start_date FROM projects WHERE id = ?', [projectId])
+  const rows = await query<Record<string, unknown>>('SELECT id, name, start_date FROM projects WHERE id = ?', [projectId])
   const row = rows?.[0]
   if (!row) throw new Error('Project not found')
   const today = todayCalendarYmd()
@@ -340,14 +340,9 @@ export async function ensureProjectForEvm(projectId: string): Promise<EVMProject
   const end = new Date()
   end.setMonth(end.getMonth() + 3)
   if (!row.start_date) {
-    await query('UPDATE projects SET start_date = ?, end_date = ?, report_date = ? WHERE id = ?', [
-      dbValueToCalendarYmd(start),
-      dbValueToCalendarYmd(end),
-      today,
-      projectId,
-    ])
+    await query('UPDATE projects SET start_date = ?, end_date = ?, report_date = ? WHERE id = ?', [dbValueToCalendarYmd(start), dbValueToCalendarYmd(end), today, projectId])
   }
-  const masterRows = await query<Record<string, unknown>[]>('SELECT 1 FROM evm_master WHERE project_id = ?', [projectId])
+  const masterRows = await query<Record<string, unknown>>('SELECT 1 FROM evm_master WHERE project_id = ?', [projectId])
   if (!masterRows?.length) {
     await query(
       'INSERT INTO evm_master (project_id, phases, statuses, non_working_days, hours_per_day, phase_report_notes, assignee_report_notes, percent_done_options, issue_import_map) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)',
@@ -355,12 +350,12 @@ export async function ensureProjectForEvm(projectId: string): Promise<EVMProject
     )
     await seedProjectPhasesFromDefaults(projectId)
   }
-  const projRows = await query<Record<string, unknown>[]>(`${PROJECT_SELECT_SQL} WHERE id = ?`, [projectId])
+  const projRows = await query<Record<string, unknown>>(`${PROJECT_SELECT_SQL} WHERE id = ?`, [projectId])
   return mapProject(projRows?.[0])
 }
 
 export async function getProjects(): Promise<EVMProject[]> {
-  const rows = await query<Record<string, unknown>[]>(`${PROJECT_SELECT_SQL} WHERE start_date IS NOT NULL ORDER BY updated_at DESC`)
+  const rows = await query<Record<string, unknown>>(`${PROJECT_SELECT_SQL} WHERE start_date IS NOT NULL ORDER BY updated_at DESC`)
   return (rows ?? []).map(mapProject)
 }
 
@@ -371,6 +366,7 @@ export async function getProjects(): Promise<EVMProject[]> {
 export async function createProject(input: Partial<EVMProject>): Promise<EVMProject> {
   const id = input.id ?? randomUuidV7()
   const today = todayCalendarYmd()
+  const start = input.startDate ?? today
   const end = input.endDate ?? today
   const report = input.reportDate ?? today
 
@@ -381,7 +377,7 @@ export async function createProject(input: Partial<EVMProject>): Promise<EVMProj
      VALUES (?, ?, ?, ?, ?, ?, ?)`,
     [id, name, input.projectNo ?? null, endUser ?? null, start, end, report]
   )
-  const rows = await query<Record<string, unknown>[]>(`${PROJECT_SELECT_SQL} WHERE id = ?`, [id])
+  const rows = await query<Record<string, unknown>>(`${PROJECT_SELECT_SQL} WHERE id = ?`, [id])
   const project = mapProject(rows?.[0])
   await query(
     'INSERT INTO evm_master (project_id, phases, statuses, non_working_days, hours_per_day, phase_report_notes, assignee_report_notes, percent_done_options, issue_import_map) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)',
@@ -427,7 +423,7 @@ export async function updateEvmProject(projectId: string, updates: Partial<EVMPr
     vals.push(projectId)
     await query(`UPDATE projects SET ${setCols.join(', ')} WHERE id = ?`, vals)
   }
-  const rows = await query<Record<string, unknown>[]>(`${PROJECT_SELECT_SQL} WHERE id = ?`, [projectId])
+  const rows = await query<Record<string, unknown>>(`${PROJECT_SELECT_SQL} WHERE id = ?`, [projectId])
   if (!rows?.[0]) throw new Error('Project not found')
   return mapProject(rows[0])
 }
@@ -451,7 +447,7 @@ async function maybeSyncWbsDetailFromAc(projectId: string, ac: ACRow): Promise<v
   const feature = (ac.feature ?? '').trim()
   const task = (ac.task ?? ac.workContents ?? '').trim()
   if (!task) return
-  const candidates = (await query<Record<string, unknown>[]>(
+  const candidates = (await query<Record<string, unknown>>(
     `SELECT id, actual_start_date, actual_end_date, progress FROM evm_wbs_details WHERE project_id = ?
      AND COALESCE(phase,'') = ? AND COALESCE(category,'') = ? AND COALESCE(feature,'') = ?
      AND COALESCE(task,'') = ?`,
@@ -503,7 +499,7 @@ async function assertPredecessorValidTx(exec: SqlExec, projectId: string, rowNo:
 
 export async function createWbsRowsBatch(projectId: string, rows: WbsDetailInput[]): Promise<WBSRow[]> {
   if (rows.length === 0) return []
-  const result = await withTransaction(async tx => {
+  const result = await withTransaction(async (tx, _exec) => {
     const maxRows = (await tx('SELECT COALESCE(MAX(no), 0) as max_no FROM evm_wbs_details WHERE project_id = ?', [projectId])) as Record<string, unknown>[]
     let no = ((maxRows?.[0]?.max_no as number) ?? 0) + 1
     const ids: string[] = []
@@ -580,7 +576,7 @@ async function findOrCreateWbsMasterIdTx(tx: TxFn, projectId: string, phase?: st
 }
 
 export async function createWbsRow(projectId: string, row: WbsDetailInput): Promise<WBSRow> {
-  const created = await withTransaction(async tx => {
+  const created = await withTransaction(async (tx, _exec) => {
     const maxRows = (await tx('SELECT COALESCE(MAX(no), 0) as max_no FROM evm_wbs_details WHERE project_id = ?', [projectId])) as Record<string, unknown>[]
     const no = ((maxRows?.[0]?.max_no as number) ?? 0) + 1
     const id = randomUuidV7()
@@ -623,7 +619,7 @@ export async function createWbsRow(projectId: string, row: WbsDetailInput): Prom
 }
 
 export async function updateWbsRow(id: string, updates: Partial<WBSRow>): Promise<WBSRow> {
-  const pre = (await query<Record<string, unknown>[]>(`SELECT project_id, no, predecessor, phase, category, feature, wbs_note FROM evm_wbs_details WHERE id = ?`, [id])) as Record<
+  const pre = (await query<Record<string, unknown>>(`SELECT project_id, no, predecessor, phase, category, feature, wbs_note FROM evm_wbs_details WHERE id = ?`, [id])) as Record<
     string,
     unknown
   >[]
@@ -641,7 +637,7 @@ export async function updateWbsRow(id: string, updates: Partial<WBSRow>): Promis
   const explicitMaster = updates.masterId !== undefined
   let remappedMasterId: string | null = null
   if (masterGroupKeyTouched && !explicitMaster) {
-    remappedMasterId = await withTransaction(async tx => findOrCreateWbsMasterIdTx(tx, projectId, mergedPhase, mergedCategory))
+    remappedMasterId = await withTransaction(async (tx, _exec) => findOrCreateWbsMasterIdTx(tx, projectId, mergedPhase, mergedCategory))
   }
 
   const cols: string[] = []
@@ -704,7 +700,7 @@ export async function updateWbsRow(id: string, updates: Partial<WBSRow>): Promis
     vals.push(id)
     await query(`UPDATE evm_wbs_details SET ${cols.join(', ')} WHERE id = ?`, vals)
   }
-  const rows = await query<Record<string, unknown>[]>(
+  const rows = await query<Record<string, unknown>>(
     `SELECT w.*, ts.name as status_name, u.name as assignee_name FROM evm_wbs_details w
      LEFT JOIN task_statuses ts ON w.status = ts.code LEFT JOIN users u ON w.assignee_user_id = u.id WHERE w.id = ?`,
     [id]
@@ -766,13 +762,13 @@ export async function updateWbsMasterRow(masterId: string, updates: WbsMasterUpd
     ])
   }
 
-  const mrows = await query<Record<string, unknown>[]>(
+  const mrows = await query<Record<string, unknown>>(
     `SELECT m.*, u.name as assignee_name FROM evm_wbs_master m
      LEFT JOIN users u ON m.assignee_user_id = u.id WHERE m.id = ?`,
     [masterId]
   )
   if (!mrows?.[0]) throw new Error('WBS master not found')
-  const drows = await query<Record<string, unknown>[]>(
+  const drows = await query<Record<string, unknown>>(
     `SELECT w.*, ts.name as status_name, u.name as assignee_name FROM evm_wbs_details w
      LEFT JOIN task_statuses ts ON w.status = ts.code
      LEFT JOIN users u ON w.assignee_user_id = u.id
@@ -786,7 +782,7 @@ export async function updateWbsMasterRow(masterId: string, updates: WbsMasterUpd
 }
 
 export async function deleteWbsRow(id: string): Promise<void> {
-  await withTransaction(async tx => {
+  await withTransaction(async (tx, _exec) => {
     type Snap = { id: string; no: number; predecessor: number | null }
     const hit = (await tx('SELECT project_id FROM evm_wbs_details WHERE id = ?', [id])) as Record<string, unknown>[]
     if (!hit?.[0]) return
@@ -836,7 +832,7 @@ export async function deleteWbsRow(id: string): Promise<void> {
 }
 
 export async function createAcRow(projectId: string, row: Omit<ACRow, 'id' | 'projectId' | 'no'>): Promise<ACRow> {
-  const created = await withTransaction(async tx => {
+  const created = await withTransaction(async (tx, _exec) => {
     const maxRows = (await tx('SELECT COALESCE(MAX(no), 0) as max_no FROM evm_ac WHERE project_id = ?', [projectId])) as Record<string, unknown>[]
     const no = ((maxRows?.[0]?.max_no as number) ?? 0) + 1
     const id = randomUuidV7()
@@ -871,7 +867,7 @@ export async function createAcRow(projectId: string, row: Omit<ACRow, 'id' | 'pr
 
 export async function createAcRowsBatch(projectId: string, rows: Omit<ACRow, 'id' | 'projectId' | 'no'>[]): Promise<ACRow[]> {
   if (rows.length === 0) return []
-  const created = await withTransaction(async tx => {
+  const created = await withTransaction(async (tx, _exec) => {
     const maxRows = (await tx('SELECT COALESCE(MAX(no), 0) as max_no FROM evm_ac WHERE project_id = ?', [projectId])) as Record<string, unknown>[]
     let no = ((maxRows?.[0]?.max_no as number) ?? 0) + 1
     const ids: string[] = []
@@ -911,11 +907,11 @@ export async function createAcRowsBatch(projectId: string, rows: Omit<ACRow, 'id
 
 /** Phase: ưu tiên bảng evm_phases; fallback JSON evm_master. */
 export async function getEvmMasterPhases(projectId: string): Promise<{ code: string; name?: string }[]> {
-  const tableRows = await query<{ code: string; name: string }[]>('SELECT code, name FROM evm_phases WHERE project_id = ? ORDER BY sort_order ASC, code ASC', [projectId])
+  const tableRows = await query<{ code: string; name: string }>('SELECT code, name FROM evm_phases WHERE project_id = ? ORDER BY sort_order ASC, code ASC', [projectId])
   if (tableRows?.length) {
     return tableRows.map(r => ({ code: r.code, name: r.name }))
   }
-  const rows = await query<Record<string, unknown>[]>('SELECT phases FROM evm_master WHERE project_id = ?', [projectId])
+  const rows = await query<Record<string, unknown>>('SELECT phases FROM evm_master WHERE project_id = ?', [projectId])
   const raw = rows?.[0]?.phases
   const phases = (raw as unknown[]) ?? DEFAULT_PHASES
   if (!Array.isArray(phases) || phases.length === 0) {
@@ -1000,7 +996,7 @@ export async function updateAcRow(id: string, updates: Omit<Partial<ACRow>, 'per
     vals.push(id)
     await query(`UPDATE evm_ac SET ${cols.join(', ')} WHERE id = ?`, vals)
   }
-  const rows = await query<Record<string, unknown>[]>('SELECT * FROM evm_ac WHERE id = ?', [id])
+  const rows = await query<Record<string, unknown>>('SELECT * FROM evm_ac WHERE id = ?', [id])
   if (!rows?.[0]) throw new Error('AC row not found')
   const ac = mapAc(rows[0])
   await maybeSyncWbsDetailFromAc(String(ac.projectId), ac)
@@ -1008,11 +1004,11 @@ export async function updateAcRow(id: string, updates: Omit<Partial<ACRow>, 'per
 }
 
 export async function deleteAcRow(id: string): Promise<void> {
-  const rows = await query<Record<string, unknown>[]>('SELECT project_id FROM evm_ac WHERE id = ?', [id])
+  const rows = await query<Record<string, unknown>>('SELECT project_id FROM evm_ac WHERE id = ?', [id])
   const projectId = rows?.[0] ? String(rows[0].project_id) : null
   await query('DELETE FROM evm_ac WHERE id = ?', [id])
   if (projectId) {
-    const remaining = await query<Record<string, unknown>[]>('SELECT id FROM evm_ac WHERE project_id = ? ORDER BY no', [projectId])
+    const remaining = await query<Record<string, unknown>>('SELECT id FROM evm_ac WHERE project_id = ? ORDER BY no', [projectId])
     const rem = (remaining ?? []) as { id: string }[]
     if (rem.length > 0) {
       const caseParts = rem.map(() => 'WHEN ?::text THEN ?::integer').join(' ')
@@ -1023,7 +1019,7 @@ export async function deleteAcRow(id: string): Promise<void> {
 }
 
 export async function updateMaster(projectId: string, updates: EVMMasterUpdatePayload): Promise<EVMMaster> {
-  const existing = await query<Record<string, unknown>[]>('SELECT * FROM evm_master WHERE project_id = ?', [projectId])
+  const existing = await query<Record<string, unknown>>('SELECT * FROM evm_master WHERE project_id = ?', [projectId])
   const phases = updates.phases ?? (existing?.[0] ? (existing[0].phases as unknown) : DEFAULT_PHASES)
   const statuses = updates.statuses ?? (existing?.[0] ? (existing[0].statuses as unknown) : DEFAULT_STATUSES)
   const nonWorkingDays = updates.nonWorkingDays ?? (existing?.[0] ? (existing[0].non_working_days as unknown) : [])
@@ -1077,7 +1073,7 @@ export async function updateMaster(projectId: string, updates: EVMMasterUpdatePa
     )
     await syncEvmPhasesTableFromPhasesJson(projectId, phases)
   }
-  const rows = await query<Record<string, unknown>[]>('SELECT * FROM evm_master WHERE project_id = ?', [projectId])
+  const rows = await query<Record<string, unknown>>('SELECT * FROM evm_master WHERE project_id = ?', [projectId])
   const row = rows?.[0]
   if (!row) throw new Error('evm_master row missing after update')
   return attachProjectAssignees(mapMaster(row), projectId)
@@ -1085,9 +1081,9 @@ export async function updateMaster(projectId: string, updates: EVMMasterUpdatePa
 
 /** Thay thế toàn bộ ô ngày của một dòng WBS (sau khi đổi plan). */
 export async function replaceWbsDayUnitsForWbs(projectId: string, wbsId: string, entries: { workDate: string; unit: number }[]): Promise<void> {
-  const ok = await query<{ id: string }[]>('SELECT id FROM evm_wbs_details WHERE project_id = ? AND id = ? LIMIT 1', [projectId, wbsId])
+  const ok = await query<{ id: string }>('SELECT id FROM evm_wbs_details WHERE project_id = ? AND id = ? LIMIT 1', [projectId, wbsId])
   if (!ok?.length) throw new Error('WBS row not in project')
-  await withTransaction(async tx => {
+  await withTransaction(async (tx, _exec) => {
     await tx('DELETE FROM evm_wbs_day_unit WHERE wbs_id = ?', [wbsId])
     for (const e of entries) {
       if (!Number.isFinite(e.unit) || e.unit <= 0) continue
@@ -1139,7 +1135,7 @@ export async function insertEvmAiInsight(input: { projectId: string; insightType
     input.outputMarkdown,
     payload,
   ])
-  const insRows = await query<Record<string, unknown>[]>('SELECT id, project_id, insight_type, output_markdown, input_payload_json, created_at FROM evm_ai_insight WHERE id = ?', [
+  const insRows = await query<Record<string, unknown>>('SELECT id, project_id, insight_type, output_markdown, input_payload_json, created_at FROM evm_ai_insight WHERE id = ?', [
     id,
   ])
   const row = insRows?.[0]
@@ -1158,6 +1154,6 @@ export async function listEvmAiInsights(projectId: string, insightType?: string,
   }
   // Không bind LIMIT/OFFSET vào một số query — ép literal (tránh edge case prepared statement/driver).
   sql += ` ORDER BY created_at DESC LIMIT ${lim} OFFSET ${off}`
-  const rows = await query<Record<string, unknown>[]>(sql, params)
+  const rows = await query<Record<string, unknown>>(sql, params)
   return (rows ?? []).map(mapEvmAiInsightRow)
 }

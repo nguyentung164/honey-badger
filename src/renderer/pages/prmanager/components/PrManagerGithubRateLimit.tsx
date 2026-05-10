@@ -24,8 +24,7 @@ function rateColorClass(remaining: number, limit: number): string {
   return 'text-emerald-600 dark:text-emerald-400'
 }
 
-const badgeClass =
-  'flex max-w-[180px] cursor-default items-center gap-1.5 rounded border border-border/60 bg-muted/50 px-2 py-1 text-xs tabular-nums leading-tight shadow-sm'
+const badgeClass = 'flex max-w-[180px] cursor-default items-center gap-1.5 rounded border border-border/60 bg-muted/50 px-2 py-1 text-xs tabular-nums leading-tight shadow-sm'
 
 type Props = { tokenStatus: TokenSt }
 
@@ -37,8 +36,7 @@ export function PrManagerGithubRateLimit({ tokenStatus }: Props) {
   const tokenOk = tokenStatus?.ok === true
   const dateLoc = getDateFnsLocale(i18n.language)
 
-  const formatReset = (sec: number): string =>
-    new Date(sec * 1000).toLocaleString(i18n.language || 'en', { dateStyle: 'short', timeStyle: 'medium' })
+  const formatReset = (sec: number): string => new Date(sec * 1000).toLocaleString(i18n.language || 'en', { dateStyle: 'short', timeStyle: 'medium' })
 
   const textUntilReset = (resetSec: number, n: number): string => {
     const target = resetSec * 1000
@@ -150,26 +148,24 @@ export function PrManagerGithubRateLimit({ tokenStatus }: Props) {
               {t('prManager.rateLimit.afterWindow')}
             </p>
             <div>
-              <span className="font-medium">{t('prManager.rateLimit.restCore')}</span>{' '}
-              {data.core.remaining.toLocaleString(i18n.language)}/{data.core.limit.toLocaleString(i18n.language)} (
-              {t('prManager.rateLimit.used')} {data.core.used.toLocaleString(i18n.language)}). {t('prManager.rateLimit.nextReset')}{' '}
+              <span className="font-medium">{t('prManager.rateLimit.restCore')}</span> {data.core.remaining.toLocaleString(i18n.language)}/
+              {data.core.limit.toLocaleString(i18n.language)} ({t('prManager.rateLimit.used')} {data.core.used.toLocaleString(i18n.language)}). {t('prManager.rateLimit.nextReset')}{' '}
               {formatReset(data.core.reset)} ({textUntilReset(data.core.reset, now)}).
             </div>
             {data.search ? (
               <div>
-                <span className="font-medium">{t('prManager.rateLimit.search')}</span> {data.search.remaining}/{data.search.limit}.{' '}
-                {t('prManager.rateLimit.reset')} {formatReset(data.search.reset)} ({textUntilReset(data.search.reset, now)}).
+                <span className="font-medium">{t('prManager.rateLimit.search')}</span> {data.search.remaining}/{data.search.limit}. {t('prManager.rateLimit.reset')}{' '}
+                {formatReset(data.search.reset)} ({textUntilReset(data.search.reset, now)}).
               </div>
             ) : null}
             {data.graphql ? (
               <div>
-                <span className="font-medium">{t('prManager.rateLimit.graphql')}</span> {data.graphql.remaining}/{data.graphql.limit}.{' '}
-                {t('prManager.rateLimit.reset')} {formatReset(data.graphql.reset)} ({textUntilReset(data.graphql.reset, now)}).
+                <span className="font-medium">{t('prManager.rateLimit.graphql')}</span> {data.graphql.remaining}/{data.graphql.limit}. {t('prManager.rateLimit.reset')}{' '}
+                {formatReset(data.graphql.reset)} ({textUntilReset(data.graphql.reset, now)}).
               </div>
             ) : null}
             <p className="text-[10px] text-muted-foreground">
-              {t('prManager.rateLimit.fetchedEvery')}{' '}
-              {new Date(now).toLocaleTimeString(i18n.language, { timeStyle: 'medium' })}).
+              {t('prManager.rateLimit.fetchedEvery')} {new Date(now).toLocaleTimeString(i18n.language, { timeStyle: 'medium' })}).
             </p>
           </div>
         ) : (

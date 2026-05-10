@@ -65,9 +65,7 @@ export function CommitMessagePicker({ owner, repo, prNumber, head, onPick, varia
     <div className={cn('w-full min-w-0 max-w-full space-y-2', className)}>
       <div className="flex items-center justify-between">
         <span className="text-xs text-muted-foreground">
-          {prNumber
-            ? t('prManager.commitMessagePicker.commitsInPr', { count: commits.length, prNumber })
-            : t('prManager.commitMessagePicker.latestOnBranch')}
+          {prNumber ? t('prManager.commitMessagePicker.commitsInPr', { count: commits.length, prNumber }) : t('prManager.commitMessagePicker.latestOnBranch')}
         </span>
         <Button variant="ghost" size="sm" onClick={load} disabled={loading} className="h-6 gap-1 text-xs">
           {loading ? <Loader2 className="h-3 w-3 animate-spin" /> : <RefreshCw className="h-3 w-3" />}
@@ -81,18 +79,13 @@ export function CommitMessagePicker({ owner, repo, prNumber, head, onPick, varia
         )}
       >
         <div className="w-full min-w-0 divide-y">
-          {commits.length === 0 && !loading && (
-            <div className="p-3 text-xs text-muted-foreground">{t('prManager.commitMessagePicker.noCommits')}</div>
-          )}
+          {commits.length === 0 && !loading && <div className="p-3 text-xs text-muted-foreground">{t('prManager.commitMessagePicker.noCommits')}</div>}
           {commits.map(c => {
             const isSelected = selectedSha === c.sha
             return (
               <div
                 key={c.sha}
-                className={cn(
-                  'flex w-full min-w-0 max-w-full items-start gap-2 px-3 py-2 text-xs transition-colors hover:bg-muted/60',
-                  isSelected && 'bg-primary/10'
-                )}
+                className={cn('flex w-full min-w-0 max-w-full items-start gap-2 px-3 py-2 text-xs transition-colors hover:bg-muted/60', isSelected && 'bg-primary/10')}
               >
                 <button
                   type="button"
@@ -110,9 +103,7 @@ export function CommitMessagePicker({ owner, repo, prNumber, head, onPick, varia
                     {isSelected && <Check className="h-3 w-3" />}
                   </div>
                   <div className="min-w-0 max-w-full flex-1 overflow-hidden text-left">
-                    <div className="line-clamp-2 break-words font-medium [overflow-wrap:anywhere] [word-break:break-word]">
-                      {c.message.split('\n')[0]}
-                    </div>
+                    <div className="line-clamp-2 break-words font-medium [overflow-wrap:anywhere] [word-break:break-word]">{c.message.split('\n')[0]}</div>
                     <div className="mt-0.5 flex min-w-0 items-center gap-2 font-mono text-[10px] text-muted-foreground">
                       <span className="shrink-0">{c.sha.substring(0, 7)}</span>
                       {c.author && (

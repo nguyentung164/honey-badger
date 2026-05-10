@@ -3,8 +3,8 @@
 import { Search, Trash2, User, UserPlus } from 'lucide-react'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { Button } from '@/components/ui/button'
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar'
+import { Button } from '@/components/ui/button'
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -33,7 +33,17 @@ interface ProjectMembersDialogProps {
   canManageDev?: boolean
 }
 
-export function ProjectMembersDialog({ open, onOpenChange, projectId, projectName, users, onSuccess, canManagePl: canManagePlProp, canManagePm: canManagePmProp, canManageDev: canManageDevProp }: ProjectMembersDialogProps) {
+export function ProjectMembersDialog({
+  open,
+  onOpenChange,
+  projectId,
+  projectName,
+  users,
+  onSuccess,
+  canManagePl: canManagePlProp,
+  canManagePm: canManagePmProp,
+  canManageDev: canManageDevProp,
+}: ProjectMembersDialogProps) {
   const { t } = useTranslation()
   const buttonVariant = useAppearanceStoreSelect(s => s.buttonVariant)
   const token = useTaskAuthStore(s => s.token)
@@ -55,8 +65,7 @@ export function ProjectMembersDialog({ open, onOpenChange, projectId, projectNam
   /** Tăng mỗi lần bắt đầu load mới; response cũ (race với thêm/xóa member) không được apply. */
   const membersFetchGen = useRef(0)
 
-  const resolveAvatarSrc = (userId: string) =>
-    userId === currentUser?.id ? (currentUser?.avatarUrl ?? avatarUrls[userId] ?? null) : (avatarUrls[userId] ?? null)
+  const resolveAvatarSrc = (userId: string) => (userId === currentUser?.id ? (currentUser?.avatarUrl ?? avatarUrls[userId] ?? null) : (avatarUrls[userId] ?? null))
 
   useEffect(() => {
     if (!open) {
@@ -81,26 +90,29 @@ export function ProjectMembersDialog({ open, onOpenChange, projectId, projectNam
     membersFetchGen.current += 1
     const gen = membersFetchGen.current
     setIsLoading(true)
-    return window.api.task.getProjectMembers(projectId).then(res => {
-      if (gen !== membersFetchGen.current) return
-      if (res.status === 'success' && res.data) {
-        setPls(res.data.pls ?? [])
-        setDevs(res.data.devs ?? [])
-        setPms(res.data.pms ?? [])
-        setCanManagePl(isAdmin || canManagePlProp || (res.data.canManagePl ?? false))
-        setCanManagePm(isAdmin || canManagePmProp || (res.data.canManagePm ?? false))
-        setCanManageDev(isAdmin || canManageDevProp || (res.data.canManageDev ?? false))
-      } else {
-        setPls([])
-        setDevs([])
-        setPms([])
-        setCanManagePl(isAdmin || (canManagePlProp ?? false))
-        setCanManagePm(isAdmin || (canManagePmProp ?? false))
-        setCanManageDev(isAdmin || (canManageDevProp ?? false))
-      }
-    }).finally(() => {
-      if (gen === membersFetchGen.current) setIsLoading(false)
-    })
+    return window.api.task
+      .getProjectMembers(projectId)
+      .then(res => {
+        if (gen !== membersFetchGen.current) return
+        if (res.status === 'success' && res.data) {
+          setPls(res.data.pls ?? [])
+          setDevs(res.data.devs ?? [])
+          setPms(res.data.pms ?? [])
+          setCanManagePl(isAdmin || canManagePlProp || (res.data.canManagePl ?? false))
+          setCanManagePm(isAdmin || canManagePmProp || (res.data.canManagePm ?? false))
+          setCanManageDev(isAdmin || canManageDevProp || (res.data.canManageDev ?? false))
+        } else {
+          setPls([])
+          setDevs([])
+          setPms([])
+          setCanManagePl(isAdmin || (canManagePlProp ?? false))
+          setCanManagePm(isAdmin || (canManagePmProp ?? false))
+          setCanManageDev(isAdmin || (canManageDevProp ?? false))
+        }
+      })
+      .finally(() => {
+        if (gen === membersFetchGen.current) setIsLoading(false)
+      })
   }, [projectId, isAdmin, canManagePlProp, canManagePmProp, canManageDevProp])
 
   useEffect(() => {
@@ -334,7 +346,8 @@ export function ProjectMembersDialog({ open, onOpenChange, projectId, projectNam
           <div className="flex flex-col gap-1.5 min-h-0 flex-1">
             <div className="flex items-center gap-2 text-xs font-medium text-muted-foreground uppercase tracking-wider shrink-0">
               <User className="h-3.5 w-3.5" />
-              {t('taskManagement.currentMembers', 'Thành viên hiện tại')} ({filteredMembers.length}{members.length !== filteredMembers.length ? `/${members.length}` : ''})
+              {t('taskManagement.currentMembers', 'Thành viên hiện tại')} ({filteredMembers.length}
+              {members.length !== filteredMembers.length ? `/${members.length}` : ''})
             </div>
             <div className="relative shrink-0">
               <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground" />
@@ -350,22 +363,15 @@ export function ProjectMembersDialog({ open, onOpenChange, projectId, projectNam
                 {filteredMembers.length === 0 ? (
                   <div className="flex flex-col items-center justify-center py-8 text-center text-muted-foreground">
                     <User className="h-8 w-8 opacity-40 mb-1" />
-                    <span className="text-xs">
-                      {members.length === 0 ? t('taskManagement.noMembers', 'Chưa có') : t('taskManagement.noSearchResults', 'Không tìm thấy')}
-                    </span>
+                    <span className="text-xs">{members.length === 0 ? t('taskManagement.noMembers', 'Chưa có') : t('taskManagement.noSearchResults', 'Không tìm thấy')}</span>
                   </div>
                 ) : (
                   filteredMembers.map(m => {
                     const memberAvatarSrc = resolveAvatarSrc(m.userId)
                     return (
-                      <div
-                        key={m.userId}
-                        className="flex items-center gap-2 rounded-md px-2 py-1.5 bg-background hover:bg-muted/50 transition-colors group"
-                      >
+                      <div key={m.userId} className="flex items-center gap-2 rounded-md px-2 py-1.5 bg-background hover:bg-muted/50 transition-colors group">
                         <Avatar className="h-7 w-7 shrink-0">
-                          {memberAvatarSrc ? (
-                            <AvatarImage src={memberAvatarSrc} alt={m.name} className="object-cover" />
-                          ) : null}
+                          {memberAvatarSrc ? <AvatarImage src={memberAvatarSrc} alt={m.name} className="object-cover" /> : null}
                           <AvatarFallback className="bg-primary/10 text-primary text-xs font-medium">{getInitials(m.name)}</AvatarFallback>
                         </Avatar>
                         <div className="flex-1 min-w-0">
@@ -396,12 +402,11 @@ export function ProjectMembersDialog({ open, onOpenChange, projectId, projectNam
             <div className="flex flex-col gap-1.5 min-h-0 flex-1">
               <div className="flex items-center gap-2 text-xs font-medium text-muted-foreground uppercase tracking-wider shrink-0">
                 <UserPlus className="h-3.5 w-3.5" />
-                {t('taskManagement.availableToAdd', 'Chưa có - thêm vào')} ({filteredAvailable.length}{availableUsers.length !== filteredAvailable.length ? `/${availableUsers.length}` : ''})
+                {t('taskManagement.availableToAdd', 'Chưa có - thêm vào')} ({filteredAvailable.length}
+                {availableUsers.length !== filteredAvailable.length ? `/${availableUsers.length}` : ''})
               </div>
               {availableUsers.length === 0 ? (
-                <div className="rounded-lg border border-dashed py-4 text-center text-xs text-muted-foreground shrink-0">
-                  {t('taskManagement.allMembersAdded', 'Đã thêm hết')}
-                </div>
+                <div className="rounded-lg border border-dashed py-4 text-center text-xs text-muted-foreground shrink-0">{t('taskManagement.allMembersAdded', 'Đã thêm hết')}</div>
               ) : (
                 <>
                   <div className="relative shrink-0">
@@ -437,9 +442,7 @@ export function ProjectMembersDialog({ open, onOpenChange, projectId, projectNam
                               )}
                             >
                               <Avatar className="h-7 w-7 shrink-0">
-                                {availAvatarSrc ? (
-                                  <AvatarImage src={availAvatarSrc} alt={u.name} className="object-cover" />
-                                ) : null}
+                                {availAvatarSrc ? <AvatarImage src={availAvatarSrc} alt={u.name} className="object-cover" /> : null}
                                 <AvatarFallback className="bg-muted text-muted-foreground text-xs font-medium">{getInitials(u.name)}</AvatarFallback>
                               </Avatar>
                               <div className="flex-1 min-w-0">

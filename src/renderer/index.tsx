@@ -1,5 +1,5 @@
-import ReactDom from 'react-dom/client'
 import { Component, type ErrorInfo, type ReactNode } from 'react'
+import ReactDom from 'react-dom/client'
 import './lib/i18n'
 import { setupElectronLogFormat } from './lib/electronLogSetup'
 import { initSyncUiSettings } from './lib/syncUiSettings'
@@ -52,16 +52,15 @@ function App() {
   )
 }
 
-const rootEl = document.querySelector('app') as HTMLElement | null
+const rootEl = document.getElementById('app-root')
 if (!rootEl) {
-  console.error('[renderer] Thiếu thẻ <app> trong index.html')
+  console.error('[renderer] Thiếu #app-root trong index.html')
 } else if (typeof window.api === 'undefined') {
-  rootEl.innerHTML =
-    '<div style="padding:24px;font-family:system-ui">Không tải được preload (window.api). Kiểm tra log main / đường dẫn preload.</div>'
+  rootEl.innerHTML = '<div style="padding:24px;font-family:system-ui">Không tải được preload (window.api). Kiểm tra log main / đường dẫn preload.</div>'
 } else {
   ReactDom.createRoot(rootEl).render(
     <RootErrorBoundary>
       <App />
-    </RootErrorBoundary>,
+    </RootErrorBoundary>
   )
 }

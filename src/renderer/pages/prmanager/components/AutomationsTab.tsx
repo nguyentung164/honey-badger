@@ -195,14 +195,7 @@ export function AutomationsTab({ automations, repos, onRefresh }: Props) {
                     </TableCell>
                     <TableCell className="w-20 max-w-20 px-1">
                       <div className="flex items-center justify-center gap-0.5">
-                        <Button
-                          type="button"
-                          variant="ghost"
-                          size="icon"
-                          onClick={() => openEdit(a)}
-                          className="h-7 w-7"
-                          aria-label={t('prManager.automations.edit')}
-                        >
+                        <Button type="button" variant="ghost" size="icon" onClick={() => openEdit(a)} className="h-7 w-7" aria-label={t('prManager.automations.edit')}>
                           <Pencil className="h-3.5 w-3.5" />
                         </Button>
                         <Button variant="ghost" size="icon" onClick={() => setDeleteId(a.id)} className="h-7 w-7 text-destructive">
@@ -286,11 +279,7 @@ export function AutomationsTab({ automations, repos, onRefresh }: Props) {
 
             <div className="space-y-1">
               <Label className="text-xs">{t('prManager.automations.prTitleTemplate')}</Label>
-              <Input
-                value={prTitleTpl}
-                onChange={e => setPrTitleTpl(e.target.value)}
-                placeholder="{chainedPrTitle}"
-              />
+              <Input value={prTitleTpl} onChange={e => setPrTitleTpl(e.target.value)} placeholder="{chainedPrTitle}" />
               <p className="text-[10px] text-muted-foreground">
                 {t('prManager.automations.prTitleTemplateHint', {
                   chainedPrTitle: '{chainedPrTitle}',
@@ -305,12 +294,7 @@ export function AutomationsTab({ automations, repos, onRefresh }: Props) {
 
             <div className="space-y-1">
               <Label className="text-xs">{t('prManager.automations.prBodyTemplate')}</Label>
-              <Textarea
-                value={prBodyTpl}
-                onChange={e => setPrBodyTpl(e.target.value)}
-                placeholder={t('prManager.automations.prBodyPh')}
-                className="min-h-[90px]"
-              />
+              <Textarea value={prBodyTpl} onChange={e => setPrBodyTpl(e.target.value)} placeholder={t('prManager.automations.prBodyPh')} className="min-h-[90px]" />
             </div>
 
             <div className="flex items-center gap-2 text-sm">

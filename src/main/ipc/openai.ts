@@ -2,16 +2,15 @@ import Anthropic from '@anthropic-ai/sdk'
 import { GoogleGenAI } from '@google/genai'
 import { ipcMain } from 'electron'
 import l from 'electron-log'
-import { IPC } from 'main/constants'
 import type { AiFeatureId } from 'main/constants'
+import { IPC } from 'main/constants'
 import OpenAI from 'openai'
 import { estimateCostUsd, type NormalizedUsage } from '../ai/aiPricing'
-import configurationStore from '../store/ConfigurationStore'
 import type { ApiProvider } from '../store/ConfigurationStore'
+import configurationStore from '../store/ConfigurationStore'
 import { appendAiUsageEvent } from '../task/aiUsageDb'
-import { getTokenFromStore } from '../task/auth'
-import { getCodingRuleContentByIdOrName } from '../task/pgTaskStore'
-import { verifyToken } from '../task/auth'
+import { getTokenFromStore, verifyToken } from '../task/auth'
+import { getCodingRuleContentByIdOrName } from '../task/stores/pgTaskStore'
 
 type AiCallSuccess = {
   text: string
@@ -20,12 +19,7 @@ type AiCallSuccess = {
   provider: ApiProvider
 }
 
-async function callOpenAI(
-  prompt: string,
-  apiKey: string,
-  modelArg?: string,
-  reasoningEffort?: 'low' | 'medium' | 'high' | 'xhigh'
-): Promise<AiCallSuccess> {
+async function callOpenAI(prompt: string, apiKey: string, modelArg?: string, reasoningEffort?: 'low' | 'medium' | 'high' | 'xhigh'): Promise<AiCallSuccess> {
   const openai = new OpenAI({ apiKey })
   const model = modelArg?.trim() || 'gpt-5.4'
   const response = await openai.responses.create({
@@ -163,8 +157,7 @@ export function registerOpenAiIpcHandlers() {
           finalPrompt = prompt.replace('{coding_rules}', 'No specific coding rules provided.')
         }
 
-        const { openaiApiKey, claudeApiKey, googleApiKey, activeApiProvider, openaiModel, openaiReasoningEffort } =
-          configurationStore.store
+        const { openaiApiKey, claudeApiKey, googleApiKey, activeApiProvider, openaiModel, openaiReasoningEffort } = configurationStore.store
 
         const getApiKeyAndCall = (): Promise<AiCallSuccess | string> => {
           switch (activeApiProvider) {

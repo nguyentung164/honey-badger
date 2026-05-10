@@ -44,7 +44,7 @@ export const AddOrEditSourceFolderDialog = memo(function AddOrEditSourceFolderDi
   projectId = '',
   setProjectId,
   projectList = [],
-  isLoggedIn = false,
+  isLoggedIn: _isLoggedIn = false,
   showProjectInEditMode = true,
   onAdd,
   onUpdate,
@@ -100,7 +100,7 @@ export const AddOrEditSourceFolderDialog = memo(function AddOrEditSourceFolderDi
               <Label htmlFor="project" className="text-left">
                 {t('dialog.sourcefolder.project', 'Project')}
               </Label>
-              <Select value={projectId} onValueChange={setProjectId!}>
+              <Select value={projectId} onValueChange={id => setProjectId?.(id)}>
                 <SelectTrigger id="project" className={errorProject ? 'border-red-500' : ''}>
                   <SelectValue placeholder={t('dialog.sourcefolder.selectProject', 'Chọn project')} />
                 </SelectTrigger>

@@ -1,17 +1,10 @@
-import { useEffect } from "react"
-import { useLexicalComposerContext } from "@lexical/react/LexicalComposerContext"
-import {
-  $getSelection,
-  BaseSelection,
-  COMMAND_PRIORITY_CRITICAL,
-  SELECTION_CHANGE_COMMAND,
-} from "lexical"
+import { useLexicalComposerContext } from '@lexical/react/LexicalComposerContext'
+import { $getSelection, type BaseSelection, COMMAND_PRIORITY_CRITICAL, SELECTION_CHANGE_COMMAND } from 'lexical'
+import { useEffect } from 'react'
 
-import { useToolbarContext } from "@/components/editor/context/toolbar-context"
+import { useToolbarContext } from '@/components/editor/context/toolbar-context'
 
-export function useUpdateToolbarHandler(
-  callback: (selection: BaseSelection) => void
-) {
+export function useUpdateToolbarHandler(callback: (selection: BaseSelection) => void) {
   const [editor] = useLexicalComposerContext()
   const { activeEditor } = useToolbarContext()
 

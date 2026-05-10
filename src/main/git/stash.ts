@@ -82,9 +82,7 @@ export async function stashList(cwd?: string): Promise<GitStashResponse> {
 
     const stashListResult = await git.stashList()
     const rawAll = stashListResult.all ?? []
-    const data = Array.isArray(rawAll)
-      ? rawAll.map((entry: Record<string, unknown>, i: number) => normalizeStashEntry(entry, i))
-      : []
+    const data = Array.isArray(rawAll) ? rawAll.map((entry: Record<string, unknown>, i: number) => normalizeStashEntry(entry, i)) : []
 
     l.info('Stash list fetched successfully')
     return {
@@ -103,12 +101,7 @@ export async function stashList(cwd?: string): Promise<GitStashResponse> {
 /** Detect if git error indicates merge conflict (e.g. stash pop with conflicts). */
 function isStashConflictError(error: unknown): boolean {
   const msg = (error instanceof Error ? error.message : String(error)).toLowerCase()
-  return (
-    msg.includes('conflict') ||
-    msg.includes('unmerged') ||
-    msg.includes('cannot merge') ||
-    msg.includes('merge conflict')
-  )
+  return msg.includes('conflict') || msg.includes('unmerged') || msg.includes('cannot merge') || msg.includes('merge conflict')
 }
 
 export async function stashPop(stashIndex: number = 0, options?: { index?: boolean }, cwd?: string): Promise<GitStashResponse> {

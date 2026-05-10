@@ -1,6 +1,6 @@
+import { hasDbConfig, query } from '../schema/db'
 import { ACHIEVEMENT_DEFINITIONS, type AchievementDefinition } from './achievementDefs'
 import { invalidateAchievementDefsCache } from './achievementStore'
-import { hasDbConfig, query } from './db'
 
 export type { AchievementDefinition }
 export { ACHIEVEMENT_DEFINITIONS }
@@ -18,7 +18,7 @@ export async function seedAchievements(): Promise<void> {
     for (let i = 0; i < defs.length; i += BATCH_SIZE) {
       const batch = defs.slice(i, i + BATCH_SIZE)
       const valuesSql = batch.map(() => rowPlaceholder).join(', ')
-      const params = batch.flatMap((def) => [
+      const params = batch.flatMap(def => [
         def.code,
         def.category,
         def.tier,

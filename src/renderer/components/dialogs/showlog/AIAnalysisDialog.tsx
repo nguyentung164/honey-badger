@@ -11,8 +11,8 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Dialog, DialogContent } from '@/components/ui/dialog'
 import { OverlayLoader } from '@/components/ui-elements/OverlayLoader'
 import toast from '@/components/ui-elements/Toast'
-import i18n from '@/lib/i18n'
 import { getDateFnsLocale, getDateOnlyPattern, getDateTimeDisplayPattern } from '@/lib/dateUtils'
+import i18n from '@/lib/i18n'
 import logger from '@/services/logger'
 import { useConfigurationStore } from '@/stores/useConfigurationStore'
 
@@ -464,9 +464,7 @@ export function AIAnalysisDialog({ data, isOpen, onOpenChange, filePath, dateRan
                       remarkRehypeOptions={{ allowDangerousHtml: true }}
                       rehypePlugins={[rehypeRaw]}
                       components={{
-                        a: ({ node, href, ...props }) => (
-                          <span {...props} style={{ cursor: 'default', pointerEvents: 'none' }} />
-                        ),
+                        a: ({ node, href, ...props }) => <span {...props} style={{ cursor: 'default', pointerEvents: 'none' }} />,
                       }}
                     >
                       {analysis.summary}

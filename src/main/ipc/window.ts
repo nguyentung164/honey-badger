@@ -8,7 +8,7 @@ import { closeSingletonWindow, focusSingletonWindow, registerSingletonWindow } f
 import { getWindowBackgroundColor } from 'main/utils/windowBackground'
 import { ENVIRONMENT, PR_MANAGER_RENDERER_CHANNELS } from 'shared/constants'
 import { getCommitDiff } from '../git/diff'
-import { onSpotBugs } from '../task/achievementService'
+import { onSpotBugs } from '../task/achievement/achievementService'
 import { getTokenFromStore, verifyToken } from '../task/auth'
 import { parseSpotBugsResult, runSpotBugs } from '../utils/spotbugs'
 

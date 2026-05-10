@@ -80,25 +80,17 @@ export const LinkFolderToProjectDialog = memo(function LinkFolderToProjectDialog
     }
   }
 
-  const folderLine =
-    folder != null
-      ? `${folder.name} — ${folder.path}`
-      : ''
+  const folderLine = folder != null ? `${folder.name} — ${folder.path}` : ''
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="gap-0 p-4 sm:max-w-[min(100%,20rem)]">
         <DialogHeader className="space-y-1.5 pr-6">
           <DialogTitle className="text-base">{t('settings.versioncontrol.linkFolderToProject', 'Liên kết folder với project')}</DialogTitle>
           {folder && (
-            <DialogDescription
-              className="text-xs text-muted-foreground line-clamp-2 break-all"
-              title={folderLine}
-            >
+            <DialogDescription className="text-xs text-muted-foreground line-clamp-2 break-all" title={folderLine}>
               {folder.name}
               <span className="text-muted-foreground/80"> — </span>
-              <span className="font-mono text-[0.7rem] leading-snug text-muted-foreground/90">
-                {folder.path}
-              </span>
+              <span className="font-mono text-[0.7rem] leading-snug text-muted-foreground/90">{folder.path}</span>
             </DialogDescription>
           )}
         </DialogHeader>
@@ -108,13 +100,7 @@ export const LinkFolderToProjectDialog = memo(function LinkFolderToProjectDialog
               {t('dialog.sourcefolder.project', 'Project')}
             </Label>
             {onCreateProject && (
-              <Button
-                type="button"
-                variant="ghost"
-                size="sm"
-                className="h-6 shrink-0 px-1.5 text-xs gap-0.5"
-                onClick={() => setShowCreateInput(!showCreateInput)}
-              >
+              <Button type="button" variant="ghost" size="sm" className="h-6 shrink-0 px-1.5 text-xs gap-0.5" onClick={() => setShowCreateInput(!showCreateInput)}>
                 <Plus className="h-3 w-3" />
                 {t('dialog.sourcefolder.createNew', 'Tạo mới')}
               </Button>
@@ -130,12 +116,7 @@ export const LinkFolderToProjectDialog = memo(function LinkFolderToProjectDialog
                 onChange={e => setNewProjectName(e.target.value)}
                 onKeyDown={e => e.key === 'Enter' && handleCreateProject()}
               />
-              <Button
-                className="h-8 shrink-0 px-2 text-xs"
-                variant={variant}
-                onClick={handleCreateProject}
-                disabled={!newProjectName.trim() || isCreating}
-              >
+              <Button className="h-8 shrink-0 px-2 text-xs" variant={variant} onClick={handleCreateProject} disabled={!newProjectName.trim() || isCreating}>
                 {isCreating ? t('common.saving', 'Đang lưu...') : t('common.add')}
               </Button>
             </div>
@@ -143,7 +124,10 @@ export const LinkFolderToProjectDialog = memo(function LinkFolderToProjectDialog
             <Select
               key={effectiveProjectList.map(p => p.id).join(',')}
               value={projectId}
-              onValueChange={v => (setProjectId(v), setErrorProject(false))}
+              onValueChange={v => {
+                setProjectId(v)
+                setErrorProject(false)
+              }}
             >
               <SelectTrigger id="link-project" className={cn('h-8 w-full text-sm', errorProject && 'border-red-500')}>
                 <SelectValue placeholder={t('dialog.sourcefolder.selectProject', 'Chọn project')} />
@@ -157,25 +141,13 @@ export const LinkFolderToProjectDialog = memo(function LinkFolderToProjectDialog
               </SelectContent>
             </Select>
           )}
-          {errorProject && (
-            <p className="text-xs text-red-500 leading-tight">{t('dialog.sourcefolder.error.projectRequired', 'Vui lòng chọn project')}</p>
-          )}
+          {errorProject && <p className="text-xs text-red-500 leading-tight">{t('dialog.sourcefolder.error.projectRequired', 'Vui lòng chọn project')}</p>}
         </div>
         <DialogFooter className="mt-3 gap-1.5 sm:gap-1.5">
-          <Button
-            className="h-8 text-sm"
-            variant={variant}
-            onClick={() => onOpenChange(false)}
-            disabled={isSubmitting}
-          >
+          <Button className="h-8 text-sm" variant={variant} onClick={() => onOpenChange(false)} disabled={isSubmitting}>
             {t('common.cancel')}
           </Button>
-          <Button
-            className="h-8 text-sm"
-            variant={variant}
-            onClick={handleConfirm}
-            disabled={isSubmitting}
-          >
+          <Button className="h-8 text-sm" variant={variant} onClick={handleConfirm} disabled={isSubmitting}>
             {isSubmitting ? t('common.saving', 'Đang lưu...') : t('common.confirm')}
           </Button>
         </DialogFooter>

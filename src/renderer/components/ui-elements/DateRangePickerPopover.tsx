@@ -8,8 +8,8 @@ import type { DateRange } from 'react-day-picker'
 import { Button } from '@/components/ui/button'
 import { Calendar } from '@/components/ui/calendar'
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
-import i18n from '@/lib/i18n'
 import { getDateFnsLocale, getDateOnlyPattern } from '@/lib/dateUtils'
+import i18n from '@/lib/i18n'
 import { cn } from '@/lib/utils'
 import { useAppearanceStoreSelect } from '@/stores/useAppearanceStore'
 
@@ -98,7 +98,7 @@ export function DateRangePickerPopover({
           className={cn(
             'inline-flex min-h-0 min-w-0 max-w-full items-center gap-1.5 px-2 font-normal justify-start text-left transition-all duration-200',
             !dateRange?.from && 'text-muted-foreground',
-            triggerClassName ?? 'h-6',
+            triggerClassName ?? 'h-6'
           )}
           style={{ WebkitAppRegion: 'no-drag' } as CSSProperties}
         >
@@ -106,13 +106,7 @@ export function DateRangePickerPopover({
           <span className="min-w-0 flex-1 truncate text-left">{displayText}</span>
         </Button>
       </PopoverTrigger>
-      <PopoverContent
-        align="start"
-        className={cn(
-          'w-auto p-0',
-          'data-[state=open]:animate-none data-[state=closed]:animate-none',
-        )}
-      >
+      <PopoverContent align="start" className={cn('w-auto p-0', 'data-[state=open]:animate-none data-[state=closed]:animate-none')}>
         <Calendar locale={locale} mode="range" defaultMonth={draftRange?.from ?? dateRange?.from} selected={draftRange} onSelect={setDraftRange} numberOfMonths={2} />
         <div className="flex gap-2 p-2 border-t">
           <Button variant={buttonVariant} size="sm" className="flex-1" onClick={handleClear}>

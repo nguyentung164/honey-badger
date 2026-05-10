@@ -1,7 +1,7 @@
 import * as bcrypt from 'bcryptjs'
 import { randomUuidV7 } from 'shared/randomUuidV7'
-import { csvLegacyInputToPgSqlDatetime } from './calendarDate'
-import { query } from './db'
+import { csvLegacyInputToPgSqlDatetime } from '../calendarDate'
+import { query } from '../schema/db'
 
 const DEFAULT_PASSWORD = '123456'
 
@@ -128,10 +128,10 @@ interface MasterCodes {
 /** Load tất cả master codes một lần để tránh N+1 */
 async function loadMasterCodes(): Promise<MasterCodes> {
   const [statuses, priorities, types, sources] = await Promise.all([
-    query<{ code: string }[]>('SELECT code FROM task_statuses'),
-    query<{ code: string }[]>('SELECT code FROM task_priorities'),
-    query<{ code: string }[]>('SELECT code FROM task_types'),
-    query<{ code: string }[]>('SELECT code FROM task_sources'),
+    query<{ code: string }>('SELECT code FROM task_statuses'),
+    query<{ code: string }>('SELECT code FROM task_priorities'),
+    query<{ code: string }>('SELECT code FROM task_types'),
+    query<{ code: string }>('SELECT code FROM task_sources'),
   ])
   return {
     statuses: new Set((statuses ?? []).map(r => r.code)),
@@ -287,7 +287,7 @@ export async function createTasksFromCsv(
   const projectCache = new Map<string, { id: string; name: string }>()
   const ticketKeyToTaskId = new Map<string, string>()
 
-  const existingRows = await query<{ id: string; project_id: string; ticket_id: string }[]>(
+  const existingRows = await query<{ id: string; project_id: string; ticket_id: string }>(
     "SELECT id, project_id, ticket_id FROM tasks WHERE source = 'redmine' AND ticket_id IS NOT NULL AND ticket_id != ''"
   )
   const existingTasksFromDb = new Map<string, string>((existingRows ?? []).map(r => [`${r.project_id}:redmine:${r.ticket_id}`, r.id]))
@@ -338,7 +338,7 @@ export async function createTasksFromCsv(
     const n = name.trim() || 'Default'
     const cached = projectCache.get(n)
     if (cached) return cached
-    const existing = await query<any[]>('SELECT id, name FROM projects WHERE name = ?', [n])
+    const existing = await query<any>('SELECT id, name FROM projects WHERE name = ?', [n])
     if (existing?.length) {
       projectCache.set(n, existing[0])
       return existing[0]
@@ -501,7 +501,7 @@ export async function collectRedmineCsvProjectRefsForAuthorization(rows: string[
     namesToResolve.add(projectLabel)
   }
   for (const n of namesToResolve) {
-    const existing = await query<any[]>('SELECT id FROM projects WHERE name = ? LIMIT 1', [n])
+    const existing = await query<any>('SELECT id FROM projects WHERE name = ? LIMIT 1', [n])
     if (existing?.length) existingIds.add(String(existing[0].id))
     else pendingNames.add(n)
   }

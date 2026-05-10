@@ -1,6 +1,6 @@
 import { safeStorage } from 'electron'
-import Store from 'electron-store'
 import l from 'electron-log'
+import Store from 'electron-store'
 
 type Schema = {
   /** Buffer m\u00e3 h\u00f3a base64. N\u1ebfu safeStorage kh\u00f4ng kh\u1ea3 d\u1ee5ng, fallback plaintext v\u1edbi c\u1edd isEncrypted=false. */
@@ -62,7 +62,7 @@ export function getGithubToken(): string | undefined {
 
 export function hasGithubToken(): boolean {
   const t = getGithubToken()
-  return !!(t && t.trim())
+  return !!t?.trim()
 }
 
 export function removeGithubToken(): void {

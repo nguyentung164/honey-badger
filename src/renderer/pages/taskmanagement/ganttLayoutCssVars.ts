@@ -31,11 +31,7 @@ const COL_PR = '--hb-gantt-col-progress-w'
  * Đặt trên root panel Gantt/Workload. Hàng con đọc `var(--hb-gantt-*)` qua inheritance
  * — toggle cột meta không cần đổi props từng hàng (React.memo vẫn hiệu quả).
  */
-export function hbGanttRootStyle(
-  taskNameWidthPx: number,
-  metaRailExpanded: boolean,
-  gridTimelineVisible?: boolean
-): CSSProperties {
+export function hbGanttRootStyle(taskNameWidthPx: number, metaRailExpanded: boolean, gridTimelineVisible?: boolean): CSSProperties {
   const m = metaRailExpanded
   return {
     [COL_NO]: `${GANTT_COL_NO_W}px`,
@@ -54,15 +50,13 @@ export function hbGanttRootStyle(
  * Đường lưới dọc timeline (header/body Gantt + workload chart).
  * Giữ một class chung (kể cả `transform-gpu`) để tránh lệch 1px so với vẽ khác.
  */
-export const HB_GANTT_TIMELINE_GRID_V_LINE =
-  'pointer-events-none absolute top-0 bottom-0 z-[1] w-px bg-border/85 dark:bg-border/70 transform-gpu'
+export const HB_GANTT_TIMELINE_GRID_V_LINE = 'pointer-events-none absolute top-0 bottom-0 z-[1] w-px bg-border/85 dark:bg-border/70 transform-gpu'
 
 /**
  * Vạch “today” trên timeline (Gantt body + workload bleed).
  * `w-0` + `border-l-2 border-dashed` — nét đứt dọc, căn giữa qua `-translate-x-1/2` + `left`.
  */
-export const HB_GANTT_TODAY_LINE_MARK =
-  'absolute top-0 bottom-0 w-0 -translate-x-1/2 border-l-2 border-dashed border-rose-600/65 dark:border-rose-500/65'
+export const HB_GANTT_TODAY_LINE_MARK = 'absolute top-0 bottom-0 w-0 -translate-x-1/2 border-l-2 border-dashed border-rose-600/65 dark:border-rose-500/65'
 
 /** Style fragments — chỉ dùng trong subtree đã có `hbGanttRootStyle` trên tổ tiên. */
 export const hbGantt = {

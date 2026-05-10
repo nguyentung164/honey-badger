@@ -87,8 +87,7 @@ export const useEvmAiInsightStore = create<EvmAiInsightState>(set => ({
   setScheduleFilters: (phase, assignee) => set({ schedulePhaseFilter: phase, scheduleAssigneeFilter: assignee }),
 
   resultByType: {},
-  setResultForType: (type, text) =>
-    set(s => ({ resultByType: { ...s.resultByType, [type]: text } })),
+  setResultForType: (type, text) => set(s => ({ resultByType: { ...s.resultByType, [type]: text } })),
 
   loadingType: null,
   setLoadingType: t => set({ loadingType: t }),

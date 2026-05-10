@@ -417,8 +417,9 @@ export function SvnConflictPanel({ sourceFolder, onResolved, compact = false }: 
                 <button
                   key={file.path}
                   type="button"
-                  className={`w-full text-left p-1.5 rounded text-sm flex items-center gap-1 ${selectedFile?.path === file.path ? 'bg-primary text-primary-foreground' : 'hover:bg-muted'
-                    }`}
+                  className={`w-full text-left p-1.5 rounded text-sm flex items-center gap-1 ${
+                    selectedFile?.path === file.path ? 'bg-primary text-primary-foreground' : 'hover:bg-muted'
+                  }`}
                   onClick={() => setSelectedFile(file)}
                 >
                   <FileWarning className="h-4 w-4 shrink-0" />

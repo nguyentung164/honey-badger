@@ -40,10 +40,7 @@ export function initAutoUpdater(window: BrowserWindow) {
 
   autoUpdater.on('error', err => {
     updateAppStatus(false)
-    const isDevUpdateMissing =
-      !app.isPackaged &&
-      err?.message?.includes('ENOENT') &&
-      err?.message?.includes('dev-app-update.yml')
+    const isDevUpdateMissing = !app.isPackaged && err?.message?.includes('ENOENT') && err?.message?.includes('dev-app-update.yml')
     if (isDevUpdateMissing) {
       window.webContents.send(IPC.UPDATER.STATUS, { status: 'not-available' })
     } else {
@@ -123,9 +120,7 @@ export function initAutoUpdater(window: BrowserWindow) {
     } catch (error: unknown) {
       if (!app.isPackaged) {
         const msg = error instanceof Error ? error.message : String(error)
-        const isDevUpdateMissing =
-          (error as NodeJS.ErrnoException)?.code === 'ENOENT' ||
-          (msg.includes('ENOENT') && msg.includes('dev-app-update.yml'))
+        const isDevUpdateMissing = (error as NodeJS.ErrnoException)?.code === 'ENOENT' || (msg.includes('ENOENT') && msg.includes('dev-app-update.yml'))
         if (isDevUpdateMissing) {
           return { status: 'not-available' }
         }

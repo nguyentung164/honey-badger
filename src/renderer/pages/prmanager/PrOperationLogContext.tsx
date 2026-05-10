@@ -1,6 +1,6 @@
 'use client'
 
-import { createContext, useCallback, useContext, useMemo, useState, type ReactNode } from 'react'
+import { createContext, type ReactNode, useCallback, useContext, useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { VcsOperationLogDialog } from '@/components/dialogs/vcs/VcsOperationLogDialog'
 import toast from '@/components/ui-elements/Toast'
@@ -14,11 +14,7 @@ export type StartPrOperationOpts = {
 
 export type PrOperationLogContextValue = {
   /** Bắt đầu phiên log; trả về false nếu đang có tác vụ (đã toast). */
-  startOperation: (
-    titleKey: string,
-    titleParams?: Record<string, string | number>,
-    opts?: StartPrOperationOpts
-  ) => boolean
+  startOperation: (titleKey: string, titleParams?: Record<string, string | number>, opts?: StartPrOperationOpts) => boolean
   /** Nối một dòng (có thể gọi nhiều lần). */
   appendLine: (line: string) => void
   /** Kết thúc thành công. */
@@ -84,16 +80,13 @@ export function PrOperationLogProvider({ children }: Props) {
     setOperationStatus('success')
   }, [])
 
-  const finishError = useCallback(
-    (message?: string) => {
-      if (message) {
-        setStreamingLog(prev => (prev ? `${prev}\n${message}` : message))
-      }
-      setIsStreaming(false)
-      setOperationStatus('error')
-    },
-    []
-  )
+  const finishError = useCallback((message?: string) => {
+    if (message) {
+      setStreamingLog(prev => (prev ? `${prev}\n${message}` : message))
+    }
+    setIsStreaming(false)
+    setOperationStatus('error')
+  }, [])
 
   const resetAndClose = useCallback(() => {
     setLogOpen(false)

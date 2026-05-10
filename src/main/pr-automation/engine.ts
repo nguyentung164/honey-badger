@@ -4,9 +4,9 @@ import l from 'electron-log'
 import { minimatch } from 'minimatch'
 import { IPC } from '../constants'
 import { githubClient } from '../git-hosting/github'
-import configurationStore from '../store/ConfigurationStore'
 import type { PullRequestSummary } from '../git-hosting/types'
-import type { PrCheckpointTemplate } from '../task/pgPrTrackingStore'
+import configurationStore from '../store/ConfigurationStore'
+import type { PrCheckpointTemplate } from '../task/stores/pgPrTrackingStore'
 import {
   getPrRepoById,
   getTrackedBranchById,
@@ -15,7 +15,7 @@ import {
   listCheckpointTemplates,
   upsertBranchCheckpoint,
   upsertTrackedBranch,
-} from '../task/pgPrTrackingStore'
+} from '../task/stores/pgPrTrackingStore'
 
 export interface PrMergedEvent {
   repoId: string
@@ -53,10 +53,7 @@ function broadcast(channel: string, payload: unknown): void {
   }
 }
 
-function renderTemplate(
-  tpl: string | null | undefined,
-  vars: Record<string, string | undefined | null>
-): string | undefined {
+function renderTemplate(tpl: string | null | undefined, vars: Record<string, string | undefined | null>): string | undefined {
   if (!tpl) return undefined
   return tpl.replace(/\{(\w+)\}/g, (_, k) => {
     const v = vars[k]
@@ -65,11 +62,7 @@ function renderTemplate(
 }
 
 /** Title PR n\u1ed1i ti\u1ebfp: thay l\u1ea7n xu\u1ea5t hi\u1ec7n cu\u1ed1i c\u00f9ng c\u1ee7a (targetBranch) b\u1eb1ng (nextTarget), kh\u00f4ng ph\u00e2n bi\u1ec7t hoa th\u01b0\u1eddng. */
-export function chainedPrTitleFromMerged(
-  mergedTitle: string | null | undefined,
-  targetBranch: string,
-  nextTarget: string
-): string {
+export function chainedPrTitleFromMerged(mergedTitle: string | null | undefined, targetBranch: string, nextTarget: string): string {
   const t = mergedTitle?.trim()
   if (!t) return ''
   const esc = targetBranch.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
@@ -79,16 +72,10 @@ export function chainedPrTitleFromMerged(
   const last = matches[matches.length - 1]
   const start = last.index ?? 0
   const end = start + (last[0]?.length ?? 0)
-  return t.slice(0, start) + `(${nextTarget})` + t.slice(end)
+  return `${t.slice(0, start)}(${nextTarget})${t.slice(end)}`
 }
 
-async function notifyTeamsAutomationFired(args: {
-  repoName: string
-  sourceBranch: string
-  fromBase: string
-  toBase: string
-  prUrl: string
-}): Promise<void> {
+async function notifyTeamsAutomationFired(args: { repoName: string; sourceBranch: string; fromBase: string; toBase: string; prUrl: string }): Promise<void> {
   const { webhookMS } = configurationStore.store
   if (!webhookMS) return
   try {
@@ -135,31 +122,17 @@ function normBranch(b: string): string {
   return b.trim().toLowerCase()
 }
 
-function findMergedTemplateIdFromList(
-  templates: PrCheckpointTemplate[],
-  targetBranch: string,
-  mode: 'merge' | 'pr'
-): string | null {
+function findMergedTemplateIdFromList(templates: PrCheckpointTemplate[], targetBranch: string, mode: 'merge' | 'pr'): string | null {
   const nb = normBranch(targetBranch)
   const preferredCode = `${mode}_${nb}`
   const byCode = templates.find(t => t.code.toLowerCase() === preferredCode)
   if (byCode) return byCode.id
-  const byTarget = templates.find(
-    t =>
-      t.targetBranch != null &&
-      normBranch(t.targetBranch) === nb &&
-      t.code.toLowerCase().startsWith(mode)
-  )
+  const byTarget = templates.find(t => t.targetBranch != null && normBranch(t.targetBranch) === nb && t.code.toLowerCase().startsWith(mode))
   return byTarget?.id ?? null
 }
 
 /** Tìm template code khớp với target branch — ưu tiên code 'pr_<target>' hay 'merge_<target>'. */
-async function findMergedTemplateId(
-  userId: string,
-  projectId: string,
-  targetBranch: string,
-  mode: 'merge' | 'pr',
-): Promise<string | null> {
+async function findMergedTemplateId(userId: string, projectId: string, targetBranch: string, mode: 'merge' | 'pr'): Promise<string | null> {
   const templates = await listCheckpointTemplates(userId, projectId)
   return findMergedTemplateIdFromList(templates, targetBranch, mode)
 }
@@ -205,9 +178,7 @@ export async function onPrMerged(event: PrMergedEvent): Promise<AutomationResult
     // C\u1ed9t pr_* (Created): n\u1ebfu user t\u1ea1o/merge PR ngo\u00e0i app ho\u1eb7c record l\u00fac t\u1ea1o th\u1ea5t b\u1ea1i, merge_* \u0111\u00e3 c\u00f3 m\u00e0 pr_* v\u1eabn tr\u1ed1ng \u2192 \u0111\u1ed3ng b\u1ed9 c\u00f9ng s\u1ed1 PR.
     const prTplId = await findMergedTemplateId(repo.userId, event.projectId, event.targetBranch, 'pr')
     if (prTplId) {
-      const prUrl =
-        event.prUrl?.trim() ||
-        `https://github.com/${repo.owner}/${repo.repo}/pull/${event.prNumber}`
+      const prUrl = event.prUrl?.trim() || `https://github.com/${repo.owner}/${repo.repo}/pull/${event.prNumber}`
       const gh = event.github
       await upsertBranchCheckpoint({
         trackedBranchId: tracked.id,
@@ -215,9 +186,7 @@ export async function onPrMerged(event: PrMergedEvent): Promise<AutomationResult
         isDone: true,
         prNumber: event.prNumber,
         prUrl,
-        ...(gh
-          ? { ghPrDraft: gh.draft, ghPrState: gh.state, ghPrMerged: gh.merged }
-          : { ghPrDraft: false, ghPrState: 'closed' as const, ghPrMerged: true }),
+        ...(gh ? { ghPrDraft: gh.draft, ghPrState: gh.state, ghPrMerged: gh.merged } : { ghPrDraft: false, ghPrState: 'closed' as const, ghPrMerged: true }),
         ...(typeof event.prAuthor !== 'undefined' ? { ghPrAuthor: event.prAuthor } : {}),
       })
       broadcast(IPC.PR.EVENT_CHECKPOINT_UPDATED, {
@@ -235,11 +204,7 @@ export async function onPrMerged(event: PrMergedEvent): Promise<AutomationResult
       try {
         let lastCommit: string | null = null
         try {
-          lastCommit = await githubClient.getLatestCommitMessage(
-            repo.owner,
-            repo.repo,
-            event.sourceBranch
-          )
+          lastCommit = await githubClient.getLatestCommitMessage(repo.owner, repo.repo, event.sourceBranch)
         } catch {}
         const chainedTitle = chainedPrTitleFromMerged(event.prTitle, event.targetBranch, auto.nextTarget)
         const varsTitle: Record<string, string> = {
@@ -260,12 +225,8 @@ export async function onPrMerged(event: PrMergedEvent): Promise<AutomationResult
         }
         const renderedTitle = renderTemplate(auto.prTitleTemplate, varsTitle)?.trim()
         const title =
-          (renderedTitle && renderedTitle.length > 0 ? renderedTitle : undefined) ||
-          (chainedTitle.trim() || undefined) ||
-          `Auto PR: ${event.sourceBranch} \u2192 ${auto.nextTarget}`
-        const body =
-          renderTemplate(auto.prBodyTemplate, varsBody) ||
-          `Auto-created by PR Manager after merging \`${event.sourceBranch}\` into \`${event.targetBranch}\`.`
+          (renderedTitle && renderedTitle.length > 0 ? renderedTitle : undefined) || chainedTitle.trim() || undefined || `Auto PR: ${event.sourceBranch} \u2192 ${auto.nextTarget}`
+        const body = renderTemplate(auto.prBodyTemplate, varsBody) || `Auto-created by PR Manager after merging \`${event.sourceBranch}\` into \`${event.targetBranch}\`.`
 
         const pr = await githubClient.createPR({
           owner: repo.owner,
@@ -335,11 +296,7 @@ export async function onPrMerged(event: PrMergedEvent): Promise<AutomationResult
  * C\u1eadp nh\u1eadt m\u1ecdi checkpoint DB tr\u00f9ng owner/repo + s\u1ed1 PR theo b\u1ea3n t\u00f3m t\u1eaft GitHub; broadcast \u0111\u1ec3 board g\u1ecdi refreshTracked.
  * D\u00f9ng sau draft/ready/close/update branch (trackedList kh\u00f4ng g\u1ecdi API GitHub).
  */
-export async function syncPullRequestIntoTrackedCheckpoints(
-  owner: string,
-  repo: string,
-  pr: PullRequestSummary
-): Promise<void> {
+export async function syncPullRequestIntoTrackedCheckpoints(owner: string, repo: string, pr: PullRequestSummary): Promise<void> {
   const keys = await listCheckpointKeysForRepoPr(owner, repo, pr.number)
   for (const k of keys) {
     await upsertBranchCheckpoint({
@@ -381,8 +338,7 @@ export async function applyPullRequestToCheckpoints(args: {
   const repoRow = await getPrRepoById(args.repoId)
   if (!repoRow) return
 
-  const templates =
-    args.templatesCache ?? (await listCheckpointTemplates(repoRow.userId, args.projectId))
+  const templates = args.templatesCache ?? (await listCheckpointTemplates(repoRow.userId, args.projectId))
   const prTplId = findMergedTemplateIdFromList(templates, target, 'pr')
   const mergeTplId = args.pr.merged ? findMergedTemplateIdFromList(templates, target, 'merge') : null
   if (!prTplId && !mergeTplId) return
@@ -452,13 +408,7 @@ export async function applyPullRequestToCheckpoints(args: {
 }
 
 /** Fallback \u0111\u1ec3 chuy\u1ec3n checkpoint \u0111\u00e3 c\u00f3 pr_number sang is_done=true khi merged \u0111\u1ee3c ph\u00e1t hi\u1ec7n. */
-export async function markCheckpointMerged(args: {
-  trackedBranchId: string
-  templateId: string
-  prNumber: number
-  mergedAt: string
-  mergedBy?: string | null
-}): Promise<void> {
+export async function markCheckpointMerged(args: { trackedBranchId: string; templateId: string; prNumber: number; mergedAt: string; mergedBy?: string | null }): Promise<void> {
   await upsertBranchCheckpoint({
     trackedBranchId: args.trackedBranchId,
     templateId: args.templateId,

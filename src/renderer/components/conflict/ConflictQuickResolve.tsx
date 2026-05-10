@@ -6,12 +6,8 @@ import { useTranslation } from 'react-i18next'
 import { Button } from '@/components/ui/button'
 import { Label } from '@/components/ui/label'
 import { ScrollArea } from '@/components/ui/scroll-area'
-import {
-  buildResolvedFromHunkChoices,
-  extractGitConflictHunks,
-  hasConflictMarkers,
-} from '@/lib/conflictMarkers'
 import toast from '@/components/ui-elements/Toast'
+import { buildResolvedFromHunkChoices, extractGitConflictHunks, hasConflictMarkers } from '@/lib/conflictMarkers'
 import { cn } from '@/lib/utils'
 
 interface ConflictQuickResolveProps {
@@ -28,9 +24,12 @@ export function ConflictQuickResolve({ filePath, initialContent, onSave, onCance
   const [plainText, setPlainText] = useState(initialContent)
   const [isSaving, setIsSaving] = useState(false)
 
-  const setAll = useCallback((side: 'ours' | 'theirs') => {
-    setChoices(hunks.map(() => side))
-  }, [hunks])
+  const setAll = useCallback(
+    (side: 'ours' | 'theirs') => {
+      setChoices(hunks.map(() => side))
+    },
+    [hunks]
+  )
 
   const setHunk = useCallback((index: number, side: 'ours' | 'theirs') => {
     setChoices(prev => {
@@ -109,26 +108,12 @@ export function ConflictQuickResolve({ filePath, initialContent, onSave, onCance
               {hunks.map((h, idx) => (
                 <div key={`${idx}-${h.start}`} className="rounded-md border bg-background/80 p-2 space-y-2">
                   <div className="flex items-center justify-between gap-2">
-                    <Label className="text-xs font-semibold">
-                      {t('conflictEditor.hunkLabel', { index: idx + 1, total: hunks.length })}
-                    </Label>
+                    <Label className="text-xs font-semibold">{t('conflictEditor.hunkLabel', { index: idx + 1, total: hunks.length })}</Label>
                     <div className="flex gap-1">
-                      <Button
-                        type="button"
-                        size="sm"
-                        variant={choices[idx] === 'ours' ? 'default' : 'outline'}
-                        className="h-7 text-xs"
-                        onClick={() => setHunk(idx, 'ours')}
-                      >
+                      <Button type="button" size="sm" variant={choices[idx] === 'ours' ? 'default' : 'outline'} className="h-7 text-xs" onClick={() => setHunk(idx, 'ours')}>
                         {t('git.conflict.ours')}
                       </Button>
-                      <Button
-                        type="button"
-                        size="sm"
-                        variant={choices[idx] === 'theirs' ? 'default' : 'outline'}
-                        className="h-7 text-xs"
-                        onClick={() => setHunk(idx, 'theirs')}
-                      >
+                      <Button type="button" size="sm" variant={choices[idx] === 'theirs' ? 'default' : 'outline'} className="h-7 text-xs" onClick={() => setHunk(idx, 'theirs')}>
                         {t('git.conflict.theirs')}
                       </Button>
                     </div>

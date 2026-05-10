@@ -1,4 +1,4 @@
-import path from 'path'
+import path from 'node:path'
 import l from 'electron-log'
 import { formatGitError, getGitInstance } from './utils'
 
@@ -53,8 +53,11 @@ interface GitLogFile {
 }
 
 function parseBranchFromRefs(refs: string): string {
-  if (!refs || !refs.trim()) return ''
-  const parts = refs.split(',').map(p => p.trim()).filter(Boolean)
+  if (!refs?.trim()) return ''
+  const parts = refs
+    .split(',')
+    .map(p => p.trim())
+    .filter(Boolean)
   for (const p of parts) {
     if (p.startsWith('HEAD -> ')) return p.slice(8).trim()
   }
@@ -98,7 +101,10 @@ async function fetchAllLogData(
     // Use %B for raw body (entire commit message including subject and body with newlines)
     // Then we'll parse subject and body in code
     // Add commitSeparator at end to clearly mark commit boundaries
-    const rawCommand: string[] = ['log', `--format=${commitSeparator}hash:%H${fieldSeparator}author:%an${fieldSeparator}authorEmail:%ae${fieldSeparator}date:%aI${fieldSeparator}refs:%D${fieldSeparator}message:%B${commitSeparator}`]
+    const rawCommand: string[] = [
+      'log',
+      `--format=${commitSeparator}hash:%H${fieldSeparator}author:%an${fieldSeparator}authorEmail:%ae${fieldSeparator}date:%aI${fieldSeparator}refs:%D${fieldSeparator}message:%B${commitSeparator}`,
+    ]
 
     const rev = revision?.trim()
     if (!rev) {
@@ -531,7 +537,7 @@ export async function getLogGraph(filePath: string | string[] = '.', options?: G
 
     for (let i = 0; i < lines.length; i++) {
       const line = lines[i]
-      if (!line || !line.trim()) continue
+      if (!line?.trim()) continue
 
       // Check if this line contains a commit hash (40-char hex)
       const hashMatch = line.match(/([0-9a-f]{40})/)

@@ -1,18 +1,12 @@
-import { useEffect, useState } from "react"
-import { useLexicalComposerContext } from "@lexical/react/LexicalComposerContext"
-import { IS_APPLE, mergeRegister } from "@lexical/utils"
-import {
-  CAN_REDO_COMMAND,
-  CAN_UNDO_COMMAND,
-  COMMAND_PRIORITY_CRITICAL,
-  REDO_COMMAND,
-  UNDO_COMMAND,
-} from "lexical"
-import { RedoIcon, UndoIcon } from "lucide-react"
+import { useLexicalComposerContext } from '@lexical/react/LexicalComposerContext'
+import { IS_APPLE, mergeRegister } from '@lexical/utils'
+import { CAN_REDO_COMMAND, CAN_UNDO_COMMAND, COMMAND_PRIORITY_CRITICAL, REDO_COMMAND, UNDO_COMMAND } from 'lexical'
+import { RedoIcon, UndoIcon } from 'lucide-react'
+import { useEffect, useState } from 'react'
 
-import { useToolbarContext } from "@/components/editor/context/toolbar-context"
-import { Button } from "@/components/ui/button"
-import { ButtonGroup } from "@/components/ui/button-group"
+import { useToolbarContext } from '@/components/editor/context/toolbar-context'
+import { Button } from '@/components/ui/button'
+import { ButtonGroup } from '@/components/ui/button-group'
 
 export function HistoryToolbarPlugin() {
   const [editor] = useLexicalComposerContext()
@@ -23,7 +17,7 @@ export function HistoryToolbarPlugin() {
 
   useEffect(() => {
     return mergeRegister(
-      editor.registerEditableListener((editable) => {
+      editor.registerEditableListener(editable => {
         setIsEditable(editable)
       }),
       activeEditor.registerUpdateListener(({ editorState }) => {
@@ -33,7 +27,7 @@ export function HistoryToolbarPlugin() {
       }),
       activeEditor.registerCommand<boolean>(
         CAN_UNDO_COMMAND,
-        (payload) => {
+        payload => {
           setCanUndo(payload)
           return false
         },
@@ -41,7 +35,7 @@ export function HistoryToolbarPlugin() {
       ),
       activeEditor.registerCommand<boolean>(
         CAN_REDO_COMMAND,
-        (payload) => {
+        payload => {
           setCanRedo(payload)
           return false
         },
@@ -57,12 +51,12 @@ export function HistoryToolbarPlugin() {
         onClick={() => {
           activeEditor.dispatchCommand(UNDO_COMMAND, undefined)
         }}
-        title={IS_APPLE ? "Undo (⌘Z)" : "Undo (Ctrl+Z)"}
+        title={IS_APPLE ? 'Undo (⌘Z)' : 'Undo (Ctrl+Z)'}
         type="button"
         aria-label="Undo"
         size="icon"
         className="!h-8 !w-8"
-        variant={"outline"}
+        variant={'outline'}
       >
         <UndoIcon className="size-4" />
       </Button>
@@ -71,10 +65,10 @@ export function HistoryToolbarPlugin() {
         onClick={() => {
           activeEditor.dispatchCommand(REDO_COMMAND, undefined)
         }}
-        title={IS_APPLE ? "Redo (⇧⌘Z)" : "Redo (Ctrl+Y)"}
+        title={IS_APPLE ? 'Redo (⇧⌘Z)' : 'Redo (Ctrl+Y)'}
         type="button"
         aria-label="Redo"
-        variant={"outline"}
+        variant={'outline'}
         size="icon"
         className="!h-8 !w-8"
       >

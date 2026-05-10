@@ -7,8 +7,7 @@ export const PR_MANAGER_ACCENT_OUTLINE_SURFACE =
   'border-emerald-500/30 bg-emerald-500/[0.06] hover:bg-emerald-500/12 dark:border-emerald-400/22 dark:bg-emerald-500/[0.05] dark:hover:bg-emerald-500/10'
 
 /** Nền emerald trong title bar — không viền (tránh “double border” với bar). */
-export const PR_MANAGER_ACCENT_TITLEBAR_SURFACE =
-  'border-0 shadow-none bg-emerald-500/[0.06] hover:bg-emerald-500/12 dark:bg-emerald-500/[0.05] dark:hover:bg-emerald-500/10'
+export const PR_MANAGER_ACCENT_TITLEBAR_SURFACE = 'border-0 shadow-none bg-emerald-500/[0.06] hover:bg-emerald-500/12 dark:bg-emerald-500/[0.05] dark:hover:bg-emerald-500/10'
 
 /** Cùng style với nút «Tạo PR» trên PrBoard (outline + emerald). */
 export const PR_MANAGER_ACCENT_OUTLINE_BTN = `h-8 gap-1 ${PR_MANAGER_ACCENT_TEXT}`

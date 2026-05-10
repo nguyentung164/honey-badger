@@ -23,7 +23,8 @@ export const PR_IN_APP_PHASE2_CANDIDATES: readonly { id: string; summary: string
   {
     id: 'checks_summary',
     summary: 'T\u00f3m t\u1eaft checks/CI t\u1eeb head SHA (Check Runs / Check Suites)',
-    scopeNote: 'C\u1ea7n th\u00eam endpoint Octokit v\u00e0 v\u00f2ng \u0111\u1eddi UI; kh\u00f4ng m\u1ee5c ti\u00eau parity \u0111\u1ee7 m\u1ecdc v\u1edbi tab Checks GitHub \u1edf b\u01b0\u1edbc \u0111\u1ea7u.',
+    scopeNote:
+      'C\u1ea7n th\u00eam endpoint Octokit v\u00e0 v\u00f2ng \u0111\u1eddi UI; kh\u00f4ng m\u1ee5c ti\u00eau parity \u0111\u1ee7 m\u1ecdc v\u1edbi tab Checks GitHub \u1edf b\u01b0\u1edbc \u0111\u1ea7u.',
   },
   {
     id: 'inline_review',

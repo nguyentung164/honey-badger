@@ -7,10 +7,7 @@ const MAX_QUERY_LENGTH = 75
  * Khớp lệnh / ở cuối text trước con trỏ (giống Notion): không bắt buộc có khoảng trắng trước /.
  * Tránh kích hoạt trên `//` và ngay sau `http:` / `https:`.
  */
-export function matchSlashCommandTrigger(
-  text: string,
-  _editor: LexicalEditor,
-): MenuTextMatch | null {
+export function matchSlashCommandTrigger(text: string, _editor: LexicalEditor): MenuTextMatch | null {
   let slash = -1
   for (let j = text.length - 1; j >= 0; j--) {
     if (text[j] !== '/') continue

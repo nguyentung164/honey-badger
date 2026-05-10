@@ -2,12 +2,12 @@ import path from 'node:path'
 import l from 'electron-log'
 import { MANAGEMENT_BOARD_MAX_ROWS } from 'shared/constants'
 import { randomUuidV7 } from 'shared/randomUuidV7'
-import { query, withTransaction } from './db'
-import { collectRedmineCsvProjectRefsForAuthorization, createTasksFromCsv, createUsersFromCsv, parseCSVRows } from './importCsv'
+import { calendarInputToPgTimestamptzSql, dbValueToCalendarYmd } from '../calendarDate'
+import { exec, query, withTransaction } from '../schema/db'
+import { migrateUserProjectRolesProjectIdUkToGenerated } from '../schema/taskDbPatches'
+import { collectRedmineCsvProjectRefsForAuthorization, createTasksFromCsv, createUsersFromCsv, parseCSVRows } from '../seed/importCsv'
+import { getNextTicketId } from '../ticketSequence'
 import { isBooleanColumn, toDbBoolValue } from './pgPrTrackingStore'
-import { migrateUserProjectRolesProjectIdUkToGenerated } from './taskDbPatches'
-import { getNextTicketId } from './ticketSequence'
-import { calendarInputToPgTimestamptzSql, dbValueToCalendarYmd } from './calendarDate'
 
 function throwVersionConflict(): never {
   const e = new Error('Task not found or was modified by another user')
@@ -184,20 +184,20 @@ function mapTask(row: any): Task {
 }
 
 export async function getTask(id: string): Promise<Task | null> {
-  const rows = await query<any[]>(`${TASK_SELECT_JOIN} WHERE t.id = ?`, [id])
+  const rows = await query<any>(`${TASK_SELECT_JOIN} WHERE t.id = ?`, [id])
   const row = rows?.[0]
   return row ? mapTask(row) : null
 }
 
 /** Lấy danh sách user_id có role PL trong project (dùng cho notification). */
 export async function getProjectPlUserIds(projectId: string): Promise<string[]> {
-  const rows = await query<any[]>('SELECT user_id FROM user_project_roles WHERE project_id = ? AND role = ?', [projectId, 'pl'])
+  const rows = await query<any>('SELECT user_id FROM user_project_roles WHERE project_id = ? AND role = ?', [projectId, 'pl'])
   return (rows ?? []).map(r => r.user_id)
 }
 
 /** Lấy emails của PL có receive_commit_notification = true và email không rỗng. */
 export async function getPlEmailsForProject(projectId: string): Promise<string[]> {
-  const rows = await query<any[]>(
+  const rows = await query<any>(
     `SELECT u.email FROM users u
      JOIN user_project_roles upr ON upr.user_id = u.id
      WHERE upr.project_id = ? AND upr.role = 'pl'
@@ -210,14 +210,14 @@ export async function getPlEmailsForProject(projectId: string): Promise<string[]
 
 /** Kiểm tra user có role pl trong ít nhất 1 project. */
 export async function hasPlRole(userId: string): Promise<boolean> {
-  const rows = await query<any[]>('SELECT 1 FROM user_project_roles WHERE user_id = ? AND role = ? LIMIT 1', [userId, 'pl'])
+  const rows = await query<any>('SELECT 1 FROM user_project_roles WHERE user_id = ? AND role = ? LIMIT 1', [userId, 'pl'])
   return (rows?.length ?? 0) > 0
 }
 
 /** Phần Developer / Project Lead trong Today's Reminders theo user_project_roles. */
 export async function getReminderSectionVisibility(userId: string): Promise<{ showDev: boolean; showPl: boolean }> {
   if (await isAppAdmin(userId)) return { showDev: true, showPl: true }
-  const rows = await query<{ role: string }[]>(`SELECT DISTINCT role FROM user_project_roles WHERE user_id = ? AND role IN ('dev', 'pl')`, [userId])
+  const rows = await query<{ role: string }>(`SELECT DISTINCT role FROM user_project_roles WHERE user_id = ? AND role IN ('dev', 'pl')`, [userId])
   const set = new Set((rows ?? []).map(r => r.role))
   const hasDev = set.has('dev')
   const hasPl = set.has('pl')
@@ -244,19 +244,15 @@ export async function upsertUserProjectSourceFolder(
   sourceFolderName?: string
 ): Promise<{ success: boolean; error?: string }> {
   const normalized = normalizePath(sourceFolderPath)
-  const existing = await query<any[]>('SELECT project_id FROM user_project_source_folder WHERE user_id = ? AND source_folder_path = ?', [userId, normalized])
+  const existing = await query<any>('SELECT project_id FROM user_project_source_folder WHERE user_id = ? AND source_folder_path = ?', [userId, normalized])
   if (existing?.length && existing[0].project_id !== projectId) {
     const linkedProjectId = existing[0].project_id
-    const projectRows = await query<any[]>(`SELECT name FROM projects WHERE id = ?`, [linkedProjectId])
+    const projectRows = await query<any>(`SELECT name FROM projects WHERE id = ?`, [linkedProjectId])
     const projectName = projectRows?.[0]?.name
     const detail = projectName ? ` (project: ${projectName})` : ''
     return { success: false, error: `Đường dẫn này đã được liên kết với project khác.${detail}` }
   }
-  const existingRow = await query<any[]>('SELECT id FROM user_project_source_folder WHERE user_id = ? AND project_id = ? AND source_folder_path = ?', [
-    userId,
-    projectId,
-    normalized,
-  ])
+  const existingRow = await query<any>('SELECT id FROM user_project_source_folder WHERE user_id = ? AND project_id = ? AND source_folder_path = ?', [userId, projectId, normalized])
   try {
     if (existingRow?.length) {
       if (sourceFolderName != null) {
@@ -290,13 +286,13 @@ export async function upsertUserProjectSourceFolder(
 /** Trả về projectId hoặc null. Chuẩn hóa path trước khi so sánh. */
 export async function getProjectIdByUserAndPath(userId: string, sourceFolderPath: string): Promise<string | null> {
   const normalized = normalizePath(sourceFolderPath)
-  const rows = await query<any[]>('SELECT project_id FROM user_project_source_folder WHERE user_id = ? AND source_folder_path = ?', [userId, normalized])
+  const rows = await query<any>('SELECT project_id FROM user_project_source_folder WHERE user_id = ? AND source_folder_path = ?', [userId, normalized])
   return rows?.[0]?.project_id ?? null
 }
 
 /** Trả về mappings của user. */
 export async function getUserProjectSourceFolderMappings(userId: string): Promise<UserProjectSourceFolderMapping[]> {
-  const rows = await query<any[]>('SELECT project_id, source_folder_path FROM user_project_source_folder WHERE user_id = ? ORDER BY source_folder_path', [userId])
+  const rows = await query<any>('SELECT project_id, source_folder_path FROM user_project_source_folder WHERE user_id = ? ORDER BY source_folder_path', [userId])
   return (rows ?? []).map(r => ({ projectId: r.project_id, sourceFolderPath: r.source_folder_path }))
 }
 
@@ -308,7 +304,7 @@ export async function deleteUserProjectSourceFolder(userId: string, sourceFolder
 
 /** Trả về danh sách source folder của user cho project. */
 export async function getSourceFoldersByProject(userId: string, projectId: string): Promise<{ id: string; name: string; path: string }[]> {
-  const rows = await query<any[]>(
+  const rows = await query<any>(
     'SELECT id, source_folder_path, source_folder_name FROM user_project_source_folder WHERE user_id = ? AND project_id = ? ORDER BY source_folder_path',
     [userId, projectId]
   )
@@ -323,7 +319,7 @@ export async function getSourceFoldersByProject(userId: string, projectId: strin
 export async function getSourceFoldersByProjects(userId: string, projectIds: string[]): Promise<{ id: string; name: string; path: string }[]> {
   if (projectIds.length === 0) return []
   const placeholders = projectIds.map(() => '?').join(',')
-  const rows = await query<any[]>(
+  const rows = await query<any>(
     `SELECT id, source_folder_path, source_folder_name FROM user_project_source_folder
      WHERE user_id = ? AND project_id IN (${placeholders}) ORDER BY source_folder_path`,
     [userId, ...projectIds]
@@ -347,7 +343,7 @@ export async function getProjectsForUser(userId: string): Promise<Project[]> {
   if (await isAppAdmin(userId)) {
     return getProjects()
   }
-  const rows = await query<any[]>(
+  const rows = await query<any>(
     `SELECT DISTINCT p.id, p.name, p.created_at, p.version
      FROM projects p
      JOIN user_project_roles upr ON upr.project_id = p.id
@@ -374,7 +370,7 @@ export async function getProjectsForLeaderboardPicker(userId: string): Promise<{
     return { scope: 'admin', projects: await getProjects() }
   }
 
-  const rows = await query<{ project_id: string; role: string }[]>(
+  const rows = await query<{ project_id: string; role: string }>(
     `SELECT upr.project_id, upr.role
      FROM user_project_roles upr
      WHERE upr.user_id = ? AND upr.project_id IS NOT NULL`,
@@ -411,7 +407,7 @@ export async function getProjectsForLeaderboardPicker(userId: string): Promise<{
   }
 
   const placeholders = targetIds.map(() => '?').join(',')
-  const prows = await query<any[]>(`SELECT id, name, created_at, version FROM projects WHERE id IN (${placeholders}) ORDER BY created_at DESC`, targetIds)
+  const prows = await query<any>(`SELECT id, name, created_at, version FROM projects WHERE id IN (${placeholders}) ORDER BY created_at DESC`, targetIds)
   const projects = (prows ?? []).map(r => ({
     id: r.id,
     name: r.name,
@@ -451,7 +447,7 @@ export async function getTasks(projectId?: string): Promise<Task[]> {
     params.push(projectId)
   }
   sql += ' ORDER BY t.created_at DESC'
-  const rows = await query<any[]>(sql, params)
+  const rows = await query<any>(sql, params)
   return (rows || []).map(mapTask)
 }
 
@@ -461,10 +457,10 @@ export async function getTaskListVisibleProjectIds(userId: string, appRole: stri
   const r = (appRole || '').toLowerCase()
   if (r === 'admin') return null
   if (r === 'pl' || r === 'pm') {
-    const rows = await query<{ project_id: string }[]>(`SELECT DISTINCT project_id FROM user_project_roles WHERE user_id = ? AND role IN ('pl','pm')`, [userId])
+    const rows = await query<{ project_id: string }>(`SELECT DISTINCT project_id FROM user_project_roles WHERE user_id = ? AND role IN ('pl','pm')`, [userId])
     return (rows ?? []).map(x => x.project_id).filter(Boolean)
   }
-  const rows = await query<{ project_id: string }[]>(`SELECT DISTINCT project_id FROM user_project_roles WHERE user_id = ? AND role = 'dev'`, [userId])
+  const rows = await query<{ project_id: string }>(`SELECT DISTINCT project_id FROM user_project_roles WHERE user_id = ? AND role = 'dev'`, [userId])
   return (rows ?? []).map(x => x.project_id).filter(Boolean)
 }
 
@@ -473,7 +469,7 @@ export async function getProjectsForTaskManagement(userId: string, appRole: stri
   if (visible === null) return getProjects()
   if (visible.length === 0) return []
   const ph = visible.map(() => '?').join(',')
-  const rows = await query<any[]>(`SELECT id, name, created_at, version FROM projects WHERE id IN (${ph}) ORDER BY created_at DESC`, visible)
+  const rows = await query<any>(`SELECT id, name, created_at, version FROM projects WHERE id IN (${ph}) ORDER BY created_at DESC`, visible)
   return (rows ?? []).map(r => ({
     id: r.id,
     name: r.name,
@@ -502,7 +498,7 @@ export async function getTasksForSession(userId: string, appRole: string, projec
     params.push(projectId)
   }
   sql += ' ORDER BY t.created_at DESC'
-  const rows = await query<any[]>(sql, params)
+  const rows = await query<any>(sql, params)
   return (rows || []).map(mapTask)
 }
 
@@ -578,7 +574,7 @@ export async function listTasksForPickerPage(userId: string, appRole: string, pa
   const fetchCap = limit + 1
   sql += ` ORDER BY t.created_at DESC LIMIT ${fetchCap} OFFSET ${offset}`
 
-  const rows = await query<any[]>(sql, sqlParams)
+  const rows = await query<any>(sql, sqlParams)
   const raw = rows ?? []
   const hasMore = raw.length > limit
   const slice = hasMore ? raw.slice(0, limit) : raw
@@ -825,7 +821,7 @@ async function managementBaseParams(
   const role = (appRole || '').toLowerCase()
   /** Dev chỉ xem task được assign cho mình; milestone luôn hiển thị trong phạm vi project (cột mốc dùng chung). */
   if (role === 'dev') {
-    parts.push('(t.assignee_user_id = ? OR COALESCE(t.type, \'bug\') = ?)')
+    parts.push("(t.assignee_user_id = ? OR COALESCE(t.type, 'bug') = ?)")
     params.push(userId, 'milestone')
   }
   return { whereSql: managementWhereClause(parts), params, isEmptyScope: false }
@@ -842,7 +838,7 @@ async function runFacetGroup(
   const { whereSql, params, isEmptyScope } = await managementBaseParams(userId, appRole, p, omit)
   if (isEmptyScope) return {}
   const sql = `SELECT ${groupExpr} as ${keyAlias}, COUNT(*) as c ${MANAGEMENT_TASKS_FROM} WHERE ${whereSql} GROUP BY ${groupExpr}`
-  const rows = await query<Record<string, unknown>[]>(sql, params)
+  const rows = await query<Record<string, unknown>>(sql, params)
   const out: Record<string, number> = {}
   for (const r of rows ?? []) {
     let k = r[keyAlias] as string | null
@@ -883,13 +879,13 @@ export async function getManagementScopeMeta(userId: string, appRole: string): P
   }
   const role = (appRole || '').toLowerCase()
   if (role === 'dev') {
-    visParts.push('(t.assignee_user_id = ? OR COALESCE(t.type, \'bug\') = ?)')
+    visParts.push("(t.assignee_user_id = ? OR COALESCE(t.type, 'bug') = ?)")
     visParams.push(userId, 'milestone')
   }
   const w = visParts.length > 0 ? visParts.join(' AND ') : '1=1'
   const [unRows, distRows] = await Promise.all([
-    query<{ x: number }[]>(`SELECT 1 as x ${MANAGEMENT_TASKS_FROM} WHERE ${w} AND t.assignee_user_id IS NULL LIMIT 1`, visParams),
-    query<{ id: string }[]>(`SELECT DISTINCT t.assignee_user_id as id ${MANAGEMENT_TASKS_FROM} WHERE ${w} AND t.assignee_user_id IS NOT NULL`, visParams),
+    query<{ x: number }>(`SELECT 1 as x ${MANAGEMENT_TASKS_FROM} WHERE ${w} AND t.assignee_user_id IS NULL LIMIT 1`, visParams),
+    query<{ id: string }>(`SELECT DISTINCT t.assignee_user_id as id ${MANAGEMENT_TASKS_FROM} WHERE ${w} AND t.assignee_user_id IS NOT NULL`, visParams),
   ])
   return {
     hasUnassignedTask: (unRows?.length ?? 0) > 0,
@@ -908,7 +904,7 @@ export async function listTasksForManagementPage(userId: string, appRole: string
   if (isEmptyScope) return { tasks: [], total: 0 }
 
   const countSql = `SELECT COUNT(*) as cnt ${MANAGEMENT_TASKS_FROM} WHERE ${whereSql}`
-  const countRows = await query<{ cnt: number }[]>(countSql, params)
+  const countRows = await query<{ cnt: number }>(countSql, params)
   const total = Number(countRows?.[0]?.cnt ?? 0)
 
   const orderBy = getManagementOrderBySql(p.sortColumn, p.sortDirection)
@@ -918,7 +914,7 @@ export async function listTasksForManagementPage(userId: string, appRole: string
     `uu.name AS updated_by_display_name, uu.avatar_data AS updated_by_avatar_data ` +
     `${MANAGEMENT_TASKS_FROM} LEFT JOIN task_favorites fav ON fav.task_id = t.id AND fav.user_id = ? WHERE ${whereSql} ORDER BY ${orderBy} LIMIT ${limit} OFFSET ${offset}`
   const listParams: unknown[] = [userId, ...params]
-  const rows = await query<any[]>(listSql, listParams)
+  const rows = await query<any>(listSql, listParams)
   return { tasks: (rows || []).map(mapTask), total }
 }
 
@@ -930,7 +926,7 @@ export async function listTasksForManagementForCharts(
   const { whereSql, params, isEmptyScope } = await managementBaseParams(userId, appRole, { page: 1, limit: 1, ...p }, undefined)
   if (isEmptyScope) return []
   const sql = `SELECT t.id, t.status, t.progress, t.priority, t.assignee_user_id, t.plan_start_date, t.plan_end_date, t.actual_end_date, t.actual_start_date, t.created_at, t.updated_at ${MANAGEMENT_TASKS_FROM} WHERE ${whereSql} ORDER BY t.created_at DESC LIMIT ${MANAGEMENT_CHART_MAX_ROWS}`
-  const rows = await query<any[]>(sql, params)
+  const rows = await query<any>(sql, params)
   return (rows || []).map(mapManagementChartRow)
 }
 
@@ -951,7 +947,7 @@ export async function listTasksForManagementBoard(
   if (isEmptyScope) return { tasks: [], total: 0, truncated: false }
 
   const countSql = `SELECT COUNT(*) as cnt ${MANAGEMENT_TASKS_FROM} WHERE ${whereSql}`
-  const countRows = await query<{ cnt: number }[]>(countSql, params)
+  const countRows = await query<{ cnt: number }>(countSql, params)
   const total = Number(countRows?.[0]?.cnt ?? 0)
 
   const orderBy = getManagementOrderBySql(null, undefined)
@@ -961,7 +957,7 @@ export async function listTasksForManagementBoard(
     `uu.name AS updated_by_display_name, uu.avatar_data AS updated_by_avatar_data ` +
     `${MANAGEMENT_TASKS_FROM} LEFT JOIN task_favorites fav ON fav.task_id = t.id AND fav.user_id = ? WHERE ${whereSql} ORDER BY ${orderBy} LIMIT ${MANAGEMENT_BOARD_MAX_ROWS}`
   const listParams: unknown[] = [userId, ...params]
-  const rows = await query<any[]>(listSql, listParams)
+  const rows = await query<any>(listSql, listParams)
   const tasks = (rows || []).map(mapTask)
   const truncated = total > tasks.length
   return { tasks, total, truncated }
@@ -995,10 +991,7 @@ export async function canUserCreateMilestoneInProject(userId: string, appRole: s
   if (!pid) return false
   if (await isAppAdmin(userId)) return true
   if ((appRole || '').toLowerCase() === 'admin') return true
-  const rows = await query<{ one: number }[]>(
-    `SELECT 1 AS one FROM user_project_roles WHERE user_id = ? AND project_id = ? AND role IN ('pm', 'pl') LIMIT 1`,
-    [userId, pid]
-  )
+  const rows = await query<{ one: number }>(`SELECT 1 AS one FROM user_project_roles WHERE user_id = ? AND project_id = ? AND role IN ('pm', 'pl') LIMIT 1`, [userId, pid])
   return (rows?.length ?? 0) > 0
 }
 
@@ -1013,14 +1006,14 @@ export async function canUserCreateTasksInProject(userId: string, appRole: strin
 
 /** Lấy danh sách task_id mà user đã favorite */
 export async function getFavoriteTaskIds(userId: string): Promise<Set<string>> {
-  const rows = await query<any[]>('SELECT task_id FROM task_favorites WHERE user_id = ?', [userId])
+  const rows = await query<any>('SELECT task_id FROM task_favorites WHERE user_id = ?', [userId])
   return new Set((rows || []).map(r => r.task_id))
 }
 
 /** Thêm task vào favorite của user */
 export async function addTaskFavorite(userId: string, taskId: string): Promise<void> {
   await ensureUserExists(userId)
-  const taskRows = await query<any[]>('SELECT id FROM tasks WHERE id = ?', [taskId])
+  const taskRows = await query<any>('SELECT id FROM tasks WHERE id = ?', [taskId])
   if (!taskRows?.length) throw new Error('Task not found')
   const id = randomUuidV7()
   try {
@@ -1036,8 +1029,8 @@ export async function addTaskFavorite(userId: string, taskId: string): Promise<v
 
 /** Xóa task khỏi favorite của user */
 export async function removeTaskFavorite(userId: string, taskId: string): Promise<void> {
-  const result = await query<{ affectedRows?: number }>('DELETE FROM task_favorites WHERE user_id = ? AND task_id = ?', [userId, taskId])
-  if (result?.affectedRows === 0) return
+  const result = await exec('DELETE FROM task_favorites WHERE user_id = ? AND task_id = ?', [userId, taskId])
+  if (result.affectedRows === 0) return
 }
 
 /** Tạo bản sao task (copy) - cùng project, title thêm " (Copy)", status = new, progress = 0. Không copy task Redmine. */
@@ -1069,7 +1062,7 @@ export async function copyTask(taskId: string, createdBy: string): Promise<Task>
 
 async function ensureUserExists(userId: string | null | undefined): Promise<void> {
   if (!userId) return
-  const rows = await query<any[]>('SELECT id FROM users WHERE id = ?', [userId])
+  const rows = await query<any>('SELECT id FROM users WHERE id = ?', [userId])
   if (!rows?.length) throw new Error('User not found')
 }
 
@@ -1089,7 +1082,7 @@ const MASTER_LABELS: Record<string, string> = {
 
 async function ensureMasterCodeExists(kind: 'statuses' | 'priorities' | 'types' | 'sources', code: string): Promise<void> {
   const table = MASTER_TABLES[kind]
-  const rows = await query<any[]>(`SELECT 1 FROM ${table} WHERE code = ?`, [code])
+  const rows = await query<any>(`SELECT 1 FROM ${table} WHERE code = ?`, [code])
   if (!rows?.length) throw new Error(`Invalid ${MASTER_LABELS[kind]}`)
 }
 
@@ -1098,7 +1091,7 @@ export async function createTask(input: CreateTaskInput): Promise<Task> {
   if (!title) throw new Error('title is required')
   const projectId = input.projectId
   if (!projectId || typeof projectId !== 'string') throw new Error('projectId is required')
-  const projRows = await query<any[]>('SELECT id FROM projects WHERE id = ?', [projectId])
+  const projRows = await query<any>('SELECT id FROM projects WHERE id = ?', [projectId])
   const proj = projRows?.[0]
   if (!proj) throw new Error('Project not found')
   await ensureUserExists(input.assigneeUserId)
@@ -1140,14 +1133,14 @@ export async function createTask(input: CreateTaskInput): Promise<Task> {
       (input as any).parentId || null,
     ]
   )
-  const taskRows = await query<any[]>(`${TASK_SELECT_JOIN} WHERE t.id = ?`, [id])
+  const taskRows = await query<any>(`${TASK_SELECT_JOIN} WHERE t.id = ?`, [id])
   const row = taskRows?.[0]
   if (!row) throw new Error('Failed to fetch created task')
   return mapTask(row)
 }
 
 async function fetchTaskRowById(id: string): Promise<any | null> {
-  const rows = await query<any[]>('SELECT * FROM tasks WHERE id = ? LIMIT 1', [id])
+  const rows = await query<any>('SELECT * FROM tasks WHERE id = ? LIMIT 1', [id])
   return rows?.[0] ?? null
 }
 
@@ -1211,7 +1204,7 @@ async function persistTaskChangeHistory(taskId: string, before: any, after: any,
 export async function updateTaskStatus(id: string, status: TaskStatus, version?: number, updatedByUserId?: string): Promise<void> {
   const before = await fetchTaskRowById(id)
   if (!before) throw new Error('Task not found')
-  const doneDates = status === 'done' ? ', actual_end_date = COALESCE(actual_end_date, CURDATE())' : ''
+  const doneDates = status === 'done' ? ', actual_end_date = COALESCE(actual_end_date, CURRENT_DATE)' : ''
   const up = updatedByUserId?.trim()
   const auditSql = up ? ', updated_by = ?' : ''
   const sql =
@@ -1219,8 +1212,8 @@ export async function updateTaskStatus(id: string, status: TaskStatus, version?:
       ? `UPDATE tasks SET status = ?, updated_at = NOW(), version = version + 1${doneDates}${auditSql} WHERE id = ? AND version = ?`
       : `UPDATE tasks SET status = ?, updated_at = NOW(), version = version + 1${doneDates}${auditSql} WHERE id = ?`
   const params = version !== undefined ? (up ? [status, up, id, version] : [status, id, version]) : up ? [status, up, id] : [status, id]
-  const result = await query<{ affectedRows?: number }>(sql, params)
-  if (result?.affectedRows === 0) throwVersionConflict()
+  const result = await exec(sql, params)
+  if (result.affectedRows === 0) throwVersionConflict()
   const after = await fetchTaskRowById(id)
   if (after) await persistTaskChangeHistory(id, before, after, updatedByUserId, 'status')
 }
@@ -1236,8 +1229,8 @@ export async function updateTaskProgress(id: string, progress: number, version?:
       ? `UPDATE tasks SET progress = ?, updated_at = NOW(), version = version + 1${auditSql} WHERE id = ? AND version = ?`
       : `UPDATE tasks SET progress = ?, updated_at = NOW(), version = version + 1${auditSql} WHERE id = ?`
   const params = version !== undefined ? (up ? [clamped, up, id, version] : [clamped, id, version]) : up ? [clamped, up, id] : [clamped, id]
-  const result = await query<{ affectedRows?: number }>(sql, params)
-  if (result?.affectedRows === 0) throwVersionConflict()
+  const result = await exec(sql, params)
+  if (result.affectedRows === 0) throwVersionConflict()
   const after = await fetchTaskRowById(id)
   if (after) await persistTaskChangeHistory(id, before, after, updatedByUserId, 'progress')
 }
@@ -1278,8 +1271,8 @@ export async function updateTaskDates(
   params.push(id)
   if (version !== undefined) params.push(version)
   const whereClause = version !== undefined ? 'WHERE id = ? AND version = ?' : 'WHERE id = ?'
-  const result = await query<{ affectedRows?: number }>(`UPDATE tasks SET ${updates.join(', ')} ${whereClause}`, params)
-  if (result?.affectedRows === 0) throwVersionConflict()
+  const result = await exec(`UPDATE tasks SET ${updates.join(', ')} ${whereClause}`, params)
+  if (result.affectedRows === 0) throwVersionConflict()
   const after = await fetchTaskRowById(id)
   if (after) await persistTaskChangeHistory(id, before, after, updatedByUserId, 'dates')
 }
@@ -1302,19 +1295,19 @@ export async function assignTask(id: string, assigneeUserId: string | null, vers
       : up
         ? [assigneeUserId ?? null, up, id]
         : [assigneeUserId ?? null, id]
-  const result = await query<{ affectedRows?: number }>(sql, params)
-  if (result?.affectedRows === 0) throwVersionConflict()
+  const result = await exec(sql, params)
+  if (result.affectedRows === 0) throwVersionConflict()
   const after = await fetchTaskRowById(id)
   if (after) await persistTaskChangeHistory(id, before, after, updatedByUserId, 'assign')
 }
 
 export async function updateTask(id: string, input: UpdateTaskInput, updatedByUserId?: string): Promise<void> {
-  const rows = await query<any[]>('SELECT * FROM tasks WHERE id = ?', [id])
+  const rows = await query<any>('SELECT * FROM tasks WHERE id = ?', [id])
   if (!rows?.length) throw new Error('Task not found')
   const beforeRow = rows[0]
   const projectId = (input as any).projectId
   if (projectId !== undefined && projectId !== null && projectId !== '') {
-    const proj = await query<any[]>('SELECT id FROM projects WHERE id = ?', [projectId])
+    const proj = await query<any>('SELECT id FROM projects WHERE id = ?', [projectId])
     if (!proj?.length) throw new Error('Project not found')
   }
   await ensureUserExists((input as any).assigneeUserId)
@@ -1324,12 +1317,12 @@ export async function updateTask(id: string, input: UpdateTaskInput, updatedByUs
   const parentId = (input as any).parentId
   if (parentId !== undefined && parentId !== null && parentId !== '') {
     if (parentId === id) throw new Error('Task cannot be its own parent')
-    const parentRows = await query<any[]>('SELECT parent_id FROM tasks WHERE id = ?', [parentId])
+    const parentRows = await query<any>('SELECT parent_id FROM tasks WHERE id = ?', [parentId])
     if (!parentRows?.length) throw new Error('Parent task not found')
     let current: string | null = parentId
     while (current) {
       if (current === id) throw new Error('Cannot set parent: would create cycle')
-      const rows = await query<any[]>('SELECT parent_id FROM tasks WHERE id = ?', [current])
+      const rows = await query<any>('SELECT parent_id FROM tasks WHERE id = ?', [current])
       current = rows?.[0]?.parent_id ?? null
     }
   }
@@ -1388,12 +1381,9 @@ export async function updateTask(id: string, input: UpdateTaskInput, updatedByUs
   const inputStatus = (input as { status?: string }).status
   const hasActualEndKey = Object.hasOwn(input, 'actualEndDate')
   if (inputStatus === 'done' && !hasActualEndKey) {
-    updates.push('actual_end_date = COALESCE(actual_end_date, CURDATE())')
+    updates.push('actual_end_date = COALESCE(actual_end_date, CURRENT_DATE)')
   }
-  if (
-    String((input as any).type || '').trim() === 'milestone' &&
-    !updates.some(u => u.startsWith('ticket_id'))
-  ) {
+  if (String((input as any).type || '').trim() === 'milestone' && !updates.some(u => u.startsWith('ticket_id'))) {
     updates.push('ticket_id = ?')
     params.push(null)
   }
@@ -1407,8 +1397,8 @@ export async function updateTask(id: string, input: UpdateTaskInput, updatedByUs
   params.push(id)
   const whereClause = inputVersion !== undefined ? 'WHERE id = ? AND version = ?' : 'WHERE id = ?'
   if (inputVersion !== undefined) params.push(inputVersion)
-  const result = await query<{ affectedRows?: number }>(`UPDATE tasks SET ${updates.join(', ')} ${whereClause}`, params)
-  if (result?.affectedRows === 0) throwVersionConflict()
+  const result = await exec(`UPDATE tasks SET ${updates.join(', ')} ${whereClause}`, params)
+  if (result.affectedRows === 0) throwVersionConflict()
   const afterRow = await fetchTaskRowById(id)
   if (afterRow) await persistTaskChangeHistory(id, beforeRow, afterRow, updatedByUserId, 'update')
 }
@@ -1430,10 +1420,10 @@ export interface TaskChangeHistoryEntry {
 
 export async function listTaskChangeHistory(taskId: string, limit = 50): Promise<TaskChangeHistoryEntry[]> {
   const lim = Math.min(Math.max(1, limit), 200)
-  const rows = await query<any[]>(
-    `SELECT id, task_id, actor_user_id, source, changes_json, created_at FROM task_change_history WHERE task_id = ? ORDER BY created_at DESC LIMIT ?`,
-    [taskId, lim]
-  )
+  const rows = await query<any>(`SELECT id, task_id, actor_user_id, source, changes_json, created_at FROM task_change_history WHERE task_id = ? ORDER BY created_at DESC LIMIT ?`, [
+    taskId,
+    lim,
+  ])
   return (rows ?? []).map(r => ({
     id: r.id,
     taskId: r.task_id,
@@ -1465,7 +1455,7 @@ export async function bulkUpdateTasksWithPatch(
   const updatedIds: string[] = []
   const skippedIds: string[] = []
 
-  await withTransaction(async txQuery => {
+  await withTransaction(async (txQuery, txExec) => {
     for (const item of items) {
       const sel = (await txQuery('SELECT * FROM tasks WHERE id = ? LIMIT 1', [item.id])) as any[]
       const before = sel?.[0]
@@ -1483,7 +1473,7 @@ export async function bulkUpdateTasksWithPatch(
         setParts.push('status = ?')
         params.push(patch.status)
         if (patch.status === 'done') {
-          setParts.push('actual_end_date = COALESCE(actual_end_date, CURDATE())')
+          setParts.push('actual_end_date = COALESCE(actual_end_date, CURRENT_DATE)')
         }
       }
       if (patch.priority !== undefined) {
@@ -1502,8 +1492,8 @@ export async function bulkUpdateTasksWithPatch(
       setParts.push('updated_at = NOW()', 'version = version + 1')
       params.push(item.id, item.version)
       const sql = `UPDATE tasks SET ${setParts.join(', ')} WHERE id = ? AND version = ?`
-      const res = (await txQuery(sql, params)) as { affectedRows?: number }
-      if (res?.affectedRows === 0) {
+      const res = await txExec(sql, params)
+      if (res.affectedRows === 0) {
         skippedIds.push(item.id)
         continue
       }
@@ -1533,7 +1523,7 @@ export async function bulkUpdateTasksWithPatch(
 }
 
 export async function deleteTask(id: string, version?: number): Promise<void> {
-  await withTransaction(async txQuery => {
+  await withTransaction(async (txQuery, txExec) => {
     // Xóa tất cả links liên quan (tránh lỗi FK khi task có links)
     await txQuery('DELETE FROM task_links WHERE from_task_id = ? OR to_task_id = ?', [id, id])
     // Gỡ parent của các sub-task (tránh lỗi FK khi task có children)
@@ -1541,8 +1531,8 @@ export async function deleteTask(id: string, version?: number): Promise<void> {
     // Xóa task
     const sql = version !== undefined ? 'DELETE FROM tasks WHERE id = ? AND version = ?' : 'DELETE FROM tasks WHERE id = ?'
     const params = version !== undefined ? [id, version] : [id]
-    const result = (await txQuery(sql, params)) as { affectedRows?: number }
-    if (result?.affectedRows === 0) throwVersionConflict()
+    const result = await txExec(sql, params)
+    if (result.affectedRows === 0) throwVersionConflict()
   })
 }
 
@@ -1564,7 +1554,7 @@ export interface TaskLinksResponse {
 }
 
 export async function getTaskChildren(taskId: string): Promise<Task[]> {
-  const rows = await query<any[]>(`${TASK_SELECT_JOIN} WHERE t.parent_id = ? ORDER BY t.created_at`, [taskId])
+  const rows = await query<any>(`${TASK_SELECT_JOIN} WHERE t.parent_id = ? ORDER BY t.created_at`, [taskId])
   return (rows || []).map(mapTask)
 }
 
@@ -1572,7 +1562,7 @@ export async function createTaskChild(taskId: string, input: CreateTaskInput): P
   const title = (input.title ?? '').toString().trim()
   if (!title) throw new Error('title is required')
   if ((input.type || 'bug').toString() === 'milestone') throw new Error('MILESTONE_CANNOT_BE_SUBTASK')
-  const parentRows = await query<any[]>('SELECT project_id FROM tasks WHERE id = ?', [taskId])
+  const parentRows = await query<any>('SELECT project_id FROM tasks WHERE id = ?', [taskId])
   const parent = parentRows?.[0]
   if (!parent) throw new Error('Parent task not found')
   const projectId = parent.project_id
@@ -1615,18 +1605,17 @@ export async function createTaskChild(taskId: string, input: CreateTaskInput): P
       taskId,
     ]
   )
-  const childTaskRows = await query<any[]>(`${TASK_SELECT_JOIN} WHERE t.id = ?`, [id])
+  const childTaskRows = await query<any>(`${TASK_SELECT_JOIN} WHERE t.id = ?`, [id])
   const row = childTaskRows?.[0]
   if (!row) throw new Error('Failed to fetch created sub-task')
   return mapTask(row)
 }
 
 export async function getTaskLinks(taskId: string): Promise<TaskLinksResponse> {
-  const out = await query<any[]>(
-    'SELECT tl.*, t.title as to_title, t.ticket_id as to_ticket_id FROM task_links tl JOIN tasks t ON tl.to_task_id = t.id WHERE tl.from_task_id = ?',
-    [taskId]
-  )
-  const inc = await query<any[]>(
+  const out = await query<any>('SELECT tl.*, t.title as to_title, t.ticket_id as to_ticket_id FROM task_links tl JOIN tasks t ON tl.to_task_id = t.id WHERE tl.from_task_id = ?', [
+    taskId,
+  ])
+  const inc = await query<any>(
     'SELECT tl.*, t.title as from_title, t.ticket_id as from_ticket_id FROM task_links tl JOIN tasks t ON tl.from_task_id = t.id WHERE tl.to_task_id = ?',
     [taskId]
   )
@@ -1659,10 +1648,10 @@ export async function getTaskLinks(taskId: string): Promise<TaskLinksResponse> {
 export async function getTaskLinksBulk(taskIds: string[]): Promise<{ id: string; fromTaskId: string; toTaskId: string; linkType: string }[]> {
   if (!taskIds || taskIds.length === 0) return []
   const placeholders = taskIds.map(() => '?').join(',')
-  const rows = await query<any[]>(
-    `SELECT id, from_task_id, to_task_id, link_type FROM task_links WHERE from_task_id IN (${placeholders}) OR to_task_id IN (${placeholders})`,
-    [...taskIds, ...taskIds]
-  )
+  const rows = await query<any>(`SELECT id, from_task_id, to_task_id, link_type FROM task_links WHERE from_task_id IN (${placeholders}) OR to_task_id IN (${placeholders})`, [
+    ...taskIds,
+    ...taskIds,
+  ])
   if (!rows || rows.length === 0) return []
   // Dedup (cùng link có thể match cả from và to nếu cả 2 đều trong list)
   const seen = new Set<string>()
@@ -1680,10 +1669,10 @@ export async function createTaskLink(taskId: string, toTaskId: string, linkType:
   if (!lt) throw new Error('linkType is required')
   if (taskId === toTaskId) throw new Error('Cannot link task to itself')
   const [fromRows, toRows, existingLink, linkTypeRows] = await Promise.all([
-    query<any[]>('SELECT id FROM tasks WHERE id = ?', [taskId]),
-    query<any[]>('SELECT id FROM tasks WHERE id = ?', [toTaskId]),
-    query<any[]>('SELECT id FROM task_links WHERE from_task_id = ? AND to_task_id = ? AND link_type = ?', [taskId, toTaskId, lt]),
-    query<any[]>('SELECT code FROM task_link_types WHERE code = ?', [lt]),
+    query<any>('SELECT id FROM tasks WHERE id = ?', [taskId]),
+    query<any>('SELECT id FROM tasks WHERE id = ?', [toTaskId]),
+    query<any>('SELECT id FROM task_links WHERE from_task_id = ? AND to_task_id = ? AND link_type = ?', [taskId, toTaskId, lt]),
+    query<any>('SELECT code FROM task_link_types WHERE code = ?', [lt]),
   ])
   if (!fromRows?.length) throw new Error('Source task not found')
   if (!toRows?.length) throw new Error('Target task not found')
@@ -1692,7 +1681,7 @@ export async function createTaskLink(taskId: string, toTaskId: string, linkType:
 
   const id = randomUuidV7()
   await query('INSERT INTO task_links (id, from_task_id, to_task_id, link_type) VALUES (?, ?, ?, ?)', [id, taskId, toTaskId, lt])
-  const rows = await query<any[]>('SELECT * FROM task_links WHERE id = ?', [id])
+  const rows = await query<any>('SELECT * FROM task_links WHERE id = ?', [id])
   const row = rows?.[0]
   if (!row) throw new Error('Failed to fetch created link')
   return {
@@ -1710,8 +1699,8 @@ export async function deleteTaskLink(taskId: string, linkId: string, version?: n
       ? 'DELETE FROM task_links WHERE id = ? AND (from_task_id = ? OR to_task_id = ?) AND version = ?'
       : 'DELETE FROM task_links WHERE id = ? AND (from_task_id = ? OR to_task_id = ?)'
   const params = version !== undefined ? [linkId, taskId, taskId, version] : [linkId, taskId, taskId]
-  const result = await query<{ affectedRows?: number }>(sql, params)
-  if (result?.affectedRows === 0) throw new Error('Link not found or was modified by another user')
+  const result = await exec(sql, params)
+  if (result.affectedRows === 0) throw new Error('Link not found or was modified by another user')
 }
 
 function mapRowToUser(r: Record<string, unknown>): User {
@@ -1733,7 +1722,7 @@ function mapRowToUser(r: Record<string, unknown>): User {
 export async function getUserByUserCode(userCode: string): Promise<User | null> {
   const code = String(userCode).trim().toLowerCase()
   if (!code) return null
-  const rows = await query<any[]>('SELECT * FROM users WHERE LOWER(user_code) = ?', [code])
+  const rows = await query<any>('SELECT * FROM users WHERE LOWER(user_code) = ?', [code])
   const row = rows?.[0]
   if (!row) return null
   return mapRowToUser(row)
@@ -1744,14 +1733,14 @@ export async function getUserByUserCodeOrEmail(identifier: string): Promise<User
   const val = String(identifier).trim()
   if (!val) return null
   const lower = val.toLowerCase()
-  const rows = await query<any[]>("SELECT * FROM users WHERE LOWER(user_code) = ? OR (email IS NOT NULL AND TRIM(email) != '' AND LOWER(TRIM(email)) = ?)", [lower, lower])
+  const rows = await query<any>("SELECT * FROM users WHERE LOWER(user_code) = ? OR (email IS NOT NULL AND TRIM(email) != '' AND LOWER(TRIM(email)) = ?)", [lower, lower])
   const row = rows?.[0]
   if (!row) return null
   return mapRowToUser(row)
 }
 
 export async function getUsers(): Promise<User[]> {
-  const rows = await query<any[]>('SELECT * FROM users ORDER BY user_code')
+  const rows = await query<any>('SELECT * FROM users ORDER BY user_code')
   return (rows || []).map(mapRowToUser)
 }
 
@@ -1759,11 +1748,11 @@ export async function createUser(input: CreateUserInput): Promise<User> {
   const code = input.userCode?.trim()
   const name = input.name?.trim()
   if (!code || !name) throw new Error('userCode and name are required')
-  const existing = await query<any[]>('SELECT id FROM users WHERE LOWER(user_code) = ?', [code.toLowerCase()])
+  const existing = await query<any>('SELECT id FROM users WHERE LOWER(user_code) = ?', [code.toLowerCase()])
   if (existing?.length) throw new Error(`Mã user "${code}" đã tồn tại`)
   const id = randomUuidV7()
   await query('INSERT INTO users (id, user_code, name, email, receive_commit_notification) VALUES (?, ?, ?, ?, 1)', [id, code, name, input.email || ''])
-  const rows = await query<any[]>('SELECT * FROM users WHERE id = ?', [id])
+  const rows = await query<any>('SELECT * FROM users WHERE id = ?', [id])
   const row = rows?.[0]
   if (!row) throw new Error('Failed to fetch created user')
   return mapRowToUser(row)
@@ -1773,10 +1762,10 @@ export async function updateUser(id: string, data: { userCode?: string; name?: s
   if (data.userCode !== undefined) {
     const code = String(data.userCode).trim()
     if (!code) throw new Error('Mã user không được để trống')
-    const dup = await query<any[]>('SELECT id FROM users WHERE LOWER(user_code) = ? AND id != ?', [code.toLowerCase(), id])
+    const dup = await query<any>('SELECT id FROM users WHERE LOWER(user_code) = ? AND id != ?', [code.toLowerCase(), id])
     if (dup?.length) throw new Error(`Mã user "${code}" đã tồn tại`)
   }
-  const existing = await query<any[]>('SELECT * FROM users WHERE id = ?', [id])
+  const existing = await query<any>('SELECT * FROM users WHERE id = ?', [id])
   if (!existing?.length) throw new Error('Người dùng không tồn tại')
   const u = existing[0]
   const newCode = data.userCode !== undefined ? String(data.userCode).trim() : u.user_code
@@ -1792,8 +1781,8 @@ export async function updateUser(id: string, data: { userCode?: string; name?: s
   }
   updates.push('version = version + 1')
   params.push(id, version)
-  const result = await query<{ affectedRows?: number }>(`UPDATE users SET ${updates.join(', ')} WHERE id = ? AND version = ?`, params)
-  if (result?.affectedRows === 0) throw new Error('Người dùng không tồn tại hoặc đã bị sửa bởi người khác')
+  const result = await exec(`UPDATE users SET ${updates.join(', ')} WHERE id = ? AND version = ?`, params)
+  if (result.affectedRows === 0) throw new Error('Người dùng không tồn tại hoặc đã bị sửa bởi người khác')
 }
 
 /** Lưu avatar base64 vào DB. avatarBase64: chuỗi base64 thuần hoặc data URL đầy đủ. */
@@ -1808,63 +1797,60 @@ export async function updateUserAvatar(userId: string, avatarBase64: string | nu
 
 /** Trả về data URL để hiển thị avatar (hoạt động trên mọi máy vì lưu trong DB). */
 export async function getUserAvatarUrl(userId: string): Promise<string | null> {
-  const rows = await query<any[]>('SELECT avatar_data FROM users WHERE id = ?', [userId])
+  const rows = await query<any>('SELECT avatar_data FROM users WHERE id = ?', [userId])
   const data = rows?.[0]?.avatar_data
   if (!data || typeof data !== 'string' || data.length === 0) return null
   return data.startsWith('data:') ? data : `data:image/png;base64,${data}`
 }
 
 export async function getPasswordHash(userId: string): Promise<string | null> {
-  const rows = await query<any[]>('SELECT password_hash FROM users_password WHERE user_id = ?', [userId])
+  const rows = await query<any>('SELECT password_hash FROM users_password WHERE user_id = ?', [userId])
   return rows?.[0]?.password_hash ?? null
 }
 
 /** Lấy email của user theo userId. Dùng cho daily report tìm commit theo user. */
 export async function getUserEmailById(userId: string): Promise<string | null> {
-  const rows = await query<any[]>('SELECT email FROM users WHERE id = ?', [userId])
+  const rows = await query<any>('SELECT email FROM users WHERE id = ?', [userId])
   const email = rows?.[0]?.email
   return typeof email === 'string' && email.trim() ? email.trim() : null
 }
 
 export async function isAppAdmin(userId: string): Promise<boolean> {
-  const rows = await query<any[]>('SELECT 1 FROM app_admins WHERE user_id = ?', [userId])
+  const rows = await query<any>('SELECT 1 FROM app_admins WHERE user_id = ?', [userId])
   return (rows?.length ?? 0) > 0
 }
 
 export async function getFirstAdminUserId(): Promise<string | null> {
-  const rows = await query<any[]>('SELECT user_id FROM app_admins LIMIT 1')
+  const rows = await query<any>('SELECT user_id FROM app_admins LIMIT 1')
   return rows?.[0]?.user_id ?? null
 }
 
 export async function setPasswordHash(userId: string, passwordHash: string): Promise<void> {
   await ensureUserExists(userId)
   if (!passwordHash?.trim()) throw new Error('passwordHash is required')
-  const rows = await query<any[]>('SELECT id, version FROM users_password WHERE user_id = ?', [userId])
+  const rows = await query<any>('SELECT id, version FROM users_password WHERE user_id = ?', [userId])
   if (rows?.length) {
     const version = rows[0].version ?? 1
-    const result = await query<{ affectedRows?: number }>(
-      'UPDATE users_password SET password_hash = ?, updated_at = NOW(), version = version + 1 WHERE user_id = ? AND version = ?',
-      [passwordHash, userId, version]
-    )
-    if (result?.affectedRows === 0) throw new Error('Password record was modified by another user')
+    const result = await exec('UPDATE users_password SET password_hash = ?, updated_at = NOW(), version = version + 1 WHERE user_id = ? AND version = ?', [
+      passwordHash,
+      userId,
+      version,
+    ])
+    if (result.affectedRows === 0) throw new Error('Password record was modified by another user')
   } else {
     const id = randomUuidV7()
-    await query(
-      'INSERT INTO users_password (id, user_id, password_hash, version) VALUES (?, ?, ?, 1)',
-      [id, userId, passwordHash]
-    )
+    await query('INSERT INTO users_password (id, user_id, password_hash, version) VALUES (?, ?, ?, 1)', [id, userId, passwordHash])
   }
 }
 
 export async function deleteUser(id: string): Promise<void> {
-  const rows = await query<any[]>('SELECT id FROM users WHERE id = ?', [id])
+  const rows = await query<any>('SELECT id FROM users WHERE id = ?', [id])
   if (!rows?.length) throw new Error('Người dùng không tồn tại')
   if (await isAppAdmin(id)) {
-    const adminCount = await query<any[]>('SELECT COUNT(*) as c FROM app_admins')
+    const adminCount = await query<any>('SELECT COUNT(*) as c FROM app_admins')
     if ((adminCount?.[0]?.c ?? 0) <= 1) throw new Error('Không thể xóa admin cuối cùng')
   }
-  await withTransaction(async txQuery => {
-    await txQuery('UPDATE tasks SET assignee_user_id = NULL, updated_at = NOW(), version = version + 1 WHERE assignee_user_id = ?', [id])
+  await withTransaction(async (txQuery, _txExec) => {
     await txQuery('DELETE FROM user_project_roles WHERE user_id = ?', [id])
     await txQuery('DELETE FROM app_admins WHERE user_id = ?', [id])
     await txQuery('DELETE FROM users_password WHERE user_id = ?', [id])
@@ -1873,7 +1859,7 @@ export async function deleteUser(id: string): Promise<void> {
 }
 
 export async function getUserRoles(userId: string): Promise<UserProjectRole[]> {
-  const rows = await query<any[]>('SELECT id, user_id, project_id, role, created_at, updated_at FROM user_project_roles WHERE user_id = ? ORDER BY project_id', [userId])
+  const rows = await query<any>('SELECT id, user_id, project_id, role, created_at, updated_at FROM user_project_roles WHERE user_id = ? ORDER BY project_id', [userId])
   return (rows || []).map(r => ({
     id: r.id,
     userId: r.user_id,
@@ -1885,10 +1871,10 @@ export async function getUserRoles(userId: string): Promise<UserProjectRole[]> {
 }
 
 export async function getUserRolesForProject(userId: string, projectId: string | null): Promise<UserRole[]> {
-  const rows = await query<any[]>('SELECT role FROM user_project_roles WHERE user_id = ? AND (project_id IS NOT DISTINCT FROM ?)', [userId, projectId])
+  const rows = await query<any>('SELECT role FROM user_project_roles WHERE user_id = ? AND (project_id IS NOT DISTINCT FROM ?)', [userId, projectId])
   const roles = [...new Set((rows || []).map(r => r.role))]
   if (projectId) {
-    const globalRows = await query<any[]>('SELECT role FROM user_project_roles WHERE user_id = ? AND project_id IS NULL', [userId])
+    const globalRows = await query<any>('SELECT role FROM user_project_roles WHERE user_id = ? AND project_id IS NULL', [userId])
     for (const r of globalRows || []) roles.push(r.role)
   }
   return [...new Set(roles)]
@@ -1897,18 +1883,13 @@ export async function getUserRolesForProject(userId: string, projectId: string |
 export async function setUserProjectRole(userId: string, projectId: string | null, role: UserRole): Promise<void> {
   await ensureUserExists(userId)
   if (projectId) {
-    const proj = await query<any[]>('SELECT id FROM projects WHERE id = ?', [projectId])
+    const proj = await query<any>('SELECT id FROM projects WHERE id = ?', [projectId])
     if (!proj?.length) throw new Error('Project not found')
   }
-  const existing = await query<any[]>('SELECT id FROM user_project_roles WHERE user_id = ? AND (project_id IS NOT DISTINCT FROM ?) AND role = ?', [userId, projectId, role])
+  const existing = await query<any>('SELECT id FROM user_project_roles WHERE user_id = ? AND (project_id IS NOT DISTINCT FROM ?) AND role = ?', [userId, projectId, role])
   if (existing?.length) return
   const id = randomUuidV7()
-  await query('INSERT INTO user_project_roles (id, user_id, project_id, role, version) VALUES (?, ?, ?, ?, 1)', [
-    id,
-    userId,
-    projectId,
-    role,
-  ])
+  await query('INSERT INTO user_project_roles (id, user_id, project_id, role, version) VALUES (?, ?, ?, ?, 1)', [id, userId, projectId, role])
 }
 
 export async function removeUserProjectRole(userId: string, projectId: string | null, role: UserRole): Promise<void> {
@@ -1929,7 +1910,7 @@ export interface ProjectMembers {
 }
 
 export async function getProjectMembers(projectId: string): Promise<ProjectMembers> {
-  const rows = await query<any[]>(
+  const rows = await query<any>(
     `SELECT upr.user_id, upr.role, u.name, u.user_code
      FROM user_project_roles upr
      JOIN users u ON u.id = upr.user_id
@@ -1949,10 +1930,10 @@ export async function getProjectMembers(projectId: string): Promise<ProjectMembe
 }
 
 export async function hasRole(userId: string, projectId: string | null, role: UserRole): Promise<boolean> {
-  const rows = await query<any[]>('SELECT 1 FROM user_project_roles WHERE user_id = ? AND (project_id IS NOT DISTINCT FROM ?) AND role = ? LIMIT 1', [userId, projectId, role])
+  const rows = await query<any>('SELECT 1 FROM user_project_roles WHERE user_id = ? AND (project_id IS NOT DISTINCT FROM ?) AND role = ? LIMIT 1', [userId, projectId, role])
   if (rows?.length) return true
   if (projectId) {
-    const globalRows = await query<any[]>('SELECT 1 FROM user_project_roles WHERE user_id = ? AND project_id IS NULL AND role = ? LIMIT 1', [userId, role])
+    const globalRows = await query<any>('SELECT 1 FROM user_project_roles WHERE user_id = ? AND project_id IS NULL AND role = ? LIMIT 1', [userId, role])
     if (globalRows?.length) return true
   }
   return false
@@ -1976,7 +1957,7 @@ export async function getCanManageProjectRoles(managerUserId: string, projectId:
 }
 
 export async function getProjects(): Promise<Project[]> {
-  const rows = await query<any[]>('SELECT id, name, created_at, version FROM projects ORDER BY created_at DESC')
+  const rows = await query<any>('SELECT id, name, created_at, version FROM projects ORDER BY created_at DESC')
   return (rows || []).map(r => ({
     id: r.id,
     name: r.name,
@@ -1997,7 +1978,7 @@ export async function createProject(name: string, pmUserId?: string | null): Pro
   if (pmUserId) {
     await setUserProjectRole(pmUserId, id, 'pm')
   }
-  const rows = await query<any[]>('SELECT id, name, created_at, version FROM projects WHERE id = ?', [id])
+  const rows = await query<any>('SELECT id, name, created_at, version FROM projects WHERE id = ?', [id])
   const row = rows?.[0]
   if (!row) throw new Error('Failed to fetch created project')
   return { id: row.id, name: row.name, createdAt: row.created_at, version: row.version ?? 1 }
@@ -2008,9 +1989,9 @@ export async function updateProject(id: string, name: string, version?: number):
   const sql =
     version !== undefined ? 'UPDATE projects SET name = ?, version = version + 1 WHERE id = ? AND version = ?' : 'UPDATE projects SET name = ?, version = version + 1 WHERE id = ?'
   const params = version !== undefined ? [name.trim(), id, version] : [name.trim(), id]
-  const result = await query<{ affectedRows?: number }>(sql, params)
-  if (result?.affectedRows === 0) throw new Error('Project not found or was modified by another user')
-  const rows = await query<any[]>('SELECT id, name, created_at, version FROM projects WHERE id = ?', [id])
+  const result = await exec(sql, params)
+  if (result.affectedRows === 0) throw new Error('Project not found or was modified by another user')
+  const rows = await query<any>('SELECT id, name, created_at, version FROM projects WHERE id = ?', [id])
   const row = rows?.[0]
   if (!row) throw new Error('Project not found')
   return { id: row.id, name: row.name, createdAt: row.created_at, version: row.version ?? 1 }
@@ -2022,7 +2003,7 @@ export async function updateProject(id: string, name: string, version?: number):
  */
 /** Lấy giờ nhắc báo cáo của project. Trả về "HH:mm" hoặc null. */
 export async function getProjectReminderTime(projectId: string): Promise<string | null> {
-  const rows = await query<any[]>('SELECT daily_report_reminder_time FROM projects WHERE id = ?', [projectId])
+  const rows = await query<any>('SELECT daily_report_reminder_time FROM projects WHERE id = ?', [projectId])
   const val = rows?.[0]?.daily_report_reminder_time
   if (!val) return null
   const s = String(val)
@@ -2039,12 +2020,12 @@ export async function updateProjectReminderTime(projectId: string, time: string 
 /** Lấy projects có daily_report_reminder_time khớp giờ hiện tại (HH:mm). */
 export async function getProjectsWithReminderAtTime(currentTimeHhMm: string): Promise<{ id: string; name: string }[]> {
   const timeVal = `${currentTimeHhMm}:00`
-  const rows = await query<any[]>('SELECT id, name FROM projects WHERE daily_report_reminder_time = ?', [timeVal])
+  const rows = await query<any>('SELECT id, name FROM projects WHERE daily_report_reminder_time = ?', [timeVal])
   return (rows ?? []).map(r => ({ id: r.id, name: r.name }))
 }
 
 export async function deleteProject(id: string, version?: number): Promise<void> {
-  await withTransaction(async txQuery => {
+  await withTransaction(async (txQuery, txExec) => {
     await txQuery('DELETE FROM evm_wbs_details WHERE project_id = ?', [id])
     await txQuery('DELETE FROM evm_wbs_master WHERE project_id = ?', [id])
     await txQuery('DELETE FROM evm_phases WHERE project_id = ?', [id])
@@ -2054,18 +2035,16 @@ export async function deleteProject(id: string, version?: number): Promise<void>
     await txQuery('DELETE FROM evm_ai_insight WHERE project_id = ?', [id])
     const sql = version !== undefined ? 'DELETE FROM projects WHERE id = ? AND version = ?' : 'DELETE FROM projects WHERE id = ?'
     const params = version !== undefined ? [id, version] : [id]
-    const result = (await txQuery(sql, params)) as { affectedRows?: number }
-    if (result?.affectedRows === 0) throw new Error('Project not found or was modified by another user')
+    const result = await txExec(sql, params)
+    if (result.affectedRows === 0) throw new Error('Project not found or was modified by another user')
   })
 }
 
 async function getMaster(kind: 'statuses' | 'priorities' | 'types' | 'sources', all = false): Promise<MasterItem[]> {
   const tables = { statuses: 'task_statuses', priorities: 'task_priorities', types: 'task_types', sources: 'task_sources' }
   const table = tables[kind]
-  const sql = all
-    ? `SELECT * FROM ${table} ORDER BY sort_order, code`
-    : `SELECT * FROM ${table} WHERE (COALESCE(is_active::int, 0) <> 0) ORDER BY sort_order, code`
-  const rows = await query<any[]>(sql)
+  const sql = all ? `SELECT * FROM ${table} ORDER BY sort_order, code` : `SELECT * FROM ${table} WHERE (COALESCE(is_active::int, 0) <> 0) ORDER BY sort_order, code`
+  const rows = await query<any>(sql)
   return (rows || []).map(r => ({
     code: r.code,
     name: r.name,
@@ -2095,9 +2074,7 @@ export interface TaskLinkTypeItem {
 }
 
 export async function getMasterTaskLinkTypesAll(): Promise<TaskLinkTypeItem[]> {
-  const rows = await query<any[]>(
-    'SELECT code, name, sort_order FROM task_link_types WHERE (COALESCE(is_active::int, 0) <> 0) ORDER BY sort_order, code'
-  )
+  const rows = await query<any>('SELECT code, name, sort_order FROM task_link_types WHERE (COALESCE(is_active::int, 0) <> 0) ORDER BY sort_order, code')
   return (rows || []).map(r => ({
     code: r.code,
     name: r.name,
@@ -2127,7 +2104,7 @@ async function createMaster(
     }
     throw err
   }
-  const rows = await query<any[]>(`SELECT * FROM ${table} WHERE code = ?`, [code])
+  const rows = await query<any>(`SELECT * FROM ${table} WHERE code = ?`, [code])
   const row = rows?.[0]
   if (!row) throw new Error('Failed to fetch created master record')
   return { code: row.code, name: row.name, sort_order: row.sort_order, color: row.color, is_active: row.is_active }
@@ -2160,16 +2137,16 @@ async function updateMaster(
     params.push(toDbBoolValue(Boolean(data.is_active), useBool))
   }
   if (updates.length === 0) {
-    const rows = await query<any[]>(`SELECT * FROM ${table} WHERE code = ?`, [code])
+    const rows = await query<any>(`SELECT * FROM ${table} WHERE code = ?`, [code])
     const row = rows?.[0]
     if (!row) throw new Error('Master record not found')
     return row
   }
   updates.push('version = version + 1')
   params.push(code)
-  const result = await query<{ affectedRows?: number }>(`UPDATE ${table} SET ${updates.join(', ')} WHERE code = ?`, params)
-  if (result?.affectedRows === 0) throw new Error('Master record not found or was modified by another user')
-  const rows = await query<any[]>(`SELECT * FROM ${table} WHERE code = ?`, [code])
+  const result = await exec(`UPDATE ${table} SET ${updates.join(', ')} WHERE code = ?`, params)
+  if (result.affectedRows === 0) throw new Error('Master record not found or was modified by another user')
+  const rows = await query<any>(`SELECT * FROM ${table} WHERE code = ?`, [code])
   const row = rows?.[0]
   if (!row) throw new Error('Master record not found')
   return row
@@ -2186,16 +2163,13 @@ async function deleteMaster(kind: 'statuses' | 'priorities' | 'types' | 'sources
   const tables = { statuses: 'task_statuses', priorities: 'task_priorities', types: 'task_types', sources: 'task_sources' }
   const table = tables[kind]
   const taskColumn = MASTER_TO_TASK_COLUMN[kind]
-  const inUse = await query<any[]>(`SELECT 1 FROM tasks WHERE ${taskColumn} = ? LIMIT 1`, [code])
+  const inUse = await query<any>(`SELECT 1 FROM tasks WHERE ${taskColumn} = ? LIMIT 1`, [code])
   if (inUse?.length) {
     throw new Error(`Không thể xóa: có task đang sử dụng ${MASTER_LABELS[kind]} "${code}"`)
   }
   const inactiveVal = toDbBoolValue(false, await isBooleanColumn(table, 'is_active'))
-  const result = await query<{ affectedRows?: number }>(
-    `UPDATE ${table} SET is_active = ?, version = version + 1 WHERE code = ?`,
-    [inactiveVal, code]
-  )
-  if (result?.affectedRows === 0) throw new Error('Master record not found')
+  const result = await exec(`UPDATE ${table} SET is_active = ?, version = version + 1 WHERE code = ?`, [inactiveVal, code])
+  if (result.affectedRows === 0) throw new Error('Master record not found')
 }
 
 export async function createMasterStatus(input: { code: string; name: string; sort_order?: number; color?: string }): Promise<MasterItem> {
@@ -2244,7 +2218,7 @@ export async function createTasksFromRedmineCsv(
 ): Promise<{ created: number; updated: number; errors: string[] }> {
   const rows = parseCSVRows(csvContent)
   if (rows.length < 2) return { created: 0, updated: 0, errors: ['CSV trống hoặc không có dữ liệu'] }
-  const tablesCheck = await query<any[]>("SELECT 1 FROM information_schema.tables WHERE table_schema = current_schema() AND table_name = 'users'")
+  const tablesCheck = await query<any>("SELECT 1 FROM information_schema.tables WHERE table_schema = current_schema() AND table_name = 'users'")
   if (!tablesCheck?.length) {
     throw new Error('Database chưa được khởi tạo schema. Vui lòng khởi tạo schema trước khi import CSV.')
   }
@@ -2262,13 +2236,13 @@ export async function createTasksFromRedmineCsv(
     throw new Error('Chỉ app admin mới được import CSV tạo project mới (project chưa có trong DB).')
   }
 
-  const users = await query<any[]>('SELECT * FROM users')
+  const users = await query<any>('SELECT * FROM users')
   const userList = (users || []).map((u: any) => ({
     userCode: u.user_code,
     name: u.name,
   }))
   await createUsersFromCsv(rows, userList)
-  const usersAfter = await query<any[]>('SELECT * FROM users')
+  const usersAfter = await query<any>('SELECT * FROM users')
   const userListAfter = (usersAfter || []).map((u: any) => ({
     id: u.id,
     userCode: u.user_code,
@@ -2282,7 +2256,7 @@ export async function createTasksFromRedmineCsv(
 }
 
 export async function ensureTaskFile(): Promise<void> {
-  const { testConnection } = await import('./db')
+  const { testConnection } = await import('../schema/db')
   const res = await testConnection()
   if (!res.ok) throw new Error(res.error || 'Database connection failed')
 }
@@ -2300,7 +2274,7 @@ export interface CommitReviewRecord {
 }
 
 export async function getCommitReview(sourceFolderPath: string, commitId: string): Promise<CommitReviewRecord | null> {
-  const rows = await query<any[]>('SELECT * FROM commit_reviews WHERE source_folder_path = ? AND commit_id = ?', [sourceFolderPath, commitId])
+  const rows = await query<any>('SELECT * FROM commit_reviews WHERE source_folder_path = ? AND commit_id = ?', [sourceFolderPath, commitId])
   const row = rows?.[0]
   if (!row) return null
   return {
@@ -2329,11 +2303,14 @@ export async function saveCommitReview(record: {
   const reviewedAt = new Date().toISOString().slice(0, 19).replace('T', ' ')
   const existing = await getCommitReview(record.sourceFolderPath, record.commitId)
   if (existing) {
-    const result = await query<{ affectedRows?: number }>(
-      `UPDATE commit_reviews SET reviewed_at = ?, reviewer_user_id = ?, note = ?, version = version + 1 WHERE source_folder_path = ? AND commit_id = ?`,
-      [reviewedAt, record.reviewerUserId ?? null, record.note ?? null, record.sourceFolderPath, record.commitId]
-    )
-    if (result?.affectedRows === 0) throw new Error('Commit review was modified by another user')
+    const result = await exec(`UPDATE commit_reviews SET reviewed_at = ?, reviewer_user_id = ?, note = ?, version = version + 1 WHERE source_folder_path = ? AND commit_id = ?`, [
+      reviewedAt,
+      record.reviewerUserId ?? null,
+      record.note ?? null,
+      record.sourceFolderPath,
+      record.commitId,
+    ])
+    if (result.affectedRows === 0) throw new Error('Commit review was modified by another user')
   } else {
     const id = randomUuidV7()
     await query(
@@ -2353,12 +2330,12 @@ export async function deleteCommitReview(sourceFolderPath: string, commitId: str
       ? 'DELETE FROM commit_reviews WHERE source_folder_path = ? AND commit_id = ? AND version = ?'
       : 'DELETE FROM commit_reviews WHERE source_folder_path = ? AND commit_id = ?'
   const params = version !== undefined ? [sourceFolderPath, commitId, version] : [sourceFolderPath, commitId]
-  const result = await query<{ affectedRows?: number }>(sql, params)
-  if (result?.affectedRows === 0) throw new Error('Commit review not found or was modified by another user')
+  const result = await exec(sql, params)
+  if (result.affectedRows === 0) throw new Error('Commit review not found or was modified by another user')
 }
 
 export async function getCommitReviewsBySourceFolder(sourceFolderPath: string): Promise<CommitReviewRecord[]> {
-  const rows = await query<any[]>('SELECT * FROM commit_reviews WHERE source_folder_path = ? ORDER BY reviewed_at DESC', [sourceFolderPath])
+  const rows = await query<any>('SELECT * FROM commit_reviews WHERE source_folder_path = ? ORDER BY reviewed_at DESC', [sourceFolderPath])
   return (rows || []).map(r => ({
     id: r.id,
     sourceFolderPath: r.source_folder_path,
@@ -2372,7 +2349,7 @@ export async function getCommitReviewsBySourceFolder(sourceFolderPath: string): 
 }
 
 export async function getReviewedCommitIds(sourceFolderPath: string): Promise<Set<string>> {
-  const rows = await query<any[]>('SELECT commit_id FROM commit_reviews WHERE source_folder_path = ?', [sourceFolderPath])
+  const rows = await query<any>('SELECT commit_id FROM commit_reviews WHERE source_folder_path = ?', [sourceFolderPath])
   return new Set((rows || []).map(r => r.commit_id))
 }
 
@@ -2434,29 +2411,29 @@ export async function getReminderStats(userId: string, appRole: string): Promise
   const excludeMilestoneSql = ` AND COALESCE(t.type, 'bug') <> 'milestone'`
 
   const [todayRows, tomorrowRows, nearDeadlineRows, overdueRows, inReviewRows, longUnreviewedRows] = await Promise.all([
-    query<any[]>(
+    query<any>(
       `SELECT ${taskCols} FROM tasks t WHERE t.assignee_user_id = ? AND t.status IN (${placeholders}) AND t.plan_end_date >= ? AND t.plan_end_date < ?${excludeMilestoneSql}${pf.sql} ORDER BY t.plan_end_date`,
       [userId, ...devStatuses, today, tomorrowStr, ...pf.params]
     ),
-    query<any[]>(
+    query<any>(
       `SELECT ${taskCols} FROM tasks t WHERE t.assignee_user_id = ? AND t.status IN (${placeholders}) AND t.plan_end_date >= ? AND t.plan_end_date < ?${excludeMilestoneSql}${pf.sql} ORDER BY t.plan_end_date`,
       [userId, ...devStatuses, tomorrowStr, dayAfterTomorrowStr, ...pf.params]
     ),
-    query<any[]>(
+    query<any>(
       `SELECT ${taskCols} FROM tasks t WHERE t.assignee_user_id = ? AND t.status IN (${placeholders}) AND t.plan_end_date > ? AND t.plan_end_date < ?${excludeMilestoneSql}${pf.sql} ORDER BY t.plan_end_date`,
       [userId, ...devStatuses, dayAfterTomorrowStr, dayAfterThreeDaysLaterStr, ...pf.params]
     ),
-    query<any[]>(
+    query<any>(
       `SELECT ${taskCols} FROM tasks t WHERE t.assignee_user_id = ? AND t.status IN (${placeholders}) AND t.plan_end_date IS NOT NULL AND t.plan_end_date < ? AND t.actual_end_date IS NULL${excludeMilestoneSql}${pf.sql} ORDER BY t.plan_end_date`,
       [userId, ...devStatuses, today, ...pf.params]
     ),
-    query<any[]>(
+    query<any>(
       `SELECT t.id, t.title, t.ticket_id, t.plan_end_date, t.updated_at FROM tasks t
        JOIN user_project_roles upr ON upr.project_id = t.project_id AND upr.role IN ('pl','pm') AND upr.user_id = ?
        WHERE t.status = 'in_review'${excludeMilestoneSql}${pf.sql} ORDER BY t.updated_at`,
       [userId, ...pf.params]
     ),
-    query<any[]>(
+    query<any>(
       `SELECT t.id, t.title, t.ticket_id, t.plan_end_date, t.updated_at FROM tasks t
        JOIN user_project_roles upr ON upr.project_id = t.project_id AND upr.role IN ('pl','pm') AND upr.user_id = ?
        WHERE t.status = 'in_review' AND t.updated_at < NOW() - interval '3 days'${excludeMilestoneSql}${pf.sql} ORDER BY t.updated_at`,
@@ -2515,13 +2492,13 @@ export interface CreateCodingRuleInput {
 export async function getCodingRulesForSelection(userId: string, sourceFolderPath: string): Promise<CodingRuleItem[]> {
   const projectId = await getProjectIdByUserAndPath(userId, sourceFolderPath)
   const rows = projectId
-    ? await query<any[]>(
+    ? await query<any>(
         `SELECT id, name, content, project_id, created_by FROM coding_rules
          WHERE project_id IS NULL OR project_id = ?
          ORDER BY project_id IS NULL DESC, name`,
         [projectId]
       )
-    : await query<any[]>('SELECT id, name, content, project_id, created_by FROM coding_rules WHERE project_id IS NULL ORDER BY name')
+    : await query<any>('SELECT id, name, content, project_id, created_by FROM coding_rules WHERE project_id IS NULL ORDER BY name')
   return (rows ?? []).map(r => ({
     id: r.id,
     name: r.name,
@@ -2534,7 +2511,7 @@ export async function getCodingRulesForSelection(userId: string, sourceFolderPat
 
 /** Get rules for selection when not logged in: only global rules. */
 export async function getCodingRulesGlobalOnly(): Promise<CodingRuleItem[]> {
-  const rows = await query<any[]>('SELECT id, name, content, project_id, created_by FROM coding_rules WHERE project_id IS NULL ORDER BY name')
+  const rows = await query<any>('SELECT id, name, content, project_id, created_by FROM coding_rules WHERE project_id IS NULL ORDER BY name')
   return (rows ?? []).map(r => ({
     id: r.id,
     name: r.name,
@@ -2547,7 +2524,7 @@ export async function getCodingRulesGlobalOnly(): Promise<CodingRuleItem[]> {
 
 /** Get content by id. Returns null if not found. For global rules only when no auth. */
 export async function getCodingRuleById(id: string): Promise<{ content: string; name: string } | null> {
-  const rows = await query<any[]>('SELECT content, name FROM coding_rules WHERE id = ?', [id])
+  const rows = await query<any>('SELECT content, name FROM coding_rules WHERE id = ?', [id])
   const r = rows?.[0]
   return r ? { content: r.content ?? '', name: r.name ?? '' } : null
 }
@@ -2557,7 +2534,7 @@ export async function getCodingRuleContentByIdOrName(idOrName: string, options?:
   if (!idOrName?.trim()) return null
   const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(idOrName)
   if (isUuid) {
-    const rows = await query<any[]>('SELECT content, project_id FROM coding_rules WHERE id = ?', [idOrName])
+    const rows = await query<any>('SELECT content, project_id FROM coding_rules WHERE id = ?', [idOrName])
     const r = rows?.[0]
     if (!r) return null
     if (!r.project_id) return r.content ?? null
@@ -2573,7 +2550,7 @@ export async function getCodingRuleContentByIdOrName(idOrName: string, options?:
   if (options?.userId?.trim() && options?.sourceFolderPath?.trim()) {
     projectId = await getProjectIdByUserAndPath(options.userId.trim(), options.sourceFolderPath.trim())
   }
-  const rows = await query<any[]>('SELECT content FROM coding_rules WHERE name = ? AND (project_id IS NOT DISTINCT FROM ?)', [idOrName, projectId])
+  const rows = await query<any>('SELECT content FROM coding_rules WHERE name = ? AND (project_id IS NOT DISTINCT FROM ?)', [idOrName, projectId])
   const r = rows?.[0]
   return r?.content ?? null
 }
@@ -2583,7 +2560,7 @@ export async function getCodingRulesForManagement(userId: string): Promise<Codin
   let rows: any[]
   if (await isAppAdmin(userId)) {
     rows =
-      (await query<any[]>(
+      (await query<any>(
         `SELECT cr.id, cr.name, cr.content, cr.project_id, cr.created_by, p.name as project_name
        FROM coding_rules cr
        LEFT JOIN projects p ON p.id = cr.project_id
@@ -2591,7 +2568,7 @@ export async function getCodingRulesForManagement(userId: string): Promise<Codin
       )) ?? []
   } else {
     rows =
-      (await query<any[]>(
+      (await query<any>(
         `SELECT cr.id, cr.name, cr.content, cr.project_id, cr.created_by, p.name as project_name
        FROM coding_rules cr
        LEFT JOIN projects p ON p.id = cr.project_id
@@ -2617,7 +2594,7 @@ export async function createCodingRule(input: CreateCodingRuleInput): Promise<Co
   if (!name?.trim() || !content?.trim()) throw new Error('Name and content are required')
   const isAdmin = await isAppAdmin(createdBy)
   if (projectId) {
-    const proj = await query<any[]>('SELECT id FROM projects WHERE id = ?', [projectId])
+    const proj = await query<any>('SELECT id FROM projects WHERE id = ?', [projectId])
     if (!proj?.length) throw new Error('Project not found')
     if (!isAdmin) {
       const hasPl = await hasRole(createdBy, projectId, 'pl')
@@ -2626,11 +2603,11 @@ export async function createCodingRule(input: CreateCodingRuleInput): Promise<Co
   } else {
     if (!isAdmin) throw new Error('Chỉ admin mới được tạo rule áp dụng toàn bộ dự án')
   }
-  const existing = await query<any[]>('SELECT id FROM coding_rules WHERE name = ? AND (project_id IS NOT DISTINCT FROM ?)', [name.trim(), projectId])
+  const existing = await query<any>('SELECT id FROM coding_rules WHERE name = ? AND (project_id IS NOT DISTINCT FROM ?)', [name.trim(), projectId])
   if (existing?.length) throw new Error('Tên rule đã tồn tại trong phạm vi này')
   const id = randomUuidV7()
   await query('INSERT INTO coding_rules (id, name, content, project_id, created_by) VALUES (?, ?, ?, ?, ?)', [id, name.trim(), content, projectId, createdBy])
-  const rows = await query<any[]>('SELECT id, name, content, project_id, created_by FROM coding_rules WHERE id = ?', [id])
+  const rows = await query<any>('SELECT id, name, content, project_id, created_by FROM coding_rules WHERE id = ?', [id])
   const r = rows?.[0]
   return {
     id: r.id,
@@ -2644,22 +2621,22 @@ export async function createCodingRule(input: CreateCodingRuleInput): Promise<Co
 
 /** Update coding rule. Only creator or admin. */
 export async function updateCodingRule(id: string, input: { name?: string; content?: string }, userId: string): Promise<CodingRuleItem> {
-  const rows = await query<any[]>('SELECT id, created_by FROM coding_rules WHERE id = ?', [id])
+  const rows = await query<any>('SELECT id, created_by FROM coding_rules WHERE id = ?', [id])
   const r = rows?.[0]
   if (!r) throw new Error('Coding rule not found')
   const isAdmin = await isAppAdmin(userId)
   if (!isAdmin && r.created_by !== userId) throw new Error('Chỉ người tạo hoặc admin mới được sửa')
   if (input.name?.trim()) {
-    const crRow = await query<any[]>('SELECT project_id FROM coding_rules WHERE id = ?', [id])
+    const crRow = await query<any>('SELECT project_id FROM coding_rules WHERE id = ?', [id])
     const projectId = crRow?.[0]?.project_id ?? null
-    const existing = await query<any[]>('SELECT id FROM coding_rules WHERE name = ? AND (project_id IS NOT DISTINCT FROM ?) AND id != ?', [input.name.trim(), projectId, id])
+    const existing = await query<any>('SELECT id FROM coding_rules WHERE name = ? AND (project_id IS NOT DISTINCT FROM ?) AND id != ?', [input.name.trim(), projectId, id])
     if (existing?.length) throw new Error('Tên rule đã tồn tại trong phạm vi này')
     await query('UPDATE coding_rules SET name = ?, updated_at = NOW() WHERE id = ?', [input.name.trim(), id])
   }
   if (input.content != null) {
     await query('UPDATE coding_rules SET content = ?, updated_at = NOW() WHERE id = ?', [input.content, id])
   }
-  const updated = await query<any[]>('SELECT id, name, content, project_id, created_by FROM coding_rules WHERE id = ?', [id])
+  const updated = await query<any>('SELECT id, name, content, project_id, created_by FROM coding_rules WHERE id = ?', [id])
   const u = updated?.[0]
   return {
     id: u.id,
@@ -2673,7 +2650,7 @@ export async function updateCodingRule(id: string, input: { name?: string; conte
 
 /** Delete coding rule. Only creator or admin. */
 export async function deleteCodingRule(id: string, userId: string): Promise<void> {
-  const rows = await query<any[]>('SELECT id, created_by FROM coding_rules WHERE id = ?', [id])
+  const rows = await query<any>('SELECT id, created_by FROM coding_rules WHERE id = ?', [id])
   const r = rows?.[0]
   if (!r) throw new Error('Coding rule not found')
   const isAdmin = await isAppAdmin(userId)

@@ -751,13 +751,7 @@ export function TaskCalendarView({
                         {onToggleTaskSelect && onApplyBulkTaskSelection && groupBulkIds.length > 0 ? (
                           <Checkbox
                             className="h-4 w-4 shrink-0"
-                            checked={
-                              groupBulkIds.every(id => selectedTaskIds?.has(id))
-                                ? true
-                                : groupBulkIds.some(id => selectedTaskIds?.has(id))
-                                  ? 'indeterminate'
-                                  : false
-                            }
+                            checked={groupBulkIds.every(id => selectedTaskIds?.has(id)) ? true : groupBulkIds.some(id => selectedTaskIds?.has(id)) ? 'indeterminate' : false}
                             onCheckedChange={v => onApplyBulkTaskSelection(groupBulkIds, v === true)}
                             onClick={e => e.stopPropagation()}
                             aria-label={t('taskManagement.ganttBulkSelectGroupAria', { group: group.title })}
@@ -776,11 +770,11 @@ export function TaskCalendarView({
                               onDragStart={
                                 canEditPlans
                                   ? e => {
-                                    e.dataTransfer.setData(PLAN_UNSCHED_TASK_DRAG_MIME, task.id)
-                                    e.dataTransfer.setData('text/plain', task.id)
-                                    e.dataTransfer.effectAllowed = 'copyMove'
-                                    draggingUnschedTaskIdRef.current = task.id
-                                  }
+                                      e.dataTransfer.setData(PLAN_UNSCHED_TASK_DRAG_MIME, task.id)
+                                      e.dataTransfer.setData('text/plain', task.id)
+                                      e.dataTransfer.effectAllowed = 'copyMove'
+                                      draggingUnschedTaskIdRef.current = task.id
+                                    }
                                   : undefined
                               }
                               onDragEnd={canEditPlans ? () => (draggingUnschedTaskIdRef.current = null) : undefined}

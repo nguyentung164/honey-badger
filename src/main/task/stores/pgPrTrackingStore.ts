@@ -1,6 +1,6 @@
 import { randomUuidV7 } from 'shared/randomUuidV7'
-import { query } from './db'
-import { isoInstantToPgUtcDatetimeSql } from './calendarDate'
+import { isoInstantToPgUtcDatetimeSql } from '../calendarDate'
+import { exec, query } from '../schema/db'
 
 const booleanColumnTypeCache = new Map<string, boolean>()
 
@@ -246,12 +246,12 @@ function mapAutomation(r: any): PrAutomation {
 
 // ========== REPOS ==========
 export async function listPrRepos(userId: string, projectId: string): Promise<PrRepo[]> {
-  const rows = await query<any[]>('SELECT * FROM pr_repos WHERE user_id = ? AND project_id = ? ORDER BY name', [userId, projectId])
+  const rows = await query<any>('SELECT * FROM pr_repos WHERE user_id = ? AND project_id = ? ORDER BY name', [userId, projectId])
   return (rows ?? []).map(mapRepo)
 }
 
 export async function getPrRepoById(id: string): Promise<PrRepo | null> {
-  const rows = await query<any[]>('SELECT * FROM pr_repos WHERE id = ? LIMIT 1', [id])
+  const rows = await query<any>('SELECT * FROM pr_repos WHERE id = ? LIMIT 1', [id])
   return rows?.[0] ? mapRepo(rows[0]) : null
 }
 
@@ -267,7 +267,7 @@ export async function upsertPrRepo(input: {
   repo: string
   defaultBaseBranch?: string | null
 }): Promise<PrRepo> {
-  const existing = await query<any[]>('SELECT id FROM pr_repos WHERE user_id = ? AND project_id = ? AND owner = ? AND repo = ? LIMIT 1', [
+  const existing = await query<any>('SELECT id FROM pr_repos WHERE user_id = ? AND project_id = ? AND owner = ? AND repo = ? LIMIT 1', [
     input.userId,
     input.projectId,
     input.owner,
@@ -312,7 +312,7 @@ export async function deletePrRepo(userId: string, id: string): Promise<void> {
 
 // ========== CHECKPOINT TEMPLATES ==========
 export async function listCheckpointTemplates(userId: string, projectId: string): Promise<PrCheckpointTemplate[]> {
-  const rows = await query<any[]>('SELECT * FROM pr_checkpoint_templates WHERE user_id = ? AND project_id = ? ORDER BY sort_order, created_at', [userId, projectId])
+  const rows = await query<any>('SELECT * FROM pr_checkpoint_templates WHERE user_id = ? AND project_id = ? ORDER BY sort_order, created_at', [userId, projectId])
   return (rows ?? []).map(mapTemplate)
 }
 
@@ -330,11 +330,7 @@ export async function upsertCheckpointTemplate(input: {
 }): Promise<PrCheckpointTemplate> {
   const isActiveBoolean = await isBooleanColumn('pr_checkpoint_templates', 'is_active')
   const isActiveValue = toDbBoolValue(input.isActive ?? true, isActiveBoolean)
-  const existing = await query<any[]>('SELECT id FROM pr_checkpoint_templates WHERE user_id = ? AND project_id = ? AND code = ? LIMIT 1', [
-    input.userId,
-    input.projectId,
-    input.code,
-  ])
+  const existing = await query<any>('SELECT id FROM pr_checkpoint_templates WHERE user_id = ? AND project_id = ? AND code = ? LIMIT 1', [input.userId, input.projectId, input.code])
   if (existing?.[0]) {
     const id = existing[0].id
     if (input.headerGroupId !== undefined) {
@@ -355,7 +351,7 @@ export async function upsertCheckpointTemplate(input: {
         id,
       ])
     }
-    const row = (await query<any[]>('SELECT * FROM pr_checkpoint_templates WHERE id=?', [id]))?.[0]
+    const row = (await query<any>('SELECT * FROM pr_checkpoint_templates WHERE id=?', [id]))?.[0]
     return mapTemplate(row)
   }
   const id = input.id ?? randomUuidV7()
@@ -374,7 +370,7 @@ export async function upsertCheckpointTemplate(input: {
       normalizeHeaderGroupId(input.headerGroupId ?? null),
     ]
   )
-  const row = (await query<any[]>('SELECT * FROM pr_checkpoint_templates WHERE id=?', [id]))?.[0]
+  const row = (await query<any>('SELECT * FROM pr_checkpoint_templates WHERE id=?', [id]))?.[0]
   return mapTemplate(row)
 }
 
@@ -413,7 +409,7 @@ export async function seedDefaultCheckpointTemplates(userId: string, projectId: 
 
 // ========== TRACKED BRANCHES ==========
 export async function listTrackedBranches(userId: string, projectId: string): Promise<TrackedBranchWithDetails[]> {
-  const branchRows = await query<any[]>(
+  const branchRows = await query<any>(
     `SELECT b.*, r.name AS repo_name, r.owner AS repo_owner, r.repo AS repo_repo
      FROM pr_tracked_branches b
      JOIN pr_repos r ON r.id = b.repo_id
@@ -424,7 +420,7 @@ export async function listTrackedBranches(userId: string, projectId: string): Pr
   if (!branchRows || branchRows.length === 0) return []
   const ids = branchRows.map(r => r.id)
   const placeholders = ids.map(() => '?').join(',')
-  const cpRows = await query<any[]>(
+  const cpRows = await query<any>(
     `SELECT * FROM pr_branch_checkpoints
      WHERE tracked_branch_id IN (${placeholders})
      ORDER BY updated_at DESC, id DESC`,
@@ -450,17 +446,17 @@ export async function listTrackedBranches(userId: string, projectId: string): Pr
 }
 
 export async function getTrackedBranchById(id: string): Promise<PrTrackedBranch | null> {
-  const rows = await query<any[]>('SELECT * FROM pr_tracked_branches WHERE id = ? LIMIT 1', [id])
+  const rows = await query<any>('SELECT * FROM pr_tracked_branches WHERE id = ? LIMIT 1', [id])
   return rows?.[0] ? mapTracked(rows[0]) : null
 }
 
 export async function findTrackedBranch(userId: string, repoId: string, branchName: string): Promise<PrTrackedBranch | null> {
-  const rows = await query<any[]>('SELECT * FROM pr_tracked_branches WHERE user_id = ? AND repo_id = ? AND branch_name = ? LIMIT 1', [userId, repoId, branchName])
+  const rows = await query<any>('SELECT * FROM pr_tracked_branches WHERE user_id = ? AND repo_id = ? AND branch_name = ? LIMIT 1', [userId, repoId, branchName])
   return rows?.[0] ? mapTracked(rows[0]) : null
 }
 
 async function resolveUserIdForRepo(repoId: string): Promise<string | null> {
-  const rows = await query<Array<{ user_id: string }>>('SELECT user_id FROM pr_repos WHERE id = ? LIMIT 1', [repoId])
+  const rows = await query<{ user_id: string }>('SELECT user_id FROM pr_repos WHERE id = ? LIMIT 1', [repoId])
   return rows?.[0]?.user_id ?? null
 }
 
@@ -518,14 +514,14 @@ export async function deleteTrackedBranchesByIds(ids: string[]): Promise<number>
     const chunk = ids.slice(i, i + TRACKED_DELETE_IDS_CHUNK)
     const ph = chunk.map(() => '?').join(',')
     await query(`DELETE FROM pr_branch_checkpoints WHERE tracked_branch_id IN (${ph})`, chunk)
-    const res = await query<{ affectedRows?: number }>(`DELETE FROM pr_tracked_branches WHERE id IN (${ph})`, chunk)
-    total += res?.affectedRows ?? 0
+    const res = await exec(`DELETE FROM pr_tracked_branches WHERE id IN (${ph})`, chunk)
+    total += res.affectedRows
   }
   return total
 }
 
 async function resolveUserIdFromTrackedBranch(trackedBranchId: string): Promise<string | null> {
-  const rows = await query<Array<{ user_id: string }>>('SELECT user_id FROM pr_tracked_branches WHERE id = ? LIMIT 1', [trackedBranchId])
+  const rows = await query<{ user_id: string }>('SELECT user_id FROM pr_tracked_branches WHERE id = ? LIMIT 1', [trackedBranchId])
   return rows?.[0]?.user_id ?? null
 }
 
@@ -563,7 +559,7 @@ export async function upsertBranchCheckpoint(input: {
   const assigneesJson = 'ghPrAssignees' in input && input.ghPrAssignees != null ? JSON.stringify(input.ghPrAssignees) : null
   const labelsJson = 'ghPrLabels' in input && input.ghPrLabels != null ? JSON.stringify(input.ghPrLabels) : null
   const updatedAtDb = 'ghPrUpdatedAt' in input ? isoInstantToPgUtcDatetimeSql(input.ghPrUpdatedAt ?? null) : null
-  const existing = await query<any[]>(
+  const existing = await query<any>(
     `SELECT id
      FROM pr_branch_checkpoints
      WHERE tracked_branch_id = ? AND template_id = ?
@@ -573,7 +569,10 @@ export async function upsertBranchCheckpoint(input: {
   if (existing?.[0]) {
     const id = existing[0].id
     if (existing.length > 1) {
-      const staleIds = existing.slice(1).map(r => r.id).filter(Boolean)
+      const staleIds = existing
+        .slice(1)
+        .map(r => r.id)
+        .filter(Boolean)
       if (staleIds.length > 0) {
         const stalePh = staleIds.map(() => '?').join(',')
         await query(`DELETE FROM pr_branch_checkpoints WHERE id IN (${stalePh})`, staleIds)
@@ -635,7 +634,7 @@ export async function upsertBranchCheckpoint(input: {
         id,
       ]
     )
-    const row = (await query<any[]>('SELECT * FROM pr_branch_checkpoints WHERE id = ?::varchar(36)', [id]))?.[0]
+    const row = (await query<any>('SELECT * FROM pr_branch_checkpoints WHERE id = ?::varchar(36)', [id]))?.[0]
     return mapCheckpoint(row)
   }
   const id = randomUuidV7()
@@ -676,7 +675,7 @@ export async function upsertBranchCheckpoint(input: {
       labelsJson,
     ]
   )
-  const row = (await query<any[]>('SELECT * FROM pr_branch_checkpoints WHERE id = ?::varchar(36)', [id]))?.[0]
+  const row = (await query<any>('SELECT * FROM pr_branch_checkpoints WHERE id = ?::varchar(36)', [id]))?.[0]
   return mapCheckpoint(row)
 }
 
@@ -685,7 +684,7 @@ export async function listCheckpointKeysForRepoPr(owner: string, repo: string, p
   const o = owner.trim()
   const r = repo.trim()
   if (!o || !r || !Number.isFinite(prNumber) || prNumber < 1) return []
-  const rows = await query<any[]>(
+  const rows = await query<any>(
     `SELECT bc.tracked_branch_id AS trackedBranchId, bc.template_id AS templateId
      FROM pr_branch_checkpoints bc
      INNER JOIN pr_tracked_branches tb ON tb.id = bc.tracked_branch_id
@@ -705,7 +704,7 @@ export async function listCheckpointKeysForRepoPr(owner: string, repo: string, p
 export async function listPendingCheckpoints(): Promise<Array<PrBranchCheckpoint & { repoId: string; owner: string; repo: string; branchName: string; projectId: string }>> {
   const isDoneBoolean = await isBooleanColumn('pr_branch_checkpoints', 'is_done')
   const pendingWhere = isDoneBoolean ? 'bc.is_done = FALSE' : 'COALESCE(bc.is_done, 0) = 0'
-  const rows = await query<any[]>(
+  const rows = await query<any>(
     `SELECT bc.*, b.repo_id, b.branch_name, b.project_id, r.owner, r.repo
      FROM pr_branch_checkpoints bc
      JOIN pr_tracked_branches b ON b.id = bc.tracked_branch_id
@@ -727,14 +726,14 @@ export async function listAutomations(userId: string, repoId?: string): Promise<
   const sql = repoId
     ? 'SELECT * FROM pr_automations WHERE user_id = ? AND repo_id = ? ORDER BY created_at DESC'
     : 'SELECT * FROM pr_automations WHERE user_id = ? ORDER BY created_at DESC'
-  const rows = await query<any[]>(sql, repoId ? [userId, repoId] : [userId])
+  const rows = await query<any>(sql, repoId ? [userId, repoId] : [userId])
   return (rows ?? []).map(mapAutomation)
 }
 
 export async function listAutomationsForTrigger(repoId: string, triggerEvent: string): Promise<PrAutomation[]> {
   const isActiveBoolean = await isBooleanColumn('pr_automations', 'is_active')
   const activeWhere = isActiveBoolean ? 'is_active = TRUE' : 'COALESCE(is_active, 0) = 1'
-  const rows = await query<any[]>(`SELECT * FROM pr_automations WHERE repo_id = ? AND trigger_event = ? AND ${activeWhere}`, [repoId, triggerEvent])
+  const rows = await query<any>(`SELECT * FROM pr_automations WHERE repo_id = ? AND trigger_event = ? AND ${activeWhere}`, [repoId, triggerEvent])
   return (rows ?? []).map(mapAutomation)
 }
 
@@ -774,7 +773,7 @@ export async function upsertAutomation(input: {
         input.id,
       ]
     )
-    const row = (await query<any[]>('SELECT * FROM pr_automations WHERE id = ?', [input.id]))?.[0]
+    const row = (await query<any>('SELECT * FROM pr_automations WHERE id = ?', [input.id]))?.[0]
     return mapAutomation(row)
   }
   const id = randomUuidV7()
@@ -797,7 +796,7 @@ export async function upsertAutomation(input: {
       isActiveValue,
     ]
   )
-  const row = (await query<any[]>('SELECT * FROM pr_automations WHERE id = ?', [id]))?.[0]
+  const row = (await query<any>('SELECT * FROM pr_automations WHERE id = ?', [id]))?.[0]
   return mapAutomation(row)
 }
 
@@ -826,7 +825,7 @@ function normalizeSkippedBranchPatterns(lines: readonly string[]): string[] {
 }
 
 export async function getPrBoardSkippedBranchPatterns(userId: string, projectId: string): Promise<string[]> {
-  const rows = await query<Array<{ patterns_text: string | null }>>(`SELECT patterns_text FROM pr_user_board_skip_branches WHERE user_id = ? AND project_id = ? LIMIT 1`, [
+  const rows = await query<{ patterns_text: string | null }>(`SELECT patterns_text FROM pr_user_board_skip_branches WHERE user_id = ? AND project_id = ? LIMIT 1`, [
     userId,
     projectId,
   ])
@@ -858,10 +857,7 @@ export type PrAiAssistChatLineJson =
     }
 
 export async function getPrAiAssistChatLines(userId: string, projectId: string): Promise<PrAiAssistChatLineJson[]> {
-  const rows = await query<Array<{ messages_json: string | null }>>(`SELECT messages_json FROM pr_ai_assist_chats WHERE user_id = ? AND project_id = ? LIMIT 1`, [
-    userId,
-    projectId,
-  ])
+  const rows = await query<{ messages_json: string | null }>(`SELECT messages_json FROM pr_ai_assist_chats WHERE user_id = ? AND project_id = ? LIMIT 1`, [userId, projectId])
   const raw = rows?.[0]?.messages_json
   if (raw == null || raw === '') return []
   try {

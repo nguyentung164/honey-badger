@@ -21,15 +21,7 @@ import { parseLocalDate, toYyyyMmDd } from '@/lib/dateUtils'
 import { workingDaysBetweenInclusive } from '@/lib/evmCalculations'
 import { cn, getProgressColor } from '@/lib/utils'
 import { GanttTimelineGridOverlay } from './GanttTimelineGridOverlay'
-import {
-  GANTT_LEADING_FIXED_W,
-  GANTT_LEFT_META_FIXED_W,
-  HB_GANTT_GRID_V_VAR,
-  HB_GANTT_NAME_W_VAR,
-  HB_GANTT_TODAY_LINE_MARK,
-  hbGantt,
-  hbGanttRootStyle,
-} from './ganttLayoutCssVars'
+import { GANTT_LEADING_FIXED_W, GANTT_LEFT_META_FIXED_W, HB_GANTT_GRID_V_VAR, HB_GANTT_NAME_W_VAR, HB_GANTT_TODAY_LINE_MARK, hbGantt, hbGanttRootStyle } from './ganttLayoutCssVars'
 import { PLAN_UNSCHED_TASK_DRAG_MIME } from './planUnschedTaskDragMime'
 import type { WorkloadBoardSegment, WorkloadDisplayMode, WorkloadOverrideUpsertInput } from './TaskGanttWorkload'
 import { WorkloadMetaRailFloatingToggle } from './TaskGanttWorkload'
@@ -647,16 +639,16 @@ function isTaskScheduledForGantt(t: TaskTableRowTask): boolean {
 export type GanttVirtualFlatRow =
   | { kind: 'groupHeader'; key: string; segmentKey: string; title: string; groupBodyVisible: boolean }
   | {
-    kind: 'dataRow'
-    key: string
-    task: TaskTableRowTask
-    indentLevel: number
-    hasChildren: boolean
-    isExpanded: boolean
-    subtaskNoPlanHint: string
-    /** `null`: milestone (không đánh số) hoặc sub-task khi parent không có No. */
-    displayNo: string | null
-  }
+      kind: 'dataRow'
+      key: string
+      task: TaskTableRowTask
+      indentLevel: number
+      hasChildren: boolean
+      isExpanded: boolean
+      subtaskNoPlanHint: string
+      /** `null`: milestone (không đánh số) hoặc sub-task khi parent không có No. */
+      displayNo: string | null
+    }
 
 function buildGanttVirtualFlatRows(
   groupTrees: {
@@ -1802,7 +1794,7 @@ export function TaskGanttView({
     if (wh && wh.style.transform !== tx) wh.style.transform = tx
   }, [])
 
-  const syncHorizontalScrollFromRef = useRef<(source: 'ganttBody' | 'workloadBody') => void>(() => { })
+  const syncHorizontalScrollFromRef = useRef<(source: 'ganttBody' | 'workloadBody') => void>(() => {})
 
   const syncHorizontalScrollFrom = useCallback(
     (source: 'ganttBody' | 'workloadBody') => {
@@ -2789,13 +2781,7 @@ export function TaskGanttView({
                           {onToggleTaskSelect && onApplyBulkTaskSelection && groupBulkIds.length > 0 ? (
                             <Checkbox
                               className="h-4 w-4 shrink-0"
-                              checked={
-                                groupBulkIds.every(id => selectedTaskIds?.has(id))
-                                  ? true
-                                  : groupBulkIds.some(id => selectedTaskIds?.has(id))
-                                    ? 'indeterminate'
-                                    : false
-                              }
+                              checked={groupBulkIds.every(id => selectedTaskIds?.has(id)) ? true : groupBulkIds.some(id => selectedTaskIds?.has(id)) ? 'indeterminate' : false}
                               onCheckedChange={v => onApplyBulkTaskSelection(groupBulkIds, v === true)}
                               onClick={e => e.stopPropagation()}
                               aria-label={t('taskManagement.ganttBulkSelectGroupAria', { group: group.title })}
@@ -2815,10 +2801,10 @@ export function TaskGanttView({
                                 onDragStart={
                                   onUpdatePlanDates && showGanttMain
                                     ? e => {
-                                      e.dataTransfer.setData(PLAN_UNSCHED_TASK_DRAG_MIME, uTask.id)
-                                      e.dataTransfer.setData('text/plain', uTask.id)
-                                      e.dataTransfer.effectAllowed = 'copyMove'
-                                    }
+                                        e.dataTransfer.setData(PLAN_UNSCHED_TASK_DRAG_MIME, uTask.id)
+                                        e.dataTransfer.setData('text/plain', uTask.id)
+                                        e.dataTransfer.effectAllowed = 'copyMove'
+                                      }
                                     : undefined
                                 }
                                 className={cn(
@@ -3291,9 +3277,7 @@ const GanttTaskRow = memo(function GanttTaskRow({
                 <div className="relative mt-2 flex flex-wrap items-baseline gap-x-2 gap-y-1 border-t border-border/60 pt-2 text-[11px] leading-snug text-muted-foreground">
                   <span>
                     {t('taskManagement.ganttActualBarComparePlanWorkdays')}:
-                    <span className="ml-1 font-medium tabular-nums text-foreground">
-                      {t('taskManagement.ganttPlanDurationDays', { count: actualStrip.planWorkdaySpan })}
-                    </span>
+                    <span className="ml-1 font-medium tabular-nums text-foreground">{t('taskManagement.ganttPlanDurationDays', { count: actualStrip.planWorkdaySpan })}</span>
                   </span>
                   <span className="text-muted-foreground/50" aria-hidden>
                     ·
@@ -3359,9 +3343,7 @@ const GanttTaskRow = memo(function GanttTaskRow({
                 onPointerDown={e => canDrag && beginDrag('move', e)}
                 onDoubleClick={handleOpenTask}
               >
-                <span className="pointer-events-none block truncate text-center text-[10px] font-semibold tabular-nums text-foreground/90">
-                  {planDurationCompact}
-                </span>
+                <span className="pointer-events-none block truncate text-center text-[10px] font-semibold tabular-nums text-foreground/90">{planDurationCompact}</span>
               </div>
               {canDrag ? (
                 <button
@@ -3580,14 +3562,14 @@ const GanttMilestoneRow = memo(function GanttMilestoneRow({
               style={
                 hasChildren && !rowSelected
                   ? {
-                    backgroundImage:
-                      'linear-gradient(to bottom, rgba(217, 119, 6, 0.95) 0%, rgba(217, 119, 6, 0.95) 50%, rgba(251, 191, 36, 0.72) 50%, rgba(251, 191, 36, 0.72) 100%)',
-                  }
+                      backgroundImage:
+                        'linear-gradient(to bottom, rgba(217, 119, 6, 0.95) 0%, rgba(217, 119, 6, 0.95) 50%, rgba(251, 191, 36, 0.72) 50%, rgba(251, 191, 36, 0.72) 100%)',
+                    }
                   : hasChildren && rowSelected
                     ? {
-                      backgroundImage:
-                        'linear-gradient(to bottom, hsl(var(--primary) / 0.88) 0%, hsl(var(--primary) / 0.88) 50%, hsl(var(--primary) / 0.58) 50%, hsl(var(--primary) / 0.58) 100%)',
-                    }
+                        backgroundImage:
+                          'linear-gradient(to bottom, hsl(var(--primary) / 0.88) 0%, hsl(var(--primary) / 0.88) 50%, hsl(var(--primary) / 0.58) 50%, hsl(var(--primary) / 0.58) 100%)',
+                      }
                     : undefined
               }
             />

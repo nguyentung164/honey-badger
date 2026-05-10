@@ -4,10 +4,10 @@ import l from 'electron-log'
 import { IPC } from 'main/constants'
 import { findUser } from 'main/svn/find-user'
 import type { CommitInfo } from 'main/types/types'
-import { onCommit } from '../task/achievementService'
-import { getTokenFromStore, verifyToken } from '../task/auth'
 import { addToQueue } from '../store/CommitNotificationQueue'
 import configurationStore from '../store/ConfigurationStore'
+import { onCommit } from '../task/achievement/achievementService'
+import { getTokenFromStore, verifyToken } from '../task/auth'
 import { formatGitError, getGitInstance } from './utils'
 
 interface GitCommitResponse {
@@ -33,13 +33,7 @@ export interface GitCommitOptions {
   scope?: 'staged' | 'all'
 }
 
-export async function commit(
-  commitMessage: string,
-  selectedFiles: string[] = [],
-  options: GitCommitOptions,
-  sender?: WebContents,
-  cwd?: string
-): Promise<GitCommitResponse> {
+export async function commit(commitMessage: string, selectedFiles: string[] = [], options: GitCommitOptions, sender?: WebContents, cwd?: string): Promise<GitCommitResponse> {
   const sendChunk = (chunk: string) => {
     if (sender && chunk) sender.send(IPC.GIT.COMMIT_STREAM, chunk)
   }
@@ -90,8 +84,7 @@ export async function commit(
       }
     } else if (!stagedOnly) {
       if (!hasStagedChanges) {
-        const hasUnstagedChanges =
-          statusResult.not_added.length > 0 || statusResult.modified.length > 0 || statusResult.deleted.length > 0
+        const hasUnstagedChanges = statusResult.not_added.length > 0 || statusResult.modified.length > 0 || statusResult.deleted.length > 0
         if (!hasUnstagedChanges) {
           return { status: 'error', message: 'No changes to commit' }
         }
@@ -115,8 +108,7 @@ export async function commit(
     const addedFiles: string[] = []
     const modifiedFiles: string[] = []
     const deletedFiles: string[] = []
-    const partialStagedPaths =
-      stagedOnly && !amend && selectedFiles.length > 0 ? new Set(selectedFiles) : null
+    const partialStagedPaths = stagedOnly && !amend && selectedFiles.length > 0 ? new Set(selectedFiles) : null
     for (const file of statusBeforeCommit.files || []) {
       if (partialStagedPaths && !partialStagedPaths.has(file.path)) continue
       const idx = file.index
@@ -221,7 +213,11 @@ export async function commit(
     l.info('Commit successful:', commitResult.commit)
 
     // Stream commit result summary (một dòng subject — khớp nội dung đã commit)
-    const streamSubject = messageForRecord.split(/\r?\n/).find((l) => l.trim())?.trim() ?? commitMessage.trim()
+    const streamSubject =
+      messageForRecord
+        .split(/\r?\n/)
+        .find(l => l.trim())
+        ?.trim() ?? commitMessage.trim()
     sendChunk(`[${commitResult.branch ?? 'HEAD'} ${commitResult.commit}] ${streamSubject}\n`)
     sendChunk(`${changes || 0} file(s) changed, ${insertions || 0} insertion(s)(+), ${deletions || 0} deletion(s)(-)\n`)
 

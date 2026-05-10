@@ -1,20 +1,20 @@
 import { ipcMain } from 'electron'
 import l from 'electron-log'
 import { IPC } from 'main/constants'
-import { getTokenFromStore, verifyToken, type SessionData } from '../task/auth'
+import { getTokenFromStore, type SessionData, verifyToken } from '../task/auth'
+import { getProjectsForTaskManagement, getTaskListVisibleProjectIds } from '../task/stores/pgTaskStore'
 import { canSessionViewTargetUser, filterUserIdsVisibleToSession } from '../task/progressAccess'
-import { getProjectsForTaskManagement, getTaskListVisibleProjectIds } from '../task/pgTaskStore'
 import {
   getAllUsers,
   getHeatmapData,
   getMonthlyHighlights,
   getProductiveHours,
+  getProjectMemberUserIds,
   getQualityTrend,
   getRadarData,
   getRadarDataForDateRange,
-  getProjectMemberUserIds,
-  getTeamOverviewUserProjectLabels,
   getTaskPerformance,
+  getTeamOverviewUserProjectLabels,
   getTeamProgressSummaries,
   getTrendData,
   getUserBasicInfo,
@@ -66,9 +66,7 @@ async function assertCanViewProject(session: SessionData, projectId: string) {
   return null
 }
 
-function withAuthFromStore<T extends unknown[]>(
-  handler: (event: Electron.IpcMainInvokeEvent, session: SessionData, ...args: T) => Promise<unknown>
-) {
+function withAuthFromStore<T extends unknown[]>(handler: (event: Electron.IpcMainInvokeEvent, session: SessionData, ...args: T) => Promise<unknown>) {
   return async (event: Electron.IpcMainInvokeEvent, ...args: T) => {
     const token = getTokenFromStore()
     const session = token ? verifyToken(token) : null
@@ -116,26 +114,24 @@ export function registerProgressIpcHandlers(): void {
         l.error('progress:get-heatmap error:', error)
         return { status: 'error' as const, message: error?.message ?? String(error) }
       }
-    }),
+    })
   )
 
   ipcMain.handle(
     IPC.PROGRESS.GET_TREND,
-    withAuthFromStore(
-      async (_event, session, userId: string, from: string, to: string, granularity: 'day' | 'week' | 'month') => {
-        const denied = await assertCanViewProgressUser(session, userId)
-        if (denied) return denied
-        const vr = validateProgressDateRange(from, to)
-        if (!vr.ok) return { status: 'error' as const, message: vr.message }
-        try {
-          const data = await getTrendData(userId, from, to, granularity)
-          return { status: 'success' as const, data }
-        } catch (error: any) {
-          l.error('progress:get-trend error:', error)
-          return { status: 'error' as const, message: error?.message ?? String(error) }
-        }
-      },
-    ),
+    withAuthFromStore(async (_event, session, userId: string, from: string, to: string, granularity: 'day' | 'week' | 'month') => {
+      const denied = await assertCanViewProgressUser(session, userId)
+      if (denied) return denied
+      const vr = validateProgressDateRange(from, to)
+      if (!vr.ok) return { status: 'error' as const, message: vr.message }
+      try {
+        const data = await getTrendData(userId, from, to, granularity)
+        return { status: 'success' as const, data }
+      } catch (error: any) {
+        l.error('progress:get-trend error:', error)
+        return { status: 'error' as const, message: error?.message ?? String(error) }
+      }
+    })
   )
 
   ipcMain.handle(
@@ -150,7 +146,7 @@ export function registerProgressIpcHandlers(): void {
         l.error('progress:get-radar error:', error)
         return { status: 'error' as const, message: error?.message ?? String(error) }
       }
-    }),
+    })
   )
 
   ipcMain.handle(
@@ -167,41 +163,31 @@ export function registerProgressIpcHandlers(): void {
         l.error('progress:get-task-performance error:', error)
         return { status: 'error' as const, message: error?.message ?? String(error) }
       }
-    }),
+    })
   )
 
   ipcMain.handle(
     IPC.PROGRESS.GET_QUALITY_TREND,
-    withAuthFromStore(
-      async (
-        _event,
-        session,
-        userId: string,
-        weeksBack: number,
-        teamUserIds?: string[] | null,
-        from?: string | null,
-        to?: string | null,
-      ) => {
-        const denied = await assertCanViewProgressUser(session, userId)
-        if (denied) return denied
-        if (from && to) {
-          const vr = validateProgressDateRange(from, to)
-          if (!vr.ok) return { status: 'error' as const, message: vr.message }
-        }
-        let safeTeamIds: string[] | undefined
-        if (teamUserIds != null && teamUserIds.length > 0) {
-          const filtered = await filterUserIdsVisibleToSession(session, teamUserIds)
-          safeTeamIds = filtered.length > 0 ? filtered : [userId]
-        }
-        try {
-          const data = await getQualityTrend(userId, weeksBack, safeTeamIds, from ?? undefined, to ?? undefined)
-          return { status: 'success' as const, data }
-        } catch (error: any) {
-          l.error('progress:get-quality-trend error:', error)
-          return { status: 'error' as const, message: error?.message ?? String(error) }
-        }
-      },
-    ),
+    withAuthFromStore(async (_event, session, userId: string, weeksBack: number, teamUserIds?: string[] | null, from?: string | null, to?: string | null) => {
+      const denied = await assertCanViewProgressUser(session, userId)
+      if (denied) return denied
+      if (from && to) {
+        const vr = validateProgressDateRange(from, to)
+        if (!vr.ok) return { status: 'error' as const, message: vr.message }
+      }
+      let safeTeamIds: string[] | undefined
+      if (teamUserIds != null && teamUserIds.length > 0) {
+        const filtered = await filterUserIdsVisibleToSession(session, teamUserIds)
+        safeTeamIds = filtered.length > 0 ? filtered : [userId]
+      }
+      try {
+        const data = await getQualityTrend(userId, weeksBack, safeTeamIds, from ?? undefined, to ?? undefined)
+        return { status: 'success' as const, data }
+      } catch (error: any) {
+        l.error('progress:get-quality-trend error:', error)
+        return { status: 'error' as const, message: error?.message ?? String(error) }
+      }
+    })
   )
 
   ipcMain.handle(
@@ -220,7 +206,7 @@ export function registerProgressIpcHandlers(): void {
         l.error('progress:get-productive-hours error:', error)
         return { status: 'error' as const, message: error?.message ?? String(error) }
       }
-    }),
+    })
   )
 
   ipcMain.handle(
@@ -235,7 +221,7 @@ export function registerProgressIpcHandlers(): void {
         l.error('progress:get-monthly-highlights error:', error)
         return { status: 'error' as const, message: error?.message ?? String(error) }
       }
-    }),
+    })
   )
 
   ipcMain.handle(
@@ -252,7 +238,7 @@ export function registerProgressIpcHandlers(): void {
         l.error('progress:get-radar-range error:', error)
         return { status: 'error' as const, message: error?.message ?? String(error) }
       }
-    }),
+    })
   )
 
   ipcMain.handle(
@@ -265,7 +251,7 @@ export function registerProgressIpcHandlers(): void {
         l.error('progress:get-overview-projects error:', error)
         return { status: 'error' as const, message: error?.message ?? String(error) }
       }
-    }),
+    })
   )
 
   ipcMain.handle(
@@ -280,7 +266,7 @@ export function registerProgressIpcHandlers(): void {
         l.error('progress:get-project-member-ids error:', error)
         return { status: 'error' as const, message: error?.message ?? String(error) }
       }
-    }),
+    })
   )
 
   ipcMain.handle(
@@ -304,40 +290,34 @@ export function registerProgressIpcHandlers(): void {
         l.error('progress:get-team-overview-user-projects error:', error)
         return { status: 'error' as const, message: error?.message ?? String(error) }
       }
-    }),
+    })
   )
 
   ipcMain.handle(
     IPC.PROGRESS.GET_TEAM_SUMMARY,
-    withAuthFromStore(
-      async (
-        _event,
-        session,
-        payload: { userIds: string[]; from: string; to: string; projectId?: string | null },
-      ) => {
-        try {
-          const { userIds, from, to, projectId } = payload ?? ({} as typeof payload)
-          if (!Array.isArray(userIds) || userIds.length === 0) {
-            return { status: 'success' as const, data: [] as Awaited<ReturnType<typeof getTeamProgressSummaries>> }
-          }
-          const cleanIds = await filterUserIdsVisibleToSession(session, userIds)
-          if (cleanIds.length === 0) {
-            return { status: 'success' as const, data: [] as Awaited<ReturnType<typeof getTeamProgressSummaries>> }
-          }
-          const vr = validateProgressDateRange(from, to)
-          if (!vr.ok) return { status: 'error' as const, message: vr.message }
-          if (projectId) {
-            const deniedProj = await assertCanViewProject(session, projectId)
-            if (deniedProj) return deniedProj
-          }
-          const data = await getTeamProgressSummaries(cleanIds, from, to, projectId ?? null)
-          return { status: 'success' as const, data }
-        } catch (error: any) {
-          l.error('progress:get-team-summary error:', error)
-          return { status: 'error' as const, message: error?.message ?? String(error) }
+    withAuthFromStore(async (_event, session, payload: { userIds: string[]; from: string; to: string; projectId?: string | null }) => {
+      try {
+        const { userIds, from, to, projectId } = payload ?? ({} as typeof payload)
+        if (!Array.isArray(userIds) || userIds.length === 0) {
+          return { status: 'success' as const, data: [] as Awaited<ReturnType<typeof getTeamProgressSummaries>> }
         }
-      },
-    ),
+        const cleanIds = await filterUserIdsVisibleToSession(session, userIds)
+        if (cleanIds.length === 0) {
+          return { status: 'success' as const, data: [] as Awaited<ReturnType<typeof getTeamProgressSummaries>> }
+        }
+        const vr = validateProgressDateRange(from, to)
+        if (!vr.ok) return { status: 'error' as const, message: vr.message }
+        if (projectId) {
+          const deniedProj = await assertCanViewProject(session, projectId)
+          if (deniedProj) return deniedProj
+        }
+        const data = await getTeamProgressSummaries(cleanIds, from, to, projectId ?? null)
+        return { status: 'success' as const, data }
+      } catch (error: any) {
+        l.error('progress:get-team-summary error:', error)
+        return { status: 'error' as const, message: error?.message ?? String(error) }
+      }
+    })
   )
 
   l.info('Progress IPC Handlers Registered')

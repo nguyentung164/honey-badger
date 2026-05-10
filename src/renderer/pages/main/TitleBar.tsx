@@ -222,8 +222,8 @@ export const TitleBar = ({
 
   useEffect(() => {
     if (user) {
-      achievementFetchAll().catch(() => { })
-      const t = setTimeout(() => achievementFetchAll().catch(() => { }), 2000)
+      achievementFetchAll().catch(() => {})
+      const t = setTimeout(() => achievementFetchAll().catch(() => {}), 2000)
       return () => clearTimeout(t)
     }
   }, [user, achievementFetchAll])
@@ -693,9 +693,9 @@ export const TitleBar = ({
               selectedProjectId && folders.length > 0
                 ? folders[0]
                 : (() => {
-                  const savedFolder = localStorage.getItem('current-source-folder')
-                  return (savedFolder ? folders.find(f => f.name === savedFolder) : null) ?? folders[0]
-                })()
+                    const savedFolder = localStorage.getItem('current-source-folder')
+                    return (savedFolder ? folders.find(f => f.name === savedFolder) : null) ?? folders[0]
+                  })()
             if (fallbackFolder) {
               effectiveFolder = fallbackFolder
               usedFallback = true
@@ -1201,7 +1201,7 @@ export const TitleBar = ({
       }
     }
     localStorage.setItem('taskReminderSentDate', JSON.stringify({ userId: user.id, date: todayStr }))
-    window.api.task.sendDeadlineReminders().catch(() => { })
+    window.api.task.sendDeadlineReminders().catch(() => {})
   }, [user, isGuest])
 
   const handleReminderOpenChange = useCallback(
@@ -1351,7 +1351,7 @@ export const TitleBar = ({
       clearSession()
       // Đồng bộ UI ngay (không gọi saveConfigurationConfig — tránh ghi đè file bằng snapshot Zustand chưa load).
       setFieldConfiguration('multiRepoEnabled', false)
-      window.api.configuration.patch({ multiRepoEnabled: false }).catch(() => { })
+      window.api.configuration.patch({ multiRepoEnabled: false }).catch(() => {})
     }
   }
 
@@ -1625,9 +1625,9 @@ export const TitleBar = ({
         setUncommittedFiles(
           Array.isArray(rawFiles)
             ? rawFiles.map((file: any) => ({
-              filePath: typeof file === 'string' ? file : file.path,
-              status: file.working_dir ?? file.index ?? 'M',
-            }))
+                filePath: typeof file === 'string' ? file : file.path,
+                status: file.working_dir ?? file.index ?? 'M',
+              }))
             : []
         )
         setShowGitSwitchBranchDialog(true)
@@ -3010,9 +3010,7 @@ export const TitleBar = ({
                       variant="ghost"
                       className={cn(
                         'font-medium text-xs shrink-0 flex items-center gap-1.5 h-6 px-2! py-0 -mx-1 rounded-md transition-colors',
-                        isAdmin
-                          ? 'border-0 shadow-none bg-red-100 dark:bg-red-900/50 hover:bg-red-200 dark:hover:bg-red-900/70'
-                          : cn(rankCfg.bgColor, rankCfg.pillHoverBg)
+                        isAdmin ? 'border-0 shadow-none bg-red-100 dark:bg-red-900/50 hover:bg-red-200 dark:hover:bg-red-900/70' : cn(rankCfg.bgColor, rankCfg.pillHoverBg)
                       )}
                     >
                       <Avatar className={cn('h-4 w-4 shrink-0', isAdmin ? 'ring-red-400 dark:ring-red-500' : rankCfg.ringColor)}>
@@ -3028,15 +3026,7 @@ export const TitleBar = ({
                         </AvatarFallback>
                       </Avatar>
                       {isAdmin ? <span className="text-[11px]">🛡️</span> : <RankBadge rank={currentRank} size="xs" noGlow />}
-                      <span
-                        className={cn(
-                          'truncate max-w-[120px] inline-block rounded-sm',
-                          rankTextClass,
-                          !isAdmin && rankGlowClass
-                        )}
-                      >
-                        {user.name}
-                      </span>
+                      <span className={cn('truncate max-w-[120px] inline-block rounded-sm', rankTextClass, !isAdmin && rankGlowClass)}>{user.name}</span>
                       {pinnedBadges.slice(0, 3).map(b => (
                         <span
                           key={b.achievement_code}

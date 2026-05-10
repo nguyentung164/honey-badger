@@ -108,12 +108,7 @@ function Combobox({
 
   const selectedOption = options.find(opt => opt.value === value)
   const displayLabel = selectedOption?.label ?? placeholder
-  const triggerDisplay =
-    selectedOption == null
-      ? placeholder
-      : selectedOption.listRender != null
-        ? selectedOption.label
-        : (selectedOption.render ?? selectedOption.label)
+  const triggerDisplay = selectedOption == null ? placeholder : selectedOption.listRender != null ? selectedOption.label : (selectedOption.render ?? selectedOption.label)
 
   const handleSelect = (optValue: string) => {
     onValueChange(optValue)
@@ -139,8 +134,7 @@ function Combobox({
     if (!useLazyList || !lazyList || lazyOrderedOrMatched === null) return options
 
     const sentinels = options.filter(o => o.value === '_none' || o.value === '_empty')
-    const selectedOpt =
-      value && value !== '_none' && value !== '_empty' ? options.find(o => o.value === value) : undefined
+    const selectedOpt = value && value !== '_none' && value !== '_empty' ? options.find(o => o.value === value) : undefined
 
     const pushUnique = (out: ComboboxOption[], items: ComboboxOption[]) => {
       for (const o of items) {
@@ -160,9 +154,7 @@ function Combobox({
     return options.filter(o => o.value !== '_none' && o.value !== '_empty').length
   }, [options, useLazyList])
 
-  const showLazyHint = Boolean(
-    useLazyList && lazySearchHint && poolTaskCount > maxLazyResults && lazyQuery.trim().length === 0
-  )
+  const showLazyHint = Boolean(useLazyList && lazySearchHint && poolTaskCount > maxLazyResults && lazyQuery.trim().length === 0)
 
   const lazyTotalCount = lazyOrderedOrMatched?.length ?? 0
   const lazyHasMore = useLazyList && lazyTotalCount > lazyVisibleCap
@@ -222,20 +214,12 @@ function Combobox({
                   },
                 })}
           >
-            <CommandInput
-              placeholder={searchPlaceholder}
-              {...(useLazyList ? { value: lazyQuery, onValueChange: setLazyQuery } : {})}
-            />
+            <CommandInput placeholder={searchPlaceholder} {...(useLazyList ? { value: lazyQuery, onValueChange: setLazyQuery } : {})} />
             {showLazyHint ? <p className="border-b border-border px-3 py-2 text-xs text-muted-foreground">{lazySearchHint}</p> : null}
             <CommandList className="max-h-[300px]" onScroll={useLazyList ? handleLazyListScroll : undefined}>
               <CommandEmpty>{emptyText}</CommandEmpty>
               {listOptions.map(opt => (
-                <CommandItem
-                  key={opt.value}
-                  value={`${opt.label} ${opt.value}`}
-                  disabled={opt.disabled}
-                  onSelect={() => !opt.disabled && handleSelect(opt.value)}
-                >
+                <CommandItem key={opt.value} value={`${opt.label} ${opt.value}`} disabled={opt.disabled} onSelect={() => !opt.disabled && handleSelect(opt.value)}>
                   {opt.listRender ?? opt.render ?? opt.label}
                   {value === opt.value ? <CheckIcon className="ml-auto size-4" /> : null}
                 </CommandItem>

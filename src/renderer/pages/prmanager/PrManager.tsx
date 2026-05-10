@@ -40,10 +40,7 @@ export function PrManager({ embedded = false, onDetachToWindow }: PrManagerProps
   const [tokenDialogOpen, setTokenDialogOpen] = useState(false)
   const [cherryPickOpen, setCherryPickOpen] = useState(false)
 
-  const { loading, repos, templates, tracked, automations, tokenStatus, refresh, refreshTracked, refreshToken } = usePrData(
-    projectId,
-    user?.id ?? null,
-  )
+  const { loading, repos, templates, tracked, automations, tokenStatus, refresh, refreshTracked, refreshToken } = usePrData(projectId, user?.id ?? null)
 
   useEffect(() => {
     verifySession()
@@ -157,14 +154,7 @@ export function PrManager({ embedded = false, onDetachToWindow }: PrManagerProps
                 />
               </TabsContent>
               <TabsContent value="settings" className="min-h-0 flex-1 overflow-hidden data-[state=inactive]:hidden data-[state=active]:flex data-[state=active]:flex-col">
-                <PrManagerSettingsPanel
-                  projectId={projectId}
-                  userId={user?.id ?? null}
-                  repos={repos}
-                  templates={templates}
-                  automations={automations}
-                  onRefresh={refresh}
-                />
+                <PrManagerSettingsPanel projectId={projectId} userId={user?.id ?? null} repos={repos} templates={templates} automations={automations} onRefresh={refresh} />
               </TabsContent>
             </Tabs>
           )}

@@ -106,9 +106,9 @@ declare global {
         scanStagedSecrets: (payload: { repos: { cwd: string; label?: string }[]; configPath?: string; timeoutMs?: number }) => Promise<
           | { status: 'clean' }
           | {
-            status: 'leaks'
-            findings: { ruleId: string; file: string; startLine?: number; endLine?: number; description?: string; repoLabel?: string }[]
-          }
+              status: 'leaks'
+              findings: { ruleId: string; file: string; startLine?: number; endLine?: number; description?: string; repoLabel?: string }[]
+            }
           | { status: 'error'; message: string }
         >
         undo_commit: (cwd?: string) => Promise<any>
@@ -807,9 +807,9 @@ declare global {
         prGetCommits: (input: { owner: string; repo: string; number: number }) => Promise<{ status: string; data?: any[]; message?: string }>
         prLocalMergeConflicts: (input: { repoId: string; prNumber: number; base: string; headSha: string }) => Promise<
           | {
-            status: 'success'
-            data: { hasConflict: boolean; paths: string[]; localSaysClean: boolean }
-          }
+              status: 'success'
+              data: { hasConflict: boolean; paths: string[]; localSaysClean: boolean }
+            }
           | { status: 'unavailable'; reason: string; message: string }
           | { status: 'error'; message: string }
         >
@@ -1483,8 +1483,7 @@ contextBridge.exposeInMainWorld('api', {
     getManagementScopeMeta: () => ipcRenderer.invoke(IPC.TASK.GET_MANAGEMENT_SCOPE_META),
     getTask: (id: string) => ipcRenderer.invoke(IPC.TASK.GET_TASK, id),
     create: (input: any) => ipcRenderer.invoke(IPC.TASK.CREATE, input),
-    canCreateMilestone: (projectId: string) =>
-      ipcRenderer.invoke((IPC.TASK as Record<string, string>).CAN_CREATE_MILESTONE, projectId),
+    canCreateMilestone: (projectId: string) => ipcRenderer.invoke((IPC.TASK as Record<string, string>).CAN_CREATE_MILESTONE, projectId),
     updateStatus: (id: string, status: string, version?: number) => ipcRenderer.invoke(IPC.TASK.UPDATE_STATUS, id, status, version),
     updateProgress: (id: string, progress: number, version?: number) => ipcRenderer.invoke(IPC.TASK.UPDATE_PROGRESS, id, progress, version),
     updateDates: (id: string, dates: { planStartDate?: string; planEndDate?: string; actualStartDate?: string; actualEndDate?: string }, version?: number) =>

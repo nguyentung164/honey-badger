@@ -2,15 +2,7 @@
 
 import { useVirtualizer } from '@tanstack/react-virtual'
 import { eachDayOfInterval, format, isSameWeek } from 'date-fns'
-import {
-  type CSSProperties,
-  type ReactNode,
-  useCallback,
-  useEffect,
-  useMemo,
-  useRef,
-  useState,
-} from 'react'
+import { type CSSProperties, type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import type { EVMMaster, EVMProject, WBSRow } from 'shared/types/evm'
 import { Button } from '@/components/ui/button'
@@ -30,21 +22,13 @@ import {
   isYmdInPlanWorkingRange,
   snapPercentDoneToPresetOptions,
 } from '@/lib/evmCalculations'
+import { matchesEvmAssigneeFilterForAcGantt, matchesEvmPhaseFilterForAcGantt } from '@/lib/evmUi'
 import i18n from '@/lib/i18n'
 import { cn } from '@/lib/utils'
 import { useAppearanceStoreSelect } from '@/stores/useAppearanceStore'
-import {
-  matchesEvmAssigneeFilterForAcGantt,
-  matchesEvmPhaseFilterForAcGantt,
-} from '@/lib/evmUi'
 import { useEVMStore } from '@/stores/useEVMStore'
 import { useEvmAiInsightStore } from '@/stores/useEvmAiInsightStore'
-import {
-  EVM_SCHEDULE_DAY_COL_PX,
-  EVM_SCHEDULE_ROW_PX,
-  EVM_SCHEDULE_TIMELINE_HEADER_ROW_PX,
-  useEvmScheduleColumnVirtualizer,
-} from './useEvmScheduleColumnVirtualizer'
+import { EVM_SCHEDULE_DAY_COL_PX, EVM_SCHEDULE_ROW_PX, EVM_SCHEDULE_TIMELINE_HEADER_ROW_PX, useEvmScheduleColumnVirtualizer } from './useEvmScheduleColumnVirtualizer'
 
 const WEEK_LETTERS = ['S', 'M', 'T', 'W', 'T', 'F', 'S'] as const
 
@@ -77,7 +61,7 @@ function acBodyCell(colIndex: number, rowParity: number, className: string, chil
         'box-border shrink-0 border-solid border-border/55 px-1 py-0.5 text-sm flex items-center justify-center min-h-0 overflow-hidden',
         acBodyCellBorder(colIndex),
         bg,
-        className,
+        className
       )}
       style={{ width: w, minWidth: w, maxWidth: colIndex === 4 ? 160 : w }}
       title={title}
@@ -149,10 +133,7 @@ export function AcScheduleUnifiedTable() {
   const filterPhase = useEvmAiInsightStore(s => s.schedulePhaseFilter)
   const filterAssignee = useEvmAiInsightStore(s => s.scheduleAssigneeFilter)
 
-  const acForProject = useMemo(
-    () => ac.filter(a => a.projectId === project.id),
-    [ac, project.id],
-  )
+  const acForProject = useMemo(() => ac.filter(a => a.projectId === project.id), [ac, project.id])
 
   const assigneeNameFromWbs = useMemo(() => {
     const m = new Map<string, string>()
@@ -179,7 +160,7 @@ export function AcScheduleUnifiedTable() {
           isReport: Boolean(reportDateStr && ds === reportDateStr),
         }
       }),
-    [dayStrs, projectDays, reportDateStr],
+    [dayStrs, projectDays, reportDateStr]
   )
 
   const dayIndexByStr = useMemo(() => new Map(dayStrs.map((d, i) => [d, i])), [dayStrs])
@@ -240,15 +221,11 @@ export function AcScheduleUnifiedTable() {
       minWidth: PIN_TOTAL,
       boxSizing: 'border-box',
     }),
-    [],
+    []
   )
 
   const saveEdit = useCallback(
-    async (updates: {
-      actualStartDate: string | null
-      actualEndDate: string | null
-      percentDone: number | null
-    }) => {
+    async (updates: { actualStartDate: string | null; actualEndDate: string | null; percentDone: number | null }) => {
       if (!editRow) return
       try {
         await updateWbsRow(editRow.id, {
@@ -270,7 +247,7 @@ export function AcScheduleUnifiedTable() {
         toast.error(t('evm.saveFailed'))
       }
     },
-    [editRow, updateWbsRow, updateAcRow, acForProject, t],
+    [editRow, updateWbsRow, updateAcRow, acForProject, t]
   )
 
   if (!project.id) {
@@ -283,45 +260,24 @@ export function AcScheduleUnifiedTable() {
 
   return (
     <div className="flex min-h-0 flex-1 flex-col gap-2">
-      <div
-        ref={scrollRef}
-        className="min-h-0 flex-1 overflow-auto rounded-md bg-muted/5 [overflow-anchor:none]"
-      >
+      <div ref={scrollRef} className="min-h-0 flex-1 overflow-auto rounded-md bg-muted/5 [overflow-anchor:none]">
         {/** Header: div grid + timeline (không dùng `<table>` để sticky/ghim khớp TaskGanttView). */}
-        <div
-          className="sticky top-0 z-[35] flex shrink-0 bg-muted shadow-[0_1px_0_0_var(--border)]"
-          style={{ width: tableMinWidth, minWidth: tableMinWidth }}
-        >
+        <div className="sticky top-0 z-[35] flex shrink-0 bg-muted shadow-[0_1px_0_0_var(--border)]" style={{ width: tableMinWidth, minWidth: tableMinWidth }}>
           <div className="sticky left-0 z-40 shrink-0 bg-muted" style={{ width: PIN_TOTAL }}>
             <div className="text-sm" style={pinnedHeaderGridStyle}>
-              <div
-                className={cn(AC_HEADER_CELL, 'tabular-nums', acHeaderCellBorder(0, 'top'))}
-                style={{ gridRow: '1 / 4', gridColumn: '1 / 2' }}
-              >
+              <div className={cn(AC_HEADER_CELL, 'tabular-nums', acHeaderCellBorder(0, 'top'))} style={{ gridRow: '1 / 4', gridColumn: '1 / 2' }}>
                 {t('evm.tableNo')}
               </div>
-              <div
-                className={cn(AC_HEADER_CELL, 'whitespace-normal', acHeaderCellBorder(1, 'top'))}
-                style={{ gridRow: '1 / 4', gridColumn: '2 / 3' }}
-              >
+              <div className={cn(AC_HEADER_CELL, 'whitespace-normal', acHeaderCellBorder(1, 'top'))} style={{ gridRow: '1 / 4', gridColumn: '2 / 3' }}>
                 {t('evm.tablePhase')}
               </div>
-              <div
-                className={cn(AC_HEADER_CELL, 'whitespace-normal', acHeaderCellBorder(2, 'top'))}
-                style={{ gridRow: '1 / 4', gridColumn: '3 / 4' }}
-              >
+              <div className={cn(AC_HEADER_CELL, 'whitespace-normal', acHeaderCellBorder(2, 'top'))} style={{ gridRow: '1 / 4', gridColumn: '3 / 4' }}>
                 {t('evm.tableCategory')}
               </div>
-              <div
-                className={cn(AC_HEADER_CELL, 'whitespace-normal', acHeaderCellBorder(3, 'top'))}
-                style={{ gridRow: '1 / 4', gridColumn: '4 / 5' }}
-              >
+              <div className={cn(AC_HEADER_CELL, 'whitespace-normal', acHeaderCellBorder(3, 'top'))} style={{ gridRow: '1 / 4', gridColumn: '4 / 5' }}>
                 {t('evm.tableFeature')}
               </div>
-              <div
-                className={cn(AC_HEADER_CELL, 'whitespace-normal', acHeaderCellBorder(4, 'top'))}
-                style={{ gridRow: '1 / 4', gridColumn: '5 / 6' }}
-              >
+              <div className={cn(AC_HEADER_CELL, 'whitespace-normal', acHeaderCellBorder(4, 'top'))} style={{ gridRow: '1 / 4', gridColumn: '5 / 6' }}>
                 {t('evm.acColTask')}
               </div>
               <div className={cn(AC_HEADER_CELL, 'border-t border-r border-b')} style={{ gridRow: '1 / 2', gridColumn: '6 / 8' }}>
@@ -330,56 +286,22 @@ export function AcScheduleUnifiedTable() {
               <div className={cn(AC_HEADER_CELL, 'border-t border-r border-b')} style={{ gridRow: '1 / 2', gridColumn: '8 / 10' }}>
                 {t('evm.wbsScheduleActualGroup')}
               </div>
-              <div
-                className={cn(AC_HEADER_CELL, 'tabular-nums', acHeaderCellBorder(9, 'top'))}
-                style={{ gridRow: '1 / 4', gridColumn: '10 / 11' }}
-              >
+              <div className={cn(AC_HEADER_CELL, 'tabular-nums', acHeaderCellBorder(9, 'top'))} style={{ gridRow: '1 / 4', gridColumn: '10 / 11' }}>
                 {t('evm.wbsSchedulePctDone')}
               </div>
-              <div
-                className={cn(AC_HEADER_CELL, 'whitespace-normal', acHeaderCellBorder(10, 'top'))}
-                style={{ gridRow: '1 / 4', gridColumn: '11 / 12' }}
-              >
+              <div className={cn(AC_HEADER_CELL, 'whitespace-normal', acHeaderCellBorder(10, 'top'))} style={{ gridRow: '1 / 4', gridColumn: '11 / 12' }}>
                 {t('evm.tableAssignee')}
               </div>
-              <div
-                className={cn(
-                  AC_HEADER_CELL,
-                  'whitespace-nowrap tabular-nums',
-                  acHeaderCellBorder(5, 'mid'),
-                )}
-                style={{ gridRow: '2 / 4', gridColumn: '6 / 7' }}
-              >
+              <div className={cn(AC_HEADER_CELL, 'whitespace-nowrap tabular-nums', acHeaderCellBorder(5, 'mid'))} style={{ gridRow: '2 / 4', gridColumn: '6 / 7' }}>
                 {t('evm.planStart')}
               </div>
-              <div
-                className={cn(
-                  AC_HEADER_CELL,
-                  'whitespace-nowrap tabular-nums',
-                  acHeaderCellBorder(6, 'mid'),
-                )}
-                style={{ gridRow: '2 / 4', gridColumn: '7 / 8' }}
-              >
+              <div className={cn(AC_HEADER_CELL, 'whitespace-nowrap tabular-nums', acHeaderCellBorder(6, 'mid'))} style={{ gridRow: '2 / 4', gridColumn: '7 / 8' }}>
                 {t('evm.planEnd')}
               </div>
-              <div
-                className={cn(
-                  AC_HEADER_CELL,
-                  'whitespace-nowrap tabular-nums',
-                  acHeaderCellBorder(7, 'mid'),
-                )}
-                style={{ gridRow: '2 / 4', gridColumn: '8 / 9' }}
-              >
+              <div className={cn(AC_HEADER_CELL, 'whitespace-nowrap tabular-nums', acHeaderCellBorder(7, 'mid'))} style={{ gridRow: '2 / 4', gridColumn: '8 / 9' }}>
                 {t('evm.actualStart')}
               </div>
-              <div
-                className={cn(
-                  AC_HEADER_CELL,
-                  'whitespace-nowrap tabular-nums',
-                  acHeaderCellBorder(8, 'mid'),
-                )}
-                style={{ gridRow: '2 / 4', gridColumn: '9 / 10' }}
-              >
+              <div className={cn(AC_HEADER_CELL, 'whitespace-nowrap tabular-nums', acHeaderCellBorder(8, 'mid'))} style={{ gridRow: '2 / 4', gridColumn: '9 / 10' }}>
                 {t('evm.actualEnd')}
               </div>
             </div>
@@ -426,7 +348,7 @@ export function AcScheduleUnifiedTable() {
                         'absolute top-0 box-border flex h-full items-center justify-center border-r border-solid border-border/80 px-0 py-0 text-center text-foreground text-sm font-semibold tabular-nums last:border-r-0',
                         meta.isWeekend && 'bg-zinc-400/25 dark:bg-zinc-600/35',
                         !meta.isWeekend && 'bg-muted',
-                        meta.isReport && 'bg-amber-200/90 dark:bg-amber-900/45',
+                        meta.isReport && 'bg-amber-200/90 dark:bg-amber-900/45'
                       )}
                       style={{ left: vc.start - PIN_TOTAL, width: vc.size, height: '100%' }}
                       title={meta.isReport ? t('evm.resourceGridReportCol') : meta.ds}
@@ -464,7 +386,7 @@ export function AcScheduleUnifiedTable() {
                         'absolute top-0 box-border flex h-full items-center justify-center border-r border-solid border-border/80 px-0 py-0 text-center text-foreground text-xs font-semibold last:border-r-0',
                         meta.isWeekend && 'bg-zinc-400/25 dark:bg-zinc-600/35',
                         !meta.isWeekend && 'bg-muted',
-                        meta.isReport && 'bg-amber-200/90 dark:bg-amber-900/45',
+                        meta.isReport && 'bg-amber-200/90 dark:bg-amber-900/45'
                       )}
                       style={{ left: vc.start - PIN_TOTAL, width: vc.size, height: '100%' }}
                     >
@@ -498,10 +420,7 @@ export function AcScheduleUnifiedTable() {
                 if (!row) return null
                 const ri = vr.index
                 const arr = hoursByWbsId.get(row.id)
-                const pctLabel =
-                  row.percentDone != null && Number.isFinite(row.percentDone)
-                    ? `${(row.percentDone * 100).toFixed(0)}%`
-                    : '—'
+                const pctLabel = row.percentDone != null && Number.isFinite(row.percentDone) ? `${(row.percentDone * 100).toFixed(0)}%` : '—'
                 const taskLabel = row.task?.trim() ? row.task : '—'
 
                 return (
@@ -524,10 +443,7 @@ export function AcScheduleUnifiedTable() {
                     }}
                   >
                     <div
-                      className={cn(
-                        'sticky left-0 z-10 flex shrink-0 items-stretch self-stretch border-solid border-border/55',
-                        ri % 2 === 1 ? 'bg-muted' : 'bg-background',
-                      )}
+                      className={cn('sticky left-0 z-10 flex shrink-0 items-stretch self-stretch border-solid border-border/55', ri % 2 === 1 ? 'bg-muted' : 'bg-background')}
                       style={{ width: PIN_TOTAL, minWidth: PIN_TOTAL }}
                     >
                       {acBodyCell(0, ri, 'text-center font-mono tabular-nums', row.no)}
@@ -540,12 +456,7 @@ export function AcScheduleUnifiedTable() {
                       {acBodyCell(7, ri, 'whitespace-nowrap', formatDateDisplay(row.actualStartDate, i18n.language))}
                       {acBodyCell(8, ri, 'whitespace-nowrap', formatDateDisplay(row.actualEndDate, i18n.language))}
                       {acBodyCell(9, ri, 'text-center tabular-nums', pctLabel)}
-                      {acBodyCell(
-                        10,
-                        ri,
-                        'max-w-[96px] truncate justify-start',
-                        evmAssigneeDisplayName(master, row.assignee, assigneeNameFromWbs.get(row.assignee ?? '') ?? null),
-                      )}
+                      {acBodyCell(10, ri, 'max-w-[96px] truncate justify-start', evmAssigneeDisplayName(master, row.assignee, assigneeNameFromWbs.get(row.assignee ?? '') ?? null))}
                     </div>
                     <div
                       className="relative shrink-0 self-stretch border-r border-b border-solid border-border/50"
@@ -560,8 +471,7 @@ export function AcScheduleUnifiedTable() {
                           const h = arr?.[vc.index] ?? 0
                           const isWork = isEvmCalendarWorkdayYmd(meta.ds, nonWorkingList)
                           const show = !isWork || h <= 0.0001 ? '' : h.toFixed(1)
-                          const inPlanBand =
-                            isWork && isYmdInPlanWorkingRange(meta.ds, row.planStartDate, row.planEndDate, nonWorkingList)
+                          const inPlanBand = isWork && isYmdInPlanWorkingRange(meta.ds, row.planStartDate, row.planEndDate, nonWorkingList)
                           return (
                             <div
                               key={vc.key}
@@ -570,7 +480,7 @@ export function AcScheduleUnifiedTable() {
                                 !isWork && 'bg-zinc-400/20 dark:bg-zinc-600/30',
                                 isWork && inPlanBand && 'bg-sky-200/50 dark:bg-sky-900/45',
                                 isWork && !inPlanBand && (ri % 2 === 1 ? 'bg-muted' : 'bg-background'),
-                                meta.isReport && 'ring-1 ring-inset ring-amber-400/90 dark:ring-amber-500/55',
+                                meta.isReport && 'ring-1 ring-inset ring-amber-400/90 dark:ring-amber-500/55'
                               )}
                               style={{ left: vc.start - PIN_TOTAL, width: vc.size, height: '100%' }}
                             >
@@ -588,13 +498,7 @@ export function AcScheduleUnifiedTable() {
         </div>
       </div>
 
-      <EditAcSheetDialog
-        row={editRow}
-        master={master}
-        open={!!editRow}
-        onClose={() => setEditRow(null)}
-        onSave={saveEdit}
-      />
+      <EditAcSheetDialog row={editRow} master={master} open={!!editRow} onClose={() => setEditRow(null)} onSave={saveEdit} />
     </div>
   )
 }
@@ -610,11 +514,7 @@ function EditAcSheetDialog({
   master: EVMMaster
   open: boolean
   onClose: () => void
-  onSave: (updates: {
-    actualStartDate: string | null
-    actualEndDate: string | null
-    percentDone: number | null
-  }) => Promise<void>
+  onSave: (updates: { actualStartDate: string | null; actualEndDate: string | null; percentDone: number | null }) => Promise<void>
 }) {
   const { t } = useTranslation()
   const buttonVariant = useAppearanceStoreSelect(s => s.buttonVariant)
@@ -727,21 +627,11 @@ function EditAcSheetDialog({
           </div>
           <div className="grid gap-1">
             <Label className="text-xs text-muted-foreground">{t('evm.actualStart')}</Label>
-            <Input
-              type="date"
-              value={actualStartDate}
-              onChange={e => setActualStartDate(e.target.value)}
-              className="h-8 text-sm"
-            />
+            <Input type="date" value={actualStartDate} onChange={e => setActualStartDate(e.target.value)} className="h-8 text-sm" />
           </div>
           <div className="grid gap-1">
             <Label className="text-xs text-muted-foreground">{t('evm.actualEnd')}</Label>
-            <Input
-              type="date"
-              value={actualEndDate}
-              onChange={e => setActualEndDate(e.target.value)}
-              className="h-8 text-sm"
-            />
+            <Input type="date" value={actualEndDate} onChange={e => setActualEndDate(e.target.value)} className="h-8 text-sm" />
           </div>
           <div className="grid gap-1">
             <Label className="text-xs text-muted-foreground">{t('evm.percentDone')}</Label>

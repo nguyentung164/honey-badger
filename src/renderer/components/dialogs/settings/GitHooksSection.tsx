@@ -19,9 +19,9 @@ import { ScrollArea } from '@/components/ui/scroll-area'
 import { Switch } from '@/components/ui/switch'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import toast from '@/components/ui-elements/Toast'
+import { useGitReposFromSourceFolders } from '@/hooks/useGitReposFromSourceFolders'
 import { useAppearanceStoreSelect } from '../../../stores/useAppearanceStore'
 import { useConfigurationStore } from '../../../stores/useConfigurationStore'
-import { useGitReposFromSourceFolders } from '@/hooks/useGitReposFromSourceFolders'
 import { AddOrEditHookDialog } from './AddOrEditHookDialog'
 
 interface HookInfo {
@@ -48,9 +48,7 @@ export const GitHooksSection = memo(function GitHooksSection({ embedded, selecte
   const { repos, loading: reposLoading } = useGitReposFromSourceFolders(!!embedded, selectedProjectId, selectedSourceFolder)
 
   const [selectedRepo, setSelectedRepo] = useState<{ path: string; name: string } | null>(null)
-  const sourceFolder = embedded
-    ? (selectedRepo?.path ?? repos[0]?.path ?? sourceFolderFromStore)
-    : sourceFolderFromStore
+  const sourceFolder = embedded ? (selectedRepo?.path ?? repos[0]?.path ?? sourceFolderFromStore) : sourceFolderFromStore
 
   const [hooks, setHooks] = useState<HookInfo[]>([])
   const [loading, setLoading] = useState(false)
@@ -212,7 +210,13 @@ export const GitHooksSection = memo(function GitHooksSection({ embedded, selecte
                     disabled={togglingHookName === hook.name}
                     title={hook.enabled ? t('settings.hooks.disable', 'Disable') : t('settings.hooks.enable', 'Enable')}
                   />
-                  <Button variant={buttonVariant} size="icon-sm" onClick={() => handleEditHook(hook.name)} title={t('common.edit', 'Edit')} disabled={editingHookLoading === hook.name}>
+                  <Button
+                    variant={buttonVariant}
+                    size="icon-sm"
+                    onClick={() => handleEditHook(hook.name)}
+                    title={t('common.edit', 'Edit')}
+                    disabled={editingHookLoading === hook.name}
+                  >
                     {editingHookLoading === hook.name ? <Loader2 className="h-4 w-4 animate-spin" /> : <Edit3 className="h-4 w-4" />}
                   </Button>
                   <Button variant={buttonVariant} size="icon-sm" onClick={() => handleDeleteHookClick(hook.name)} title={t('common.delete', 'Delete')}>

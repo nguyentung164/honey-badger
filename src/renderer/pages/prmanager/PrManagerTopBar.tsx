@@ -1,17 +1,6 @@
 'use client'
 
-import {
-  GitPullRequest,
-  LayoutDashboard,
-  ListOrdered,
-  Minus,
-  Settings,
-  ShieldCheck,
-  Square,
-  SquareArrowOutDownLeft,
-  SquareArrowOutUpRight,
-  X,
-} from 'lucide-react'
+import { GitPullRequest, LayoutDashboard, ListOrdered, Minus, Settings, ShieldCheck, Square, SquareArrowOutDownLeft, SquareArrowOutUpRight, X } from 'lucide-react'
 import type { CSSProperties } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Button } from '@/components/ui/button'
@@ -63,9 +52,7 @@ export function PrManagerTopBar({
   /** Nhúng title bar main = h-8 — phải khớp chiều cao, tránh lệch dọc so với icon/text còn lại */
   const barHeight = embedded ? 'h-full min-h-0' : 'h-9'
   const tabListClass = embedded ? 'h-5! rounded-md p-0.5' : 'h-6! rounded-md p-0.5'
-  const triggerClass = embedded
-    ? 'h-4 gap-0.5 px-1.5 text-[11px] data-[state=active]:shadow-none'
-    : 'h-5 gap-1 px-2 text-xs data-[state=active]:shadow-none'
+  const triggerClass = embedded ? 'h-4 gap-0.5 px-1.5 text-[11px] data-[state=active]:shadow-none' : 'h-5 gap-1 px-2 text-xs data-[state=active]:shadow-none'
   const iconClass = embedded ? 'h-3 w-3' : 'h-3.5 w-3.5'
   const compactBtn = embedded ? 'h-[25px] w-[25px]' : 'h-6 w-6'
 
@@ -73,17 +60,11 @@ export function PrManagerTopBar({
     window.api.electron.send('window:action', action)
   }
 
-  const tokenTooltip = tokenStatus?.ok
-    ? t('prManager.shell.tokenLoggedInTitle', { login: tokenStatus.login })
-    : t('prManager.shell.tokenNotConfiguredTitle')
+  const tokenTooltip = tokenStatus?.ok ? t('prManager.shell.tokenLoggedInTitle', { login: tokenStatus.login }) : t('prManager.shell.tokenNotConfiguredTitle')
 
   return (
     <div
-      className={cn(
-        'flex select-none items-center gap-1.5 pl-1 text-sm',
-        barHeight,
-        embedded ? 'min-w-0 w-full flex-1 max-h-8' : 'w-full shrink-0'
-      )}
+      className={cn('flex select-none items-center gap-1.5 pl-1 text-sm', barHeight, embedded ? 'min-w-0 w-full flex-1 max-h-8' : 'w-full shrink-0')}
       style={
         {
           WebkitAppRegion: 'drag',
@@ -131,11 +112,7 @@ export function PrManagerTopBar({
               </TabsList>
             </Tabs>
           </div>
-          <div
-            className="min-h-0 min-w-[20px] flex-1 self-stretch"
-            style={{ WebkitAppRegion: 'drag' } as CSSProperties}
-            aria-hidden
-          />
+          <div className="min-h-0 min-w-[20px] flex-1 self-stretch" style={{ WebkitAppRegion: 'drag' } as CSSProperties} aria-hidden />
           <div className="ml-auto flex shrink-0 items-center gap-0.5 pr-0.5" style={{ WebkitAppRegion: 'no-drag' } as CSSProperties}>
             <Tooltip>
               <TooltipTrigger asChild>
@@ -161,11 +138,7 @@ export function PrManagerTopBar({
                     variant="ghost"
                     size="icon"
                     onClick={onOpenToken}
-                    className={cn(
-                      'shrink-0 rounded-sm',
-                      compactBtn,
-                      tokenStatus?.ok ? 'text-emerald-600 dark:text-emerald-400' : 'text-amber-600 dark:text-amber-400'
-                    )}
+                    className={cn('shrink-0 rounded-sm', compactBtn, tokenStatus?.ok ? 'text-emerald-600 dark:text-emerald-400' : 'text-amber-600 dark:text-amber-400')}
                     aria-label={tokenTooltip}
                   >
                     <ShieldCheck className="h-3.5 w-3.5" />
@@ -220,11 +193,7 @@ export function PrManagerTopBar({
           <button type="button" onClick={() => handleWindow('maximize')} className="flex h-full w-10 items-center justify-center hover:bg-white/10">
             <Square className="h-3 w-3" />
           </button>
-          <button
-            type="button"
-            onClick={() => window.api.prManager.closeWindow()}
-            className="flex h-full w-10 items-center justify-center hover:bg-red-600"
-          >
+          <button type="button" onClick={() => window.api.prManager.closeWindow()} className="flex h-full w-10 items-center justify-center hover:bg-red-600">
             <X className="h-4 w-4" />
           </button>
         </div>

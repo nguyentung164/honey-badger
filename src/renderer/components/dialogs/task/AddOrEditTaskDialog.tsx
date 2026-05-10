@@ -402,33 +402,33 @@ export function AddOrEditTaskDialog({
 
     const pMilestone = pid
       ? window.api.task.canCreateMilestone(pid).then((res: { status: string; data?: { ok: boolean } }) => {
-        if (cancelled) return
-        startTransition(() => setCanCreateMilestone(res.status === 'success' && Boolean(res.data?.ok)))
-      })
+          if (cancelled) return
+          startTransition(() => setCanCreateMilestone(res.status === 'success' && Boolean(res.data?.ok)))
+        })
       : Promise.resolve().then(() => {
-        if (!cancelled) startTransition(() => setCanCreateMilestone(false))
-      })
+          if (!cancelled) startTransition(() => setCanCreateMilestone(false))
+        })
 
     const pEdit = tid
       ? window.api.task.canEditTask(tid).then((res: { status: string; data?: { canEdit: boolean; canDelete: boolean } }) => {
-        if (cancelled) return
-        startTransition(() => {
-          if (res.status === 'success' && res.data) {
-            setCanEdit(res.data.canEdit)
-            setCanDelete(res.data.canDelete)
-          } else {
-            setCanEdit(false)
-            setCanDelete(false)
-          }
-        })
-      })
-      : Promise.resolve().then(() => {
-        if (!cancelled)
+          if (cancelled) return
           startTransition(() => {
-            setCanEdit(true)
-            setCanDelete(true)
+            if (res.status === 'success' && res.data) {
+              setCanEdit(res.data.canEdit)
+              setCanDelete(res.data.canDelete)
+            } else {
+              setCanEdit(false)
+              setCanDelete(false)
+            }
           })
-      })
+        })
+      : Promise.resolve().then(() => {
+          if (!cancelled)
+            startTransition(() => {
+              setCanEdit(true)
+              setCanDelete(true)
+            })
+        })
 
     Promise.all([pMilestone, pEdit]).catch(() => {
       if (cancelled) return
@@ -768,14 +768,14 @@ export function AddOrEditTaskDialog({
     return opts.length > 0
       ? opts.map(s => ({ value: s.code, label: s.name, render: wrap(s, getIcon(s.code, s), s.name) }))
       : [
-        { value: 'new', label: labels.new, render: wrap({ code: 'new' }, getStatusIcon('new', colorCls('new')), labels.new) },
-        { value: 'in_progress', label: labels.in_progress, render: wrap({ code: 'in_progress' }, getStatusIcon('in_progress', colorCls('in_progress')), labels.in_progress) },
-        { value: 'in_review', label: labels.in_review, render: wrap({ code: 'in_review' }, getStatusIcon('in_review', colorCls('in_review')), labels.in_review) },
-        { value: 'fixed', label: labels.fixed, render: wrap({ code: 'fixed' }, getStatusIcon('fixed', colorCls('fixed')), labels.fixed) },
-        { value: 'cancelled', label: labels.cancelled, render: wrap({ code: 'cancelled' }, getStatusIcon('cancelled', colorCls('cancelled')), labels.cancelled) },
-        { value: 'feedback', label: labels.feedback, render: wrap({ code: 'feedback' }, getStatusIcon('feedback', colorCls('feedback')), labels.feedback) },
-        { value: 'done', label: labels.done, render: wrap({ code: 'done' }, getStatusIcon('done', colorCls('done')), labels.done) },
-      ]
+          { value: 'new', label: labels.new, render: wrap({ code: 'new' }, getStatusIcon('new', colorCls('new')), labels.new) },
+          { value: 'in_progress', label: labels.in_progress, render: wrap({ code: 'in_progress' }, getStatusIcon('in_progress', colorCls('in_progress')), labels.in_progress) },
+          { value: 'in_review', label: labels.in_review, render: wrap({ code: 'in_review' }, getStatusIcon('in_review', colorCls('in_review')), labels.in_review) },
+          { value: 'fixed', label: labels.fixed, render: wrap({ code: 'fixed' }, getStatusIcon('fixed', colorCls('fixed')), labels.fixed) },
+          { value: 'cancelled', label: labels.cancelled, render: wrap({ code: 'cancelled' }, getStatusIcon('cancelled', colorCls('cancelled')), labels.cancelled) },
+          { value: 'feedback', label: labels.feedback, render: wrap({ code: 'feedback' }, getStatusIcon('feedback', colorCls('feedback')), labels.feedback) },
+          { value: 'done', label: labels.done, render: wrap({ code: 'done' }, getStatusIcon('done', colorCls('done')), labels.done) },
+        ]
   }, [statuses, status, t])
 
   const priorityOptions = useMemo(() => {
@@ -803,11 +803,11 @@ export function AddOrEditTaskDialog({
     return opts.length > 0
       ? opts.map(p => ({ value: p.code, label: p.name, render: wrap(p, getPriorityIcon(p.code, p.color ? '' : colorCls(p.code)), p.name) }))
       : [
-        { value: 'critical', label: labels.critical, render: wrap({ code: 'critical' }, getPriorityIcon('critical', colorCls('critical')), labels.critical) },
-        { value: 'high', label: labels.high, render: wrap({ code: 'high' }, getPriorityIcon('high', colorCls('high')), labels.high) },
-        { value: 'medium', label: labels.medium, render: wrap({ code: 'medium' }, getPriorityIcon('medium', colorCls('medium')), labels.medium) },
-        { value: 'low', label: labels.low, render: wrap({ code: 'low' }, getPriorityIcon('low', colorCls('low')), labels.low) },
-      ]
+          { value: 'critical', label: labels.critical, render: wrap({ code: 'critical' }, getPriorityIcon('critical', colorCls('critical')), labels.critical) },
+          { value: 'high', label: labels.high, render: wrap({ code: 'high' }, getPriorityIcon('high', colorCls('high')), labels.high) },
+          { value: 'medium', label: labels.medium, render: wrap({ code: 'medium' }, getPriorityIcon('medium', colorCls('medium')), labels.medium) },
+          { value: 'low', label: labels.low, render: wrap({ code: 'low' }, getPriorityIcon('low', colorCls('low')), labels.low) },
+        ]
   }, [priorities, priority, t])
 
   const ticketIdDisabled = true

@@ -16,8 +16,8 @@ import { Pool } from 'pg'
 import { EVM_DEFAULT_PHASES } from 'shared/evmDefaults'
 import { v7 as uuidV7 } from 'uuid'
 
-import { ACHIEVEMENT_DEFINITIONS } from './achievementSeed'
-import { sqlPlaceholdersToPg } from './db'
+import { ACHIEVEMENT_DEFINITIONS } from '../achievement/achievementSeed'
+import { sqlPlaceholdersToPg } from '../schema/db'
 
 function seedEnv(primary: string, fallback?: string): string {
   const a = process.env[primary]
@@ -1415,8 +1415,10 @@ export async function runSeedMockWithElectronDb(config: SeedMockDbConfig): Promi
   try {
     await runSeedMockCore()
   } finally {
-    if (pool) {
-      await pool.end().catch(() => {})
+    // runSeedMockCore có thể tạo lại pool; TS không theo dõi gán chéo module nên không narrow `pool` sau khối if phía trên
+    const closing: Pool | null = pool as Pool | null
+    if (closing) {
+      await closing.end().catch(() => {})
       pool = null
     }
     _electronSeedOverride = null
@@ -1874,7 +1876,7 @@ async function runSeedMockCore(): Promise<void> {
   // Đồng bộ id thực tế từ DB (ON CONFLICT DO NOTHING có thể bỏ qua khi user_code trùng → id trong memory != id trong DB)
   const userCodes = allSeedUsers.map(u => u.user_code)
   const placeholders = userCodes.map(() => '?').join(',')
-  const rows = await query<{ id: string; user_code: string }[]>(`SELECT id, user_code FROM users WHERE user_code IN (${placeholders})`, userCodes)
+  const rows = await query<{ id: string; user_code: string }>(`SELECT id, user_code FROM users WHERE user_code IN (${placeholders})`, userCodes)
   const idByCode = new Map((Array.isArray(rows) ? rows : []).map(r => [r.user_code, r.id]))
   for (const u of allSeedUsers) {
     const realId = idByCode.get(u.user_code)
@@ -4284,7 +4286,7 @@ async function runSeedMockCore(): Promise<void> {
   await insertSensibleTaskLinks(project2Id, 120)
   await insertSensibleTaskLinks(project3Id, 80)
 
-  const taskIds = await query<{ id: string }[]>('SELECT id FROM tasks WHERE project_id = ? ORDER BY plan_start_date NULLS LAST, id LIMIT 100', [project1Id])
+  const taskIds = await query<{ id: string }>('SELECT id FROM tasks WHERE project_id = ? ORDER BY plan_start_date NULLS LAST, id LIMIT 100', [project1Id])
   const tids = Array.isArray(taskIds) ? taskIds : []
   for (let i = 0; i < Math.min(25, tids.length); i++) {
     const dev = devsP1[i % devsP1.length]
@@ -4295,7 +4297,7 @@ async function runSeedMockCore(): Promise<void> {
   const allDevs = [...new Map([...devsP1, ...devsP2, ...tinyTeamDevs].filter(d => d.seedActivity !== 'none').map(d => [d.id, d] as const)).values()]
 
   // Task notifications (plan: ~30-50)
-  const allTaskIds = await query<{ id: string }[]>('SELECT id FROM tasks ORDER BY random() LIMIT 80')
+  const allTaskIds = await query<{ id: string }>('SELECT id FROM tasks ORDER BY random() LIMIT 80')
   const atids = Array.isArray(allTaskIds) ? allTaskIds : []
   const notifTypes = ['assign', 'done', 'review', 'feedback', 'deadline_today', 'deadline_tomorrow'] as const
   const nNotifs = randBetween(30, 50)

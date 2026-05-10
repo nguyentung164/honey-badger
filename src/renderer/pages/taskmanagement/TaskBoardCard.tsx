@@ -42,10 +42,7 @@ export function TaskBoardCard({
   const ty = task.type ?? 'bug'
   const statusHex = statusColorMap[task.status]?.trim()
   const stripColor = statusHex || 'hsl(var(--primary))'
-  const progressPct =
-    typeof task.progress === 'number' && task.progress >= 0
-      ? Math.min(100, Math.max(0, Math.round(Number(task.progress) || 0)))
-      : null
+  const progressPct = typeof task.progress === 'number' && task.progress >= 0 ? Math.min(100, Math.max(0, Math.round(Number(task.progress) || 0))) : null
   return (
     <div className="flex min-w-0 rounded-md bg-card shadow-sm transition-colors hover:bg-muted/30">
       <div className="w-1 shrink-0 self-stretch rounded-l-[calc(0.375rem-1px)]" style={{ backgroundColor: stripColor }} aria-hidden />
@@ -84,11 +81,7 @@ export function TaskBoardCard({
         <div className="mt-1.5 text-[10px] text-muted-foreground truncate">{assigneeDisplay}</div>
         {progressPct != null && (
           <div className="mt-1.5">
-            <Progress
-              value={progressPct}
-              className="h-1"
-              indicatorStyle={{ backgroundColor: getProgressColor(progressPct / 100) }}
-            />
+            <Progress value={progressPct} className="h-1" indicatorStyle={{ backgroundColor: getProgressColor(progressPct / 100) }} />
           </div>
         )}
       </div>

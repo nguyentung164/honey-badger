@@ -1,6 +1,6 @@
+import { spawn } from 'node:child_process'
 import { existsSync, statSync } from 'node:fs'
 import { join } from 'node:path'
-import { spawn } from 'node:child_process'
 import l from 'electron-log'
 import { getGitInstance } from './utils'
 
@@ -13,11 +13,7 @@ export type PrLocalMergeConflictPathResult = {
   localSaysClean: boolean
 }
 
-function runGit(
-  cwd: string,
-  args: string[],
-  maxOut = 12 * 1024 * 1024
-): Promise<{ code: number; out: string; err: string }> {
+function runGit(cwd: string, args: string[], maxOut = 12 * 1024 * 1024): Promise<{ code: number; out: string; err: string }> {
   return new Promise((resolve, reject) => {
     const p = spawn('git', args, { cwd, windowsHide: true, stdio: ['ignore', 'pipe', 'pipe'] })
     let out = ''
@@ -59,12 +55,7 @@ function parseConflictingPathsFromMergeTree(stdout: string): string[] {
  * Mô phỏng gộp head (PR) vào base như trên server (merge-tree), không sửa working tree.
  * Cần fetch gần đúng: origin/&lt;base&gt;, và headSha hoặc refs/pull/&lt;n&gt;/head.
  */
-export async function getLocalPrMergeConflicts(
-  localPath: string,
-  prNumber: number,
-  baseRef: string,
-  headSha: string
-): Promise<PrLocalMergeConflictPathResult> {
+export async function getLocalPrMergeConflicts(localPath: string, prNumber: number, baseRef: string, headSha: string): Promise<PrLocalMergeConflictPathResult> {
   const base = (baseRef || '').trim()
   const head = (headSha || '').trim()
   const cwd = localPath.trim()
@@ -110,7 +101,9 @@ export async function getLocalPrMergeConflicts(
       headCommit = (await git.raw(['rev-parse', '-q', '--verify', helperRef])).trim()
     } catch (fe) {
       l.warn('pr merge-conflict: fetch pull head failed', fe)
-      throw new Error('Ch\u01b0a c\u00f3 commit head PR tr\u00ean kho. L\u1ed7i fetch c\u1ea3ng pull. Ch\u1ea1y git fetch v\u00e0 th\u1eed l\u1ea1i (fork PR: c\u1ea7n origin l\u00e0 kho c\u1ee7a b\u1ea1n, GitHub t\u1ea1o refs/pull/**).')
+      throw new Error(
+        'Ch\u01b0a c\u00f3 commit head PR tr\u00ean kho. L\u1ed7i fetch c\u1ea3ng pull. Ch\u1ea1y git fetch v\u00e0 th\u1eed l\u1ea1i (fork PR: c\u1ea7n origin l\u00e0 kho c\u1ee7a b\u1ea1n, GitHub t\u1ea1o refs/pull/**).'
+      )
     }
   }
   if (!/^[0-9a-f]{7,40}$/i.test(headCommit)) {

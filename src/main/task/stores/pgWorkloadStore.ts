@@ -1,6 +1,6 @@
 import l from 'electron-log'
 import { randomUuidV7 } from 'shared/randomUuidV7'
-import { query, type TransactionQuery } from './db'
+import { query, type TransactionQuery } from '../schema/db'
 import { getProjectMembers, hasRole, isAppAdmin } from './pgTaskStore'
 
 const PUDW = 'project_user_daily_workload'

@@ -80,7 +80,7 @@ import {
   undoCommit as gitUndoCommit,
   type StatisticsOptions,
 } from 'main/git'
-import { onBranchCreated, onMerge, onPush, onStash, recordRebaseCompletedIfIdle } from '../task/achievementService'
+import { onBranchCreated, onMerge, onPush, onStash, recordRebaseCompletedIfIdle } from '../task/achievement/achievementService'
 import { getTokenFromStore, verifyToken } from '../task/auth'
 
 function getCurrentUserId(): string | null {

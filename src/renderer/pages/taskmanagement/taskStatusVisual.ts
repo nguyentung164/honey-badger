@@ -41,7 +41,6 @@ export function taskStatusBarParentFillStyle(hex: string | undefined): CSSProper
     }
   }
   return {
-    backgroundImage:
-      'linear-gradient(to bottom, hsl(var(--primary) / 0.42) 0%, hsl(var(--primary) / 0.42) 50%, hsl(var(--primary) / 0.25) 50%, hsl(var(--primary) / 0.25) 100%)',
+    backgroundImage: 'linear-gradient(to bottom, hsl(var(--primary) / 0.42) 0%, hsl(var(--primary) / 0.42) 50%, hsl(var(--primary) / 0.25) 50%, hsl(var(--primary) / 0.25) 100%)',
   }
 }

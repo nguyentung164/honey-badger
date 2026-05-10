@@ -33,8 +33,7 @@ export const EVM_SCHEDULE_HEADER_STICKY_AFTER_ROW2_EXTRA_PX = 3
 export const EVM_SCHEDULE_STICKY_TOP_AFTER_HEADER_ROW1 = _evmScheduleHeaderStickyStepPx
 
 /** Sticky `top` đầu `<tr>` thứ 3 (sau 2 band; cộng thêm bù ranh 2→3). */
-export const EVM_SCHEDULE_STICKY_TOP_AFTER_HEADER_ROW2 =
-  _evmScheduleHeaderStickyStepPx * 2 + EVM_SCHEDULE_HEADER_STICKY_AFTER_ROW2_EXTRA_PX
+export const EVM_SCHEDULE_STICKY_TOP_AFTER_HEADER_ROW2 = _evmScheduleHeaderStickyStepPx * 2 + EVM_SCHEDULE_HEADER_STICKY_AFTER_ROW2_EXTRA_PX
 
 /** `z-index` ô timeline (thấp hơn cột ghim z-40). */
 export const EVM_SCHEDULE_TIMELINE_HEADER_Z = 28
@@ -52,9 +51,7 @@ export const EVM_SCHEDULE_ROW_PX = 32
  * 0 No · 1 Phase · 2 Category · 3 Feature · 4 Task/Note ·
  * 5–8 khối lịch (Duration/Plan/Actual tùy bảng) · 9–15 phần còn lại của cột ghim (assignee, KPI, v.v.).
  */
-export const EVM_WBS_PINNED_COL_WIDTHS = [
-  40, 72, 84, 84, 150, 76, 76, 76, 76, 96, 76, 84, 56, 72, 56, 60,
-] as const
+export const EVM_WBS_PINNED_COL_WIDTHS = [40, 72, 84, 84, 150, 76, 76, 76, 76, 96, 76, 84, 56, 72, 56, 60] as const
 
 /**
  * Chỉ mount DOM cho các cột ngày trong viewport (kéo ngang mượt với dải dài).
@@ -68,11 +65,7 @@ export type EvmScheduleColumnVirtualizerOptions = {
   leadingPinnedWidthPx?: number
 }
 
-export function useEvmScheduleColumnVirtualizer(
-  scrollRef: RefObject<HTMLElement | null>,
-  columnCount: number,
-  options?: EvmScheduleColumnVirtualizerOptions,
-) {
+export function useEvmScheduleColumnVirtualizer(scrollRef: RefObject<HTMLElement | null>, columnCount: number, options?: EvmScheduleColumnVirtualizerOptions) {
   const leading = options?.leadingPinnedWidthPx ?? 0
   return useVirtualizer({
     horizontal: true,

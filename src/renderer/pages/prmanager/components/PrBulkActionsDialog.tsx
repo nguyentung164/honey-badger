@@ -13,9 +13,9 @@ import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group'
 import { Table, TableCell, TableRow } from '@/components/ui/table'
 import toast from '@/components/ui-elements/Toast'
 import { cn } from '@/lib/utils'
+import { checkpointTableHeadGroupClass } from '../checkpointHeaderGroup'
 import type { PrCheckpointTemplate, PrRepo, TrackedBranchRow } from '../hooks/usePrData'
 import { usePrOperationLog } from '../PrOperationLogContext'
-import { checkpointTableHeadGroupClass } from '../checkpointHeaderGroup'
 import { BULK_DIALOG_CHROME } from '../prBulkDialogChrome'
 import { PR_MANAGER_ACCENT_OUTLINE_BTN, PR_MANAGER_ACCENT_OUTLINE_SURFACE } from '../prManagerButtonStyles'
 import { PR_MANAGER_REPO_GROUP_VISUAL } from '../prManagerRepoGroupVisual'
@@ -170,9 +170,7 @@ function bulkGroupItemBaseOffsets<T>(groups: { items: T[] }[]): number[] {
 
 /** Nền xen kẽ trong nhóm template PR — lớp mỏng để lộ màu nền repo (`row`) / vùng template. */
 function bulkTemplateGroupStripeCellClass(flatIndex: number): string {
-  return flatIndex % 2 === 0
-    ? 'bg-black/[0.06] dark:bg-white/[0.08]'
-    : 'bg-black/[0.03] dark:bg-white/[0.04]'
+  return flatIndex % 2 === 0 ? 'bg-black/[0.06] dark:bg-white/[0.08]' : 'bg-black/[0.03] dark:bg-white/[0.04]'
 }
 
 /** Nền xen kẽ — gắn lên từng `TableCell` để bảng lồng vẫn phủ đủ (một số layout `tr` không tô kín). */
@@ -201,9 +199,7 @@ function BulkRepoGroupCollapsibleRows({
   const prevCollapsedRef = useRef(collapsed)
   const isFirstLayoutRef = useRef(true)
 
-  const [reduceMotion, setReduceMotion] = useState(() =>
-    typeof window !== 'undefined' ? window.matchMedia('(prefers-reduced-motion: reduce)').matches : false
-  )
+  const [reduceMotion, setReduceMotion] = useState(() => (typeof window !== 'undefined' ? window.matchMedia('(prefers-reduced-motion: reduce)').matches : false))
 
   useEffect(() => {
     const mq = window.matchMedia('(prefers-reduced-motion: reduce)')
@@ -462,19 +458,22 @@ export function PrBulkActionsDialog({
     })
   }, [])
 
-  const toggleCreateTemplateId = useCallback((templateId: string, checked: boolean) => {
-    if (dialogBusy) return
-    setCreateTemplateIds(prev => {
-      if (!checked) {
-        if (prev.size <= 1 && prev.has(templateId)) return prev
-        const next = new Set(prev)
-        next.delete(templateId)
-        return next
-      }
-      if (prev.has(templateId)) return prev
-      return new Set([...prev, templateId])
-    })
-  }, [dialogBusy])
+  const toggleCreateTemplateId = useCallback(
+    (templateId: string, checked: boolean) => {
+      if (dialogBusy) return
+      setCreateTemplateIds(prev => {
+        if (!checked) {
+          if (prev.size <= 1 && prev.has(templateId)) return prev
+          const next = new Set(prev)
+          next.delete(templateId)
+          return next
+        }
+        if (prev.has(templateId)) return prev
+        return new Set([...prev, templateId])
+      })
+    },
+    [dialogBusy]
+  )
 
   useEffect(() => {
     if (!open) return
@@ -603,8 +602,7 @@ export function PrBulkActionsDialog({
       return
     }
     const actionLabel = t(`prManager.bulk.title.${kind}`)
-    if (!opLog.startOperation('prManager.operationLog.bulkTitle', { action: actionLabel, count: runCount }, { silent: !showOperationLog }))
-      return
+    if (!opLog.startOperation('prManager.operationLog.bulkTitle', { action: actionLabel, count: runCount }, { silent: !showOperationLog })) return
     setRunning(true)
     setResults({})
     const markRowSuccess = (id: string) => {
@@ -857,7 +855,7 @@ export function PrBulkActionsDialog({
             base: item.base,
             draft: createDraft,
             openInBrowser: false,
-            userId: userId!.trim(),
+            userId: userId?.trim(),
           })
           if (res.status === 'success') {
             markRowSuccess(item.id)
@@ -973,26 +971,16 @@ export function PrBulkActionsDialog({
                         return (
                           <div key={tpl.id} className="flex min-h-7 items-center gap-2 text-xs">
                             <div className="flex shrink-0 items-center justify-center self-center">
-                              <Checkbox
-                                id={`bulk-create-tpl-${tpl.id}`}
-                                checked={checked}
-                                disabled={disabled}
-                                onCheckedChange={v => toggleCreateTemplateId(tpl.id, v === true)}
-                              />
+                              <Checkbox id={`bulk-create-tpl-${tpl.id}`} checked={checked} disabled={disabled} onCheckedChange={v => toggleCreateTemplateId(tpl.id, v === true)} />
                             </div>
                             <Label
                               htmlFor={disabled ? undefined : `bulk-create-tpl-${tpl.id}`}
-                              className={cn(
-                                'line-clamp-2 min-w-0 font-normal',
-                                disabled && checked ? 'cursor-not-allowed text-foreground' : 'cursor-pointer'
-                              )}
+                              className={cn('line-clamp-2 min-w-0 font-normal', disabled && checked ? 'cursor-not-allowed text-foreground' : 'cursor-pointer')}
                               title={`${tpl.label} (${tpl.code})`}
                             >
                               <span className="font-medium">{tpl.label}</span>
                               <span className="text-muted-foreground"> · {tpl.code}</span>
-                              {tpl.targetBranch ? (
-                                <span className="text-muted-foreground"> → {tpl.targetBranch}</span>
-                              ) : null}
+                              {tpl.targetBranch ? <span className="text-muted-foreground"> → {tpl.targetBranch}</span> : null}
                             </Label>
                           </div>
                         )
@@ -1118,398 +1106,393 @@ export function PrBulkActionsDialog({
               <tbody data-slot="table-body" className="[&_tr:last-child]:border-0">
                 {kind === 'deleteRemoteBranch'
                   ? groupedTableDelete.map((grp, groupIdx) => {
-                    const repoCollapsed = collapsedRepoGroupKeys.has(grp.key)
-                    const vis = PR_MANAGER_REPO_GROUP_VISUAL[groupIdx % PR_MANAGER_REPO_GROUP_VISUAL.length]
-                    return (
-                      <Fragment key={grp.key}>
-                        <TableRow className="border-0 bg-transparent">
-                          <TableCell colSpan={3} className="p-0">
-                            <button
-                              type="button"
-                              className={cn(
-                                'flex w-full min-h-0 items-center gap-2 px-3 py-2.5 text-left transition-colors',
-                                'hover:brightness-[1.01] dark:hover:brightness-[1.03]',
-                                'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40 focus-visible:ring-inset',
-                                vis.row,
-                                vis.accent
-                              )}
-                              onClick={() => toggleRepoGroupCollapse(grp.key)}
-                              aria-expanded={!repoCollapsed}
-                              aria-label={repoCollapsed ? t('prManager.bulk.repoGroupExpand') : t('prManager.bulk.repoGroupCollapse')}
-                            >
-                              <ChevronDown
-                                className={cn('size-4 shrink-0 text-muted-foreground transition-transform duration-300 ease-out', repoCollapsed && '-rotate-90')}
-                                aria-hidden
-                              />
-                              <span className="min-w-0 font-mono text-xs font-semibold tabular-nums text-foreground">
-                                {grp.owner}/{grp.repo}
-                              </span>
-                              <span className="ml-auto shrink-0 text-xs tabular-nums text-muted-foreground">({grp.items.length})</span>
-                            </button>
-                          </TableCell>
-                        </TableRow>
-                        <BulkRepoGroupCollapsibleRows collapsed={repoCollapsed} toneRowClassName={vis.row}>
-                          {grp.items.map((item, itemIdx) => {
-                            const flat = (bulkStripeOffDelete[groupIdx] ?? 0) + itemIdx
-                            const stripe = bulkItemRowStripeCellClass(flat)
-                            return (
-                              <TableRow key={item.id}>
-                                <TableCell className={cn('w-10 px-2 align-middle', stripe)}>
-                                  <div className="flex min-h-8 items-center justify-center">
-                                    <Checkbox
-                                      checked={enabledIds.has(item.id)}
-                                      disabled={!item.eligible || dialogBusy || !!results[item.id]?.ok}
-                                      onCheckedChange={() => toggleId(item.id, item.eligible)}
-                                    />
-                                  </div>
-                                </TableCell>
-                                <TableCell className={cn('min-w-0 p-2 text-xs', stripe)}>
-                                  <div className="flex flex-wrap items-center gap-x-1 gap-y-0.5 break-words">
-                                    <span className="font-medium">{item.branch}</span>
-                                    {item.eligible && !results[item.id]?.ok ? (
-                                      <>
-                                        <span className="text-muted-foreground">·</span>
-                                        <span className={BULK_ELIGIBLE_HINT_CLASS}>{t('prManager.bulk.itemEligibleHint')}</span>
-                                      </>
-                                    ) : null}
-                                    {!item.eligible && item.skipReasonKey ? (
-                                      <>
-                                        <span className="text-muted-foreground">·</span>
-                                        <span className="text-xs text-amber-800 dark:text-amber-200">{t(item.skipReasonKey)}</span>
-                                      </>
-                                    ) : null}
-                                  </div>
-                                  {item.prColumnSummaries.length > 0 ? (
-                                    <div className="mt-0.5 break-words leading-snug text-muted-foreground">
-                                      {item.prColumnSummaries.map((col, i) => (
-                                        <Fragment key={`${col.templateLabel}\0${i}`}>
-                                          {i > 0 ? <span className="text-muted-foreground/60"> | </span> : null}
-                                          <span>
-                                            {col.templateLabel} - {t(`prManager.bulk.deletePrColumnStatuses.${col.status}`)}
-                                          </span>
-                                        </Fragment>
-                                      ))}
+                      const repoCollapsed = collapsedRepoGroupKeys.has(grp.key)
+                      const vis = PR_MANAGER_REPO_GROUP_VISUAL[groupIdx % PR_MANAGER_REPO_GROUP_VISUAL.length]
+                      return (
+                        <Fragment key={grp.key}>
+                          <TableRow className="border-0 bg-transparent">
+                            <TableCell colSpan={3} className="p-0">
+                              <button
+                                type="button"
+                                className={cn(
+                                  'flex w-full min-h-0 items-center gap-2 px-3 py-2.5 text-left transition-colors',
+                                  'hover:brightness-[1.01] dark:hover:brightness-[1.03]',
+                                  'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40 focus-visible:ring-inset',
+                                  vis.row,
+                                  vis.accent
+                                )}
+                                onClick={() => toggleRepoGroupCollapse(grp.key)}
+                                aria-expanded={!repoCollapsed}
+                                aria-label={repoCollapsed ? t('prManager.bulk.repoGroupExpand') : t('prManager.bulk.repoGroupCollapse')}
+                              >
+                                <ChevronDown
+                                  className={cn('size-4 shrink-0 text-muted-foreground transition-transform duration-300 ease-out', repoCollapsed && '-rotate-90')}
+                                  aria-hidden
+                                />
+                                <span className="min-w-0 font-mono text-xs font-semibold tabular-nums text-foreground">
+                                  {grp.owner}/{grp.repo}
+                                </span>
+                                <span className="ml-auto shrink-0 text-xs tabular-nums text-muted-foreground">({grp.items.length})</span>
+                              </button>
+                            </TableCell>
+                          </TableRow>
+                          <BulkRepoGroupCollapsibleRows collapsed={repoCollapsed} toneRowClassName={vis.row}>
+                            {grp.items.map((item, itemIdx) => {
+                              const flat = (bulkStripeOffDelete[groupIdx] ?? 0) + itemIdx
+                              const stripe = bulkItemRowStripeCellClass(flat)
+                              return (
+                                <TableRow key={item.id}>
+                                  <TableCell className={cn('w-10 px-2 align-middle', stripe)}>
+                                    <div className="flex min-h-8 items-center justify-center">
+                                      <Checkbox
+                                        checked={enabledIds.has(item.id)}
+                                        disabled={!item.eligible || dialogBusy || !!results[item.id]?.ok}
+                                        onCheckedChange={() => toggleId(item.id, item.eligible)}
+                                      />
                                     </div>
-                                  ) : null}
-                                </TableCell>
-                                <TableCell className={cn(BULK_STATUS_COL_CLASS, stripe)}>
-                                  <div className="flex min-h-8 items-center justify-center">
-                                    {running && currentId === item.id && results[item.id] == null ? (
-                                      <Loader2 className="h-4 w-4 shrink-0 animate-spin" />
+                                  </TableCell>
+                                  <TableCell className={cn('min-w-0 p-2 text-xs', stripe)}>
+                                    <div className="flex flex-wrap items-center gap-x-1 gap-y-0.5 break-words">
+                                      <span className="font-medium">{item.branch}</span>
+                                      {item.eligible && !results[item.id]?.ok ? (
+                                        <>
+                                          <span className="text-muted-foreground">·</span>
+                                          <span className={BULK_ELIGIBLE_HINT_CLASS}>{t('prManager.bulk.itemEligibleHint')}</span>
+                                        </>
+                                      ) : null}
+                                      {!item.eligible && item.skipReasonKey ? (
+                                        <>
+                                          <span className="text-muted-foreground">·</span>
+                                          <span className="text-xs text-amber-800 dark:text-amber-200">{t(item.skipReasonKey)}</span>
+                                        </>
+                                      ) : null}
+                                    </div>
+                                    {item.prColumnSummaries.length > 0 ? (
+                                      <div className="mt-0.5 break-words leading-snug text-muted-foreground">
+                                        {item.prColumnSummaries.map((col, i) => (
+                                          <Fragment key={`${col.templateLabel}\0${i}`}>
+                                            {i > 0 ? <span className="text-muted-foreground/60"> | </span> : null}
+                                            <span>
+                                              {col.templateLabel} - {t(`prManager.bulk.deletePrColumnStatuses.${col.status}`)}
+                                            </span>
+                                          </Fragment>
+                                        ))}
+                                      </div>
                                     ) : null}
-                                    {results[item.id] ? (
-                                      results[item.id].ok ? (
-                                        <CheckCircle2 className="h-4 w-4 shrink-0 text-emerald-600" />
-                                      ) : (
-                                        <span className="line-clamp-2 text-xs text-rose-600" title={results[item.id].message}>
-                                          {t('prManager.bulk.error')}
-                                        </span>
-                                      )
-                                    ) : null}
-                                  </div>
-                                </TableCell>
-                              </TableRow>
-                            )
-                          })}
-                        </BulkRepoGroupCollapsibleRows>
-                      </Fragment>
-                    )
-                  })
+                                  </TableCell>
+                                  <TableCell className={cn(BULK_STATUS_COL_CLASS, stripe)}>
+                                    <div className="flex min-h-8 items-center justify-center">
+                                      {running && currentId === item.id && results[item.id] == null ? <Loader2 className="h-4 w-4 shrink-0 animate-spin" /> : null}
+                                      {results[item.id] ? (
+                                        results[item.id].ok ? (
+                                          <CheckCircle2 className="h-4 w-4 shrink-0 text-emerald-600" />
+                                        ) : (
+                                          <span className="line-clamp-2 text-xs text-rose-600" title={results[item.id].message}>
+                                            {t('prManager.bulk.error')}
+                                          </span>
+                                        )
+                                      ) : null}
+                                    </div>
+                                  </TableCell>
+                                </TableRow>
+                              )
+                            })}
+                          </BulkRepoGroupCollapsibleRows>
+                        </Fragment>
+                      )
+                    })
                   : null}
 
                 {kind === 'createPr'
                   ? groupedTableCreateByTemplate.map(tplGrp => {
-                    const tplKey = `bc:tpl:${tplGrp.templateId}`
-                    const tplCollapsed = collapsedRepoGroupKeys.has(tplKey)
-                    const tplDef = prTemplates.find(t => t.id === tplGrp.templateId) ?? activeTemplates.find(t => t.id === tplGrp.templateId)
-                    const tplHeadClass = checkpointTableHeadGroupClass(tplDef?.headerGroupId)
-                    const tplRowCount = tplGrp.repoGroups.reduce((n, g) => n + g.items.length, 0)
-                    const baseHint = (tplGrp.targetBranch?.trim() || tplGrp.repoGroups[0]?.items[0]?.base || '').trim()
-                    return (
-                      <Fragment key={tplGrp.templateId}>
-                        <TableRow className="border-0">
-                          <TableCell colSpan={3} className={cn('border-0 p-0 align-top backdrop-blur-sm', tplHeadClass)}>
-                            <button
-                              type="button"
-                              className={cn(
-                                'flex w-full min-h-0 items-center gap-2 border-b border-border/50 bg-transparent px-3 py-2.5 text-left transition-colors',
-                                'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40 focus-visible:ring-inset'
-                              )}
-                              onClick={() => toggleRepoGroupCollapse(tplKey)}
-                              aria-expanded={!tplCollapsed}
-                              aria-label={tplCollapsed ? t('prManager.bulk.templateGroupExpand') : t('prManager.bulk.templateGroupCollapse')}
-                            >
-                              <ChevronDown
-                                className={cn('size-4 shrink-0 opacity-70 transition-transform duration-300 ease-out', tplCollapsed && '-rotate-90')}
-                                aria-hidden
-                              />
-                              <span className="min-w-0 text-left text-xs font-semibold leading-snug">
-                                <span className="font-sans">{tplGrp.label}</span>
-                                <span className="font-normal opacity-85"> · {tplGrp.code}</span>
-                                {baseHint ? <span className="font-normal opacity-85"> → {baseHint}</span> : null}
-                              </span>
-                              <span className="ml-auto shrink-0 text-xs tabular-nums opacity-80">({tplRowCount})</span>
-                            </button>
-                          </TableCell>
-                        </TableRow>
-                        <BulkRepoGroupCollapsibleRows collapsed={tplCollapsed}>
-                          {tplGrp.repoGroups.map((grp, groupIdx) => {
-                            const repoKey = `bc:repo:${tplGrp.templateId}:${grp.key}`
-                            const repoCollapsed = collapsedRepoGroupKeys.has(repoKey)
-                            const visRepo = PR_MANAGER_REPO_GROUP_VISUAL[groupIdx % PR_MANAGER_REPO_GROUP_VISUAL.length]
-                            return (
-                              <Fragment key={repoKey}>
-                                <TableRow className="border-0 bg-transparent">
-                                  <TableCell colSpan={3} className="p-0">
-                                    <button
-                                      type="button"
-                                      className={cn(
-                                        'flex w-full min-h-0 items-center gap-2 border-b border-border/30 py-2 pr-3 pl-8 text-left transition-colors',
-                                        'hover:brightness-[1.01] dark:hover:brightness-[1.03]',
-                                        'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40 focus-visible:ring-inset',
-                                        visRepo.row,
-                                        visRepo.accent
-                                      )}
-                                      onClick={() => toggleRepoGroupCollapse(repoKey)}
-                                      aria-expanded={!repoCollapsed}
-                                      aria-label={repoCollapsed ? t('prManager.bulk.repoGroupExpand') : t('prManager.bulk.repoGroupCollapse')}
-                                    >
-                                      <ChevronDown
-                                        className={cn('size-4 shrink-0 text-muted-foreground transition-transform duration-300 ease-out', repoCollapsed && '-rotate-90')}
-                                        aria-hidden
-                                      />
-                                      <span className="min-w-0 font-mono text-xs font-semibold tabular-nums text-foreground">
-                                        {grp.owner}/{grp.repo}
-                                      </span>
-                                      <span className="ml-auto shrink-0 text-xs tabular-nums text-muted-foreground">({grp.items.length})</span>
-                                    </button>
-                                  </TableCell>
-                                </TableRow>
-                                <BulkRepoGroupCollapsibleRows collapsed={repoCollapsed} toneRowClassName={visRepo.row}>
-                                  {grp.items.map(item => {
-                                    const stripe = bulkTemplateGroupStripeCellClass(bulkCreateStripeByItemId[item.id] ?? 0)
-                                    return (
-                                      <TableRow key={item.id}>
-                                        <TableCell className={cn('w-10 px-2 align-middle', stripe)}>
-                                          <div className="flex min-h-8 items-center justify-center">
-                                            <Checkbox
-                                              checked={enabledIds.has(item.id)}
-                                              disabled={!item.eligible || dialogBusy || !!results[item.id]?.ok}
-                                              onCheckedChange={() => toggleId(item.id, item.eligible)}
-                                            />
-                                          </div>
-                                        </TableCell>
-                                        <TableCell className={cn('min-w-0 p-2 text-xs', stripe)}>
-                                          {item.existingPrNumber != null ? (
-                                            <>
-                                              <div className="flex flex-wrap items-center gap-x-1 gap-y-0.5 break-words">
-                                                <button
-                                                  type="button"
-                                                  className="shrink-0 text-left font-medium text-primary hover:underline"
-                                                  onClick={e => {
-                                                    e.stopPropagation()
-                                                    const n = item.existingPrNumber
-                                                    if (n != null) openUrlInDefaultBrowser(githubPrWebUrl(item.owner, item.repo, n))
-                                                  }}
-                                                >
-                                                  #{item.existingPrNumber}
-                                                </button>
-                                                <span className="shrink-0 text-muted-foreground">·</span>
-                                                <span>{(item.existingPrTitle ?? '').trim() || `PR #${item.existingPrNumber}`}</span>
-                                                {!item.eligible && item.skipReasonKey ? (
-                                                  <>
-                                                    <span className="shrink-0 text-muted-foreground">·</span>
-                                                    <span className="shrink-0 text-xs text-amber-800 dark:text-amber-200">{t(item.skipReasonKey)}</span>
-                                                  </>
-                                                ) : null}
-                                                {item.eligible && !results[item.id]?.ok ? (
-                                                  <>
-                                                    <span className="shrink-0 text-muted-foreground">·</span>
-                                                    <span className={cn('shrink-0', BULK_ELIGIBLE_HINT_CLASS)}>{t('prManager.bulk.itemEligibleHint')}</span>
-                                                  </>
-                                                ) : null}
-                                              </div>
-                                              <div className="mt-0.5 break-words text-xs text-muted-foreground">
-                                                {item.head} → {item.base}
-                                              </div>
-                                            </>
-                                          ) : (
-                                            <div className="flex flex-col gap-2">
-                                              <div className="flex min-w-0 items-center gap-2">
-                                                <Input
-                                                  value={createTitles[item.id] ?? ''}
-                                                  onChange={e => setCreateTitles(prev => ({ ...prev, [item.id]: e.target.value }))}
-                                                  disabled={!item.eligible || dialogBusy || !!results[item.id]?.ok}
-                                                  className="h-8 min-w-0 flex-1 text-xs sm:min-w-[10rem]"
-                                                  placeholder={item.suggestedTitle}
-                                                />
-                                                {item.eligible && !results[item.id]?.ok ? (
-                                                  <span
-                                                    className={cn(BULK_ELIGIBLE_HINT_CLASS, 'max-w-[min(100%,11rem)] shrink-0 truncate sm:max-w-[13rem]')}
-                                                    title={t('prManager.bulk.itemEligibleHint')}
-                                                  >
-                                                    {t('prManager.bulk.itemEligibleHint')}
-                                                  </span>
-                                                ) : null}
-                                              </div>
-                                              <div className="flex flex-wrap items-center gap-x-1.5 gap-y-0.5 break-words text-xs text-muted-foreground">
-                                                <span>
-                                                  {item.head} → {item.base}
-                                                </span>
-                                                {!item.eligible && item.skipReasonKey ? (
-                                                  <>
-                                                    <span className="text-muted-foreground/60" aria-hidden>
-                                                      ·
-                                                    </span>
-                                                    <span className="text-amber-800 dark:text-amber-200">{t(item.skipReasonKey)}</span>
-                                                  </>
-                                                ) : null}
-                                              </div>
+                      const tplKey = `bc:tpl:${tplGrp.templateId}`
+                      const tplCollapsed = collapsedRepoGroupKeys.has(tplKey)
+                      const tplDef = prTemplates.find(t => t.id === tplGrp.templateId) ?? activeTemplates.find(t => t.id === tplGrp.templateId)
+                      const tplHeadClass = checkpointTableHeadGroupClass(tplDef?.headerGroupId)
+                      const tplRowCount = tplGrp.repoGroups.reduce((n, g) => n + g.items.length, 0)
+                      const baseHint = (tplGrp.targetBranch?.trim() || tplGrp.repoGroups[0]?.items[0]?.base || '').trim()
+                      return (
+                        <Fragment key={tplGrp.templateId}>
+                          <TableRow className="border-0">
+                            <TableCell colSpan={3} className={cn('border-0 p-0 align-top backdrop-blur-sm', tplHeadClass)}>
+                              <button
+                                type="button"
+                                className={cn(
+                                  'flex w-full min-h-0 items-center gap-2 border-b border-border/50 bg-transparent px-3 py-2.5 text-left transition-colors',
+                                  'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40 focus-visible:ring-inset'
+                                )}
+                                onClick={() => toggleRepoGroupCollapse(tplKey)}
+                                aria-expanded={!tplCollapsed}
+                                aria-label={tplCollapsed ? t('prManager.bulk.templateGroupExpand') : t('prManager.bulk.templateGroupCollapse')}
+                              >
+                                <ChevronDown className={cn('size-4 shrink-0 opacity-70 transition-transform duration-300 ease-out', tplCollapsed && '-rotate-90')} aria-hidden />
+                                <span className="min-w-0 text-left text-xs font-semibold leading-snug">
+                                  <span className="font-sans">{tplGrp.label}</span>
+                                  <span className="font-normal opacity-85"> · {tplGrp.code}</span>
+                                  {baseHint ? <span className="font-normal opacity-85"> → {baseHint}</span> : null}
+                                </span>
+                                <span className="ml-auto shrink-0 text-xs tabular-nums opacity-80">({tplRowCount})</span>
+                              </button>
+                            </TableCell>
+                          </TableRow>
+                          <BulkRepoGroupCollapsibleRows collapsed={tplCollapsed}>
+                            {tplGrp.repoGroups.map((grp, groupIdx) => {
+                              const repoKey = `bc:repo:${tplGrp.templateId}:${grp.key}`
+                              const repoCollapsed = collapsedRepoGroupKeys.has(repoKey)
+                              const visRepo = PR_MANAGER_REPO_GROUP_VISUAL[groupIdx % PR_MANAGER_REPO_GROUP_VISUAL.length]
+                              return (
+                                <Fragment key={repoKey}>
+                                  <TableRow className="border-0 bg-transparent">
+                                    <TableCell colSpan={3} className="p-0">
+                                      <button
+                                        type="button"
+                                        className={cn(
+                                          'flex w-full min-h-0 items-center gap-2 border-b border-border/30 py-2 pr-3 pl-8 text-left transition-colors',
+                                          'hover:brightness-[1.01] dark:hover:brightness-[1.03]',
+                                          'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40 focus-visible:ring-inset',
+                                          visRepo.row,
+                                          visRepo.accent
+                                        )}
+                                        onClick={() => toggleRepoGroupCollapse(repoKey)}
+                                        aria-expanded={!repoCollapsed}
+                                        aria-label={repoCollapsed ? t('prManager.bulk.repoGroupExpand') : t('prManager.bulk.repoGroupCollapse')}
+                                      >
+                                        <ChevronDown
+                                          className={cn('size-4 shrink-0 text-muted-foreground transition-transform duration-300 ease-out', repoCollapsed && '-rotate-90')}
+                                          aria-hidden
+                                        />
+                                        <span className="min-w-0 font-mono text-xs font-semibold tabular-nums text-foreground">
+                                          {grp.owner}/{grp.repo}
+                                        </span>
+                                        <span className="ml-auto shrink-0 text-xs tabular-nums text-muted-foreground">({grp.items.length})</span>
+                                      </button>
+                                    </TableCell>
+                                  </TableRow>
+                                  <BulkRepoGroupCollapsibleRows collapsed={repoCollapsed} toneRowClassName={visRepo.row}>
+                                    {grp.items.map(item => {
+                                      const stripe = bulkTemplateGroupStripeCellClass(bulkCreateStripeByItemId[item.id] ?? 0)
+                                      return (
+                                        <TableRow key={item.id}>
+                                          <TableCell className={cn('w-10 px-2 align-middle', stripe)}>
+                                            <div className="flex min-h-8 items-center justify-center">
+                                              <Checkbox
+                                                checked={enabledIds.has(item.id)}
+                                                disabled={!item.eligible || dialogBusy || !!results[item.id]?.ok}
+                                                onCheckedChange={() => toggleId(item.id, item.eligible)}
+                                              />
                                             </div>
-                                          )}
-                                        </TableCell>
-                                        <TableCell className={cn(BULK_STATUS_COL_CLASS, stripe)}>
-                                          <div className="flex min-h-8 items-center justify-center">
-                                            {running && currentId === item.id && results[item.id] == null ? (
-                                              <Loader2 className="h-4 w-4 shrink-0 animate-spin" />
-                                            ) : null}
-                                            {results[item.id] ? (
-                                              results[item.id].ok ? (
-                                                <CheckCircle2 className="h-4 w-4 shrink-0 text-emerald-600" />
-                                              ) : (
-                                                <span className="line-clamp-2 text-xs text-rose-600" title={results[item.id].message}>
-                                                  {t('prManager.bulk.error')}
-                                                </span>
-                                              )
-                                            ) : null}
-                                          </div>
-                                        </TableCell>
-                                      </TableRow>
-                                    )
-                                  })}
-                                </BulkRepoGroupCollapsibleRows>
-                              </Fragment>
-                            )
-                          })}
-                        </BulkRepoGroupCollapsibleRows>
-                      </Fragment>
-                    )
-                  })
+                                          </TableCell>
+                                          <TableCell className={cn('min-w-0 p-2 text-xs', stripe)}>
+                                            {item.existingPrNumber != null ? (
+                                              <>
+                                                <div className="flex flex-wrap items-center gap-x-1 gap-y-0.5 break-words">
+                                                  <button
+                                                    type="button"
+                                                    className="shrink-0 text-left font-medium text-primary hover:underline"
+                                                    onClick={e => {
+                                                      e.stopPropagation()
+                                                      const n = item.existingPrNumber
+                                                      if (n != null) openUrlInDefaultBrowser(githubPrWebUrl(item.owner, item.repo, n))
+                                                    }}
+                                                  >
+                                                    #{item.existingPrNumber}
+                                                  </button>
+                                                  <span className="shrink-0 text-muted-foreground">·</span>
+                                                  <span>{(item.existingPrTitle ?? '').trim() || `PR #${item.existingPrNumber}`}</span>
+                                                  {!item.eligible && item.skipReasonKey ? (
+                                                    <>
+                                                      <span className="shrink-0 text-muted-foreground">·</span>
+                                                      <span className="shrink-0 text-xs text-amber-800 dark:text-amber-200">{t(item.skipReasonKey)}</span>
+                                                    </>
+                                                  ) : null}
+                                                  {item.eligible && !results[item.id]?.ok ? (
+                                                    <>
+                                                      <span className="shrink-0 text-muted-foreground">·</span>
+                                                      <span className={cn('shrink-0', BULK_ELIGIBLE_HINT_CLASS)}>{t('prManager.bulk.itemEligibleHint')}</span>
+                                                    </>
+                                                  ) : null}
+                                                </div>
+                                                <div className="mt-0.5 break-words text-xs text-muted-foreground">
+                                                  {item.head} → {item.base}
+                                                </div>
+                                              </>
+                                            ) : (
+                                              <div className="flex flex-col gap-2">
+                                                <div className="flex min-w-0 items-center gap-2">
+                                                  <Input
+                                                    value={createTitles[item.id] ?? ''}
+                                                    onChange={e => setCreateTitles(prev => ({ ...prev, [item.id]: e.target.value }))}
+                                                    disabled={!item.eligible || dialogBusy || !!results[item.id]?.ok}
+                                                    className="h-8 min-w-0 flex-1 text-xs sm:min-w-[10rem]"
+                                                    placeholder={item.suggestedTitle}
+                                                  />
+                                                  {item.eligible && !results[item.id]?.ok ? (
+                                                    <span
+                                                      className={cn(BULK_ELIGIBLE_HINT_CLASS, 'max-w-[min(100%,11rem)] shrink-0 truncate sm:max-w-[13rem]')}
+                                                      title={t('prManager.bulk.itemEligibleHint')}
+                                                    >
+                                                      {t('prManager.bulk.itemEligibleHint')}
+                                                    </span>
+                                                  ) : null}
+                                                </div>
+                                                <div className="flex flex-wrap items-center gap-x-1.5 gap-y-0.5 break-words text-xs text-muted-foreground">
+                                                  <span>
+                                                    {item.head} → {item.base}
+                                                  </span>
+                                                  {!item.eligible && item.skipReasonKey ? (
+                                                    <>
+                                                      <span className="text-muted-foreground/60" aria-hidden>
+                                                        ·
+                                                      </span>
+                                                      <span className="text-amber-800 dark:text-amber-200">{t(item.skipReasonKey)}</span>
+                                                    </>
+                                                  ) : null}
+                                                </div>
+                                              </div>
+                                            )}
+                                          </TableCell>
+                                          <TableCell className={cn(BULK_STATUS_COL_CLASS, stripe)}>
+                                            <div className="flex min-h-8 items-center justify-center">
+                                              {running && currentId === item.id && results[item.id] == null ? <Loader2 className="h-4 w-4 shrink-0 animate-spin" /> : null}
+                                              {results[item.id] ? (
+                                                results[item.id].ok ? (
+                                                  <CheckCircle2 className="h-4 w-4 shrink-0 text-emerald-600" />
+                                                ) : (
+                                                  <span className="line-clamp-2 text-xs text-rose-600" title={results[item.id].message}>
+                                                    {t('prManager.bulk.error')}
+                                                  </span>
+                                                )
+                                              ) : null}
+                                            </div>
+                                          </TableCell>
+                                        </TableRow>
+                                      )
+                                    })}
+                                  </BulkRepoGroupCollapsibleRows>
+                                </Fragment>
+                              )
+                            })}
+                          </BulkRepoGroupCollapsibleRows>
+                        </Fragment>
+                      )
+                    })
                   : null}
 
                 {kind !== 'deleteRemoteBranch' && kind !== 'createPr'
                   ? groupedTablePr.map((grp, groupIdx) => {
-                    const repoCollapsed = collapsedRepoGroupKeys.has(grp.key)
-                    const vis = PR_MANAGER_REPO_GROUP_VISUAL[groupIdx % PR_MANAGER_REPO_GROUP_VISUAL.length]
-                    return (
-                      <Fragment key={grp.key}>
-                        <TableRow className="border-0 bg-transparent">
-                          <TableCell colSpan={3} className="p-0">
-                            <button
-                              type="button"
-                              className={cn(
-                                'flex w-full min-h-0 items-center gap-2 px-3 py-2.5 text-left transition-colors',
-                                'hover:brightness-[1.01] dark:hover:brightness-[1.03]',
-                                'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40 focus-visible:ring-inset',
-                                vis.row,
-                                vis.accent
-                              )}
-                              onClick={() => toggleRepoGroupCollapse(grp.key)}
-                              aria-expanded={!repoCollapsed}
-                              aria-label={repoCollapsed ? t('prManager.bulk.repoGroupExpand') : t('prManager.bulk.repoGroupCollapse')}
-                            >
-                              <ChevronDown
-                                className={cn('size-4 shrink-0 text-muted-foreground transition-transform duration-300 ease-out', repoCollapsed && '-rotate-90')}
-                                aria-hidden
-                              />
-                              <span className="min-w-0 font-mono text-xs font-semibold tabular-nums text-foreground">
-                                {grp.owner}/{grp.repo}
-                              </span>
-                              <span className="ml-auto shrink-0 text-xs tabular-nums text-muted-foreground">({grp.items.length})</span>
-                            </button>
-                          </TableCell>
-                        </TableRow>
-                        <BulkRepoGroupCollapsibleRows collapsed={repoCollapsed} toneRowClassName={vis.row}>
-                          {grp.items.map((item, itemIdx) => {
-                            const mergedSkip = item.skipReasonKey === 'prManager.bulk.skip.merged'
-                            const flat = (bulkStripeOffPr[groupIdx] ?? 0) + itemIdx
-                            const stripe = bulkItemRowStripeCellClass(flat)
-                            return (
-                              <TableRow key={item.id}>
-                                <TableCell className={cn('w-10 px-2 align-middle', stripe)}>
-                                  <div className="flex min-h-8 items-center justify-center">
-                                    <Checkbox
-                                      checked={enabledIds.has(item.id)}
-                                      disabled={!item.eligible || dialogBusy || !!results[item.id]?.ok}
-                                      onCheckedChange={() => toggleId(item.id, item.eligible)}
-                                    />
-                                  </div>
-                                </TableCell>
-                                <TableCell className={cn('min-w-0 p-2 text-xs', stripe)}>
-                                  <div className="flex flex-wrap items-center gap-x-1 gap-y-0.5 break-words">
-                                    <button
-                                      type="button"
-                                      className="shrink-0 text-left font-medium text-primary hover:underline"
-                                      onClick={e => {
-                                        e.stopPropagation()
-                                        openUrlInDefaultBrowser(githubPrWebUrl(item.owner, item.repo, item.prNumber))
-                                      }}
-                                    >
-                                      #{item.prNumber}
-                                    </button>
-                                    <span className="shrink-0 text-muted-foreground">·</span>
-                                    <span>{item.templateLabel}</span>
-                                    {!item.eligible && item.skipReasonKey ? (
-                                      <>
-                                        <span className="shrink-0 text-muted-foreground">·</span>
-                                        <span className="shrink-0 text-xs text-amber-800 dark:text-amber-200">{t(item.skipReasonKey)}</span>
-                                      </>
-                                    ) : null}
-                                    {item.eligible && !results[item.id]?.ok ? (
-                                      <>
-                                        <span className="shrink-0 text-muted-foreground">·</span>
-                                        <span className={cn('shrink-0', BULK_ELIGIBLE_HINT_CLASS)}>{t('prManager.bulk.itemEligibleHint')}</span>
-                                      </>
-                                    ) : null}
-                                  </div>
-                                  <div className="mt-0.5 flex flex-wrap items-center gap-x-1.5 gap-y-0.5 break-words text-xs text-muted-foreground">
-                                    {!mergedSkip ? (
-                                      <span>
-                                        {item.headBranch}
-                                        {item.baseBranch ? ` → ${item.baseBranch}` : ''}
-                                      </span>
-                                    ) : null}
-                                    {!mergedSkip ? <span className="text-muted-foreground/60" aria-hidden>·</span> : null}
-                                    <span>
-                                      {t('prManager.bulk.itemAuthorLine', {
-                                        author: (item.ghPrAuthor ?? '').trim() || '—',
-                                      })}
-                                    </span>
-                                  </div>
-                                </TableCell>
-                                <TableCell className={cn(BULK_STATUS_COL_CLASS, stripe)}>
-                                  <div className="flex min-h-8 items-center justify-center">
-                                    {running && currentId === item.id && results[item.id] == null ? (
-                                      <Loader2 className="h-4 w-4 shrink-0 animate-spin" />
-                                    ) : null}
-                                    {results[item.id] ? (
-                                      results[item.id].ok ? (
-                                        <CheckCircle2 className="h-4 w-4 shrink-0 text-emerald-600" />
-                                      ) : (
-                                        <span className="line-clamp-2 text-xs text-rose-600" title={results[item.id].message}>
-                                          {t('prManager.bulk.error')}
+                      const repoCollapsed = collapsedRepoGroupKeys.has(grp.key)
+                      const vis = PR_MANAGER_REPO_GROUP_VISUAL[groupIdx % PR_MANAGER_REPO_GROUP_VISUAL.length]
+                      return (
+                        <Fragment key={grp.key}>
+                          <TableRow className="border-0 bg-transparent">
+                            <TableCell colSpan={3} className="p-0">
+                              <button
+                                type="button"
+                                className={cn(
+                                  'flex w-full min-h-0 items-center gap-2 px-3 py-2.5 text-left transition-colors',
+                                  'hover:brightness-[1.01] dark:hover:brightness-[1.03]',
+                                  'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40 focus-visible:ring-inset',
+                                  vis.row,
+                                  vis.accent
+                                )}
+                                onClick={() => toggleRepoGroupCollapse(grp.key)}
+                                aria-expanded={!repoCollapsed}
+                                aria-label={repoCollapsed ? t('prManager.bulk.repoGroupExpand') : t('prManager.bulk.repoGroupCollapse')}
+                              >
+                                <ChevronDown
+                                  className={cn('size-4 shrink-0 text-muted-foreground transition-transform duration-300 ease-out', repoCollapsed && '-rotate-90')}
+                                  aria-hidden
+                                />
+                                <span className="min-w-0 font-mono text-xs font-semibold tabular-nums text-foreground">
+                                  {grp.owner}/{grp.repo}
+                                </span>
+                                <span className="ml-auto shrink-0 text-xs tabular-nums text-muted-foreground">({grp.items.length})</span>
+                              </button>
+                            </TableCell>
+                          </TableRow>
+                          <BulkRepoGroupCollapsibleRows collapsed={repoCollapsed} toneRowClassName={vis.row}>
+                            {grp.items.map((item, itemIdx) => {
+                              const mergedSkip = item.skipReasonKey === 'prManager.bulk.skip.merged'
+                              const flat = (bulkStripeOffPr[groupIdx] ?? 0) + itemIdx
+                              const stripe = bulkItemRowStripeCellClass(flat)
+                              return (
+                                <TableRow key={item.id}>
+                                  <TableCell className={cn('w-10 px-2 align-middle', stripe)}>
+                                    <div className="flex min-h-8 items-center justify-center">
+                                      <Checkbox
+                                        checked={enabledIds.has(item.id)}
+                                        disabled={!item.eligible || dialogBusy || !!results[item.id]?.ok}
+                                        onCheckedChange={() => toggleId(item.id, item.eligible)}
+                                      />
+                                    </div>
+                                  </TableCell>
+                                  <TableCell className={cn('min-w-0 p-2 text-xs', stripe)}>
+                                    <div className="flex flex-wrap items-center gap-x-1 gap-y-0.5 break-words">
+                                      <button
+                                        type="button"
+                                        className="shrink-0 text-left font-medium text-primary hover:underline"
+                                        onClick={e => {
+                                          e.stopPropagation()
+                                          openUrlInDefaultBrowser(githubPrWebUrl(item.owner, item.repo, item.prNumber))
+                                        }}
+                                      >
+                                        #{item.prNumber}
+                                      </button>
+                                      <span className="shrink-0 text-muted-foreground">·</span>
+                                      <span>{item.templateLabel}</span>
+                                      {!item.eligible && item.skipReasonKey ? (
+                                        <>
+                                          <span className="shrink-0 text-muted-foreground">·</span>
+                                          <span className="shrink-0 text-xs text-amber-800 dark:text-amber-200">{t(item.skipReasonKey)}</span>
+                                        </>
+                                      ) : null}
+                                      {item.eligible && !results[item.id]?.ok ? (
+                                        <>
+                                          <span className="shrink-0 text-muted-foreground">·</span>
+                                          <span className={cn('shrink-0', BULK_ELIGIBLE_HINT_CLASS)}>{t('prManager.bulk.itemEligibleHint')}</span>
+                                        </>
+                                      ) : null}
+                                    </div>
+                                    <div className="mt-0.5 flex flex-wrap items-center gap-x-1.5 gap-y-0.5 break-words text-xs text-muted-foreground">
+                                      {!mergedSkip ? (
+                                        <span>
+                                          {item.headBranch}
+                                          {item.baseBranch ? ` → ${item.baseBranch}` : ''}
                                         </span>
-                                      )
-                                    ) : null}
-                                  </div>
-                                </TableCell>
-                              </TableRow>
-                            )
-                          })}
-                        </BulkRepoGroupCollapsibleRows>
-                      </Fragment>
-                    )
-                  })
+                                      ) : null}
+                                      {!mergedSkip ? (
+                                        <span className="text-muted-foreground/60" aria-hidden>
+                                          ·
+                                        </span>
+                                      ) : null}
+                                      <span>
+                                        {t('prManager.bulk.itemAuthorLine', {
+                                          author: (item.ghPrAuthor ?? '').trim() || '—',
+                                        })}
+                                      </span>
+                                    </div>
+                                  </TableCell>
+                                  <TableCell className={cn(BULK_STATUS_COL_CLASS, stripe)}>
+                                    <div className="flex min-h-8 items-center justify-center">
+                                      {running && currentId === item.id && results[item.id] == null ? <Loader2 className="h-4 w-4 shrink-0 animate-spin" /> : null}
+                                      {results[item.id] ? (
+                                        results[item.id].ok ? (
+                                          <CheckCircle2 className="h-4 w-4 shrink-0 text-emerald-600" />
+                                        ) : (
+                                          <span className="line-clamp-2 text-xs text-rose-600" title={results[item.id].message}>
+                                            {t('prManager.bulk.error')}
+                                          </span>
+                                        )
+                                      ) : null}
+                                    </div>
+                                  </TableCell>
+                                </TableRow>
+                              )
+                            })}
+                          </BulkRepoGroupCollapsibleRows>
+                        </Fragment>
+                      )
+                    })
                   : null}
 
                 {kind === 'deleteRemoteBranch' && deleteTargets.length === 0 ? (

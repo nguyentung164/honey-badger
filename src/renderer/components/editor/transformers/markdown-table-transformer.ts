@@ -3,11 +3,11 @@ import {
   $convertToMarkdownString,
   CHECK_LIST,
   ELEMENT_TRANSFORMERS,
-  ElementTransformer,
+  type ElementTransformer,
   MULTILINE_ELEMENT_TRANSFORMERS,
   TEXT_FORMAT_TRANSFORMERS,
   TEXT_MATCH_TRANSFORMERS,
-} from "@lexical/markdown"
+} from '@lexical/markdown'
 import {
   $createTableCellNode,
   $createTableNode,
@@ -19,8 +19,8 @@ import {
   TableCellNode,
   TableNode,
   TableRowNode,
-} from "@lexical/table"
-import { $isParagraphNode, $isTextNode, LexicalNode } from "lexical"
+} from '@lexical/table'
+import { $isParagraphNode, $isTextNode, type LexicalNode } from 'lexical'
 
 // import { EMOJI } from "@/registry/new-york-v4/editor/transformers/markdown-emoji-transformer"
 import { HR } from '@/components/editor/transformers/markdown-hr-transformer'
@@ -63,25 +63,20 @@ export const TABLE: ElementTransformer = {
       for (const cell of row.getChildren()) {
         // It's TableCellNode so it's just to make flow happy
         if ($isTableCellNode(cell)) {
-          rowOutput.push(
-            $convertToMarkdownString(OTHER_MARKDOWN_TRANSFORMERS, cell).replace(
-              /\n/g,
-              "\\n"
-            )
-          )
+          rowOutput.push($convertToMarkdownString(OTHER_MARKDOWN_TRANSFORMERS, cell).replace(/\n/g, '\\n'))
           if (cell.__headerState === TableCellHeaderStates.ROW) {
             isHeaderRow = true
           }
         }
       }
 
-      output.push(`| ${rowOutput.join(" | ")} |`)
+      output.push(`| ${rowOutput.join(' | ')} |`)
       if (isHeaderRow) {
-        output.push(`| ${rowOutput.map((_) => "---").join(" | ")} |`)
+        output.push(`| ${rowOutput.map(_ => '---').join(' | ')} |`)
       }
     }
 
-    return output.join("\n")
+    return output.join('\n')
   },
   regExp: TABLE_ROW_REG_EXP,
   replace: (parentNode, _1, match) => {
@@ -99,14 +94,11 @@ export const TABLE: ElementTransformer = {
       }
 
       // Add header state to row cells
-      lastRow.getChildren().forEach((cell) => {
+      lastRow.getChildren().forEach(cell => {
         if (!$isTableCellNode(cell)) {
           return
         }
-        cell.setHeaderStyles(
-          TableCellHeaderStates.ROW,
-          TableCellHeaderStates.ROW
-        )
+        cell.setHeaderStyles(TableCellHeaderStates.ROW, TableCellHeaderStates.ROW)
       })
 
       // Remove line
@@ -159,15 +151,12 @@ export const TABLE: ElementTransformer = {
       table.append(tableRow)
 
       for (let i = 0; i < maxCells; i++) {
-        tableRow.append(i < cells.length ? cells[i] : $createTableCell(""))
+        tableRow.append(i < cells.length ? cells[i] : $createTableCell(''))
       }
     }
 
     const previousSibling = parentNode.getPreviousSibling()
-    if (
-      $isTableNode(previousSibling) &&
-      getTableColumnsSize(previousSibling) === maxCells
-    ) {
+    if ($isTableNode(previousSibling) && getTableColumnsSize(previousSibling) === maxCells) {
       previousSibling.append(...table.getChildren())
       parentNode.remove()
     } else {
@@ -176,7 +165,7 @@ export const TABLE: ElementTransformer = {
 
     table.selectEnd()
   },
-  type: "element",
+  type: 'element',
 }
 
 function getTableColumnsSize(table: TableNode) {
@@ -185,7 +174,7 @@ function getTableColumnsSize(table: TableNode) {
 }
 
 const $createTableCell = (textContent: string): TableCellNode => {
-  textContent = textContent.replace(/\\n/g, "\n")
+  textContent = textContent.replace(/\\n/g, '\n')
   const cell = $createTableCellNode(TableCellHeaderStates.NO_STATUS)
   $convertFromMarkdownString(textContent, OTHER_MARKDOWN_TRANSFORMERS, cell)
   return cell
@@ -193,8 +182,8 @@ const $createTableCell = (textContent: string): TableCellNode => {
 
 const mapToTableCells = (textContent: string): Array<TableCellNode> | null => {
   const match = textContent.match(TABLE_ROW_REG_EXP)
-  if (!match || !match[1]) {
+  if (!match?.[1]) {
     return null
   }
-  return match[1].split("|").map((text) => $createTableCell(text))
+  return match[1].split('|').map(text => $createTableCell(text))
 }

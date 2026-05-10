@@ -12,10 +12,7 @@ function bulkDeletePrColumnStatusFromCheckpoint(cp: PrBranchCheckpoint | null): 
   return 'unknown'
 }
 
-function bulkDeletePrColumnSummaries(
-  row: TrackedBranchRow,
-  activeTemplates: PrCheckpointTemplate[]
-): { templateLabel: string; status: BulkDeletePrColumnStatus }[] {
+function bulkDeletePrColumnSummaries(row: TrackedBranchRow, activeTemplates: PrCheckpointTemplate[]): { templateLabel: string; status: BulkDeletePrColumnStatus }[] {
   const out: { templateLabel: string; status: BulkDeletePrColumnStatus }[] = []
   for (const tpl of activeTemplates) {
     if (!tpl.code.toLowerCase().startsWith('pr_')) continue
@@ -25,17 +22,7 @@ function bulkDeletePrColumnSummaries(
   return out
 }
 
-export type BulkActionKind =
-  | 'merge'
-  | 'close'
-  | 'draft'
-  | 'ready'
-  | 'updateBranch'
-  | 'approve'
-  | 'reopen'
-  | 'requestReviewers'
-  | 'deleteRemoteBranch'
-  | 'createPr'
+export type BulkActionKind = 'merge' | 'close' | 'draft' | 'ready' | 'updateBranch' | 'approve' | 'reopen' | 'requestReviewers' | 'deleteRemoteBranch' | 'createPr'
 
 /** Giống getMergeableUi(...).blockMerge trên PrBoard — không phụ thuộc i18n. */
 export function githubMergeableBlocksMerge(mergeable: string | null | undefined): boolean {

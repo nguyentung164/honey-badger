@@ -16,8 +16,8 @@ import {
 } from '@/components/ui/alert-dialog'
 import { Button } from '@/components/ui/button'
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from '@/components/ui/dropdown-menu'
-import { TablePaginationBar } from '@/components/ui/table-pagination-bar'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
+import { TablePaginationBar } from '@/components/ui/table-pagination-bar'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import toast from '@/components/ui-elements/Toast'
 
@@ -190,7 +190,15 @@ function MasterTable({
 
 type MasterSubTabId = 'statuses' | 'priorities' | 'types' | 'sources'
 
-export function MasterTabContent({ onMasterChange, triggerAddTimestamp = 0, onAddTriggered }: { onMasterChange?: () => void; triggerAddTimestamp?: number; onAddTriggered?: () => void } = {}) {
+export function MasterTabContent({
+  onMasterChange,
+  triggerAddTimestamp = 0,
+  onAddTriggered,
+}: {
+  onMasterChange?: () => void
+  triggerAddTimestamp?: number
+  onAddTriggered?: () => void
+} = {}) {
   const { t } = useTranslation()
   const [activeSubTab, setActiveSubTab] = useState<MasterSubTabId>('statuses')
   const [statuses, setStatuses] = useState<MasterItem[]>([])
@@ -202,7 +210,9 @@ export function MasterTabContent({ onMasterChange, triggerAddTimestamp = 0, onAd
   const [masterDialogItem, setMasterDialogItem] = useState<MasterItem | null>(null)
   const [masterDialogKind, setMasterDialogKind] = useState<MasterSubTabId>('statuses')
   const onAddTriggeredRef = useRef(onAddTriggered)
-  useEffect(() => { onAddTriggeredRef.current = onAddTriggered }, [onAddTriggered])
+  useEffect(() => {
+    onAddTriggeredRef.current = onAddTriggered
+  }, [onAddTriggered])
   useEffect(() => {
     if (triggerAddTimestamp > 0) {
       setMasterDialogKind(activeSubTab)

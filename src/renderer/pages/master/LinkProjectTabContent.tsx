@@ -262,7 +262,7 @@ export function LinkProjectTabContent({ onToolbarReady }: LinkProjectTabContentP
           projectList={projectList}
           isLoggedIn={isLoggedIn}
           onUpdate={handleUpdateFolderProjectLink}
-          onAdd={() => { }}
+          onAdd={() => {}}
         />
       )}
     </>

@@ -56,8 +56,8 @@ import type { PrRepo } from '../hooks/usePrData'
 import { usePrOperationLog } from '../PrOperationLogContext'
 import { PR_GH_STATUS_BADGE_CLASS, prSummaryToGhStatusKind } from '../prGhStatus'
 import { PR_MANAGER_ACCENT_OUTLINE_BTN, PR_MANAGER_ACCENT_OUTLINE_SURFACE } from '../prManagerButtonStyles'
-import { githubMergeableBlocksMerge } from './prBoardBulkResolve'
 import { MergePrDialog } from './MergePrDialog'
+import { githubMergeableBlocksMerge } from './prBoardBulkResolve'
 
 type PrSummary = {
   number: number
@@ -756,9 +756,7 @@ export function PrDetailDialog({ open, onOpenChange, projectId, prRepo, prNumber
   const doCommitResetHard = async () => {
     if (!commitResetTarget || !prRepo || !headBranch) return
     if (!opLog.startOperation('prManager.operationLog.titleReset')) return
-    opLog.appendLine(
-      t('prManager.operationLog.postReset', { shortSha: commitResetTarget.shortSha, branch: headBranch })
-    )
+    opLog.appendLine(t('prManager.operationLog.postReset', { shortSha: commitResetTarget.shortSha, branch: headBranch }))
     setCommitBusySha(commitResetTarget.sha)
     try {
       const res = await window.api.pr.branchResetHard({ repoId: prRepo.id, branch: headBranch, sha: commitResetTarget.sha })
@@ -810,9 +808,7 @@ export function PrDetailDialog({ open, onOpenChange, projectId, prRepo, prNumber
 
   /** Cùng tiêu chí PrBoard / bulk: dirty, conflict, blocked, behind, unstable, unknown → không bật Merge. */
   const mergeBlockedByMergeable = Boolean(pr && githubMergeableBlocksMerge(pr.mergeableState))
-  const canMergeUi = Boolean(
-    pr && pr.state === 'open' && !pr.merged && !pr.draft && !mergeBlockedByMergeable
-  )
+  const canMergeUi = Boolean(pr && pr.state === 'open' && !pr.merged && !pr.draft && !mergeBlockedByMergeable)
   const canApprove = Boolean(pr && pr.state === 'open' && !pr.merged && !pr.draft && pr.headSha)
   const isPrBranchBehind =
     pr &&
@@ -1041,21 +1037,25 @@ export function PrDetailDialog({ open, onOpenChange, projectId, prRepo, prNumber
                       </div>
                     ) : null}
                     {!localMergeConflict.loading && localMergeConflict.noLocal ? (
-                      <p className="leading-relaxed text-amber-900/95 dark:text-amber-50/95">
-                        {t('prManager.detail.mergeConflictFileListNoLocal')}
-                      </p>
+                      <p className="leading-relaxed text-amber-900/95 dark:text-amber-50/95">{t('prManager.detail.mergeConflictFileListNoLocal')}</p>
                     ) : null}
                     {!localMergeConflict.loading && !localMergeConflict.noLocal && localMergeConflict.err ? (
-                      <p className="[overflow-wrap:anywhere] break-words leading-relaxed text-amber-900/95 dark:text-amber-50/95">
-                        {localMergeConflict.err}
-                      </p>
+                      <p className="[overflow-wrap:anywhere] break-words leading-relaxed text-amber-900/95 dark:text-amber-50/95">{localMergeConflict.err}</p>
                     ) : null}
-                    {!localMergeConflict.loading && !localMergeConflict.noLocal && !localMergeConflict.err && localMergeConflict.localSaysClean && !localMergeConflict.hasConflict ? (
+                    {!localMergeConflict.loading &&
+                    !localMergeConflict.noLocal &&
+                    !localMergeConflict.err &&
+                    localMergeConflict.localSaysClean &&
+                    !localMergeConflict.hasConflict ? (
                       <p className="leading-relaxed text-sky-900/95 dark:text-sky-100/95">
                         {t('prManager.detail.mergeConflictFileListLocalClean', { base: pr.base, head: pr.head })}
                       </p>
                     ) : null}
-                    {!localMergeConflict.loading && !localMergeConflict.noLocal && !localMergeConflict.err && localMergeConflict.hasConflict && (localMergeConflict.paths?.length ?? 0) > 0 ? (
+                    {!localMergeConflict.loading &&
+                    !localMergeConflict.noLocal &&
+                    !localMergeConflict.err &&
+                    localMergeConflict.hasConflict &&
+                    (localMergeConflict.paths?.length ?? 0) > 0 ? (
                       <ul className="mt-1.5 max-h-40 list-inside list-disc space-y-0.5 overflow-y-auto rounded border border-amber-500/20 bg-background/50 px-2.5 py-1.5 font-mono text-[12px] leading-snug text-foreground/95">
                         {localMergeConflict.paths?.map(p => (
                           <li key={p} className="[overflow-wrap:anywhere] break-words" title={p}>
@@ -1064,7 +1064,11 @@ export function PrDetailDialog({ open, onOpenChange, projectId, prRepo, prNumber
                         ))}
                       </ul>
                     ) : null}
-                    {!localMergeConflict.loading && !localMergeConflict.noLocal && !localMergeConflict.err && localMergeConflict.hasConflict && (localMergeConflict.paths?.length ?? 0) === 0 ? (
+                    {!localMergeConflict.loading &&
+                    !localMergeConflict.noLocal &&
+                    !localMergeConflict.err &&
+                    localMergeConflict.hasConflict &&
+                    (localMergeConflict.paths?.length ?? 0) === 0 ? (
                       <p className="leading-relaxed text-amber-900/95 dark:text-amber-50/95">{t('prManager.detail.mergeConflictFileListNoPaths')}</p>
                     ) : null}
                   </AlertDescription>

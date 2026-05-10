@@ -40,7 +40,6 @@ export function CheckpointTemplatesTab({ projectId, userId, templates, onRefresh
   const sorted = [...templates].sort((a, b) => a.sortOrder - b.sortOrder)
   const needLogin = !userId?.trim()
 
-
   const handleAdd = async () => {
     if (!userId?.trim()) {
       toast.error(t('evm.pleaseLoginFirst'))
@@ -122,8 +121,12 @@ export function CheckpointTemplatesTab({ projectId, userId, templates, onRefresh
     if (idx === 0) return
     const uid = userId.trim()
     const next = [...sorted]
-      ;[next[idx - 1], next[idx]] = [next[idx], next[idx - 1]]
-    const res = await window.api.pr.templateReorder(uid, projectId, next.map(t => t.id))
+    ;[next[idx - 1], next[idx]] = [next[idx], next[idx - 1]]
+    const res = await window.api.pr.templateReorder(
+      uid,
+      projectId,
+      next.map(t => t.id)
+    )
     if (res.status === 'success') onRefresh()
   }
 
@@ -135,8 +138,12 @@ export function CheckpointTemplatesTab({ projectId, userId, templates, onRefresh
     if (idx === sorted.length - 1) return
     const uid = userId.trim()
     const next = [...sorted]
-      ;[next[idx + 1], next[idx]] = [next[idx], next[idx + 1]]
-    const res = await window.api.pr.templateReorder(uid, projectId, next.map(t => t.id))
+    ;[next[idx + 1], next[idx]] = [next[idx], next[idx + 1]]
+    const res = await window.api.pr.templateReorder(
+      uid,
+      projectId,
+      next.map(t => t.id)
+    )
     if (res.status === 'success') onRefresh()
   }
 
@@ -192,19 +199,9 @@ export function CheckpointTemplatesTab({ projectId, userId, templates, onRefresh
           </div>
           <div className="space-y-1">
             <Label className="text-xs">{t('prManager.checkpointTemplates.targetBranch')}</Label>
-            <Input
-              value={targetBranch}
-              onChange={e => setTargetBranch(e.target.value)}
-              placeholder={t('prManager.checkpointTemplates.targetPh')}
-            />
+            <Input value={targetBranch} onChange={e => setTargetBranch(e.target.value)} placeholder={t('prManager.checkpointTemplates.targetPh')} />
           </div>
-          <Button
-            size="sm"
-            variant="outline"
-            onClick={handleAdd}
-            disabled={adding || needLogin}
-            className={cn(PR_MANAGER_ACCENT_OUTLINE_BTN, PR_MANAGER_ACCENT_OUTLINE_SURFACE)}
-          >
+          <Button size="sm" variant="outline" onClick={handleAdd} disabled={adding || needLogin} className={cn(PR_MANAGER_ACCENT_OUTLINE_BTN, PR_MANAGER_ACCENT_OUTLINE_SURFACE)}>
             {adding ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Plus className="h-3.5 w-3.5" />}
             {t('prManager.checkpointTemplates.add')}
           </Button>
@@ -251,13 +248,7 @@ export function CheckpointTemplatesTab({ projectId, userId, templates, onRefresh
                       <Button variant="ghost" size="icon" onClick={() => moveUp(idx)} disabled={needLogin || idx === 0} className="h-6 w-6">
                         <ArrowUp className="h-3 w-3" />
                       </Button>
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        onClick={() => moveDown(idx)}
-                        disabled={needLogin || idx === sorted.length - 1}
-                        className="h-6 w-6"
-                      >
+                      <Button variant="ghost" size="icon" onClick={() => moveDown(idx)} disabled={needLogin || idx === sorted.length - 1} className="h-6 w-6">
                         <ArrowDown className="h-3 w-3" />
                       </Button>
                     </div>
@@ -282,10 +273,7 @@ export function CheckpointTemplatesTab({ projectId, userId, templates, onRefresh
                           aria-expanded={headerPickerOpenId === tpl.id}
                         >
                           {headerPreviewId === null ? (
-                            <span
-                              className="block size-4 shrink-0 rounded-sm border border-dashed border-muted-foreground/45 bg-muted/40"
-                              aria-hidden
-                            />
+                            <span className="block size-4 shrink-0 rounded-sm border border-dashed border-muted-foreground/45 bg-muted/40" aria-hidden />
                           ) : (
                             <span className={cn('block size-4 shrink-0 rounded-sm', CHECKPOINT_HEADER_GROUP_SWATCH[headerPreviewId])} />
                           )}

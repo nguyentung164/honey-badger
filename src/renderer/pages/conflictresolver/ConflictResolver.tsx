@@ -1,13 +1,13 @@
 'use client'
 
 import { FileWarning, Minus, Square, X } from 'lucide-react'
+import { IPC } from 'main/constants'
 import type React from 'react'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { GitConflictPanel } from '@/components/conflict/GitConflictPanel'
 import { SvnConflictPanel } from '@/components/conflict/SvnConflictPanel'
 import { GlowLoader } from '@/components/ui-elements/GlowLoader'
-import { IPC } from 'main/constants'
 import { getConfigDataRelevantSnapshot, useConfigurationStore } from '@/stores/useConfigurationStore'
 
 const handleWindow = (action: string) => {
@@ -123,10 +123,18 @@ export function ConflictResolver() {
           <span className="font-medium text-xs">{t('conflictResolver.title')}</span>
         </div>
         <div className="flex gap-1 shrink-0" style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties}>
-          <button type="button" onClick={() => handleWindow('minimize')} className="w-10 h-8 flex items-center justify-center hover:bg-[var(--hover-bg)] hover:text-[var(--hover-fg)]">
+          <button
+            type="button"
+            onClick={() => handleWindow('minimize')}
+            className="w-10 h-8 flex items-center justify-center hover:bg-[var(--hover-bg)] hover:text-[var(--hover-fg)]"
+          >
             <Minus size={15.5} strokeWidth={1} absoluteStrokeWidth />
           </button>
-          <button type="button" onClick={() => handleWindow('maximize')} className="w-10 h-8 flex items-center justify-center hover:bg-[var(--hover-bg)] hover:text-[var(--hover-fg)]">
+          <button
+            type="button"
+            onClick={() => handleWindow('maximize')}
+            className="w-10 h-8 flex items-center justify-center hover:bg-[var(--hover-bg)] hover:text-[var(--hover-fg)]"
+          >
             <Square size={14.5} strokeWidth={1} absoluteStrokeWidth />
           </button>
           <button type="button" onClick={() => handleWindow('close')} className="w-10 h-8 flex items-center justify-center hover:bg-red-600 hover:text-white">

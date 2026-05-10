@@ -3,8 +3,8 @@
  * Run: pnpm tsx scripts/find-missing-translation-keys.ts
  */
 
-import { readFileSync, readdirSync } from 'node:fs'
-import { join, dirname } from 'node:path'
+import { readdirSync, readFileSync } from 'node:fs'
+import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
@@ -34,7 +34,8 @@ function extractKeysFromCode(): Set<string> {
       } else if (entry.name.endsWith('.tsx') || entry.name.endsWith('.ts')) {
         const content = readFileSync(fullPath, 'utf-8')
         let m: RegExpExecArray | null
-        while ((m = staticPattern.exec(content)) !== null) {
+        m = staticPattern.exec(content)
+        while (m !== null) {
           const key = m[1]
           // Only keys with dot (namespace.key) and exclude paths, escape seqs
           if (
@@ -48,6 +49,7 @@ function extractKeysFromCode(): Set<string> {
           ) {
             used.add(key)
           }
+          m = staticPattern.exec(content)
         }
       }
     }

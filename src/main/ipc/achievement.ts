@@ -2,24 +2,22 @@ import { ipcMain } from 'electron'
 import l from 'electron-log'
 import { IPC } from 'main/constants'
 import { sendTaskNotification } from '../notification/taskNotification'
-import { getTokenFromStore, verifyToken } from '../task/auth'
-import { hasDbConfig } from '../task/db'
+import { ACHIEVEMENT_DEFINITIONS } from '../task/achievement/achievementSeed'
+import { RANKS } from '../task/achievement/achievementService'
 import {
-  getAllAchievementDefs,
   getAchievementRarities,
+  getAllAchievementDefs,
   getLeaderboard,
   getLeaderboardByProject,
   getUserAchievements,
   getUserBadgeDisplay,
   getUserStats,
   setUserBadgeDisplay,
-} from '../task/achievementStore'
-import { RANKS } from '../task/achievementService'
-import { ACHIEVEMENT_DEFINITIONS } from '../task/achievementSeed'
+} from '../task/achievement/achievementStore'
+import { getTokenFromStore, verifyToken } from '../task/auth'
+import { hasDbConfig } from '../task/schema/db'
 
-function withAuth<T extends unknown[]>(
-  handler: (event: Electron.IpcMainInvokeEvent, session: { userId: string; name: string; role: string }, ...args: T) => Promise<unknown>
-) {
+function withAuth<T extends unknown[]>(handler: (event: Electron.IpcMainInvokeEvent, session: { userId: string; name: string; role: string }, ...args: T) => Promise<unknown>) {
   return async (event: Electron.IpcMainInvokeEvent, ...args: T) => {
     const token = getTokenFromStore()
     const session = token ? verifyToken(token) : null
@@ -48,10 +46,7 @@ export function registerAchievementIpcHandlers() {
     IPC.ACHIEVEMENT.GET_BADGES,
     withAuth(async (_event, session) => {
       try {
-        const [badges, pinned] = await Promise.all([
-          getUserAchievements(session.userId),
-          getUserBadgeDisplay(session.userId),
-        ])
+        const [badges, pinned] = await Promise.all([getUserAchievements(session.userId), getUserBadgeDisplay(session.userId)])
         return { status: 'success' as const, data: { badges, pinned } }
       } catch (err: any) {
         l.error('achievement:get-badges error:', err)
@@ -77,10 +72,7 @@ export function registerAchievementIpcHandlers() {
     withAuth(async (_event, session, codes: string[]) => {
       try {
         const raw = Array.isArray(codes) ? codes : []
-        const [earnedRows, defsFromDb] = await Promise.all([
-          getUserAchievements(session.userId),
-          getAllAchievementDefs(),
-        ])
+        const [earnedRows, defsFromDb] = await Promise.all([getUserAchievements(session.userId), getAllAchievementDefs()])
         const defs = Array.isArray(defsFromDb) && defsFromDb.length > 0 ? defsFromDb : ACHIEVEMENT_DEFINITIONS
         const earnedSet = new Set(earnedRows.map(r => r.achievement_code))
         const defSet = new Set(defs.map(d => d.code))
@@ -196,10 +188,7 @@ export function registerAchievementIpcHandlers() {
         return { status: 'error' as const, code: 'FORBIDDEN', message: 'Chỉ admin mới được xem profile user khác' }
       }
       try {
-        const [badges, pinned] = await Promise.all([
-          getUserAchievements(userId),
-          getUserBadgeDisplay(userId),
-        ])
+        const [badges, pinned] = await Promise.all([getUserAchievements(userId), getUserBadgeDisplay(userId)])
         return { status: 'success' as const, data: { badges, pinned } }
       } catch (err: any) {
         l.error('achievement:get-badges-for-user error:', err)

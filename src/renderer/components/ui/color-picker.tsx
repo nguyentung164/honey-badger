@@ -2,16 +2,23 @@
 
 import { useEffect, useState } from 'react'
 import { HexColorPicker } from 'react-colorful'
-import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
 import { Input } from '@/components/ui/input'
+import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
 import { cn } from '@/lib/utils'
 
 const HEX_REGEX = /^#([0-9A-Fa-f]{3}|[0-9A-Fa-f]{6})$/
 
 function normalizeHex(value: string): string {
   const v = value.trim().replace(/^#/, '')
-  if (v.length === 3) return '#' + v.split('').map(c => c + c).join('')
-  if (v.length === 6 && /^[0-9A-Fa-f]+$/.test(v)) return '#' + v
+  if (v.length === 3)
+    return (
+      '#' +
+      v
+        .split('')
+        .map(c => c + c)
+        .join('')
+    )
+  if (v.length === 6 && /^[0-9A-Fa-f]+$/.test(v)) return `#${v}`
   return ''
 }
 
@@ -44,7 +51,7 @@ export function ColorPicker({ value, onChange, placeholder = '#000000', classNam
       onChange('')
       return
     }
-    const v = raw.startsWith('#') ? raw : '#' + raw
+    const v = raw.startsWith('#') ? raw : `#${raw}`
     if (/^#[0-9A-Fa-f]{0,6}$/.test(v)) {
       setInputValue(v)
       const normalized = normalizeHex(v)
@@ -78,14 +85,7 @@ export function ColorPicker({ value, onChange, placeholder = '#000000', classNam
           <HexColorPicker color={displayColor} onChange={handlePickerChange} style={{ width: 200, height: 150 }} />
         </PopoverContent>
       </Popover>
-      <Input
-        value={inputValue}
-        onChange={handleInputChange}
-        onBlur={handleInputBlur}
-        placeholder={placeholder}
-        className="w-24 font-mono text-sm uppercase"
-        disabled={disabled}
-      />
+      <Input value={inputValue} onChange={handleInputChange} onBlur={handleInputBlur} placeholder={placeholder} className="w-24 font-mono text-sm uppercase" disabled={disabled} />
     </div>
   )
 }

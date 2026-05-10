@@ -1,4 +1,4 @@
-import type { PrRepo } from '../task/pgPrTrackingStore'
+import type { PrRepo } from '../task/stores/pgPrTrackingStore'
 
 export type TrackedRowLite = { id: string; repoId: string; branchName: string }
 

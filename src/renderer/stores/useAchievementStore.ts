@@ -156,10 +156,7 @@ export const useAchievementStore = create<AchievementState>((set, get) => ({
 
   fetchBadges: async () => {
     try {
-      const [badgesRes, defsRes] = await Promise.all([
-        window.api.achievement.getBadges(),
-        window.api.achievement.getAllDefinitions(),
-      ])
+      const [badgesRes, defsRes] = await Promise.all([window.api.achievement.getBadges(), window.api.achievement.getAllDefinitions()])
       if (badgesRes.status === 'success' && badgesRes.data) {
         const earned = badgesRes.data.badges ?? []
         const pinned = badgesRes.data.pinned ?? []
@@ -184,10 +181,7 @@ export const useAchievementStore = create<AchievementState>((set, get) => ({
 
   fetchBadgesForUser: async (userId: string) => {
     try {
-      const [badgesRes, defsRes] = await Promise.all([
-        window.api.achievement.getBadgesForUser(userId),
-        window.api.achievement.getAllDefinitions(),
-      ])
+      const [badgesRes, defsRes] = await Promise.all([window.api.achievement.getBadgesForUser(userId), window.api.achievement.getAllDefinitions()])
       if (badgesRes.status === 'success' && badgesRes.data) {
         set({
           earned: badgesRes.data.badges ?? [],
@@ -229,9 +223,7 @@ export const useAchievementStore = create<AchievementState>((set, get) => ({
   fetchLeaderboard: async (projectId?: string | null) => {
     set({ loading: true })
     try {
-      const res = projectId
-        ? await window.api.achievement.getLeaderboardByProject(projectId)
-        : await window.api.achievement.getLeaderboard()
+      const res = projectId ? await window.api.achievement.getLeaderboardByProject(projectId) : await window.api.achievement.getLeaderboard()
       if (res.status === 'success') {
         const raw = res.data ?? []
         const data = Array.isArray(raw)

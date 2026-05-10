@@ -2,8 +2,8 @@ import l from 'electron-log'
 import { githubClient } from '../git-hosting/github'
 import { hasGithubToken } from '../git-hosting/tokenStore'
 import { onPrMerged } from '../pr-automation/engine'
-import { hasDbConfig } from '../task/db'
-import { listPendingCheckpoints } from '../task/pgPrTrackingStore'
+import { hasDbConfig } from '../task/schema/db'
+import { listPendingCheckpoints } from '../task/stores/pgPrTrackingStore'
 
 const POLL_INTERVAL_MS = 5 * 60 * 1000
 

@@ -5,7 +5,7 @@ import { Bar, BarChart, CartesianGrid, Tooltip, XAxis, YAxis } from 'recharts'
 import { ChartContainer, ChartTooltipContent } from '@/components/ui/chart'
 import { Skeleton } from '@/components/ui/skeleton'
 import { cn } from '@/lib/utils'
-import { useProgressStore, type QualityData } from '@/stores/useProgressStore'
+import { type QualityData, useProgressStore } from '@/stores/useProgressStore'
 import { SectionHeader } from './SectionHeader'
 
 const WEEKS_OPTIONS = [4, 8, 12, 24]
@@ -146,12 +146,7 @@ export const CodeQualityPanel = memo(function CodeQualityPanel({
   return (
     <div className={cn('space-y-5', noRootPadding ? 'p-0' : 'p-6')}>
       {!hideTitle ? (
-        <SectionHeader
-          icon={<Code2 className="h-5 w-5 text-cyan-500" />}
-          title={t('progress.codeQuality')}
-          description={t('progress.codeQualityDesc')}
-          actions={headerActions}
-        />
+        <SectionHeader icon={<Code2 className="h-5 w-5 text-cyan-500" />} title={t('progress.codeQuality')} description={t('progress.codeQualityDesc')} actions={headerActions} />
       ) : hideTitle && !isIso && headerActions ? (
         <div className="flex flex-wrap items-center justify-end gap-1">{headerActions}</div>
       ) : null}
@@ -179,12 +174,7 @@ export const CodeQualityPanel = memo(function CodeQualityPanel({
           <div className={cn('grid grid-cols-2', CARD_GAP)}>
             <div className={cn(qualityCardClass, 'space-y-2')}>
               <p className="text-base text-muted-foreground">{t('progress.codingRuleCheck')}</p>
-              <p
-                className={cn(
-                  'text-3xl font-bold tabular-nums',
-                  effData.userRuleRate >= 80 ? 'text-green-600' : effData.userRuleRate >= 60 ? 'text-amber-500' : 'text-red-500'
-                )}
-              >
+              <p className={cn('text-3xl font-bold tabular-nums', effData.userRuleRate >= 80 ? 'text-green-600' : effData.userRuleRate >= 60 ? 'text-amber-500' : 'text-red-500')}>
                 {effData.userRuleRate}%
               </p>
               <div className="h-1.5 bg-muted rounded-full overflow-hidden">
@@ -231,9 +221,7 @@ export const CodeQualityPanel = memo(function CodeQualityPanel({
                   </BarChart>
                 </ChartContainer>
               ) : (
-                <div className="flex h-[160px] items-center justify-center px-2 text-center text-base text-muted-foreground">
-                  {t('progress.noData')}
-                </div>
+                <div className="flex h-[160px] items-center justify-center px-2 text-center text-base text-muted-foreground">{t('progress.noData')}</div>
               )}
             </div>
             <div className={qualityCardClass}>
@@ -252,9 +240,7 @@ export const CodeQualityPanel = memo(function CodeQualityPanel({
                   </BarChart>
                 </ChartContainer>
               ) : (
-                <div className="flex h-[160px] items-center justify-center px-2 text-center text-base text-muted-foreground">
-                  {t('progress.noData')}
-                </div>
+                <div className="flex h-[160px] items-center justify-center px-2 text-center text-base text-muted-foreground">{t('progress.noData')}</div>
               )}
             </div>
           </div>

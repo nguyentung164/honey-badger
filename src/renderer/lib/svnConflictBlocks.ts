@@ -36,9 +36,9 @@ export function parseSvnConflictBlocks(workingContent: string): ParsedSvnConflic
       const conflictStartLine = lineNum
       i++
 
-      let mineLines: string[] = []
-      let baseLines: string[] = []
-      let theirsLines: string[] = []
+      const mineLines: string[] = []
+      const baseLines: string[] = []
+      const theirsLines: string[] = []
       let phase: 'mine' | 'base' | 'theirs' = 'mine'
 
       while (i < lines.length) {
@@ -99,15 +99,11 @@ export function parseSvnConflictBlocks(workingContent: string): ParsedSvnConflic
 
 export type BlockResolution = 'mine' | 'theirs' | 'both-mine-first' | 'both-theirs-first'
 
-export function buildResolvedContent(
-  workingContent: string,
-  blocks: SvnConflictBlock[],
-  resolutions: Record<string, BlockResolution>
-): string {
+export function buildResolvedContent(workingContent: string, blocks: SvnConflictBlock[], resolutions: Record<string, BlockResolution>): string {
   if (blocks.length === 0) return workingContent
 
   const lines = workingContent.split('\n')
-  let result: string[] = []
+  const result: string[] = []
   let lineIndex = 0
 
   for (const block of blocks) {
@@ -131,10 +127,10 @@ export function buildResolvedContent(
         resolvedText = block.theirsContent
         break
       case 'both-mine-first':
-        resolvedText = block.mineContent + (block.theirsContent ? '\n' + block.theirsContent : '')
+        resolvedText = block.mineContent + (block.theirsContent ? `\n${block.theirsContent}` : '')
         break
       case 'both-theirs-first':
-        resolvedText = block.theirsContent + (block.mineContent ? '\n' + block.mineContent : '')
+        resolvedText = block.theirsContent + (block.mineContent ? `\n${block.mineContent}` : '')
         break
       default:
         resolvedText = block.mineContent

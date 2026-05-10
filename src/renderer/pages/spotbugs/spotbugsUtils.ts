@@ -132,11 +132,7 @@ export function sortBugs(bugs: BugInstance[], sortKey: SortKey, sortDirection: S
   })
 }
 
-export function nextSortState(
-  currentKey: SortKey,
-  currentDirection: SortDirection,
-  clickedKey: SortKey
-): { sortKey: SortKey; sortDirection: SortDirection } {
+export function nextSortState(currentKey: SortKey, currentDirection: SortDirection, clickedKey: SortKey): { sortKey: SortKey; sortDirection: SortDirection } {
   if (currentKey === clickedKey) {
     if (currentDirection === 'asc') return { sortKey: clickedKey, sortDirection: 'desc' }
     if (currentDirection === 'desc') return { sortKey: '', sortDirection: '' }
@@ -145,11 +141,7 @@ export function nextSortState(
   return { sortKey: clickedKey, sortDirection: 'asc' }
 }
 
-export function buildCodeSnippet(
-  content: string,
-  startLine: number,
-  endLine: number
-): string {
+export function buildCodeSnippet(content: string, startLine: number, endLine: number): string {
   const lines = content.split('\n')
   const startIdx = Math.max(0, startLine - 6)
   const endIdx = Math.min(lines.length - 1, endLine + 4)

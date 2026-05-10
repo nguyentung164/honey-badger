@@ -2,17 +2,7 @@
 
 import { useVirtualizer } from '@tanstack/react-virtual'
 import { eachDayOfInterval, format, isSameWeek } from 'date-fns'
-import {
-  type CSSProperties,
-  type ReactNode,
-  type RefObject,
-  type UIEvent,
-  useCallback,
-  useEffect,
-  useMemo,
-  useRef,
-  useState,
-} from 'react'
+import { type CSSProperties, type ReactNode, type RefObject, type UIEvent, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import type { EVMMaster, EVMProject, WBSRow, WbsDayUnitRow } from 'shared/types/evm'
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogTitle } from '@/components/ui/alert-dialog'
@@ -75,13 +65,7 @@ function detailBodyCellBorder(colIndex: number) {
   return colIndex === 0 ? 'border-l border-r border-b' : 'border-r border-b'
 }
 
-function detailBodyCell(
-  colIndex: number,
-  rowParity: number,
-  className: string,
-  children: ReactNode,
-  title?: string,
-) {
+function detailBodyCell(colIndex: number, rowParity: number, className: string, children: ReactNode, title?: string) {
   const bg = rowParity % 2 === 1 ? 'bg-muted' : 'bg-background'
   const w = PIN_W[colIndex] ?? 40
   return (
@@ -90,7 +74,7 @@ function detailBodyCell(
         'box-border shrink-0 border-solid border-border/55 px-1 py-0.5 text-sm flex items-center justify-center min-h-0 overflow-hidden',
         detailBodyCellBorder(colIndex),
         bg,
-        className,
+        className
       )}
       style={{ width: w, minWidth: w, maxWidth: colIndex === 4 ? 160 : w }}
       title={title}
@@ -212,7 +196,7 @@ export function WbsScheduleUnifiedTable({
       const left = e.currentTarget.scrollLeft
       if (peer.scrollLeft !== left) peer.scrollLeft = left
     },
-    [horizontalScrollPeerRef],
+    [horizontalScrollPeerRef]
   )
 
   const [showAdd, setShowAdd] = useState(false)
@@ -255,15 +239,12 @@ export function WbsScheduleUnifiedTable({
           isReport: Boolean(reportDateStr && ds === reportDateStr),
         }
       }),
-    [dayStrs, projectDays, reportDateStr, nonWorkingDaysList],
+    [dayStrs, projectDays, reportDateStr, nonWorkingDaysList]
   )
 
   const sortedRows = useMemo(() => [...wbsRows].sort((a, b) => a.no - b.no), [wbsRows])
 
-  const effectiveWbsDayUnits = useMemo(
-    () => mergeWbsDayUnitsStoredWithPlan(sortedRows, wbsDayUnits, nonWorkingDaysList),
-    [sortedRows, wbsDayUnits, nonWorkingDaysList],
-  )
+  const effectiveWbsDayUnits = useMemo(() => mergeWbsDayUnitsStoredWithPlan(sortedRows, wbsDayUnits, nonWorkingDaysList), [sortedRows, wbsDayUnits, nonWorkingDaysList])
 
   const unitByWbsDate = useMemo(() => {
     const m = new Map<string, number>()
@@ -309,7 +290,7 @@ export function WbsScheduleUnifiedTable({
       minWidth: PIN_TOTAL,
       boxSizing: 'border-box',
     }),
-    [],
+    []
   )
 
   const handleDelete = useCallback(async () => {
@@ -328,12 +309,7 @@ export function WbsScheduleUnifiedTable({
       if (!editRow) return
       try {
         await updateWbsRow(editRow.id, updates)
-        if (
-          updates.planStartDate !== undefined ||
-          updates.planEndDate !== undefined ||
-          updates.effort !== undefined ||
-          updates.durationDays !== undefined
-        ) {
+        if (updates.planStartDate !== undefined || updates.planEndDate !== undefined || updates.effort !== undefined || updates.durationDays !== undefined) {
           const cur = useEVMStore.getState().wbs.find(r => r.id === editRow.id)
           if (cur) {
             const merged = { ...cur, ...updates } as WBSRow
@@ -346,7 +322,7 @@ export function WbsScheduleUnifiedTable({
         toast.error(t('evm.saveFailed'))
       }
     },
-    [editRow, updateWbsRow, replaceWbsDayUnitsForRow, nonWorkingDaysList, t],
+    [editRow, updateWbsRow, replaceWbsDayUnitsForRow, nonWorkingDaysList, t]
   )
 
   const saveDayUnitsFromDialog = useCallback(
@@ -366,7 +342,7 @@ export function WbsScheduleUnifiedTable({
         toast.error(t('evm.saveFailed'))
       }
     },
-    [nonWorkingDaysList, replaceWbsDayUnitsForRow, updateWbsRow, t],
+    [nonWorkingDaysList, replaceWbsDayUnitsForRow, updateWbsRow, t]
   )
 
   if (projectDays.length === 0) {
@@ -381,140 +357,64 @@ export function WbsScheduleUnifiedTable({
           onScroll={horizontalScrollPeerRef ? onSyncHorizontalScroll : undefined}
           className="max-h-[min(52vh,520px)] overflow-auto rounded-md border border-border/40 [overflow-anchor:none]"
         >
-          <div
-            className="sticky top-0 z-[35] flex shrink-0 bg-muted shadow-[0_1px_0_0_var(--border)]"
-            style={{ width: tableMinWidth, minWidth: tableMinWidth }}
-          >
+          <div className="sticky top-0 z-[35] flex shrink-0 bg-muted shadow-[0_1px_0_0_var(--border)]" style={{ width: tableMinWidth, minWidth: tableMinWidth }}>
             <div className="sticky left-0 z-40 shrink-0 bg-muted" style={{ width: PIN_TOTAL }}>
               <div className="text-sm" style={pinnedHeaderGridStyle}>
-                <div
-                  className={cn(DETAIL_HEADER_CELL, 'tabular-nums', detailHeaderCellBorder(0, 'top'))}
-                  style={{ gridRow: '1 / 4', gridColumn: '1 / 2' }}
-                >
+                <div className={cn(DETAIL_HEADER_CELL, 'tabular-nums', detailHeaderCellBorder(0, 'top'))} style={{ gridRow: '1 / 4', gridColumn: '1 / 2' }}>
                   {t('evm.tableNo')}
                 </div>
-                <div
-                  className={cn(DETAIL_HEADER_CELL, 'border-t border-r border-b')}
-                  style={{ gridRow: '1 / 2', gridColumn: '2 / 6' }}
-                >
+                <div className={cn(DETAIL_HEADER_CELL, 'border-t border-r border-b')} style={{ gridRow: '1 / 2', gridColumn: '2 / 6' }}>
                   {t('evm.wbsScheduleExcelGroupDetails')}
                 </div>
-                <div
-                  className={cn(DETAIL_HEADER_CELL, 'tabular-nums', detailHeaderCellBorder(5, 'top'))}
-                  style={{ gridRow: '1 / 4', gridColumn: '6 / 7' }}
-                >
+                <div className={cn(DETAIL_HEADER_CELL, 'tabular-nums', detailHeaderCellBorder(5, 'top'))} style={{ gridRow: '1 / 4', gridColumn: '6 / 7' }}>
                   {t('evm.durationDays')}
                 </div>
-                <div
-                  className={cn(DETAIL_HEADER_CELL, 'border-t border-r border-b')}
-                  style={{ gridRow: '1 / 2', gridColumn: '7 / 9' }}
-                >
+                <div className={cn(DETAIL_HEADER_CELL, 'border-t border-r border-b')} style={{ gridRow: '1 / 2', gridColumn: '7 / 9' }}>
                   {t('evm.wbsSchedulePlanGroup')}
                 </div>
-                <div
-                  className={cn(DETAIL_HEADER_CELL, 'tabular-nums', detailHeaderCellBorder(8, 'top'))}
-                  style={{ gridRow: '1 / 4', gridColumn: '9 / 10' }}
-                >
+                <div className={cn(DETAIL_HEADER_CELL, 'tabular-nums', detailHeaderCellBorder(8, 'top'))} style={{ gridRow: '1 / 4', gridColumn: '9 / 10' }}>
                   {t('evm.predecessor')}
                 </div>
-                <div
-                  className={cn(DETAIL_HEADER_CELL, 'border-t border-r border-b')}
-                  style={{ gridRow: '1 / 2', gridColumn: '10 / 12' }}
-                >
+                <div className={cn(DETAIL_HEADER_CELL, 'border-t border-r border-b')} style={{ gridRow: '1 / 2', gridColumn: '10 / 12' }}>
                   {t('evm.wbsScheduleActualGroup')}
                 </div>
-                <div
-                  className={cn(DETAIL_HEADER_CELL, 'whitespace-normal', detailHeaderCellBorder(11, 'top'))}
-                  style={{ gridRow: '1 / 4', gridColumn: '12 / 13' }}
-                >
+                <div className={cn(DETAIL_HEADER_CELL, 'whitespace-normal', detailHeaderCellBorder(11, 'top'))} style={{ gridRow: '1 / 4', gridColumn: '12 / 13' }}>
                   {t('evm.tableAssignee')}
                 </div>
-                <div
-                  className={cn(DETAIL_HEADER_CELL, 'tabular-nums', detailHeaderCellBorder(12, 'top'))}
-                  style={{ gridRow: '1 / 4', gridColumn: '13 / 14' }}
-                >
+                <div className={cn(DETAIL_HEADER_CELL, 'tabular-nums', detailHeaderCellBorder(12, 'top'))} style={{ gridRow: '1 / 4', gridColumn: '13 / 14' }}>
                   {t('evm.percentDone')}
                 </div>
-                <div
-                  className={cn(DETAIL_HEADER_CELL, 'whitespace-normal', detailHeaderCellBorder(13, 'top'))}
-                  style={{ gridRow: '1 / 4', gridColumn: '14 / 15' }}
-                >
+                <div className={cn(DETAIL_HEADER_CELL, 'whitespace-normal', detailHeaderCellBorder(13, 'top'))} style={{ gridRow: '1 / 4', gridColumn: '14 / 15' }}>
                   {t('evm.tableStatus')}
                 </div>
-                <div
-                  className={cn(DETAIL_HEADER_CELL, 'tabular-nums', detailHeaderCellBorder(14, 'top'))}
-                  style={{ gridRow: '1 / 4', gridColumn: '15 / 16' }}
-                >
+                <div className={cn(DETAIL_HEADER_CELL, 'tabular-nums', detailHeaderCellBorder(14, 'top'))} style={{ gridRow: '1 / 4', gridColumn: '15 / 16' }}>
                   {t('evm.effort')}
                 </div>
-                <div
-                  className={cn(DETAIL_HEADER_CELL, 'tabular-nums', detailHeaderCellBorder(15, 'top'))}
-                  style={{ gridRow: '1 / 4', gridColumn: '16 / 17' }}
-                >
+                <div className={cn(DETAIL_HEADER_CELL, 'tabular-nums', detailHeaderCellBorder(15, 'top'))} style={{ gridRow: '1 / 4', gridColumn: '16 / 17' }}>
                   {t('evm.estMd')}
                 </div>
-                <div
-                  className={cn(DETAIL_HEADER_CELL, 'whitespace-normal', detailHeaderCellBorder(1, 'mid'))}
-                  style={{ gridRow: '2 / 4', gridColumn: '2 / 3' }}
-                >
+                <div className={cn(DETAIL_HEADER_CELL, 'whitespace-normal', detailHeaderCellBorder(1, 'mid'))} style={{ gridRow: '2 / 4', gridColumn: '2 / 3' }}>
                   {t('evm.tablePhase')}
                 </div>
-                <div
-                  className={cn(DETAIL_HEADER_CELL, 'whitespace-normal', detailHeaderCellBorder(2, 'mid'))}
-                  style={{ gridRow: '2 / 4', gridColumn: '3 / 4' }}
-                >
+                <div className={cn(DETAIL_HEADER_CELL, 'whitespace-normal', detailHeaderCellBorder(2, 'mid'))} style={{ gridRow: '2 / 4', gridColumn: '3 / 4' }}>
                   {t('evm.tableCategory')}
                 </div>
-                <div
-                  className={cn(DETAIL_HEADER_CELL, 'whitespace-normal', detailHeaderCellBorder(3, 'mid'))}
-                  style={{ gridRow: '2 / 4', gridColumn: '4 / 5' }}
-                >
+                <div className={cn(DETAIL_HEADER_CELL, 'whitespace-normal', detailHeaderCellBorder(3, 'mid'))} style={{ gridRow: '2 / 4', gridColumn: '4 / 5' }}>
                   {t('evm.tableFeature')}
                 </div>
-                <div
-                  className={cn(DETAIL_HEADER_CELL, 'whitespace-normal', detailHeaderCellBorder(4, 'mid'))}
-                  style={{ gridRow: '2 / 4', gridColumn: '5 / 6' }}
-                >
+                <div className={cn(DETAIL_HEADER_CELL, 'whitespace-normal', detailHeaderCellBorder(4, 'mid'))} style={{ gridRow: '2 / 4', gridColumn: '5 / 6' }}>
                   {t('evm.tableTask')}
                 </div>
-                <div
-                  className={cn(
-                    DETAIL_HEADER_CELL,
-                    'whitespace-nowrap tabular-nums',
-                    detailHeaderCellBorder(6, 'mid'),
-                  )}
-                  style={{ gridRow: '2 / 4', gridColumn: '7 / 8' }}
-                >
+                <div className={cn(DETAIL_HEADER_CELL, 'whitespace-nowrap tabular-nums', detailHeaderCellBorder(6, 'mid'))} style={{ gridRow: '2 / 4', gridColumn: '7 / 8' }}>
                   {t('evm.planStart')}
                 </div>
-                <div
-                  className={cn(
-                    DETAIL_HEADER_CELL,
-                    'whitespace-nowrap tabular-nums',
-                    detailHeaderCellBorder(7, 'mid'),
-                  )}
-                  style={{ gridRow: '2 / 4', gridColumn: '8 / 9' }}
-                >
+                <div className={cn(DETAIL_HEADER_CELL, 'whitespace-nowrap tabular-nums', detailHeaderCellBorder(7, 'mid'))} style={{ gridRow: '2 / 4', gridColumn: '8 / 9' }}>
                   {t('evm.planEnd')}
                 </div>
-                <div
-                  className={cn(
-                    DETAIL_HEADER_CELL,
-                    'whitespace-nowrap tabular-nums',
-                    detailHeaderCellBorder(9, 'mid'),
-                  )}
-                  style={{ gridRow: '2 / 4', gridColumn: '10 / 11' }}
-                >
+                <div className={cn(DETAIL_HEADER_CELL, 'whitespace-nowrap tabular-nums', detailHeaderCellBorder(9, 'mid'))} style={{ gridRow: '2 / 4', gridColumn: '10 / 11' }}>
                   {t('evm.actualStart')}
                 </div>
-                <div
-                  className={cn(
-                    DETAIL_HEADER_CELL,
-                    'whitespace-nowrap tabular-nums',
-                    detailHeaderCellBorder(10, 'mid'),
-                  )}
-                  style={{ gridRow: '2 / 4', gridColumn: '11 / 12' }}
-                >
+                <div className={cn(DETAIL_HEADER_CELL, 'whitespace-nowrap tabular-nums', detailHeaderCellBorder(10, 'mid'))} style={{ gridRow: '2 / 4', gridColumn: '11 / 12' }}>
                   {t('evm.actualEnd')}
                 </div>
               </div>
@@ -561,7 +461,7 @@ export function WbsScheduleUnifiedTable({
                           'absolute top-0 box-border flex h-full items-center justify-center border-r border-solid border-border/80 px-0 py-0 text-center text-foreground text-sm font-semibold tabular-nums last:border-r-0',
                           !meta.isWorkCal && 'bg-zinc-400/25 dark:bg-zinc-600/35',
                           meta.isWorkCal && 'bg-muted',
-                          meta.isReport && 'bg-amber-200/90 dark:bg-amber-900/45',
+                          meta.isReport && 'bg-amber-200/90 dark:bg-amber-900/45'
                         )}
                         style={{ left: vc.start - PIN_TOTAL, width: vc.size, height: '100%' }}
                         title={meta.isReport ? t('evm.resourceGridReportCol') : meta.ds}
@@ -599,7 +499,7 @@ export function WbsScheduleUnifiedTable({
                           'absolute top-0 box-border flex h-full items-center justify-center border-r border-solid border-border/80 px-0 py-0 text-center text-foreground text-xs font-semibold last:border-r-0',
                           !meta.isWorkCal && 'bg-zinc-400/25 dark:bg-zinc-600/35',
                           meta.isWorkCal && 'bg-muted',
-                          meta.isReport && 'bg-amber-200/90 dark:bg-amber-900/45',
+                          meta.isReport && 'bg-amber-200/90 dark:bg-amber-900/45'
                         )}
                         style={{ left: vc.start - PIN_TOTAL, width: vc.size, height: '100%' }}
                       >
@@ -655,10 +555,7 @@ export function WbsScheduleUnifiedTable({
                       }}
                     >
                       <div
-                        className={cn(
-                          'sticky left-0 z-10 flex shrink-0 items-stretch self-stretch border-solid border-border/55',
-                          ri % 2 === 1 ? 'bg-muted' : 'bg-background',
-                        )}
+                        className={cn('sticky left-0 z-10 flex shrink-0 items-stretch self-stretch border-solid border-border/55', ri % 2 === 1 ? 'bg-muted' : 'bg-background')}
                         style={{ width: PIN_TOTAL, minWidth: PIN_TOTAL }}
                       >
                         {detailBodyCell(0, ri, 'text-center font-mono tabular-nums text-muted-foreground', row.no)}
@@ -672,26 +569,10 @@ export function WbsScheduleUnifiedTable({
                         {detailBodyCell(8, ri, 'text-center font-mono tabular-nums', row.predecessor?.trim() || '—')}
                         {detailBodyCell(9, ri, 'whitespace-nowrap', formatDateDisplay(row.actualStartDate, i18n.language))}
                         {detailBodyCell(10, ri, 'whitespace-nowrap', formatDateDisplay(row.actualEndDate, i18n.language))}
-                        {detailBodyCell(
-                          11,
-                          ri,
-                          'max-w-[96px] truncate justify-start',
-                          evmAssigneeDisplayName(master, row.assignee, row.assigneeName),
-                        )}
+                        {detailBodyCell(11, ri, 'max-w-[96px] truncate justify-start', evmAssigneeDisplayName(master, row.assignee, row.assigneeName))}
                         {detailBodyCell(12, ri, 'text-center tabular-nums', `${((row.percentDone ?? 0) * 100).toFixed(0)}%`)}
-                        {detailBodyCell(
-                          13,
-                          ri,
-                          'max-w-[68px] truncate justify-start',
-                          row.statusName ?? row.status ?? '—',
-                          row.statusName ?? row.status ?? undefined,
-                        )}
-                        {detailBodyCell(
-                          14,
-                          ri,
-                          'text-center tabular-nums',
-                          row.effort != null && Number.isFinite(row.effort) ? String(row.effort) : '—',
-                        )}
+                        {detailBodyCell(13, ri, 'max-w-[68px] truncate justify-start', row.statusName ?? row.status ?? '—', row.statusName ?? row.status ?? undefined)}
+                        {detailBodyCell(14, ri, 'text-center tabular-nums', row.effort != null && Number.isFinite(row.effort) ? String(row.effort) : '—')}
                         {detailBodyCell(15, ri, 'justify-end text-right tabular-nums', estMdLabel)}
                       </div>
                       <div
@@ -718,7 +599,7 @@ export function WbsScheduleUnifiedTable({
                                   ri % 2 === 1 ? 'bg-muted' : 'bg-background',
                                   !meta.isWorkCal && 'bg-zinc-400/15 dark:bg-zinc-600/25',
                                   meta.isReport && 'bg-amber-100/70 dark:bg-amber-950/30',
-                                  isWork && 'cursor-pointer select-none hover:bg-primary/10',
+                                  isWork && 'cursor-pointer select-none hover:bg-primary/10'
                                 )}
                                 style={{ left: vc.start - PIN_TOTAL, width: vc.size, height: '100%' }}
                                 onClick={isWork ? () => setDayEditTarget({ row, focusDs: ds }) : undefined}
@@ -740,14 +621,7 @@ export function WbsScheduleUnifiedTable({
       </div>
 
       <AddWBSDialog open={showAdd} onClose={() => setShowAdd(false)} master={master} />
-      <EditWbsRowSheetDialog
-        row={editRow}
-        master={master}
-        open={!!editRow}
-        onClose={() => setEditRow(null)}
-        onSave={saveEdit}
-        onRequestDelete={id => setToDelete(id)}
-      />
+      <EditWbsRowSheetDialog row={editRow} master={master} open={!!editRow} onClose={() => setEditRow(null)} onSave={saveEdit} onRequestDelete={id => setToDelete(id)} />
 
       <EditDayUnitsDialog
         row={dayEditTarget?.row ?? null}
@@ -764,10 +638,7 @@ export function WbsScheduleUnifiedTable({
           <AlertDialogDescription>{t('common.delete')}?</AlertDialogDescription>
           <AlertDialogFooter>
             <AlertDialogCancel>{t('common.cancel')}</AlertDialogCancel>
-            <AlertDialogAction
-              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
-              onClick={() => void handleDelete()}
-            >
+            <AlertDialogAction className="bg-destructive text-destructive-foreground hover:bg-destructive/90" onClick={() => void handleDelete()}>
               {t('common.delete')}
             </AlertDialogAction>
           </AlertDialogFooter>
@@ -904,13 +775,7 @@ function EditWbsRowSheetDialog({
           <div className="grid gap-2 sm:grid-cols-2">
             <div className="grid gap-1">
               <Label className="text-xs text-muted-foreground">{t('evm.durationDays')}</Label>
-              <Input
-                value={durationDays}
-                onChange={e => setDurationDays(e.target.value)}
-                type="number"
-                min={0}
-                className="h-8 text-sm"
-              />
+              <Input value={durationDays} onChange={e => setDurationDays(e.target.value)} type="number" min={0} className="h-8 text-sm" />
             </div>
             <div className="grid gap-1">
               <Label className="text-xs text-muted-foreground">{t('evm.predecessor')}</Label>
@@ -1070,13 +935,9 @@ function EditDayUnitsDialog({
             <table className="w-full border-separate border-spacing-0 text-xs">
               <thead className="sticky top-0 z-10 bg-muted">
                 <tr>
-                  <th className="border-b border-border/60 px-2 py-1 text-left font-semibold text-muted-foreground">
-                    {t('evm.editDayUnitsColDate')}
-                  </th>
+                  <th className="border-b border-border/60 px-2 py-1 text-left font-semibold text-muted-foreground">{t('evm.editDayUnitsColDate')}</th>
                   <th className="w-6 border-b border-border/60 px-1 py-1 text-center font-semibold text-muted-foreground" />
-                  <th className="w-20 border-b border-border/60 px-2 py-1 text-center font-semibold text-muted-foreground">
-                    {t('evm.effort')} (MD)
-                  </th>
+                  <th className="w-20 border-b border-border/60 px-2 py-1 text-center font-semibold text-muted-foreground">{t('evm.effort')} (MD)</th>
                 </tr>
               </thead>
               <tbody>
@@ -1085,15 +946,9 @@ function EditDayUnitsDialog({
                   const isFocus = ds === focusDs
                   const val = values.get(ds) ?? ''
                   return (
-                    <tr
-                      key={ds}
-                      ref={isFocus ? focusRowRef : undefined}
-                      className={cn('border-b border-border/30', isFocus && 'bg-primary/10')}
-                    >
+                    <tr key={ds} ref={isFocus ? focusRowRef : undefined} className={cn('border-b border-border/30', isFocus && 'bg-primary/10')}>
                       <td className="py-0.5 pl-2 pr-1 tabular-nums text-muted-foreground">{ds}</td>
-                      <td className="py-0.5 px-1 text-center text-muted-foreground">
-                        {d ? WEEK_LETTERS_DU[d.getDay()] : ''}
-                      </td>
+                      <td className="py-0.5 px-1 text-center text-muted-foreground">{d ? WEEK_LETTERS_DU[d.getDay()] : ''}</td>
                       <td className="py-0.5 px-1">
                         <Input
                           type="text"
@@ -1118,9 +973,7 @@ function EditDayUnitsDialog({
             </table>
           </div>
         ) : (
-          <div className="flex-1 px-4 py-8 text-center text-sm text-muted-foreground">
-            {t('evm.editDayUnitsNoPlan')}
-          </div>
+          <div className="flex-1 px-4 py-8 text-center text-sm text-muted-foreground">{t('evm.editDayUnitsNoPlan')}</div>
         )}
 
         <DialogFooter className="shrink-0 gap-2 border-t px-4 py-3 sm:justify-end">

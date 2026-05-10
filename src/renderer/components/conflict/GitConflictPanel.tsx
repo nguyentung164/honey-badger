@@ -309,11 +309,7 @@ export function GitConflictPanel({ sourceFolder, onResolved, onAbort, onStatusCh
   const canAbort = !!conflictData.conflictType
 
   const abortLabel =
-    conflictData.conflictType === 'merge'
-      ? t('git.merge.abortMerge')
-      : conflictData.conflictType === 'rebase'
-        ? t('git.rebase.abortRebase')
-        : t('git.conflict.abortCherryPick')
+    conflictData.conflictType === 'merge' ? t('git.merge.abortMerge') : conflictData.conflictType === 'rebase' ? t('git.rebase.abortRebase') : t('git.conflict.abortCherryPick')
 
   const abortConfirmMessage =
     conflictData.conflictType === 'merge'

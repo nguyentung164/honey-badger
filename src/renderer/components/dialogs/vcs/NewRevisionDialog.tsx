@@ -560,9 +560,9 @@ export function NewRevisionDialog({ open, onOpenChange, onCurRevisionUpdate, isM
               {(hasSvnUpdate || isManuallyOpened) && !isCheckingForUpdate && (
                 <DialogFooter className="mt-4 shrink-0 flex-col items-start sm:flex-row sm:items-center">
                   <div className="flex w-full justify-end space-x-2">
-<Button variant={buttonVariant} onClick={() => onOpenChange(false)}>
-                    {t('common.cancel')}
-                  </Button>
+                    <Button variant={buttonVariant} onClick={() => onOpenChange(false)}>
+                      {t('common.cancel')}
+                    </Button>
                     {hasSvnUpdate && (
                       <Button
                         className={`relative ${isLoading ? 'border-effect cursor-progress' : ''}`}

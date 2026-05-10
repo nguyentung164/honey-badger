@@ -1,13 +1,7 @@
 import { Info, TrendingDown, TrendingUp, Zap } from 'lucide-react'
 import { memo, type ReactNode, useEffect, useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import {
-  PolarAngleAxis,
-  PolarGrid,
-  Radar,
-  RadarChart,
-  Tooltip,
-} from 'recharts'
+import { PolarAngleAxis, PolarGrid, Radar, RadarChart, Tooltip } from 'recharts'
 import { ChartContainer, ChartTooltipContent } from '@/components/ui/chart'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Skeleton } from '@/components/ui/skeleton'
@@ -32,41 +26,31 @@ export interface RadarScore {
 // ─── computation ──────────────────────────────────────────────────────────────
 
 export function computeRadarScores(d: RadarMonthData): RadarScore {
-  const safePct = (num: number, den: number) => den > 0 ? Math.min(100, Math.round((num / den) * 100)) : 0
+  const safePct = (num: number, den: number) => (den > 0 ? Math.min(100, Math.round((num / den) * 100)) : 0)
   const wd = Math.max(d.working_days, 1)
 
   // Velocity: consistency of coding activity (Swarmia/LinearB standard)
   const velocity = Math.min(100, Math.round((d.coding_days / wd) * 100))
 
   // Quality: avg pass rate for coding-rule + spotbugs checks
-  const quality = safePct(
-    d.commits_with_rule_check + d.commits_with_spotbugs,
-    d.commits_total_in_queue * 2 || 1,
-  )
+  const quality = safePct(d.commits_with_rule_check + d.commits_with_spotbugs, d.commits_total_in_queue * 2 || 1)
 
   // Reliability: on-time delivery (70%) + low overdue burden (30%)
   // overdue_burden = tasks that were still open past deadline per working day
   const overdueBurden = Math.min(d.tasks_overdue_opened / wd, 1)
   const onTimeRate = d.tasks_done > 0 ? d.tasks_done_on_time / d.tasks_done : 0
-  const reliability =
-    d.tasks_done <= 0
-      ? 0
-      : Math.round((onTimeRate * 0.7 + (1 - overdueBurden) * 0.3) * 100)
+  const reliability = d.tasks_done <= 0 ? 0 : Math.round((onTimeRate * 0.7 + (1 - overdueBurden) * 0.3) * 100)
 
   // Delivery: pure on-time ratio
   const delivery = safePct(d.tasks_done_on_time, d.tasks_done || 1)
 
   // Collaboration (merged Reviewing + Collab): peer reviews (70%) + daily reports (30%)
   const reviewTarget = Math.max(wd * 0.5, 1)
-  const collaboration =
-    Math.min(70, Math.round((d.reviews_done / reviewTarget) * 70)) +
-    Math.min(30, Math.round((d.has_daily_report_days / wd) * 30))
+  const collaboration = Math.min(70, Math.round((d.reviews_done / reviewTarget) * 70)) + Math.min(30, Math.round((d.has_daily_report_days / wd) * 30))
 
   // Impact: output volume — tasks done (70%) + commit frequency (30%)
   const taskTarget = Math.max(wd * 0.5, 1)
-  const impact =
-    Math.min(70, Math.round((d.tasks_done / taskTarget) * 70)) +
-    Math.min(30, Math.round((d.commits_count / wd) * 30))
+  const impact = Math.min(70, Math.round((d.tasks_done / taskTarget) * 70)) + Math.min(30, Math.round((d.commits_count / wd) * 30))
 
   return { velocity, quality, reliability, delivery, collaboration, impact }
 }
@@ -102,15 +86,7 @@ const SERIES_COLOR: Record<'current' | 'previous', string> = {
 
 // ─── Dev Score summary (compact; radar is primary) ────────────────────────────
 
-function DevScoreSummaryCard({
-  score,
-  prevScore,
-  summary,
-}: {
-  score: number
-  prevScore: number
-  summary: RadarProfileSummary
-}) {
+function DevScoreSummaryCard({ score, prevScore, summary }: { score: number; prevScore: number; summary: RadarProfileSummary }) {
   const { t } = useTranslation()
   const grade = getDevScoreGrade(score)
   const delta = score - prevScore
@@ -124,21 +100,11 @@ function DevScoreSummaryCard({
   const gap = circumference - filled
 
   return (
-    <div
-      className="rounded-xl px-3 py-2.5 space-y-2"
-      style={{ background: grade.bg }}
-    >
+    <div className="rounded-xl px-3 py-2.5 space-y-2" style={{ background: grade.bg }}>
       <div className="flex items-start gap-3">
         <div className="relative w-[96px] h-[54px] shrink-0 overflow-hidden">
           <svg viewBox="0 0 96 54" className="w-full h-full text-muted-foreground" aria-hidden>
-            <path
-              d={`M ${cx - R},${cy} A ${R},${R} 0 0 1 ${cx + R},${cy}`}
-              fill="none"
-              stroke="currentColor"
-              strokeOpacity={0.15}
-              strokeWidth={stroke}
-              strokeLinecap="round"
-            />
+            <path d={`M ${cx - R},${cy} A ${R},${R} 0 0 1 ${cx + R},${cy}`} fill="none" stroke="currentColor" strokeOpacity={0.15} strokeWidth={stroke} strokeLinecap="round" />
             <path
               d={`M ${cx - R},${cy} A ${R},${R} 0 0 1 ${cx + R},${cy}`}
               fill="none"
@@ -180,18 +146,12 @@ function DevScoreSummaryCard({
               </span>
             )}
           </div>
-          <p className="text-base text-muted-foreground leading-snug mt-1">
-            {t('progress.devScoreSubtitle')}
-          </p>
-          <p className="text-base text-muted-foreground/90 leading-snug mt-1 border-t border-border/40 pt-1.5">
-            {t('progress.devScoreDisclaimer')}
-          </p>
+          <p className="text-base text-muted-foreground leading-snug mt-1">{t('progress.devScoreSubtitle')}</p>
+          <p className="text-base text-muted-foreground/90 leading-snug mt-1 border-t border-border/40 pt-1.5">{t('progress.devScoreDisclaimer')}</p>
         </div>
       </div>
 
-      <p className="text-base font-medium text-foreground/90 leading-snug">
-        {t(summary.shapeI18nKey)}
-      </p>
+      <p className="text-base font-medium text-foreground/90 leading-snug">{t(summary.shapeI18nKey)}</p>
       <div className="space-y-1 text-base leading-snug">
         <p>
           <span className="text-muted-foreground">{t('progress.devScoreStrength')}</span>{' '}
@@ -225,11 +185,7 @@ function ScoreProgressBar({ value }: { value: number }) {
 
 function DeltaBadge({ delta }: { delta: number }) {
   if (Math.abs(delta) < 1) return <span className="text-base text-muted-foreground">=</span>
-  return (
-    <span className={cn('text-base font-medium', delta > 0 ? 'text-green-600' : 'text-red-500')}>
-      {delta > 0 ? `↑ +${delta}` : `↓ ${delta}`}
-    </span>
-  )
+  return <span className={cn('text-base font-medium', delta > 0 ? 'text-green-600' : 'text-red-500')}>{delta > 0 ? `↑ +${delta}` : `↓ ${delta}`}</span>
 }
 
 // ─── main component ───────────────────────────────────────────────────────────
@@ -335,7 +291,7 @@ export const DeveloperRadar = memo(function DeveloperRadar({
             current: { label: t('progress.thisMonth'), color: 'var(--chart-1)' },
             previous: { label: t('progress.prevMonth'), color: 'var(--chart-3)' },
           },
-    [t, isIso],
+    [t, isIso]
   )
 
   const seriesCurrentLabel = isIso ? t('teamProgress.radarSeriesCurrent') : t('progress.thisMonth')
@@ -383,174 +339,147 @@ export const DeveloperRadar = memo(function DeveloperRadar({
       ) : null}
 
       <div className="rounded-xl bg-muted/40 p-4">
-          {effLoading ? (
-            <Skeleton className="h-[400] w-full rounded-xl" />
-          ) : !chartData.length ? (
-            <div className="flex h-[400] items-center justify-center text-base text-muted-foreground">{t('progress.noData')}</div>
-          ) : (
-            <div className="space-y-5">
-              <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-            {/* Radar chart — primary (2/3 on large screens) */}
-            <div className="h-[400px] lg:col-span-1">
-              <ChartContainer config={radarChartConfig} className="h-[400px] w-full">
-                <RadarChart data={chartData}>
-                  <PolarGrid className="stroke-border" />
-                  <PolarAngleAxis
-                    dataKey="subject"
-                    tick={(props: { payload: { value: string }; x: number; y: number; textAnchor: string }) => {
-                      const { payload, x, y, textAnchor } = props
-                      const row = chartData.find(d => d.subject === payload.value)
-                      const fill = row ? AXIS_COLOR_BY_KEY[row.key] : 'var(--muted-foreground)'
-                      return (
-                        <text
-                          x={x}
-                          y={y}
-                          textAnchor={textAnchor as 'start' | 'middle' | 'end'}
-                          fill={fill}
-                          fontSize={11}
-                          className="recharts-text"
-                          dominantBaseline="central"
-                        >
-                          {payload.value}
-                        </text>
-                      )
-                    }}
-                  />
-                  <Radar
-                    name={t('progress.thisMonth')}
-                    dataKey="current"
-                    stroke={SERIES_COLOR.current}
-                    fill={SERIES_COLOR.current}
-                    fillOpacity={0.35}
-                    strokeWidth={2}
-                  />
-                  <Radar
-                    name={seriesPrevLabel}
-                    dataKey="previous"
-                    stroke={SERIES_COLOR.previous}
-                    fill={SERIES_COLOR.previous}
-                    fillOpacity={0.12}
-                    strokeWidth={1.5}
-                    strokeDasharray="4 2"
-                  />
-                  <Tooltip
-                    content={
-                      <ChartTooltipContent
-                        className="text-base"
-                        labelFormatter={(value, payload) => {
-                          const p = payload?.[0]?.payload as { subject?: string } | undefined
-                          const subject = typeof value === 'string' ? value : p?.subject
-                          if (!subject || typeof subject !== 'string') return value as ReactNode
-                          const row = chartData.find(d => d.subject === subject)
-                          const c = row ? AXIS_COLOR_BY_KEY[row.key] : undefined
-                          return (
-                            <span className="font-semibold" style={c ? { color: c } : undefined}>
-                              {subject}
-                            </span>
-                          )
-                        }}
-                        formatter={(value, name, item) => {
-                          const dk = item && typeof item === 'object' && 'dataKey' in item ? String((item as { dataKey?: string }).dataKey) : ''
-                          const seriesColor =
-                            dk === 'current' ? SERIES_COLOR.current : dk === 'previous' ? SERIES_COLOR.previous : undefined
-                          return (
-                            <div className="flex w-full min-w-[10rem] flex-wrap items-center justify-between gap-2 leading-none">
-                              <span className="font-medium" style={seriesColor ? { color: seriesColor } : { color: 'var(--muted-foreground)' }}>
-                                {name}
+        {effLoading ? (
+          <Skeleton className="h-[400] w-full rounded-xl" />
+        ) : !chartData.length ? (
+          <div className="flex h-[400] items-center justify-center text-base text-muted-foreground">{t('progress.noData')}</div>
+        ) : (
+          <div className="space-y-5">
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+              {/* Radar chart — primary (2/3 on large screens) */}
+              <div className="h-[400px] lg:col-span-1">
+                <ChartContainer config={radarChartConfig} className="h-[400px] w-full">
+                  <RadarChart data={chartData}>
+                    <PolarGrid className="stroke-border" />
+                    <PolarAngleAxis
+                      dataKey="subject"
+                      tick={(props: { payload: { value: string }; x: number; y: number; textAnchor: string }) => {
+                        const { payload, x, y, textAnchor } = props
+                        const row = chartData.find(d => d.subject === payload.value)
+                        const fill = row ? AXIS_COLOR_BY_KEY[row.key] : 'var(--muted-foreground)'
+                        return (
+                          <text x={x} y={y} textAnchor={textAnchor as 'start' | 'middle' | 'end'} fill={fill} fontSize={11} className="recharts-text" dominantBaseline="central">
+                            {payload.value}
+                          </text>
+                        )
+                      }}
+                    />
+                    <Radar name={t('progress.thisMonth')} dataKey="current" stroke={SERIES_COLOR.current} fill={SERIES_COLOR.current} fillOpacity={0.35} strokeWidth={2} />
+                    <Radar
+                      name={seriesPrevLabel}
+                      dataKey="previous"
+                      stroke={SERIES_COLOR.previous}
+                      fill={SERIES_COLOR.previous}
+                      fillOpacity={0.12}
+                      strokeWidth={1.5}
+                      strokeDasharray="4 2"
+                    />
+                    <Tooltip
+                      content={
+                        <ChartTooltipContent
+                          className="text-base"
+                          labelFormatter={(value, payload) => {
+                            const p = payload?.[0]?.payload as { subject?: string } | undefined
+                            const subject = typeof value === 'string' ? value : p?.subject
+                            if (!subject || typeof subject !== 'string') return value as ReactNode
+                            const row = chartData.find(d => d.subject === subject)
+                            const c = row ? AXIS_COLOR_BY_KEY[row.key] : undefined
+                            return (
+                              <span className="font-semibold" style={c ? { color: c } : undefined}>
+                                {subject}
                               </span>
-                              <span className="text-foreground font-mono font-medium tabular-nums">
-                                {typeof value === 'number' ? value.toLocaleString() : String(value)}/100
-                              </span>
-                            </div>
-                          )
-                        }}
-                      />
-                    }
-                  />
-                </RadarChart>
-              </ChartContainer>
-              <div className="flex justify-center gap-4 text-base mt-1">
-                <span className="flex items-center gap-1 font-medium" style={{ color: SERIES_COLOR.current }}>
-                  <span className="inline-block h-0.5 w-3 shrink-0 rounded-full bg-[var(--chart-1)]" />
-                  {seriesCurrentLabel}
-                </span>
-                <span className="flex items-center gap-1 font-medium" style={{ color: SERIES_COLOR.previous }}>
-                  <span
-                    className="inline-block h-0 w-3 shrink-0 border-t-2 border-dashed opacity-90"
-                    style={{ borderColor: 'var(--chart-3)' }}
-                  />
-                  {seriesPrevLabel}
-                </span>
-              </div>
-            </div>
-
-            {/* Summary + per-metric breakdown (1/3) */}
-            <div className="space-y-3 lg:col-span-1 min-w-0">
-              {profileSummary && (
-                <DevScoreSummaryCard score={devScore} prevScore={prevDevScore} summary={profileSummary} />
-              )}
-
-              {/* Per-metric bars */}
-              {chartData.map(d => (
-                <div key={d.key} className="space-y-1">
-                  <div className="flex items-center justify-between text-sm">
-                    <span className="flex items-center gap-1" style={{ color: AXIS_COLOR_BY_KEY[d.key] }}>
-                      <span className="font-medium">{d.subject}</span>
-                      <UITooltip>
-                        <TooltipTrigger asChild>
-                          <Info className="h-3 w-3 opacity-40 hover:opacity-100 cursor-help shrink-0" />
-                        </TooltipTrigger>
-                        <TooltipContent side="right" className="max-w-[220px] text-base">
-                          {t(AXIS_DESC_KEY[d.key])}
-                        </TooltipContent>
-                      </UITooltip>
-                    </span>
-                    <div className="flex items-center gap-1.5">
-                      <span className="font-bold tabular-nums text-foreground">{d.current}</span>
-                      {d.key === bestKey && d.delta > 2 && (
-                        <TrendingUp className="h-3.5 w-3.5 text-green-500 shrink-0" />
-                      )}
-                      {d.key === worstKey && d.delta < -5 && (
-                        <TrendingDown className="h-3.5 w-3.5 text-red-500 shrink-0" />
-                      )}
-                      <DeltaBadge delta={d.delta} />
-                    </div>
-                  </div>
-                  <ScoreProgressBar value={d.current} />
+                            )
+                          }}
+                          formatter={(value, name, item) => {
+                            const dk = item && typeof item === 'object' && 'dataKey' in item ? String((item as { dataKey?: string }).dataKey) : ''
+                            const seriesColor = dk === 'current' ? SERIES_COLOR.current : dk === 'previous' ? SERIES_COLOR.previous : undefined
+                            return (
+                              <div className="flex w-full min-w-[10rem] flex-wrap items-center justify-between gap-2 leading-none">
+                                <span className="font-medium" style={seriesColor ? { color: seriesColor } : { color: 'var(--muted-foreground)' }}>
+                                  {name}
+                                </span>
+                                <span className="text-foreground font-mono font-medium tabular-nums">{typeof value === 'number' ? value.toLocaleString() : String(value)}/100</span>
+                              </div>
+                            )
+                          }}
+                        />
+                      }
+                    />
+                  </RadarChart>
+                </ChartContainer>
+                <div className="flex justify-center gap-4 text-base mt-1">
+                  <span className="flex items-center gap-1 font-medium" style={{ color: SERIES_COLOR.current }}>
+                    <span className="inline-block h-0.5 w-3 shrink-0 rounded-full bg-[var(--chart-1)]" />
+                    {seriesCurrentLabel}
+                  </span>
+                  <span className="flex items-center gap-1 font-medium" style={{ color: SERIES_COLOR.previous }}>
+                    <span className="inline-block h-0 w-3 shrink-0 border-t-2 border-dashed opacity-90" style={{ borderColor: 'var(--chart-3)' }} />
+                    {seriesPrevLabel}
+                  </span>
                 </div>
-              ))}
+              </div>
 
-              {/* Insights */}
-              <div className="mt-2 space-y-1.5 pt-2">
-                {(() => {
-                  const best = bestKey ? chartData.find(d => d.key === bestKey) : null
-                  const worst = worstKey ? chartData.find(d => d.key === worstKey) : null
-                  const lowScores = chartData.filter(d => d.current < 40)
-                  return (
-                    <>
-                      {best && best.delta > 2 && (
-                        <p className="text-base text-green-600">
-                          📈 {t('progress.mostImproved')}: <strong>{best.subject}</strong> +{best.delta}
-                        </p>
-                      )}
-                      {worst && worst.delta < -5 && (
-                        <p className="text-base text-amber-600">
-                          ⚠ {t('progress.needsAttention')}: <strong>{worst.subject}</strong> {worst.delta}
-                        </p>
-                      )}
-                      {lowScores.length > 0 && (
-                        <p className="text-base text-muted-foreground">
-                          {lowScores.map(d => d.subject).join(', ')} {t('progress.scoreLow')}
-                        </p>
-                      )}
-                    </>
-                  )
-                })()}
+              {/* Summary + per-metric breakdown (1/3) */}
+              <div className="space-y-3 lg:col-span-1 min-w-0">
+                {profileSummary && <DevScoreSummaryCard score={devScore} prevScore={prevDevScore} summary={profileSummary} />}
+
+                {/* Per-metric bars */}
+                {chartData.map(d => (
+                  <div key={d.key} className="space-y-1">
+                    <div className="flex items-center justify-between text-sm">
+                      <span className="flex items-center gap-1" style={{ color: AXIS_COLOR_BY_KEY[d.key] }}>
+                        <span className="font-medium">{d.subject}</span>
+                        <UITooltip>
+                          <TooltipTrigger asChild>
+                            <Info className="h-3 w-3 opacity-40 hover:opacity-100 cursor-help shrink-0" />
+                          </TooltipTrigger>
+                          <TooltipContent side="right" className="max-w-[220px] text-base">
+                            {t(AXIS_DESC_KEY[d.key])}
+                          </TooltipContent>
+                        </UITooltip>
+                      </span>
+                      <div className="flex items-center gap-1.5">
+                        <span className="font-bold tabular-nums text-foreground">{d.current}</span>
+                        {d.key === bestKey && d.delta > 2 && <TrendingUp className="h-3.5 w-3.5 text-green-500 shrink-0" />}
+                        {d.key === worstKey && d.delta < -5 && <TrendingDown className="h-3.5 w-3.5 text-red-500 shrink-0" />}
+                        <DeltaBadge delta={d.delta} />
+                      </div>
+                    </div>
+                    <ScoreProgressBar value={d.current} />
+                  </div>
+                ))}
+
+                {/* Insights */}
+                <div className="mt-2 space-y-1.5 pt-2">
+                  {(() => {
+                    const best = bestKey ? chartData.find(d => d.key === bestKey) : null
+                    const worst = worstKey ? chartData.find(d => d.key === worstKey) : null
+                    const lowScores = chartData.filter(d => d.current < 40)
+                    return (
+                      <>
+                        {best && best.delta > 2 && (
+                          <p className="text-base text-green-600">
+                            📈 {t('progress.mostImproved')}: <strong>{best.subject}</strong> +{best.delta}
+                          </p>
+                        )}
+                        {worst && worst.delta < -5 && (
+                          <p className="text-base text-amber-600">
+                            ⚠ {t('progress.needsAttention')}: <strong>{worst.subject}</strong> {worst.delta}
+                          </p>
+                        )}
+                        {lowScores.length > 0 && (
+                          <p className="text-base text-muted-foreground">
+                            {lowScores.map(d => d.subject).join(', ')} {t('progress.scoreLow')}
+                          </p>
+                        )}
+                      </>
+                    )
+                  })()}
+                </div>
               </div>
             </div>
           </div>
-            </div>
-          )}
+        )}
       </div>
     </div>
   )

@@ -173,7 +173,7 @@ export const SpotbugsAIChat = ({
   }, [bug?.id, selectedSourceLine, aiResponses])
 
   const loadSourceLineOptions = async (bug: BugInstance | null) => {
-    if (!bug || !bug.sourceLines) return
+    if (!bug?.sourceLines) return
     if (!bug.sourceLines || bug.sourceLines.length === 0) return
     const options: SourceLineOption[] = []
     const contents: Record<string, string> = {}

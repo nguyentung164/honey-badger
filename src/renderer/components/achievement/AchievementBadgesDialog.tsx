@@ -73,17 +73,10 @@ export function AchievementBadgesDialog({ open, onOpenChange, userId: viewingUse
       <DialogContent className="max-w-2xl! max-h-[85vh] overflow-hidden flex flex-col gap-0 p-0">
         <DialogHeader className="pl-6 pr-12 pt-3 pb-3 border-b">
           <div className="flex items-center justify-between gap-4">
-            <DialogTitle className="text-base shrink-0">
-              {isViewingOther ? `${displayName}'s Badges` : 'My Badges'}
-            </DialogTitle>
+            <DialogTitle className="text-base shrink-0">{isViewingOther ? `${displayName}'s Badges` : 'My Badges'}</DialogTitle>
             {isAdmin && (
               <div className="flex items-center gap-2 shrink-0">
-                <Switch
-                  id="achievement-show-lock"
-                  checked={showLockIcon}
-                  onCheckedChange={setShowLockIcon}
-                  size="sm"
-                />
+                <Switch id="achievement-show-lock" checked={showLockIcon} onCheckedChange={setShowLockIcon} size="sm" />
                 <Label htmlFor="achievement-show-lock" className="text-xs font-normal cursor-pointer flex items-center gap-1.5 text-muted-foreground">
                   {showLockIcon ? <Lock size={12} /> : <Unlock size={12} />}
                   {showLockIcon ? t('achievement.showLock', 'Hiện ổ khóa') : t('achievement.showUnlock', 'Hiện icon')}
@@ -129,15 +122,7 @@ export function AchievementBadgesDialog({ open, onOpenChange, userId: viewingUse
                   <div className="text-[10px] uppercase tracking-wide text-muted-foreground font-semibold mb-2">Đã đạt ({positiveEarned.length})</div>
                   <div className="grid grid-cols-4 sm:grid-cols-5 md:grid-cols-6 gap-3 items-start">
                     {positiveEarned.map(e => (
-                      <BadgeCard
-                        key={e.achievement_code}
-                        def={e.def}
-                        earned={e}
-                        size="sm"
-                        showName
-                        variant="filled"
-                        rarity={rarities[e.achievement_code]}
-                      />
+                      <BadgeCard key={e.achievement_code} def={e.def} earned={e} size="sm" showName variant="filled" rarity={rarities[e.achievement_code]} />
                     ))}
                   </div>
                 </div>
@@ -145,9 +130,7 @@ export function AchievementBadgesDialog({ open, onOpenChange, userId: viewingUse
                 <div className="flex flex-col items-center gap-2 py-10 text-muted-foreground">
                   <Star size={32} className="opacity-20" />
                   <p className="text-sm font-medium">Chưa có badge nào</p>
-                  <p className="text-xs opacity-70 text-center max-w-[200px]">
-                    Bắt đầu commit, hoàn thành task và review code để nhận badge đầu tiên!
-                  </p>
+                  <p className="text-xs opacity-70 text-center max-w-[200px]">Bắt đầu commit, hoàn thành task và review code để nhận badge đầu tiên!</p>
                 </div>
               )}
             </TabsContent>
@@ -157,12 +140,12 @@ export function AchievementBadgesDialog({ open, onOpenChange, userId: viewingUse
                 <div className="text-xs text-muted-foreground text-center py-8">Loading...</div>
               ) : lockedDefs.length > 0 ? (
                 <div className="space-y-1">
-                  {!isAdmin && (
-                    <p className="text-xs text-muted-foreground mb-3">Tiến độ của bạn — thanh màu tím cho biết bạn đã đạt bao nhiêu % điều kiện.</p>
-                  )}
+                  {!isAdmin && <p className="text-xs text-muted-foreground mb-3">Tiến độ của bạn — thanh màu tím cho biết bạn đã đạt bao nhiêu % điều kiện.</p>}
                   {Object.entries(lockedByCategory).map(([cat, items]) => (
                     <div key={cat} className="mb-4">
-                      <div className="text-[10px] uppercase tracking-wide text-muted-foreground font-medium mb-2">{CATEGORY_LABELS[cat] ?? cat} ({items.length})</div>
+                      <div className="text-[10px] uppercase tracking-wide text-muted-foreground font-medium mb-2">
+                        {CATEGORY_LABELS[cat] ?? cat} ({items.length})
+                      </div>
                       <div className="grid grid-cols-4 sm:grid-cols-5 md:grid-cols-6 gap-3 items-start">
                         {items.map((d: AchievementDef) => (
                           <BadgeWithProgress
@@ -210,9 +193,7 @@ export function AchievementBadgesDialog({ open, onOpenChange, userId: viewingUse
                       )
                     })}
                   </div>
-                  {negativeDefs.length === 0 && (
-                    <p className="text-xs text-muted-foreground text-center py-8">No struggle badges defined.</p>
-                  )}
+                  {negativeDefs.length === 0 && <p className="text-xs text-muted-foreground text-center py-8">No struggle badges defined.</p>}
                 </div>
               )}
             </TabsContent>

@@ -1,6 +1,6 @@
 import { useEffect } from 'react'
-import { useTaskAuthStore } from '@/stores/useTaskAuthStore'
 import { useAchievementStore } from '@/stores/useAchievementStore'
+import { useTaskAuthStore } from '@/stores/useTaskAuthStore'
 
 export interface AchievementNotificationPayload {
   code: string

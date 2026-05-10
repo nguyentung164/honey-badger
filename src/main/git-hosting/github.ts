@@ -1,7 +1,8 @@
-import l from 'electron-log'
-import { BrowserWindow, net } from 'electron'
 import { Octokit } from '@octokit/rest'
+import { BrowserWindow, net } from 'electron'
+import l from 'electron-log'
 import { IPC } from '../constants'
+import { getGithubToken } from './tokenStore'
 import type {
   BranchCommit,
   CreatePRInput,
@@ -13,13 +14,12 @@ import type {
   PrChangedFile,
   PrConversationEntry,
   PrIssueComment,
-  PullRequestCommit,
   PrRequestedTeam,
   PrReviewResult,
   PrReviewSubmission,
+  PullRequestCommit,
   PullRequestSummary,
 } from './types'
-import { getGithubToken } from './tokenStore'
 
 /** Phi\u00ean b\u1ea3n REST API GitHub (b\u1eaft bu\u1ed9c header X-GitHub-Api-Version v\u1edbi nhi\u1ec1u client). */
 const GITHUB_REST_API_VERSION = '2022-11-28'
@@ -48,7 +48,12 @@ function extractHtmlTitle(html: string): string {
 
 function extractHtmlParagraphs(html: string): string {
   const ps = Array.from(html.matchAll(/<p[^>]*>([\s\S]*?)<\/p>/gi))
-    .map(m => m[1].replace(/<[^>]+>/g, '').replace(/\s+/g, ' ').trim())
+    .map(m =>
+      m[1]
+        .replace(/<[^>]+>/g, '')
+        .replace(/\s+/g, ' ')
+        .trim()
+    )
     .filter(Boolean)
   return ps.join(' | ')
 }
@@ -61,24 +66,15 @@ export function normalizeGithubApiErrorMessage(err: any): string {
   const rawData = err?.response?.data
   const dataStr = typeof rawData === 'string' ? rawData : ''
   const msgLine = String(err?.message || '').trim()
-  const jsonMsg =
-    rawData && typeof rawData === 'object' && typeof rawData.message === 'string'
-      ? rawData.message.trim()
-      : ''
-  const docUrl =
-    rawData && typeof rawData === 'object' && typeof rawData.documentation_url === 'string'
-      ? rawData.documentation_url
-      : ''
+  const jsonMsg = rawData && typeof rawData === 'object' && typeof rawData.message === 'string' ? rawData.message.trim() : ''
+  const docUrl = rawData && typeof rawData === 'object' && typeof rawData.documentation_url === 'string' ? rawData.documentation_url : ''
 
   if (jsonMsg) {
     return status ? `${status} ${jsonMsg}${docUrl ? ` (${docUrl})` : ''}` : jsonMsg
   }
 
   const contentType = getResponseContentType(err)
-  const isHtml =
-    /text\/html/i.test(contentType) ||
-    /<\s*html[\s>]/i.test(dataStr) ||
-    /<\s*p[\s>]/i.test(dataStr)
+  const isHtml = /text\/html/i.test(contentType) || /<\s*html[\s>]/i.test(dataStr) || /<\s*p[\s>]/i.test(dataStr)
 
   if (isHtml && dataStr) {
     const title = extractHtmlTitle(dataStr)
@@ -148,10 +144,7 @@ function isGithubRateLimitError(err: any): boolean {
  * Th\u1eed l\u1ea1i khi GitHub tr\u1ea3 403/429 rate limit (d\u00f9ng X-RateLimit-Reset / Retry-After).
  * M\u1ed7i l\u1ea7n ch\u1edd t\u1ed1i \u0111a ~2 ph\u00fat; t\u1ed5ng t\u1ed1i \u0111a v\u00e0i l\u1ea7n th\u1eed.
  */
-export async function withGithubRateLimitRetry<T>(
-  fn: () => Promise<T>,
-  options?: { maxAttempts?: number; label?: string }
-): Promise<T> {
+export async function withGithubRateLimitRetry<T>(fn: () => Promise<T>, options?: { maxAttempts?: number; label?: string }): Promise<T> {
   const maxAttempts = Math.max(1, options?.maxAttempts ?? 5)
   const label = options?.label ?? 'GitHub'
   let lastErr: unknown
@@ -231,9 +224,7 @@ export type GithubRestRateLimitOverview = {
   graphql: GithubRestResourceLimit | null
 }
 
-function pickResource(
-  r: { limit: number; remaining: number; reset: number; used: number } | null | undefined
-): GithubRestResourceLimit | null {
+function pickResource(r: { limit: number; remaining: number; reset: number; used: number } | null | undefined): GithubRestResourceLimit | null {
   if (!r || typeof r.limit !== 'number') return null
   return {
     limit: r.limit,
@@ -249,13 +240,16 @@ function pickResource(
 export async function fetchGithubRestRateLimit(): Promise<GithubRestRateLimitOverview> {
   const octokit = getClient()
   const { data } = await octokit.request('GET /rate_limit')
-  const resources = (data as { resources?: Record<string, { limit: number; remaining: number; reset: number; used: number }> })
-    .resources
+  const resources = (data as { resources?: Record<string, { limit: number; remaining: number; reset: number; used: number }> }).resources
   if (!resources?.core) {
     throw new Error('Thi\u1ebfu d\u1eef li\u1ec7u rate limit (core) t\u1eeb GitHub.')
   }
+  const core = pickResource(resources.core)
+  if (!core) {
+    throw new Error('D\u1eef li\u1ec7u rate limit (core) t\u1eeb GitHub kh\u00f4ng h\u1ee3p l\u1ec7.')
+  }
   return {
-    core: pickResource(resources.core)!,
+    core,
     search: pickResource(resources.search),
     graphql: pickResource(resources.graphql),
   }
@@ -388,12 +382,7 @@ function mapPrFields(pr: any, opts?: { reviewSubmissions?: PrReviewSubmission[] 
 /**
  * L\u1ea5y to\u00e0n b\u1ed9 n\u1ed9i dung message c\u1ee7a c\u00e1c commit tr\u00ean ref (nh\u00e1nh) \u2014 d\u00f9ng sinh ti\u00eau \u0111\u1ec1 PR theo m\u1eabu.
  */
-export async function githubListRefCommitMessages(
-  owner: string,
-  repo: string,
-  ref: string,
-  maxCommits = 500
-): Promise<string[]> {
+export async function githubListRefCommitMessages(owner: string, repo: string, ref: string, maxCommits = 500): Promise<string[]> {
   const b = ref?.trim()
   if (!b) return []
   const octokit = getClient()
@@ -458,12 +447,7 @@ export const githubClient: IHostingClient = {
     }
   },
 
-  async getPR(
-    owner: string,
-    repo: string,
-    number: number,
-    options?: { includeReviewSubmissions?: boolean }
-  ): Promise<PullRequestSummary> {
+  async getPR(owner: string, repo: string, number: number, options?: { includeReviewSubmissions?: boolean }): Promise<PullRequestSummary> {
     const wantReviews = options?.includeReviewSubmissions !== false
     try {
       return await withGithubRateLimitRetry(
@@ -573,12 +557,7 @@ export const githubClient: IHostingClient = {
     }
   },
 
-  async listBranchCommits(
-    owner: string,
-    repo: string,
-    branch: string,
-    perPage: number = 50
-  ): Promise<BranchCommit[]> {
+  async listBranchCommits(owner: string, repo: string, branch: string, perPage: number = 50): Promise<BranchCommit[]> {
     const b = branch?.trim()
     if (!b) return []
     const octokit = getClient()
@@ -632,9 +611,7 @@ async function fetchPullRequestNodeId(owner: string, repo: string, number: numbe
   const { data } = await octokit.pulls.get({ owner, repo, pull_number: number })
   const nodeId = (data as { node_id?: unknown }).node_id
   if (typeof nodeId !== 'string' || !nodeId.trim()) {
-    throw new Error(
-      'GitHub API kh\u00f4ng tr\u1ea3 node_id cho PR; kh\u00f4ng th\u1ec3 \u0111\u1ed5i tr\u1ea1ng th\u00e1i draft qua GraphQL.'
-    )
+    throw new Error('GitHub API kh\u00f4ng tr\u1ea3 node_id cho PR; kh\u00f4ng th\u1ec3 \u0111\u1ed5i tr\u1ea1ng th\u00e1i draft qua GraphQL.')
   }
   return nodeId.trim()
 }
@@ -643,11 +620,7 @@ async function fetchPullRequestNodeId(owner: string, repo: string, number: numbe
  * B\u1ecf Draft tr\u00ean PR (Ready for review) \u2014 t\u01b0\u01a1ng \u0111\u01b0\u01a1ng n\u00fat \u00abReady for review\u00bb tr\u00ean GitHub.
  * D\u00f9ng GraphQL markPullRequestReadyForReview v\u00ec REST draft:false th\u01b0\u1eddng b\u1ecb GitHub b\u1ecf qua.
  */
-export async function markPullRequestReadyForReview(
-  owner: string,
-  repo: string,
-  number: number
-): Promise<PullRequestSummary> {
+export async function markPullRequestReadyForReview(owner: string, repo: string, number: number): Promise<PullRequestSummary> {
   return withGithubRateLimitRetry(
     async () => {
       const octokit = getClient()
@@ -665,9 +638,7 @@ export async function markPullRequestReadyForReview(
       )
       const readyIsDraft = gql?.markPullRequestReadyForReview?.pullRequest?.isDraft
       if (readyIsDraft !== false) {
-        throw new Error(
-          'GitHub GraphQL kh\u00f4ng x\u00e1c nh\u1eadn PR \u0111\u00e3 s\u1eb5n s\u00e0ng review (markPullRequestReadyForReview).'
-        )
+        throw new Error('GitHub GraphQL kh\u00f4ng x\u00e1c nh\u1eadn PR \u0111\u00e3 s\u1eb5n s\u00e0ng review (markPullRequestReadyForReview).')
       }
       return githubClient.getPR(owner, repo, number)
     },
@@ -679,11 +650,7 @@ export async function markPullRequestReadyForReview(
  * Chuy\u1ec3n PR \u0111ang m\u1edf th\u00e0nh Draft (t\u01b0\u01a1ng t\u1ef1 \u00abConvert to draft\u00bb tr\u00ean GitHub).
  * D\u00f9ng GraphQL convertPullRequestToDraft v\u00ec REST draft:true th\u01b0\u1eddng b\u1ecb GitHub b\u1ecf qua (200 OK nh\u01b0ng kh\u00f4ng \u0111\u1ed5i UI).
  */
-export async function markPullRequestAsDraft(
-  owner: string,
-  repo: string,
-  number: number
-): Promise<PullRequestSummary> {
+export async function markPullRequestAsDraft(owner: string, repo: string, number: number): Promise<PullRequestSummary> {
   return withGithubRateLimitRetry(
     async () => {
       const octokit = getClient()
@@ -701,9 +668,7 @@ export async function markPullRequestAsDraft(
       )
       const isDraft = gql?.convertPullRequestToDraft?.pullRequest?.isDraft
       if (isDraft !== true) {
-        throw new Error(
-          'GitHub GraphQL kh\u00f4ng x\u00e1c nh\u1eadn PR \u0111\u00e3 chuy\u1ec3n sang draft (convertPullRequestToDraft).'
-        )
+        throw new Error('GitHub GraphQL kh\u00f4ng x\u00e1c nh\u1eadn PR \u0111\u00e3 chuy\u1ec3n sang draft (convertPullRequestToDraft).')
       }
       return githubClient.getPR(owner, repo, number)
     },
@@ -760,12 +725,7 @@ function normalizeReviewerLogins(raw: string[]): string[] {
 }
 
 /** Y\u00eau c\u1ea7u reviewer (user login) tr\u00ean PR; b\u1ecf tr\u1ed1ng `team_reviewers` (c\u00f3 th\u1ec3 b\u1ed5 sung sau). */
-export async function requestPullRequestReviewers(
-  owner: string,
-  repo: string,
-  number: number,
-  reviewers: string[]
-): Promise<PullRequestSummary> {
+export async function requestPullRequestReviewers(owner: string, repo: string, number: number, reviewers: string[]): Promise<PullRequestSummary> {
   const list = normalizeReviewerLogins(reviewers)
   if (list.length === 0) {
     throw new Error('Thi\u1ebfu danh s\u00e1ch reviewer (login).')
@@ -812,12 +772,7 @@ export async function listRepositoryAssignees(owner: string, repo: string): Prom
 /**
  * GitHub \u00abUpdate branch\u00bb: merge n\u1ed9i dung base v\u00e0o nh\u00e1nh head (pulls.updateBranch, th\u01b0\u1eddng 202).
  */
-export async function updatePullRequestBranch(
-  owner: string,
-  repo: string,
-  number: number,
-  expectedHeadSha: string | null | undefined
-): Promise<PullRequestSummary> {
+export async function updatePullRequestBranch(owner: string, repo: string, number: number, expectedHeadSha: string | null | undefined): Promise<PullRequestSummary> {
   return withGithubRateLimitRetry(
     async () => {
       const octokit = getClient()
@@ -838,11 +793,7 @@ const MAX_PR_PATCH_DISPLAY_CHARS = 200_000
 /**
  * T\u1ea3i danh s\u00e1ch file v\u00e0 patch (c\u1ea3i thi\u1ec7n) c\u1ee7a PR; c\u1eaft patch qu\u00e1 d\u00e0i \u0111\u1ec3 tr\u00e1nh qu\u00e1 t\u1ea3i b\u1ed9 nh\u1edb.
  */
-export async function listPullRequestFiles(
-  owner: string,
-  repo: string,
-  number: number
-): Promise<PrChangedFile[]> {
+export async function listPullRequestFiles(owner: string, repo: string, number: number): Promise<PrChangedFile[]> {
   return withGithubRateLimitRetry(
     async () => {
       const octokit = getClient()
@@ -856,9 +807,7 @@ export async function listPullRequestFiles(
         const patch: string | null = typeof f.patch === 'string' ? f.patch : null
         const wasTruncated = Boolean(patch && patch.length > MAX_PR_PATCH_DISPLAY_CHARS)
         const truncated =
-          wasTruncated && patch
-            ? `${patch.slice(0, MAX_PR_PATCH_DISPLAY_CHARS)}\n\n[... b\u1ecb c\u1eaft: patch qu\u00e1 d\u00e0i, xem th\u00eam tr\u00ean GitHub ...]`
-            : patch
+          wasTruncated && patch ? `${patch.slice(0, MAX_PR_PATCH_DISPLAY_CHARS)}\n\n[... b\u1ecb c\u1eaft: patch qu\u00e1 d\u00e0i, xem th\u00eam tr\u00ean GitHub ...]` : patch
         return {
           filename: String(f.filename ?? ''),
           status: String(f.status ?? 'modified'),
@@ -887,19 +836,13 @@ export async function listPullRequestFileNames(owner: string, repo: string, numb
         pull_number: number,
         per_page: 100,
       })) as any[]
-      return (raw ?? [])
-        .map((f: any) => String(f?.filename ?? '').trim())
-        .filter(fn => fn.length > 0)
+      return (raw ?? []).map((f: any) => String(f?.filename ?? '').trim()).filter(fn => fn.length > 0)
     },
     { label: `listPullRequestFileNames ${owner}/${repo}#${number}` }
   )
 }
 
-export async function listPullRequestIssueComments(
-  owner: string,
-  repo: string,
-  number: number
-): Promise<PrIssueComment[]> {
+export async function listPullRequestIssueComments(owner: string, repo: string, number: number): Promise<PrIssueComment[]> {
   return withGithubRateLimitRetry(
     async () => {
       const octokit = getClient()
@@ -928,11 +871,7 @@ export async function listPullRequestIssueComments(
  * (duy\u1ec7t / b\u00ecnh lu\u1eadn review) + review comments tr\u00ean t\u1eebng d\u00f2ng (diff). Ch\u1ec9 d\u00f9ng issues.listComments th\u00ec c\u1ea1n
  * c\u1ea3 PR ch\u1ec9 c\u00f3 ho\u1ea1t \u0111\u1ed9ng review, kh\u00f4ng c\u00f3 b\u00ecnh lu\u1eadn issue s\u1eb5n.
  */
-export async function listPullRequestConversation(
-  owner: string,
-  repo: string,
-  number: number
-): Promise<PrConversationEntry[]> {
+export async function listPullRequestConversation(owner: string, repo: string, number: number): Promise<PrConversationEntry[]> {
   return withGithubRateLimitRetry(
     async () => {
       const octokit = getClient()
@@ -1017,12 +956,7 @@ export async function listPullRequestConversation(
   )
 }
 
-export async function createPullRequestIssueComment(
-  owner: string,
-  repo: string,
-  number: number,
-  body: string
-): Promise<PrIssueComment> {
+export async function createPullRequestIssueComment(owner: string, repo: string, number: number, body: string): Promise<PrIssueComment> {
   const octokit = getClient()
   const { data: c } = await octokit.issues.createComment({
     owner,
@@ -1044,13 +978,7 @@ export async function createPullRequestIssueComment(
 /**
  * T\u1ea1o review APPROVE tr\u00ean commit head hi\u1ec7n t\u1ea1i c\u1ee7a PR.
  */
-export async function createPullRequestReviewApproval(
-  owner: string,
-  repo: string,
-  number: number,
-  headSha: string,
-  body?: string
-): Promise<PrReviewResult> {
+export async function createPullRequestReviewApproval(owner: string, repo: string, number: number, headSha: string, body?: string): Promise<PrReviewResult> {
   const sha = (headSha ?? '').trim()
   if (!sha) {
     throw new Error('Thi\u1ebfu head SHA c\u1ee7a PR (commit_id) \u0111\u1ec3 duy\u1ec7t.')
@@ -1063,7 +991,7 @@ export async function createPullRequestReviewApproval(
       pull_number: number,
       commit_id: sha,
       event: 'APPROVE',
-      body: body && body.trim() ? body.trim() : undefined,
+      body: body?.trim() ? body.trim() : undefined,
     })
     return {
       id: Number(data.id) || 0,
@@ -1106,9 +1034,7 @@ export async function githubRemoteBranchExists(owner: string, repo: string, bran
  * `listBranches` (paginate) m\u1ed9t l\u1ea7n r\u1ed3i so t\u1eadn t\u1ea1i t\u00ean nh\u00e1nh.
  * C\u00e1ch n\u00e0y thay cho N l\u1ea7n `getBranch` (tr\u00e1nh rate limit, log/403 spam).
  */
-export async function githubRemoteBranchesExistenceMap(
-  items: { id: string; owner: string; repo: string; branch: string }[]
-): Promise<Record<string, boolean>> {
+export async function githubRemoteBranchesExistenceMap(items: { id: string; owner: string; repo: string; branch: string }[]): Promise<Record<string, boolean>> {
   const out: Record<string, boolean> = {}
   if (!items.length) return out
 
@@ -1164,23 +1090,26 @@ async function githubBranchIsProtectedPerRestApi(owner: string, repo: string, br
   const b = normalizeGithubBranchRefName(branch)
   if (!b) return false
   const octokit = getClient()
-  return withGithubRateLimitRetry(async () => {
-    try {
-      const { data } = await octokit.repos.getBranch({ owner, repo, branch: b })
-      return data.protected === true || data.protection?.enabled === true
-    } catch (err: unknown) {
-      const status = (err as { status?: number })?.status ?? (err as { response?: { status?: number } })?.response?.status
-      if (status === 404) return false
-      throw err
-    }
-  }, { label: `branchProtection ${owner}/${repo}/${b}` })
+  return withGithubRateLimitRetry(
+    async () => {
+      try {
+        const { data } = await octokit.repos.getBranch({ owner, repo, branch: b })
+        return data.protected === true || data.protection?.enabled === true
+      } catch (err: unknown) {
+        const status = (err as { status?: number })?.status ?? (err as { response?: { status?: number } })?.response?.status
+        if (status === 404) return false
+        throw err
+      }
+    },
+    { label: `branchProtection ${owner}/${repo}/${b}` }
+  )
 }
 
 /**
  * Giống {@link githubRemoteBranchesExistenceMap}, thêm map nhánh GitHub coi là protected (`repos.getBranch`.protected hoặc protection.enabled).
  */
 export async function githubRemoteBranchesExistenceAndProtectionMap(
-  items: { id: string; owner: string; repo: string; branch: string }[],
+  items: { id: string; owner: string; repo: string; branch: string }[]
 ): Promise<{ existence: Record<string, boolean>; branchProtected: Record<string, boolean> }> {
   const existence: Record<string, boolean> = {}
   const branchProtected: Record<string, boolean> = {}
@@ -1237,12 +1166,7 @@ export async function githubRemoteBranchesExistenceAndProtectionMap(
  * Xo\u00e1 `refs/heads/<branch>` tr\u00ean GitHub (sau khi \u0111\u00e3 merge).
  * Kh\u00f4ng d\u00f9ng cho nh\u00e1nh m\u1eb7c \u0111\u1ecbnh (main/master/...) ho\u1eb7c c\u00f9ng t\u00ean default branch c\u1ee7a repo.
  */
-export async function githubDeleteRemoteBranch(
-  owner: string,
-  repo: string,
-  branch: string,
-  options?: { defaultBaseBranch?: string | null }
-): Promise<void> {
+export async function githubDeleteRemoteBranch(owner: string, repo: string, branch: string, options?: { defaultBaseBranch?: string | null }): Promise<void> {
   const b = branch?.trim()
   if (!b) {
     throw new Error('Thi\u1ebfu t\u00ean nh\u00e1nh.')
@@ -1277,13 +1201,7 @@ export async function testGithubToken(): Promise<{ ok: boolean; login?: string; 
     const { data } = await octokit.users.getAuthenticated()
     return { ok: true, login: data.login }
   } catch (err: any) {
-    l.warn(
-      'testGithubToken failed:',
-      err?.status,
-      'content-type=',
-      getResponseContentType(err) || '?',
-      normalizeGithubApiErrorMessage(err)
-    )
+    l.warn('testGithubToken failed:', err?.status, 'content-type=', getResponseContentType(err) || '?', normalizeGithubApiErrorMessage(err))
     return { ok: false, error: normalizeGithubApiErrorMessage(err) }
   }
 }

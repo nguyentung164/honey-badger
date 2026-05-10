@@ -28,13 +28,7 @@ import { GitBranchManageDialog } from '@/components/dialogs/git/GitBranchManageD
 import { AIAnalysisHistoryDialog } from '@/components/dialogs/showlog/AIAnalysisHistoryDialog'
 import { Button } from '@/components/ui/button'
 import { Calendar } from '@/components/ui/calendar'
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuSeparator,
-  DropdownMenuTrigger,
-} from '@/components/ui/dropdown-menu'
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from '@/components/ui/dropdown-menu'
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import toast from '@/components/ui-elements/Toast'
@@ -626,11 +620,7 @@ export const ShowlogToolbar: React.FC<ShowlogProps> = ({
                         <Button variant="ghost" size="sm" className="flex items-center gap-1 px-2 py-1 h-7 text-xs">
                           <span className="text-[10px] text-blue-600 dark:text-blue-400 bg-blue-50 dark:bg-blue-900/30 px-1.5 rounded flex items-center gap-0.5 min-w-[4.5rem] justify-center">
                             <GitBranch className="h-2.5 w-2.5 shrink-0" />
-                            {effectiveLogRef ? (
-                              effectiveLogRef
-                            ) : (
-                              <Loader2 className="h-3 w-3 animate-spin" aria-label={t('common.loading')} />
-                            )}
+                            {effectiveLogRef ? effectiveLogRef : <Loader2 className="h-3 w-3 animate-spin" aria-label={t('common.loading')} />}
                           </span>
                           {gitAhead > 0 && <span className="text-green-600 dark:text-green-400"> ↑{gitAhead}</span>}
                           {gitBehind > 0 && <span className="text-red-600 dark:text-red-400"> ↓{gitBehind}</span>}
@@ -680,15 +670,9 @@ export const ShowlogToolbar: React.FC<ShowlogProps> = ({
                               const isCheckout = currentBranch === branch
                               const isLogScope = effectiveLogRef === branch
                               return (
-                                <DropdownMenuItem
-                                  key={branch}
-                                  onClick={() => setTimeout(() => selectLogBranch(branch), 0)}
-                                  className={isLogScope ? 'bg-muted/60' : ''}
-                                >
+                                <DropdownMenuItem key={branch} onClick={() => setTimeout(() => selectLogBranch(branch), 0)} className={isLogScope ? 'bg-muted/60' : ''}>
                                   <GitBranch className={`h-3 w-3 mr-2 shrink-0 ${isCheckout ? 'text-green-600 dark:text-green-400' : ''}`} />
-                                  <span className={`flex-1 truncate ${isLogScope ? 'font-medium' : ''} ${isCheckout ? 'text-green-600 dark:text-green-400' : ''}`}>
-                                    {branch}
-                                  </span>
+                                  <span className={`flex-1 truncate ${isLogScope ? 'font-medium' : ''} ${isCheckout ? 'text-green-600 dark:text-green-400' : ''}`}>{branch}</span>
                                   <div className="ml-2 flex shrink-0 items-center gap-1">
                                     {ahead > 0 && <span className="flex items-center text-[10px] text-green-600 dark:text-green-400">↑{ahead}</span>}
                                     {behind > 0 && <span className="flex items-center text-[10px] text-red-600 dark:text-red-400">↓{behind}</span>}

@@ -5,14 +5,8 @@ import { Button } from '@/components/ui/button'
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Textarea } from '@/components/ui/textarea'
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '@/components/ui/select'
 import { useButtonVariant } from '@/stores/useAppearanceStore'
 
 interface AddOrEditCodingRuleDialogProps {
@@ -42,7 +36,7 @@ export const AddOrEditCodingRuleDialog = memo(function AddOrEditCodingRuleDialog
   isEditMode = false,
   projects = [],
   isAdmin = false,
-  editingRuleId = '',
+  editingRuleId: _editingRuleId = '',
 }: AddOrEditCodingRuleDialogProps) {
   const [errorName, setErrorName] = useState(false)
   const [errorContent, setErrorContent] = useState(false)
@@ -56,7 +50,7 @@ export const AddOrEditCodingRuleDialog = memo(function AddOrEditCodingRuleDialog
       setRuleContent('')
       setErrorName(false)
       setErrorContent(false)
-      setSelectedProjectId(isAdmin ? null : projects[0]?.id ?? null)
+      setSelectedProjectId(isAdmin ? null : (projects[0]?.id ?? null))
     }
   }, [open, isEditMode, setRuleName, setRuleContent, isAdmin, projects])
 
@@ -92,17 +86,12 @@ export const AddOrEditCodingRuleDialog = memo(function AddOrEditCodingRuleDialog
           {!isEditMode && (isAdmin || projects.length > 0) && (
             <div className="space-y-2">
               <Label>{t('dialog.newCodingRule.scope', 'Phạm vi áp dụng')}</Label>
-              <Select
-                value={selectedProjectId ?? '__GLOBAL__'}
-                onValueChange={v => setSelectedProjectId(v === '__GLOBAL__' ? null : v)}
-              >
+              <Select value={selectedProjectId ?? '__GLOBAL__'} onValueChange={v => setSelectedProjectId(v === '__GLOBAL__' ? null : v)}>
                 <SelectTrigger>
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
-                  {isAdmin && (
-                    <SelectItem value="__GLOBAL__">{t('dialog.newCodingRule.scopeAll', 'Toàn bộ dự án')}</SelectItem>
-                  )}
+                  {isAdmin && <SelectItem value="__GLOBAL__">{t('dialog.newCodingRule.scopeAll', 'Toàn bộ dự án')}</SelectItem>}
                   {projects.map(p => (
                     <SelectItem key={p.id} value={p.id}>
                       {p.name}

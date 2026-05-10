@@ -14,11 +14,7 @@ const MAX_REPOS = 25
  * - When selectedSourceFolder is provided (single-repo): use only that folder
  * - Otherwise: use sourceFolderList from store
  */
-export function useGitReposFromSourceFolders(
-  open: boolean,
-  selectedProjectId?: string | null,
-  selectedSourceFolder?: string | null
-) {
+export function useGitReposFromSourceFolders(open: boolean, selectedProjectId?: string | null, selectedSourceFolder?: string | null) {
   const sourceFolderList = useSourceFolderStore(s => s.sourceFolderList)
   const [repos, setRepos] = useState<GitRepoItem[]>([])
   // Khởi tạo loading=true ngay khi open=true để tránh flash "No Git repository found"

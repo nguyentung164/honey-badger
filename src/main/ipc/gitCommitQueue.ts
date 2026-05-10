@@ -2,8 +2,8 @@ import { ipcMain } from 'electron'
 import l from 'electron-log'
 import { IPC } from 'main/constants'
 import { getTokenFromStore, verifyToken } from '../task/auth'
-import { getUserEmailById } from '../task/pgTaskStore'
-import { addToQueue } from '../task/pgGitCommitQueue'
+import { addToQueue } from '../task/stores/pgGitCommitQueue'
+import { getUserEmailById } from '../task/stores/pgTaskStore'
 
 export function registerGitCommitQueueIpcHandlers() {
   l.info('Registering GitCommitQueue IPC Handlers...')

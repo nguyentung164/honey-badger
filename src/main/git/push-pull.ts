@@ -1,14 +1,14 @@
-import path from 'node:path'
 import { spawn } from 'node:child_process'
+import path from 'node:path'
 import type { WebContents } from 'electron'
 import l from 'electron-log'
 import { IPC } from 'main/constants'
 import { sendMail } from 'main/notification/sendMail'
 import { sendTeams } from 'main/notification/sendTeams'
 import type { CommitInfo } from 'main/types/types'
-import { getManyFromQueue as fetchCommitsFromDbQueueByHashes } from '../task/pgGitCommitQueue'
 import { getFromQueue, removeManyFromQueue } from '../store/CommitNotificationQueue'
 import configurationStore from '../store/ConfigurationStore'
+import { getManyFromQueue as fetchCommitsFromDbQueueByHashes } from '../task/stores/pgGitCommitQueue'
 import { updateGitCommitStatus } from '../windows/overlayStateManager'
 import { checkForUpdates } from './check-updates'
 import { formatGitError, getGitInstance } from './utils'
@@ -48,9 +48,7 @@ async function getPushedCommitHashes(git: Awaited<ReturnType<typeof getGitInstan
         /* thử base tiếp */
       }
     }
-    l.warn(
-      `getPushedCommitHashes: no remote base for ${trackingRef}; only notifying HEAD (avoid full-branch rev-list mail spam)`
-    )
+    l.warn(`getPushedCommitHashes: no remote base for ${trackingRef}; only notifying HEAD (avoid full-branch rev-list mail spam)`)
     try {
       const head = (await git.revparse(['HEAD'])).trim()
       return head ? [head] : []
@@ -61,12 +59,7 @@ async function getPushedCommitHashes(git: Awaited<ReturnType<typeof getGitInstan
 }
 
 /** Build CommitInfo từ commit hash (khi không có trong queue, ví dụ app restart trước khi push) */
-async function buildCommitInfoFromHash(
-  git: Awaited<ReturnType<typeof getGitInstance>>,
-  commitHash: string,
-  branchName?: string,
-  cwd?: string
-): Promise<CommitInfo | null> {
+async function buildCommitInfoFromHash(git: Awaited<ReturnType<typeof getGitInstance>>, commitHash: string, branchName?: string, cwd?: string): Promise<CommitInfo | null> {
   if (!git) return null
   try {
     const [logOutput, nameStatusOutput, shortStatOutput] = await Promise.all([
@@ -198,9 +191,7 @@ export async function push(
       }
       const hashesWithoutQueue = commitHashes.filter(h => !(commitQueueData?.[h] ?? getFromQueue(h)))
       const allowBuildFromGit = new Set(
-        hashesWithoutQueue.length <= MAX_NOTIFICATIONS_BUILT_FROM_GIT_PER_PUSH
-          ? hashesWithoutQueue
-          : hashesWithoutQueue.slice(-MAX_NOTIFICATIONS_BUILT_FROM_GIT_PER_PUSH)
+        hashesWithoutQueue.length <= MAX_NOTIFICATIONS_BUILT_FROM_GIT_PER_PUSH ? hashesWithoutQueue : hashesWithoutQueue.slice(-MAX_NOTIFICATIONS_BUILT_FROM_GIT_PER_PUSH)
       )
       if (hashesWithoutQueue.length > MAX_NOTIFICATIONS_BUILT_FROM_GIT_PER_PUSH) {
         l.warn(
@@ -250,13 +241,7 @@ export interface PullOptions {
   rebase?: boolean
 }
 
-export async function pull(
-  remote: string = 'origin',
-  branch?: string,
-  options?: PullOptions,
-  sender?: WebContents,
-  cwdOverride?: string
-): Promise<GitPushPullResponse> {
+export async function pull(remote: string = 'origin', branch?: string, options?: PullOptions, sender?: WebContents, cwdOverride?: string): Promise<GitPushPullResponse> {
   try {
     const cwd = cwdOverride ?? configurationStore.store.sourceFolder
     if (!cwd) {
@@ -339,11 +324,7 @@ export async function pull(
  * Chạy trong `cwd` duy nhất — không ảnh hưởng repo khác; không dùng `fetch --all` hay `pull` mặc định.
  * Không checkout — cập nhật ref local, HEAD/worktree giữ nguyên nếu đang ở nhánh khác.
  */
-export async function fetchUpdateLocalBranch(
-  remote: string = 'origin',
-  branch: string,
-  cwdOverride?: string
-): Promise<GitPushPullResponse> {
+export async function fetchUpdateLocalBranch(remote: string = 'origin', branch: string, cwdOverride?: string): Promise<GitPushPullResponse> {
   try {
     const cwd = cwdOverride ?? configurationStore.store.sourceFolder
     if (!cwd) {
@@ -378,12 +359,7 @@ export interface FetchOptions {
   all?: boolean
 }
 
-export async function fetch(
-  remote: string = 'origin',
-  options?: FetchOptions,
-  sender?: WebContents,
-  cwdOverride?: string
-): Promise<GitPushPullResponse> {
+export async function fetch(remote: string = 'origin', options?: FetchOptions, sender?: WebContents, cwdOverride?: string): Promise<GitPushPullResponse> {
   const opts = options ?? {}
 
   try {

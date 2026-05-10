@@ -1,7 +1,7 @@
 import { parseISO } from 'date-fns'
 import { randomUuidV7 } from 'shared/randomUuidV7'
-import { query, withTransaction } from './db'
-import { dbValueToCalendarYmd } from './calendarDate'
+import { dbValueToCalendarYmd } from '../calendarDate'
+import { query, withTransaction } from '../schema/db'
 import { getProjectMembers } from './pgTaskStore'
 import { upsertActualWorkHoursInTransaction } from './pgWorkloadStore'
 
@@ -117,7 +117,7 @@ function deriveVcsTypeFromCommits(selectedCommits: SelectedCommit[] | null): str
 }
 
 async function loadSelectedSourceFoldersForReport(dailyReportId: string): Promise<SelectedSourceFolderRef[]> {
-  const rows = await query<{ id: string; source_folder_path: string; source_folder_name: string | null; sort_order: number }[]>(
+  const rows = await query<{ id: string; source_folder_path: string; source_folder_name: string | null; sort_order: number }>(
     `SELECT upsf.id, upsf.source_folder_path, upsf.source_folder_name, drsf.sort_order
      FROM daily_report_source_folders drsf
      JOIN user_project_source_folder upsf ON upsf.id = drsf.user_project_source_folder_id
@@ -145,7 +145,7 @@ export async function saveDailyReport(userId: string, input: DailyReportInput): 
   }
   if (folderIdsOrdered.length > 0) {
     const placeholders = folderIdsOrdered.map(() => '?').join(',')
-    const rows = await query<{ id: string; project_id: string }[]>(`SELECT id, project_id FROM user_project_source_folder WHERE user_id = ? AND id IN (${placeholders})`, [
+    const rows = await query<{ id: string; project_id: string }>(`SELECT id, project_id FROM user_project_source_folder WHERE user_id = ? AND id IN (${placeholders})`, [
       userId,
       ...folderIdsOrdered,
     ])
@@ -165,7 +165,7 @@ export async function saveDailyReport(userId: string, input: DailyReportInput): 
   const selectedCommitsJson = JSON.stringify(input.selectedCommits)
   const projectIdsJson = projectIds.length > 0 ? JSON.stringify(projectIds) : null
 
-  await withTransaction(async txQuery => {
+  await withTransaction(async (txQuery, _txExec) => {
     const existingRows = (await txQuery('SELECT id FROM daily_reports WHERE user_id = ? AND report_date = ?::date LIMIT 1', [userId, input.reportDate])) as {
       id: string
     }[]
@@ -194,35 +194,31 @@ export async function saveDailyReport(userId: string, input: DailyReportInput): 
       sortOrder += 1
     }
 
-    const reportDateKey = String(input.reportDate || '').trim().slice(0, 10)
+    const reportDateKey = String(input.reportDate || '')
+      .trim()
+      .slice(0, 10)
     const hpp = input.hoursPerProject
     if (hpp && /^\d{4}-\d{2}-\d{2}$/.test(reportDateKey)) {
       for (const pid of projectIds) {
         if (!Object.hasOwn(hpp, pid)) continue
         const raw = hpp[pid]
-        await upsertActualWorkHoursInTransaction(
-          txQuery,
-          { projectId: pid, userId, workDate: reportDateKey, actualWorkHours: raw ?? null },
-          userId
-        )
+        await upsertActualWorkHoursInTransaction(txQuery, { projectId: pid, userId, workDate: reportDateKey, actualWorkHours: raw ?? null }, userId)
       }
     }
   })
 }
 
 export async function getDailyReportByUserAndDate(userId: string, reportDate: string): Promise<DailyReportRecord | null> {
-  const rows = await query<
-    {
-      id: string
-      user_id: string
-      project_ids: string | unknown[] | null
-      report_date: string
-      work_description: string | null
-      selected_commits: string | unknown[] | null
-      created_at: string
-      updated_at: string
-    }[]
-  >('SELECT id, user_id, project_ids, report_date, work_description, selected_commits, created_at, updated_at FROM daily_reports WHERE user_id = ? AND report_date = ? LIMIT 1', [
+  const rows = await query<{
+    id: string
+    user_id: string
+    project_ids: string | unknown[] | null
+    report_date: string
+    work_description: string | null
+    selected_commits: string | unknown[] | null
+    created_at: string
+    updated_at: string
+  }>('SELECT id, user_id, project_ids, report_date, work_description, selected_commits, created_at, updated_at FROM daily_reports WHERE user_id = ? AND report_date = ? LIMIT 1', [
     userId,
     reportDate,
   ])
@@ -238,7 +234,7 @@ export async function getDailyReportByUserAndDate(userId: string, reportDate: st
   let hoursPerProject: Record<string, number> | undefined
   if (resolvedProjectIds.length > 0) {
     const ph = resolvedProjectIds.map(() => '?').join(',')
-    const hw = await query<{ project_id: string; actual_work_hours: unknown }[]>(
+    const hw = await query<{ project_id: string; actual_work_hours: unknown }>(
       `SELECT project_id, actual_work_hours FROM project_user_daily_workload WHERE user_id = ? AND work_date = ?::date AND project_id IN (${ph})`,
       [userId, r.report_date, ...resolvedProjectIds]
     )
@@ -294,7 +290,7 @@ async function getProjectNamesByIds(ids: string[]): Promise<Map<string, string>>
   if (ids.length === 0) return map
   const distinct = [...new Set(ids)]
   const placeholders = distinct.map(() => '?').join(',')
-  const rows = await query<{ id: string; name: string }[]>(`SELECT id, name FROM projects WHERE id IN (${placeholders})`, distinct)
+  const rows = await query<{ id: string; name: string }>(`SELECT id, name FROM projects WHERE id IN (${placeholders})`, distinct)
   if (Array.isArray(rows)) {
     for (const row of rows) {
       map.set(row.id, row.name ?? row.id)
@@ -321,20 +317,18 @@ export async function listDailyReportsForPl(reportDate: string, projectId?: stri
   }
   sql += ' ORDER BY u.name ASC'
 
-  const rows = await query<
-    {
-      id: string
-      user_id: string
-      user_name: string
-      user_code: string
-      project_ids: string | unknown[] | null
-      report_date: string
-      work_description: string | null
-      selected_commits: string | unknown[] | null
-      created_at: string
-      rep_source_folder_path: string | null
-    }[]
-  >(sql, params)
+  const rows = await query<{
+    id: string
+    user_id: string
+    user_name: string
+    user_code: string
+    project_ids: string | unknown[] | null
+    report_date: string
+    work_description: string | null
+    selected_commits: string | unknown[] | null
+    created_at: string
+    rep_source_folder_path: string | null
+  }>(sql, params)
 
   if (!Array.isArray(rows)) return []
 
@@ -392,20 +386,18 @@ export async function listDailyReportsForPlByDateRange(dateFrom: string, dateTo:
   }
   sql += ' ORDER BY dr.report_date DESC, u.name ASC'
 
-  const rows = await query<
-    {
-      id: string
-      user_id: string
-      user_name: string
-      user_code: string
-      project_ids: string | unknown[] | null
-      report_date: string
-      work_description: string | null
-      selected_commits: string | unknown[] | null
-      created_at: string
-      rep_source_folder_path: string | null
-    }[]
-  >(sql, params)
+  const rows = await query<{
+    id: string
+    user_id: string
+    user_name: string
+    user_code: string
+    project_ids: string | unknown[] | null
+    report_date: string
+    work_description: string | null
+    selected_commits: string | unknown[] | null
+    created_at: string
+    rep_source_folder_path: string | null
+  }>(sql, params)
 
   if (!Array.isArray(rows)) return []
 
@@ -478,16 +470,14 @@ export async function getDailyReportHistoryByUser(userId: string, dateFrom: stri
     sql += ` OFFSET ${offsetNum}`
   }
 
-  const rows = await query<
-    {
-      id: string
-      report_date: string
-      project_ids: string | unknown[] | null
-      work_description: string | null
-      selected_commits: string | unknown[] | null
-      created_at: string
-    }[]
-  >(sql, params)
+  const rows = await query<{
+    id: string
+    report_date: string
+    project_ids: string | unknown[] | null
+    work_description: string | null
+    selected_commits: string | unknown[] | null
+    created_at: string
+  }>(sql, params)
 
   if (!Array.isArray(rows)) return []
 
@@ -545,7 +535,7 @@ export async function getReportStatistics(reportDate: string, projectId: string)
   const members = await getProjectMembers(projectId)
   const devs = members.devs
 
-  const projRows = await query<{ name: string }[]>('SELECT name FROM projects WHERE id = ? LIMIT 1', [projectId])
+  const projRows = await query<{ name: string }>('SELECT name FROM projects WHERE id = ? LIMIT 1', [projectId])
   const projectName = projRows?.[0]?.name ?? null
 
   if (devs.length === 0) {
@@ -576,7 +566,7 @@ export async function getReportStatistics(reportDate: string, projectId: string)
 
   const devIds = devs.map(d => d.userId)
   const placeholders = devIds.map(() => '?').join(',')
-  const reportRows = await query<{ user_id: string; report_date: string }[]>(
+  const reportRows = await query<{ user_id: string; report_date: string }>(
     `SELECT user_id, report_date FROM daily_reports
      WHERE user_id IN (${placeholders}) AND report_date BETWEEN ?::date AND ?::date
      AND ${sqlProjectIdsContains('project_ids')}`,
@@ -650,7 +640,7 @@ export async function getReportStatisticsByDateRange(dateFrom: string, dateTo: s
   const members = await getProjectMembers(projectId)
   const devs = members.devs
 
-  const projRows = await query<{ name: string }[]>('SELECT name FROM projects WHERE id = ? LIMIT 1', [projectId])
+  const projRows = await query<{ name: string }>('SELECT name FROM projects WHERE id = ? LIMIT 1', [projectId])
   const projectName = projRows?.[0]?.name ?? null
 
   if (devs.length === 0) {
@@ -673,7 +663,7 @@ export async function getReportStatisticsByDateRange(dateFrom: string, dateTo: s
 
   const devIds = devs.map(d => d.userId)
   const placeholders = devIds.map(() => '?').join(',')
-  const reportRows = await query<{ user_id: string; report_date: string }[]>(
+  const reportRows = await query<{ user_id: string; report_date: string }>(
     `SELECT user_id, report_date FROM daily_reports
      WHERE user_id IN (${placeholders}) AND report_date BETWEEN ?::date AND ?::date
      AND ${sqlProjectIdsContains('project_ids')}`,

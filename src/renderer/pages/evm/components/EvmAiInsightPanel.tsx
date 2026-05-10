@@ -95,10 +95,7 @@ export function EvmAiInsightPanel({ activeTab }: { activeTab: EVMTabId }) {
   const nonWorkingDays = useMemo(() => master.nonWorkingDays.map(n => n.date), [master.nonWorkingDays])
 
   const hpd = master.hoursPerDay ?? DEFAULT_EVM_HOURS_PER_DAY
-  const metrics = useMemo(
-    () => computeEVMMetrics({ project, wbs, ac, hoursPerDay: hpd, nonWorkingDays, wbsDayUnits }),
-    [project, wbs, ac, hpd, nonWorkingDays, wbsDayUnits]
-  )
+  const metrics = useMemo(() => computeEVMMetrics({ project, wbs, ac, hoursPerDay: hpd, nonWorkingDays, wbsDayUnits }), [project, wbs, ac, hpd, nonWorkingDays, wbsDayUnits])
 
   const filteredWbs = useMemo(() => {
     let list = wbs

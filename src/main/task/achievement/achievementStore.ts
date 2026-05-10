@@ -1,5 +1,5 @@
 import { randomUuidV7 } from 'shared/randomUuidV7'
-import { hasDbConfig, query, withTransaction } from './db'
+import { hasDbConfig, query, withTransaction } from '../schema/db'
 
 export interface UserStats {
   user_id: string
@@ -59,17 +59,14 @@ export interface UserBadgeDisplayRow {
 
 export async function getUserStats(userId: string): Promise<UserStats | null> {
   if (!hasDbConfig()) return null
-  const rows = await query<UserStats[]>('SELECT * FROM user_stats WHERE user_id = ?', [userId])
+  const rows = await query<UserStats>('SELECT * FROM user_stats WHERE user_id = ?', [userId])
   return Array.isArray(rows) && rows.length > 0 ? rows[0] : null
 }
 
 export async function ensureUserStats(userId: string): Promise<UserStats> {
   const existing = await getUserStats(userId)
   if (existing) return existing
-  await query(
-    'INSERT INTO user_stats (user_id) VALUES (?) ON CONFLICT (user_id) DO NOTHING',
-    [userId]
-  )
+  await query('INSERT INTO user_stats (user_id) VALUES (?) ON CONFLICT (user_id) DO NOTHING', [userId])
   const stats = await getUserStats(userId)
   if (!stats) throw new Error(`Failed to ensure user_stats for ${userId}`)
   return stats
@@ -79,22 +76,43 @@ export async function incrementUserStat(userId: string, field: keyof UserStats, 
   if (!hasDbConfig()) return
   if (!ALLOWED_STAT_FIELDS.has(field)) return
   await ensureUserStats(userId)
-  await query(
-    `UPDATE user_stats SET ${field} = ${field} + ?, updated_at = NOW() WHERE user_id = ?`,
-    [amount, userId]
-  )
+  await query(`UPDATE user_stats SET ${field} = ${field} + ?, updated_at = NOW() WHERE user_id = ?`, [amount, userId])
 }
 
 const ALLOWED_STAT_FIELDS = new Set<string>([
-  'xp', 'current_rank', 'current_streak_days', 'current_report_streak_days',
-  'last_activity_date', 'total_tasks_done', 'total_tasks_created', 'total_commits',
-  'total_pushes', 'total_merges', 'total_branches_created', 'total_stashes',
-  'total_rebases', 'total_reviews', 'total_reports', 'total_spotbugs_clean',
-  'total_spotbugs_fails', 'total_files_committed', 'total_insertions',
-  'total_coding_rules_created', 'total_tasks_on_time', 'total_tasks_early', 'total_tasks_late',
-  'total_tasks_bug_done', 'total_tasks_feature_done', 'total_tasks_critical_done',
-  'consecutive_no_review_days', 'consecutive_no_report_days', 'consecutive_spotbugs_fails',
-  'last_commit_date', 'last_review_date', 'last_report_date', 'last_negative_check_date',
+  'xp',
+  'current_rank',
+  'current_streak_days',
+  'current_report_streak_days',
+  'last_activity_date',
+  'total_tasks_done',
+  'total_tasks_created',
+  'total_commits',
+  'total_pushes',
+  'total_merges',
+  'total_branches_created',
+  'total_stashes',
+  'total_rebases',
+  'total_reviews',
+  'total_reports',
+  'total_spotbugs_clean',
+  'total_spotbugs_fails',
+  'total_files_committed',
+  'total_insertions',
+  'total_coding_rules_created',
+  'total_tasks_on_time',
+  'total_tasks_early',
+  'total_tasks_late',
+  'total_tasks_bug_done',
+  'total_tasks_feature_done',
+  'total_tasks_critical_done',
+  'consecutive_no_review_days',
+  'consecutive_no_report_days',
+  'consecutive_spotbugs_fails',
+  'last_commit_date',
+  'last_review_date',
+  'last_report_date',
+  'last_negative_check_date',
 ])
 
 export async function updateUserStats(userId: string, updates: Partial<UserStats>): Promise<void> {
@@ -103,27 +121,18 @@ export async function updateUserStats(userId: string, updates: Partial<UserStats
   if (fields.length === 0) return
   const setClause = fields.map(f => `${f} = ?`).join(', ')
   const values = fields.map(f => (updates as Record<string, unknown>)[f])
-  await query(
-    `UPDATE user_stats SET ${setClause}, updated_at = NOW() WHERE user_id = ?`,
-    [...values, userId]
-  )
+  await query(`UPDATE user_stats SET ${setClause}, updated_at = NOW() WHERE user_id = ?`, [...values, userId])
 }
 
 export async function getUserAchievements(userId: string): Promise<UserAchievementRow[]> {
   if (!hasDbConfig()) return []
-  const rows = await query<UserAchievementRow[]>(
-    'SELECT * FROM user_achievements WHERE user_id = ? ORDER BY first_earned_at ASC',
-    [userId]
-  )
+  const rows = await query<UserAchievementRow>('SELECT * FROM user_achievements WHERE user_id = ? ORDER BY first_earned_at ASC', [userId])
   return Array.isArray(rows) ? rows : []
 }
 
 export async function getUserAchievement(userId: string, code: string): Promise<UserAchievementRow | null> {
   if (!hasDbConfig()) return null
-  const rows = await query<UserAchievementRow[]>(
-    'SELECT * FROM user_achievements WHERE user_id = ? AND achievement_code = ?',
-    [userId, code]
-  )
+  const rows = await query<UserAchievementRow>('SELECT * FROM user_achievements WHERE user_id = ? AND achievement_code = ?', [userId, code])
   return Array.isArray(rows) && rows.length > 0 ? rows[0] : null
 }
 
@@ -136,16 +145,9 @@ export async function getUserAchievement(userId: string, code: string): Promise<
  * @param prefetchedExisting Row đã biết từ DB, hoặc bỏ qua (undefined) để tự SELECT.
  *   Chỉ truyền `null` khi đã gọi getUserAchievement và chắc chắn không có row — không dùng `null` cho Map.get thiếu key (phải là undefined).
  */
-export async function awardAchievement(
-  userId: string,
-  achievementCode: string,
-  isRepeatable: boolean,
-  prefetchedExisting?: UserAchievementRow | null
-): Promise<boolean> {
+export async function awardAchievement(userId: string, achievementCode: string, isRepeatable: boolean, prefetchedExisting?: UserAchievementRow | null): Promise<boolean> {
   if (!hasDbConfig()) return false
-  const existing = prefetchedExisting !== undefined
-    ? prefetchedExisting
-    : await getUserAchievement(userId, achievementCode)
+  const existing = prefetchedExisting !== undefined ? prefetchedExisting : await getUserAchievement(userId, achievementCode)
   if (!existing) {
     const id = randomUuidV7()
     await query(
@@ -156,10 +158,7 @@ export async function awardAchievement(
     return true
   }
   if (isRepeatable) {
-    await query(
-      `UPDATE user_achievements SET earned_count = earned_count + 1, last_earned_at = NOW() WHERE user_id = ? AND achievement_code = ?`,
-      [userId, achievementCode]
-    )
+    await query(`UPDATE user_achievements SET earned_count = earned_count + 1, last_earned_at = NOW() WHERE user_id = ? AND achievement_code = ?`, [userId, achievementCode])
     return true
   }
   return false
@@ -167,31 +166,22 @@ export async function awardAchievement(
 
 export async function markAchievementRedeemed(userId: string, achievementCode: string): Promise<void> {
   if (!hasDbConfig()) return
-  await query(
-    'UPDATE user_achievements SET is_redeemed = TRUE WHERE user_id = ? AND achievement_code = ?',
-    [userId, achievementCode]
-  )
+  await query('UPDATE user_achievements SET is_redeemed = TRUE WHERE user_id = ? AND achievement_code = ?', [userId, achievementCode])
 }
 
 export async function getUserBadgeDisplay(userId: string): Promise<UserBadgeDisplayRow[]> {
   if (!hasDbConfig()) return []
-  const rows = await query<UserBadgeDisplayRow[]>(
-    'SELECT * FROM user_badge_display WHERE user_id = ? ORDER BY display_order ASC',
-    [userId]
-  )
+  const rows = await query<UserBadgeDisplayRow>('SELECT * FROM user_badge_display WHERE user_id = ? ORDER BY display_order ASC', [userId])
   return Array.isArray(rows) ? rows : []
 }
 
 export async function setUserBadgeDisplay(userId: string, codes: string[]): Promise<void> {
   if (!hasDbConfig()) return
   const limited = codes.slice(0, 3)
-  await withTransaction(async (txQuery) => {
+  await withTransaction(async (txQuery, _txExec) => {
     await txQuery('DELETE FROM user_badge_display WHERE user_id = ?', [userId])
     for (let i = 0; i < limited.length; i++) {
-      await txQuery(
-        'INSERT INTO user_badge_display (user_id, achievement_code, display_order) VALUES (?, ?, ?)',
-        [userId, limited[i], i]
-      )
+      await txQuery('INSERT INTO user_badge_display (user_id, achievement_code, display_order) VALUES (?, ?, ?)', [userId, limited[i], i])
     }
   })
 }
@@ -210,7 +200,7 @@ export interface LeaderboardEntry {
 export async function getLeaderboard(limit = 20): Promise<LeaderboardEntry[]> {
   if (!hasDbConfig()) return []
   const safeLimit = Math.min(Math.max(1, Number(limit) || 20), 100)
-  const rows = await query<LeaderboardEntry[]>(
+  const rows = await query<LeaderboardEntry>(
     `SELECT u.id AS user_id, u.name, u.user_code,
             COALESCE(us.xp, 0) AS xp,
             COALESCE(us.current_rank, 'newbie') AS current_rank,
@@ -243,7 +233,7 @@ export async function getLeaderboardByProject(projectId: string | null, limit = 
   if (!hasDbConfig()) return []
   if (!projectId) return getLeaderboard(limit)
   const safeLimit = Math.min(Math.max(1, Number(limit) || 20), 100)
-  const rows = await query<LeaderboardEntry[]>(
+  const rows = await query<LeaderboardEntry>(
     `SELECT DISTINCT u.id AS user_id, u.name, u.user_code,
             COALESCE(us.xp, 0) AS xp,
             COALESCE(us.current_rank, 'newbie') AS current_rank,
@@ -283,8 +273,8 @@ export interface AchievementRarityData {
 export async function getAchievementRarities(): Promise<AchievementRarityData> {
   if (!hasDbConfig()) return { totalUsers: 0, rarities: {} }
   const [totalRes, rarityRows] = await Promise.all([
-    query<{ total: number }[]>('SELECT COUNT(*) as total FROM users'),
-    query<{ code: string; earned_count: number }[]>(
+    query<{ total: number }>('SELECT COUNT(*) as total FROM users'),
+    query<{ code: string; earned_count: number }>(
       `SELECT achievement_code as code, COUNT(DISTINCT user_id) as earned_count
        FROM user_achievements
        GROUP BY achievement_code`
@@ -302,17 +292,14 @@ export async function getAchievementRarities(): Promise<AchievementRarityData> {
 
 export async function getAllStatUserIds(): Promise<string[]> {
   if (!hasDbConfig()) return []
-  const rows = await query<{ user_id: string }[]>('SELECT user_id FROM user_stats')
+  const rows = await query<{ user_id: string }>('SELECT user_id FROM user_stats')
   return Array.isArray(rows) ? rows.map(r => r.user_id) : []
 }
 
 /** User chưa chạy daily negative trong `today` (YYYY-MM-DD). Một query, tối ưu mở app. */
 export async function getUserIdsNeedingNegativeCheck(today: string): Promise<string[]> {
   if (!hasDbConfig()) return []
-  const rows = await query<{ user_id: string }[]>(
-    'SELECT user_id FROM user_stats WHERE last_negative_check_date IS NULL OR last_negative_check_date < ?',
-    [today]
-  )
+  const rows = await query<{ user_id: string }>('SELECT user_id FROM user_stats WHERE last_negative_check_date IS NULL OR last_negative_check_date < ?', [today])
   return Array.isArray(rows) ? rows.map(r => r.user_id) : []
 }
 
@@ -340,9 +327,7 @@ export function invalidateAchievementDefsCache(): void {
 export async function getAllAchievementDefs(): Promise<AchievementDefRow[]> {
   if (!hasDbConfig()) return []
   if (_defsCache) return _defsCache
-  const rows = await query<AchievementDefRow[]>(
-    'SELECT * FROM achievements ORDER BY sort_order ASC'
-  )
+  const rows = await query<AchievementDefRow>('SELECT * FROM achievements ORDER BY sort_order ASC')
   _defsCache = Array.isArray(rows) ? rows : []
   return _defsCache
 }

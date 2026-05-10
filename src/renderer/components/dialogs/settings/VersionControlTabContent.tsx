@@ -1,22 +1,6 @@
 'use client'
 
-import {
-  Download,
-  Folder,
-  FolderGit2,
-  GitBranch,
-  Key,
-  LayoutGrid,
-  Link2,
-  Loader2,
-  Pencil,
-  Plus,
-  RefreshCw,
-  Save,
-  Settings,
-  Trash2,
-  User,
-} from 'lucide-react'
+import { Download, Folder, FolderGit2, GitBranch, Key, LayoutGrid, Link2, Loader2, Pencil, Plus, RefreshCw, Save, Settings, Trash2, User } from 'lucide-react'
 import { memo, useCallback, useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { GitCloneDialog } from '@/components/dialogs/git/GitCloneDialog'
@@ -106,8 +90,7 @@ export const VersionControlTabContent = memo(function VersionControlTabContent({
   const isLoggedIn = !!user
   const effectiveMultiRepo = multiRepoEnabled && isLoggedIn
   /** Git / detection: multi-repo nhưng chưa chọn project — không dùng sourceFolder single còn trong config. */
-  const versionControlInfoFolder =
-    versionControlSystem === 'git' && effectiveMultiRepo && !draftProjectId?.trim() ? '' : sourceFolder || ''
+  const versionControlInfoFolder = versionControlSystem === 'git' && effectiveMultiRepo && !draftProjectId?.trim() ? '' : sourceFolder || ''
   const sourceFolderList = useSourceFolderStore(s => s.sourceFolderList)
   const loadSourceFolderConfig = useSourceFolderStore(s => s.loadSourceFolderConfig)
   const [projectList, setProjectList] = useState<{ id: string; name: string }[]>([])
@@ -220,8 +203,7 @@ export const VersionControlTabContent = memo(function VersionControlTabContent({
   }, [sourceFolder, sourceFolderList])
 
   const sectionTriggerClass = 'hover:no-underline py-3 px-1 sm:px-2 items-center [&>svg:last-child]:self-center'
-  const showGitHooksAccordionItem =
-    versionControlSystem === 'git' && (effectiveMultiRepo ? !!draftProjectId?.trim() : !!sourceFolder?.trim())
+  const showGitHooksAccordionItem = versionControlSystem === 'git' && (effectiveMultiRepo ? !!draftProjectId?.trim() : !!sourceFolder?.trim())
 
   return (
     <>
@@ -248,133 +230,133 @@ export const VersionControlTabContent = memo(function VersionControlTabContent({
                   </span>
                 </AccordionTrigger>
                 <AccordionContent className="space-y-4 px-1 pb-4 pt-0 sm:px-2">
-            {versionControlSystem === 'git' && isLoggedIn && (
-              <div className="flex items-center justify-between rounded-lg border bg-muted/20 px-3 py-2">
-                <Label htmlFor="multi-repo-workspace" className="flex items-center gap-2 cursor-pointer font-medium text-sm">
-                  <LayoutGrid className="w-4 h-4 text-muted-foreground" />
-                  {t('settings.versioncontrol.multiRepoWorkspace')}
-                </Label>
-                <Switch id="multi-repo-workspace" checked={multiRepoEnabled} onCheckedChange={checked => onSetConfigDeferred('multiRepoEnabled', checked)} />
-              </div>
-            )}
-
-            {effectiveMultiRepo && versionControlSystem === 'git' ? (
-              <div className="space-y-2">
-                <Label className="text-sm font-medium flex items-center gap-2">
-                  <FolderGit2 className="w-4 h-4 text-muted-foreground" />
-                  {t('settings.versioncontrol.multiRepoByProjectTitle', 'Repo theo Project')}
-                </Label>
-                <div className="flex items-center gap-2">
-                  <Combobox
-                    value={draftProjectId ?? ''}
-                    onValueChange={v => setDraftProjectId(v?.trim() ? v : null)}
-                    options={projectList.map(p => ({ value: p.id, label: p.name }))}
-                    placeholder={projectsLoading ? t('common.loading', 'Đang tải ...') : t('settings.versioncontrol.multiRepoSelectProject', 'Chọn Project')}
-                    emptyText={t('settings.versioncontrol.multiRepoNoProjects', 'Chưa có Project. Đăng nhập Task để xem danh sách.')}
-                    size="sm"
-                    className="w-full"
-                    disabled={projectsLoading}
-                  />
-                  <Tooltip>
-                    <TooltipTrigger asChild>
-                      <Button variant={buttonVariant} size="icon-sm" onClick={handleOpenFoldersByProject}>
-                        <Folder className="h-4 w-4" />
-                      </Button>
-                    </TooltipTrigger>
-                    <TooltipContent>{t('settings.versioncontrol.foldersByProject', 'Source Folders by Project')}</TooltipContent>
-                  </Tooltip>
-                  <Tooltip>
-                    <TooltipTrigger asChild>
-                      <Button variant={buttonVariant} size="icon-sm" onClick={() => setUnlinkedDialogOpen(true)}>
-                        <Link2 className="h-4 w-4" />
-                      </Button>
-                    </TooltipTrigger>
-                    <TooltipContent>{t('settings.versioncontrol.unlinkedFolders', 'Source Folders not linked to project')}</TooltipContent>
-                  </Tooltip>
-                </div>
-              </div>
-            ) : (
-              <div id="settings-source-folder" className="space-y-4">
-                <div className="space-y-2">
-                  <Label className="text-sm font-medium flex items-center gap-2">
-                    <Folder className="w-4 h-4 text-muted-foreground" />
-                    {t('settings.versioncontrol.sourceFolder', 'Source Folder')}
-                  </Label>
-                  <div className="flex items-center justify-between gap-2">
-                    <Combobox
-                      value={sourceFolder}
-                      onValueChange={value => onSetConfigDeferred('sourceFolder', value)}
-                      options={sourceFolderList.map(folder => ({ value: folder.path, label: folder.name }))}
-                      placeholder="Select Source Folder"
-                      size="sm"
-                      className="w-full"
-                    />
-
-                    <div className="flex gap-2">
-                      {versionControlSystem === 'git' && (
-                        <>
-                          <Tooltip>
-                            <TooltipTrigger asChild>
-                              <Button variant={buttonVariant} size="icon-sm" onClick={() => setShowGitCloneDialog(true)}>
-                                <Download className="h-4 w-4" />
-                              </Button>
-                            </TooltipTrigger>
-                            <TooltipContent>{t('git.clone.title')}</TooltipContent>
-                          </Tooltip>
-                          <Tooltip>
-                            <TooltipTrigger asChild>
-                              <Button variant={buttonVariant} size="icon-sm" onClick={() => setShowGitInitDialog(true)}>
-                                <GitBranch className="h-4 w-4" />
-                              </Button>
-                            </TooltipTrigger>
-                            <TooltipContent>{t('git.init.title')}</TooltipContent>
-                          </Tooltip>
-                        </>
-                      )}
-                      <Button variant={buttonVariant} size="icon-sm" onClick={handleOpenAddDialog}>
-                        <Plus className="h-4 w-4" />
-                      </Button>
-                      {sourceFolder && (
-                        <>
-                          <Button variant={buttonVariant} size="icon-sm" onClick={handleOpenEditDialog} disabled={isOpeningEditDialog}>
-                            {isOpeningEditDialog ? <Loader2 className="h-4 w-4 animate-spin" /> : <Pencil className="h-4 w-4" />}
-                          </Button>
-                          <Button
-                            variant={buttonVariant}
-                            size="icon-sm"
-                            disabled={isSourceFolderActionLoading}
-                            onClick={() => onDeleteSourceFolder(sourceFolderList.find(f => f.path === sourceFolder)?.name || '')}
-                          >
-                            <Trash2 className="h-4 w-4" />
-                          </Button>
-                        </>
-                      )}
+                  {versionControlSystem === 'git' && isLoggedIn && (
+                    <div className="flex items-center justify-between rounded-lg border bg-muted/20 px-3 py-2">
+                      <Label htmlFor="multi-repo-workspace" className="flex items-center gap-2 cursor-pointer font-medium text-sm">
+                        <LayoutGrid className="w-4 h-4 text-muted-foreground" />
+                        {t('settings.versioncontrol.multiRepoWorkspace')}
+                      </Label>
+                      <Switch id="multi-repo-workspace" checked={multiRepoEnabled} onCheckedChange={checked => onSetConfigDeferred('multiRepoEnabled', checked)} />
                     </div>
+                  )}
+
+                  {effectiveMultiRepo && versionControlSystem === 'git' ? (
+                    <div className="space-y-2">
+                      <Label className="text-sm font-medium flex items-center gap-2">
+                        <FolderGit2 className="w-4 h-4 text-muted-foreground" />
+                        {t('settings.versioncontrol.multiRepoByProjectTitle', 'Repo theo Project')}
+                      </Label>
+                      <div className="flex items-center gap-2">
+                        <Combobox
+                          value={draftProjectId ?? ''}
+                          onValueChange={v => setDraftProjectId(v?.trim() ? v : null)}
+                          options={projectList.map(p => ({ value: p.id, label: p.name }))}
+                          placeholder={projectsLoading ? t('common.loading', 'Đang tải ...') : t('settings.versioncontrol.multiRepoSelectProject', 'Chọn Project')}
+                          emptyText={t('settings.versioncontrol.multiRepoNoProjects', 'Chưa có Project. Đăng nhập Task để xem danh sách.')}
+                          size="sm"
+                          className="w-full"
+                          disabled={projectsLoading}
+                        />
+                        <Tooltip>
+                          <TooltipTrigger asChild>
+                            <Button variant={buttonVariant} size="icon-sm" onClick={handleOpenFoldersByProject}>
+                              <Folder className="h-4 w-4" />
+                            </Button>
+                          </TooltipTrigger>
+                          <TooltipContent>{t('settings.versioncontrol.foldersByProject', 'Source Folders by Project')}</TooltipContent>
+                        </Tooltip>
+                        <Tooltip>
+                          <TooltipTrigger asChild>
+                            <Button variant={buttonVariant} size="icon-sm" onClick={() => setUnlinkedDialogOpen(true)}>
+                              <Link2 className="h-4 w-4" />
+                            </Button>
+                          </TooltipTrigger>
+                          <TooltipContent>{t('settings.versioncontrol.unlinkedFolders', 'Source Folders not linked to project')}</TooltipContent>
+                        </Tooltip>
+                      </div>
+                    </div>
+                  ) : (
+                    <div id="settings-source-folder" className="space-y-4">
+                      <div className="space-y-2">
+                        <Label className="text-sm font-medium flex items-center gap-2">
+                          <Folder className="w-4 h-4 text-muted-foreground" />
+                          {t('settings.versioncontrol.sourceFolder', 'Source Folder')}
+                        </Label>
+                        <div className="flex items-center justify-between gap-2">
+                          <Combobox
+                            value={sourceFolder}
+                            onValueChange={value => onSetConfigDeferred('sourceFolder', value)}
+                            options={sourceFolderList.map(folder => ({ value: folder.path, label: folder.name }))}
+                            placeholder="Select Source Folder"
+                            size="sm"
+                            className="w-full"
+                          />
+
+                          <div className="flex gap-2">
+                            {versionControlSystem === 'git' && (
+                              <>
+                                <Tooltip>
+                                  <TooltipTrigger asChild>
+                                    <Button variant={buttonVariant} size="icon-sm" onClick={() => setShowGitCloneDialog(true)}>
+                                      <Download className="h-4 w-4" />
+                                    </Button>
+                                  </TooltipTrigger>
+                                  <TooltipContent>{t('git.clone.title')}</TooltipContent>
+                                </Tooltip>
+                                <Tooltip>
+                                  <TooltipTrigger asChild>
+                                    <Button variant={buttonVariant} size="icon-sm" onClick={() => setShowGitInitDialog(true)}>
+                                      <GitBranch className="h-4 w-4" />
+                                    </Button>
+                                  </TooltipTrigger>
+                                  <TooltipContent>{t('git.init.title')}</TooltipContent>
+                                </Tooltip>
+                              </>
+                            )}
+                            <Button variant={buttonVariant} size="icon-sm" onClick={handleOpenAddDialog}>
+                              <Plus className="h-4 w-4" />
+                            </Button>
+                            {sourceFolder && (
+                              <>
+                                <Button variant={buttonVariant} size="icon-sm" onClick={handleOpenEditDialog} disabled={isOpeningEditDialog}>
+                                  {isOpeningEditDialog ? <Loader2 className="h-4 w-4 animate-spin" /> : <Pencil className="h-4 w-4" />}
+                                </Button>
+                                <Button
+                                  variant={buttonVariant}
+                                  size="icon-sm"
+                                  disabled={isSourceFolderActionLoading}
+                                  onClick={() => onDeleteSourceFolder(sourceFolderList.find(f => f.path === sourceFolder)?.name || '')}
+                                >
+                                  <Trash2 className="h-4 w-4" />
+                                </Button>
+                              </>
+                            )}
+                          </div>
+                        </div>
+                      </div>
+
+                      <AddOrEditSourceFolderDialog
+                        open={sourceFolderDialogOpen}
+                        onOpenChange={setSourceFolderDialogOpen}
+                        isEditMode={false}
+                        folderName={sourceFolderName}
+                        folderPath={sourceFolderPath}
+                        setFolderName={setSourceFolderName}
+                        setFolderPath={setSourceFolderPath}
+                        showProjectInEditMode={false}
+                        onAdd={handleAddSourceFolder}
+                        onUpdate={() => {}}
+                      />
+                    </div>
+                  )}
+
+                  <div className="flex items-center justify-between rounded-lg border border-transparent bg-muted/10 px-3 py-2 pt-3 mt-1">
+                    <Label htmlFor="auto-refresh" className="flex items-center gap-2 cursor-pointer text-sm text-muted-foreground">
+                      <RefreshCw className="w-3.5 h-3.5" />
+                      {t('settings.versioncontrol.autoRefresh')}
+                    </Label>
+                    <Switch id="auto-refresh" checked={autoRefreshEnabled} onCheckedChange={checked => onSetConfigDeferred('autoRefreshEnabled', checked)} />
                   </div>
-                </div>
-
-                <AddOrEditSourceFolderDialog
-                  open={sourceFolderDialogOpen}
-                  onOpenChange={setSourceFolderDialogOpen}
-                  isEditMode={false}
-                  folderName={sourceFolderName}
-                  folderPath={sourceFolderPath}
-                  setFolderName={setSourceFolderName}
-                  setFolderPath={setSourceFolderPath}
-                  showProjectInEditMode={false}
-                  onAdd={handleAddSourceFolder}
-                  onUpdate={() => { }}
-                />
-              </div>
-            )}
-
-            <div className="flex items-center justify-between rounded-lg border border-transparent bg-muted/10 px-3 py-2 pt-3 mt-1">
-              <Label htmlFor="auto-refresh" className="flex items-center gap-2 cursor-pointer text-sm text-muted-foreground">
-                <RefreshCw className="w-3.5 h-3.5" />
-                {t('settings.versioncontrol.autoRefresh')}
-              </Label>
-              <Switch id="auto-refresh" checked={autoRefreshEnabled} onCheckedChange={checked => onSetConfigDeferred('autoRefreshEnabled', checked)} />
-            </div>
                 </AccordionContent>
               </AccordionItem>
 
@@ -396,7 +378,7 @@ export const VersionControlTabContent = memo(function VersionControlTabContent({
                       <GitHooksSection
                         embedded
                         selectedProjectId={effectiveMultiRepo ? draftProjectId : null}
-                        selectedSourceFolder={!effectiveMultiRepo ? sourceFolder ?? null : null}
+                        selectedSourceFolder={!effectiveMultiRepo ? (sourceFolder ?? null) : null}
                       />
                     </div>
                   </AccordionContent>
@@ -420,7 +402,9 @@ export const VersionControlTabContent = memo(function VersionControlTabContent({
                             {t('settings.vcsUsers.svnCredentials', 'SVN Credentials')}
                           </Button>
                         </TooltipTrigger>
-                        <TooltipContent>{isVersionControlTabDirty ? t('settings.versioncontrol.saveBeforeUse', 'Lưu thay đổi trước') : t('settings.vcsUsers.svnCredentials', 'SVN Credentials')}</TooltipContent>
+                        <TooltipContent>
+                          {isVersionControlTabDirty ? t('settings.versioncontrol.saveBeforeUse', 'Lưu thay đổi trước') : t('settings.vcsUsers.svnCredentials', 'SVN Credentials')}
+                        </TooltipContent>
                       </Tooltip>
                     ) : (
                       <>
@@ -431,7 +415,9 @@ export const VersionControlTabContent = memo(function VersionControlTabContent({
                               {t('settings.vcsUsers.gitConfig', 'Git Configuration')}
                             </Button>
                           </TooltipTrigger>
-                          <TooltipContent>{isVersionControlTabDirty ? t('settings.versioncontrol.saveBeforeUse', 'Lưu thay đổi trước') : t('settings.vcsUsers.gitConfig', 'Git Configuration')}</TooltipContent>
+                          <TooltipContent>
+                            {isVersionControlTabDirty ? t('settings.versioncontrol.saveBeforeUse', 'Lưu thay đổi trước') : t('settings.vcsUsers.gitConfig', 'Git Configuration')}
+                          </TooltipContent>
                         </Tooltip>
                         <Tooltip>
                           <TooltipTrigger asChild>
@@ -440,7 +426,11 @@ export const VersionControlTabContent = memo(function VersionControlTabContent({
                               {t('settings.vcsUsers.gitStoredCredentials', 'Git Stored Credentials')}
                             </Button>
                           </TooltipTrigger>
-                          <TooltipContent>{isVersionControlTabDirty ? t('settings.versioncontrol.saveBeforeUse', 'Lưu thay đổi trước') : t('settings.vcsUsers.gitStoredCredentials', 'Git Stored Credentials')}</TooltipContent>
+                          <TooltipContent>
+                            {isVersionControlTabDirty
+                              ? t('settings.versioncontrol.saveBeforeUse', 'Lưu thay đổi trước')
+                              : t('settings.vcsUsers.gitStoredCredentials', 'Git Stored Credentials')}
+                          </TooltipContent>
                         </Tooltip>
                       </>
                     )}
@@ -469,10 +459,7 @@ export const VersionControlTabContent = memo(function VersionControlTabContent({
         }}
       />
       <VersionControlInfoDialog
-        open={
-          showVersionControlInfoDialog &&
-          !(versionControlSystem === 'git' && multiRepoEnabled && !draftProjectId?.trim())
-        }
+        open={showVersionControlInfoDialog && !(versionControlSystem === 'git' && multiRepoEnabled && !draftProjectId?.trim())}
         onOpenChange={setShowVersionControlInfoDialog}
         sourceFolder={versionControlInfoFolder}
         versionControlSystem={versionControlSystem}
@@ -485,7 +472,7 @@ export const VersionControlTabContent = memo(function VersionControlTabContent({
         open={vcsGitConfigDialogOpen}
         onOpenChange={setVcsGitConfigDialogOpen}
         selectedProjectId={effectiveMultiRepo ? draftProjectId : null}
-        selectedSourceFolder={!effectiveMultiRepo ? sourceFolder ?? null : null}
+        selectedSourceFolder={!effectiveMultiRepo ? (sourceFolder ?? null) : null}
       />
       <VcsGitStoredCredentialsDialog open={vcsGitCredsDialogOpen} onOpenChange={setVcsGitCredsDialogOpen} />
 
@@ -526,7 +513,7 @@ export const VersionControlTabContent = memo(function VersionControlTabContent({
               oldProjectId: editingLinkOldProjectId ?? undefined,
             })
           }
-          onAdd={() => { }}
+          onAdd={() => {}}
         />
       )}
       <UnlinkedFoldersDialog

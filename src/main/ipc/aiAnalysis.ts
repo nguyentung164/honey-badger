@@ -1,16 +1,7 @@
 import { ipcMain } from 'electron'
 import l from 'electron-log'
 import { IPC } from 'main/constants'
-import {
-  deleteAnalysis,
-  deleteHistoryById,
-  getAnalysis,
-  getAllHistory,
-  getHistoryByFolder,
-  getHistoryById,
-  saveAnalysis,
-  saveAnalysisHistory,
-} from '../task/pgAiAnalysis'
+import { deleteAnalysis, deleteHistoryById, getAllHistory, getAnalysis, getHistoryByFolder, getHistoryById, saveAnalysis, saveAnalysisHistory } from '../task/stores/pgAiAnalysis'
 
 export function registerAiAnalysisIpcHandlers() {
   l.info('Registering AiAnalysis IPC Handlers...')

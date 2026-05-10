@@ -22,10 +22,7 @@ interface VcsSvnCredentialsDialogProps {
   onOpenChange: (open: boolean) => void
 }
 
-export const VcsSvnCredentialsDialog = memo(function VcsSvnCredentialsDialog({
-  open,
-  onOpenChange,
-}: VcsSvnCredentialsDialogProps) {
+export const VcsSvnCredentialsDialog = memo(function VcsSvnCredentialsDialog({ open, onOpenChange }: VcsSvnCredentialsDialogProps) {
   const { t } = useTranslation()
   const [svnUsers, setSvnUsers] = useState<{ realm: string; username: string }[]>([])
   const [loading, setLoading] = useState(false)
@@ -104,12 +101,7 @@ export const VcsSvnCredentialsDialog = memo(function VcsSvnCredentialsDialog({
                         </td>
                         <td className="px-3 py-2">{u.username}</td>
                         <td className="px-3 py-2">
-                          <Button
-                            variant="ghost"
-                            size="icon-sm"
-                            className="h-7 w-7 text-destructive hover:text-destructive"
-                            onClick={() => setRemoveConfirm(u.realm)}
-                          >
+                          <Button variant="ghost" size="icon-sm" className="h-7 w-7 text-destructive hover:text-destructive" onClick={() => setRemoveConfirm(u.realm)}>
                             <Trash2 className="h-3.5 w-3.5" />
                           </Button>
                         </td>

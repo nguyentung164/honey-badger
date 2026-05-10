@@ -1,5 +1,5 @@
-import type { StatusResult } from 'simple-git'
 import l from 'electron-log'
+import type { StatusResult } from 'simple-git'
 import { formatGitError, getGitInstance } from './utils'
 
 /** XY porcelain: nhánh đang unmerged (Git không gộp được vào mảng conflicted của parser đầy đủ mọi trường hợp). */
@@ -40,10 +40,7 @@ async function unmergedPathsFromDiffFilter(git: Awaited<ReturnType<typeof getGit
   return [...set]
 }
 
-export async function mergeConflictedPathsForStatus(
-  git: NonNullable<Awaited<ReturnType<typeof getGitInstance>>>,
-  statusResult: StatusResult
-): Promise<string[]> {
+export async function mergeConflictedPathsForStatus(git: NonNullable<Awaited<ReturnType<typeof getGitInstance>>>, statusResult: StatusResult): Promise<string[]> {
   const fromSummary = conflictedPathsFromSummary(statusResult)
   const fromDiff = await unmergedPathsFromDiffFilter(git)
   return [...new Set([...fromSummary, ...fromDiff])]

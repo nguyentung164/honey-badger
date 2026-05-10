@@ -5,16 +5,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
-import {
-  Pagination,
-  PaginationContent,
-  PaginationFirst,
-  PaginationItem,
-  PaginationLast,
-  PaginationLink,
-  PaginationNext,
-  PaginationPrevious,
-} from '@/components/ui/pagination'
+import { Pagination, PaginationContent, PaginationFirst, PaginationItem, PaginationLast, PaginationLink, PaginationNext, PaginationPrevious } from '@/components/ui/pagination'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { getVisiblePageNumbers } from '@/lib/paginationUtils'
 import { cn } from '@/lib/utils'
@@ -83,9 +74,7 @@ export function TablePaginationBar({
       <div className="flex min-w-0 items-center gap-3 justify-self-start">
         {leftSlot ?? (
           <>
-            <span className="text-sm text-muted-foreground whitespace-nowrap">
-              {t('taskManagement.showing', { from, to, total: totalItems })}
-            </span>
+            <span className="text-sm text-muted-foreground whitespace-nowrap">{t('taskManagement.showing', { from, to, total: totalItems })}</span>
             {effectiveShowPageSize && onPageSizeChange ? (
               <>
                 <Select value={String(pageSize)} onValueChange={v => onPageSizeChange(Number(v))}>

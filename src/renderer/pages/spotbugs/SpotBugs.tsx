@@ -16,9 +16,9 @@ import { TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/compon
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { OverlayLoader } from '@/components/ui-elements/OverlayLoader'
 import toast from '@/components/ui-elements/Toast'
-import { useAppearanceStoreSelect } from '@/stores/useAppearanceStore'
 import { cn } from '@/lib/utils'
 import logger from '@/services/logger'
+import { useAppearanceStoreSelect } from '@/stores/useAppearanceStore'
 import type { BugInstance, SpotBugsResult } from './constants'
 import { SpotbugsAIChat } from './SpotbugsAIChat'
 import { SpotbugsToolbar } from './SpotbugsToolbar'
@@ -200,7 +200,6 @@ export function SpotBugs() {
     logger.info(t('toast.refreshingSpotbugs'))
   }
 
-
   const getPrioriyIcon = (priority: number) => {
     switch (priority) {
       case 1:
@@ -252,10 +251,7 @@ export function SpotBugs() {
     return 'bg-emerald-200/10 text-emerald-800 dark:text-emerald-400 border-emerald-500/20'
   }
 
-  const filteredBugs = useMemo(
-    () => filterBugsByTab(spotbugsResult.bugInstances, activeTab as any),
-    [spotbugsResult.bugInstances, activeTab]
-  )
+  const filteredBugs = useMemo(() => filterBugsByTab(spotbugsResult.bugInstances, activeTab as any), [spotbugsResult.bugInstances, activeTab])
 
   const Table = forwardRef<HTMLTableElement, React.HTMLAttributes<HTMLTableElement> & { wrapperClassName?: string }>(({ className, wrapperClassName, ...props }, ref) => {
     return (
@@ -269,10 +265,7 @@ export function SpotBugs() {
   const [sortKey, setSortKey] = useState<'priority' | 'category' | 'sourceFile' | 'type' | ''>('')
   const [sortDirection, setSortDirection] = useState<'asc' | 'desc' | ''>('')
 
-  const sortedBugs = useMemo(
-    () => sortBugs(filteredBugs, sortKey, sortDirection),
-    [filteredBugs, sortKey, sortDirection]
-  )
+  const sortedBugs = useMemo(() => sortBugs(filteredBugs, sortKey, sortDirection), [filteredBugs, sortKey, sortDirection])
 
   const handleSort = (key: typeof sortKey) => {
     const next = nextSortState(sortKey, sortDirection, key)
@@ -928,7 +921,7 @@ export function SpotBugs() {
                                     cursor={false}
                                     content={({ active, payload }) => {
                                       /* Tooltip content */
-                                      if (active && payload && payload.length) {
+                                      if (active && payload?.length) {
                                         return (
                                           <div className="rounded-lg border bg-background p-2 shadow-sm max-w-[300px]">
                                             <div className="grid grid-cols-1 gap-2">
@@ -983,7 +976,7 @@ export function SpotBugs() {
                                     cursor={false}
                                     content={({ active, payload }) => {
                                       /* Tooltip content */
-                                      if (active && payload && payload.length) {
+                                      if (active && payload?.length) {
                                         return (
                                           <div className="rounded-lg border bg-background p-2 shadow-sm max-w-[300px]">
                                             <div className="grid grid-cols-1 gap-2">

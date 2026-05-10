@@ -208,9 +208,9 @@ export function Dashboard() {
     try {
       const options = range?.from
         ? {
-          dateFrom: format(range.from, 'yyyy-MM-dd'),
-          dateTo: range.to ? format(range.to, 'yyyy-MM-dd') : format(range.from, 'yyyy-MM-dd'),
-        }
+            dateFrom: format(range.from, 'yyyy-MM-dd'),
+            dateTo: range.to ? format(range.to, 'yyyy-MM-dd') : format(range.from, 'yyyy-MM-dd'),
+          }
         : undefined
       const summaries = await window.api.dashboard.getRepoSummary(options)
 
@@ -463,7 +463,7 @@ export function Dashboard() {
     return [...chartData.commitsByDate]
       .sort((a, b) => a.date.localeCompare(b.date))
       .map(day => {
-        const dayData: { date: string; totalCount: number;[key: string]: number | string } = {
+        const dayData: { date: string; totalCount: number; [key: string]: number | string } = {
           date: day.date,
           totalCount: 0,
         }
@@ -761,10 +761,18 @@ export function Dashboard() {
         </Button>
 
         <div className="flex gap-1" style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties}>
-          <button type="button" onClick={() => handleWindow('minimize')} className="w-10 h-8 flex items-center justify-center hover:bg-[var(--hover-bg)] hover:text-[var(--hover-fg)]">
+          <button
+            type="button"
+            onClick={() => handleWindow('minimize')}
+            className="w-10 h-8 flex items-center justify-center hover:bg-[var(--hover-bg)] hover:text-[var(--hover-fg)]"
+          >
             <Minus size={15.5} strokeWidth={1} absoluteStrokeWidth />
           </button>
-          <button type="button" onClick={() => handleWindow('maximize')} className="w-10 h-8 flex items-center justify-center hover:bg-[var(--hover-bg)] hover:text-[var(--hover-fg)]">
+          <button
+            type="button"
+            onClick={() => handleWindow('maximize')}
+            className="w-10 h-8 flex items-center justify-center hover:bg-[var(--hover-bg)] hover:text-[var(--hover-fg)]"
+          >
             <Square size={14.5} strokeWidth={1} absoluteStrokeWidth />
           </button>
           <button type="button" onClick={() => handleWindow('close')} className="w-10 h-8 flex items-center justify-center hover:bg-red-600 hover:text-white">
@@ -940,19 +948,12 @@ export function Dashboard() {
                                 <TableCell className="text-center">{row.error ? '—' : row.recentCommitsCount}</TableCell>
                                 <TableCell className="text-center text-muted-foreground text-xs">
                                   {row.lastCommitDate
-                                    ? formatDateDisplay(
-                                        parseLocalDate(String(row.lastCommitDate).slice(0, 10)) ?? new Date(row.lastCommitDate),
-                                        i18n.language
-                                      )
+                                    ? formatDateDisplay(parseLocalDate(String(row.lastCommitDate).slice(0, 10)) ?? new Date(row.lastCommitDate), i18n.language)
                                     : '—'}
                                 </TableCell>
                                 <TableCell
                                   className="text-center text-muted-foreground text-xs max-w-[120px] truncate"
-                                  title={
-                                    row.error || !row.lastCommitMessage
-                                      ? undefined
-                                      : t('dashboard.cellTitleCommitMessage', { message: row.lastCommitMessage })
-                                  }
+                                  title={row.error || !row.lastCommitMessage ? undefined : t('dashboard.cellTitleCommitMessage', { message: row.lastCommitMessage })}
                                 >
                                   {row.error ? '—' : (row.lastCommitAuthor ?? '—')}
                                 </TableCell>
@@ -1075,159 +1076,159 @@ export function Dashboard() {
                           <Table className="w-max min-w-full">
                             <TableHeader sticky>
                               <TableRow>
-                              <TableHead className="!text-[var(--table-header-fg)] w-auto cursor-pointer hover:bg-muted/50" onClick={() => handleActivitySort('author')}>
-                                {t('dashboard.activityAuthor')}
-                                <ActivitySortIcon col="author" />
-                              </TableHead>
-                              <TableHead
-                                className="!text-[var(--table-header-fg)] text-center w-20 shrink-0 cursor-pointer hover:bg-muted/50"
-                                onClick={() => handleActivitySort('commits')}
-                              >
-                                {t('dashboard.activityCommits')}
-                                <ActivitySortIcon col="commits" />
-                              </TableHead>
-                              <TableHead
-                                className="!text-[var(--table-header-fg)] text-center w-20 shrink-0 cursor-pointer hover:bg-muted/50"
-                                onClick={() => handleActivitySort('files')}
-                              >
-                                {t('dashboard.activityFiles')}
-                                <ActivitySortIcon col="files" />
-                              </TableHead>
-                              <TableHead
-                                className="!text-[var(--table-header-fg)] w-36 shrink-0 cursor-pointer hover:bg-muted/50"
-                                onClick={() => handleActivitySort('firstCommit')}
-                              >
-                                {t('dashboard.activityFirstCommit')}
-                                <ActivitySortIcon col="firstCommit" />
-                              </TableHead>
-                              <TableHead className="!text-[var(--table-header-fg)] w-36 shrink-0 cursor-pointer hover:bg-muted/50" onClick={() => handleActivitySort('lastCommit')}>
-                                {t('dashboard.activityLastCommit')}
-                                <ActivitySortIcon col="lastCommit" />
-                              </TableHead>
-                              <TableHead
-                                className="!text-[var(--table-header-fg)] text-center w-28 shrink-0 cursor-pointer hover:bg-muted/50"
-                                onClick={() => handleActivitySort('fileTypes')}
-                              >
-                                {t('dashboard.activityFileTypes')}
-                                <ActivitySortIcon col="fileTypes" />
-                              </TableHead>
-                              <TableHead className="!text-[var(--table-header-fg)] w-24 shrink-0 cursor-pointer hover:bg-muted/50" onClick={() => handleActivitySort('branch')}>
-                                {repo.vcsType === 'svn' ? t('dashboard.activityRevision') : t('dashboard.activityBranch')}
-                                <ActivitySortIcon col="branch" />
-                              </TableHead>
-                              <TableHead className="!text-[var(--table-header-fg)] text-center w-16 shrink-0">{t('dashboard.action')}</TableHead>
-                            </TableRow>
-                          </TableHeader>
-                          <TableBody>
-                            {repo.authors.length === 0 ? (
-                              <TableRow>
-                                <TableCell colSpan={8} className="text-muted-foreground whitespace-normal! text-center py-8">
-                                  {repo.error ? getErrorMessage(repo.error, t) : t('common.noData')}
-                                </TableCell>
+                                <TableHead className="!text-[var(--table-header-fg)] w-auto cursor-pointer hover:bg-muted/50" onClick={() => handleActivitySort('author')}>
+                                  {t('dashboard.activityAuthor')}
+                                  <ActivitySortIcon col="author" />
+                                </TableHead>
+                                <TableHead
+                                  className="!text-[var(--table-header-fg)] text-center w-20 shrink-0 cursor-pointer hover:bg-muted/50"
+                                  onClick={() => handleActivitySort('commits')}
+                                >
+                                  {t('dashboard.activityCommits')}
+                                  <ActivitySortIcon col="commits" />
+                                </TableHead>
+                                <TableHead
+                                  className="!text-[var(--table-header-fg)] text-center w-20 shrink-0 cursor-pointer hover:bg-muted/50"
+                                  onClick={() => handleActivitySort('files')}
+                                >
+                                  {t('dashboard.activityFiles')}
+                                  <ActivitySortIcon col="files" />
+                                </TableHead>
+                                <TableHead
+                                  className="!text-[var(--table-header-fg)] w-36 shrink-0 cursor-pointer hover:bg-muted/50"
+                                  onClick={() => handleActivitySort('firstCommit')}
+                                >
+                                  {t('dashboard.activityFirstCommit')}
+                                  <ActivitySortIcon col="firstCommit" />
+                                </TableHead>
+                                <TableHead
+                                  className="!text-[var(--table-header-fg)] w-36 shrink-0 cursor-pointer hover:bg-muted/50"
+                                  onClick={() => handleActivitySort('lastCommit')}
+                                >
+                                  {t('dashboard.activityLastCommit')}
+                                  <ActivitySortIcon col="lastCommit" />
+                                </TableHead>
+                                <TableHead
+                                  className="!text-[var(--table-header-fg)] text-center w-28 shrink-0 cursor-pointer hover:bg-muted/50"
+                                  onClick={() => handleActivitySort('fileTypes')}
+                                >
+                                  {t('dashboard.activityFileTypes')}
+                                  <ActivitySortIcon col="fileTypes" />
+                                </TableHead>
+                                <TableHead className="!text-[var(--table-header-fg)] w-24 shrink-0 cursor-pointer hover:bg-muted/50" onClick={() => handleActivitySort('branch')}>
+                                  {repo.vcsType === 'svn' ? t('dashboard.activityRevision') : t('dashboard.activityBranch')}
+                                  <ActivitySortIcon col="branch" />
+                                </TableHead>
+                                <TableHead className="!text-[var(--table-header-fg)] text-center w-16 shrink-0">{t('dashboard.action')}</TableHead>
                               </TableRow>
-                            ) : (
-                              getSortedAuthors(repo.authors, repo).map((author, idx) => (
-                                <TableRow key={`${repo.path}-${author.author}-${idx}`} className="border-b">
-                                  <TableCell
-                                    className="text-muted-foreground min-w-0 truncate"
-                                    title={t('dashboard.cellTitleActivityAuthor', { author: author.author })}
-                                  >
-                                    {author.author}
-                                  </TableCell>
-                                  <TableCell className="text-center w-20 shrink-0">{author.commitCount}</TableCell>
-                                  <TableCell className="text-center w-20 shrink-0">{author.fileCount}</TableCell>
-                                  <TableCell className="text-muted-foreground text-xs w-36 shrink-0 whitespace-nowrap">
-                                    {`${format(new Date(author.firstCommitTime), 'HH:mm')} ${format(new Date(author.firstCommitTime), dashboardDatePattern, { locale: dashboardDateFnsLocale })}`}
-                                  </TableCell>
-                                  <TableCell className="text-muted-foreground text-xs w-36 shrink-0 whitespace-nowrap">
-                                    {`${format(new Date(author.lastCommitTime), 'HH:mm')} ${format(new Date(author.lastCommitTime), dashboardDatePattern, { locale: dashboardDateFnsLocale })}`}
-                                  </TableCell>
-                                  <TableCell className="text-center text-xs w-42 shrink-0">
-                                    <div className="flex gap-1.5 flex-wrap justify-center items-center">
-                                      {author.fileTypes.added > 0 && (
-                                        <Tooltip>
-                                          <TooltipTrigger asChild>
-                                            <span className="inline-flex items-center gap-0.5">
-                                              <StatusIcon code="A" className="h-3.5 w-3.5" vcsType={repo.vcsType} />
-                                              <span className="text-muted-foreground">({author.fileTypes.added})</span>
-                                            </span>
-                                          </TooltipTrigger>
-                                          <TooltipContent>
-                                            {t(repo.vcsType === 'git' ? 'git.status.added' : 'svn.status.added')} × {author.fileTypes.added}
-                                          </TooltipContent>
-                                        </Tooltip>
-                                      )}
-                                      {author.fileTypes.modified > 0 && (
-                                        <Tooltip>
-                                          <TooltipTrigger asChild>
-                                            <span className="inline-flex items-center gap-0.5">
-                                              <StatusIcon code="M" className="h-3.5 w-3.5" vcsType={repo.vcsType} />
-                                              <span className="text-muted-foreground">({author.fileTypes.modified})</span>
-                                            </span>
-                                          </TooltipTrigger>
-                                          <TooltipContent>
-                                            {t('svn.status.modified')} × {author.fileTypes.modified}
-                                          </TooltipContent>
-                                        </Tooltip>
-                                      )}
-                                      {author.fileTypes.deleted > 0 && (
-                                        <Tooltip>
-                                          <TooltipTrigger asChild>
-                                            <span className="inline-flex items-center gap-0.5">
-                                              <StatusIcon code="D" className="h-3.5 w-3.5" vcsType={repo.vcsType} />
-                                              <span className="text-muted-foreground">({author.fileTypes.deleted})</span>
-                                            </span>
-                                          </TooltipTrigger>
-                                          <TooltipContent>
-                                            {t('svn.status.deleted')} × {author.fileTypes.deleted}
-                                          </TooltipContent>
-                                        </Tooltip>
-                                      )}
-                                      {author.fileTypes.added === 0 && author.fileTypes.modified === 0 && author.fileTypes.deleted === 0 && '—'}
-                                    </div>
-                                  </TableCell>
-                                  <TableCell
-                                    className="text-muted-foreground text-xs w-24 shrink-0 truncate"
-                                    title={
-                                      author.branch || repo.branch || repo.currentRevision
-                                        ? t('dashboard.cellTitleBranchRev', {
-                                          value: author.branch || repo.branch || repo.currentRevision || '',
-                                        })
-                                        : undefined
-                                    }
-                                  >
-                                    {author.branch || repo.branch || repo.currentRevision || '—'}
-                                  </TableCell>
-                                  <TableCell className="text-center w-16 shrink-0">
-                                    {!repo.error ? (
-                                      <Tooltip>
-                                        <TooltipTrigger asChild>
-                                          <Button
-                                            variant="ghost"
-                                            size="sm"
-                                            className="h-7 px-2"
-                                            onClick={e => {
-                                              e.stopPropagation()
-                                              window.api.electron.send(IPC.WINDOW.SHOW_LOG, {
-                                                path: '.',
-                                                sourceFolder: repo.path,
-                                                versionControlSystem: repo.vcsType,
-                                              })
-                                            }}
-                                          >
-                                            <ExternalLink className="h-3.5 w-3.5" />
-                                          </Button>
-                                        </TooltipTrigger>
-                                        <TooltipContent>{t('dashboard.activityOpenShowLog')}</TooltipContent>
-                                      </Tooltip>
-                                    ) : (
-                                      '—'
-                                    )}
+                            </TableHeader>
+                            <TableBody>
+                              {repo.authors.length === 0 ? (
+                                <TableRow>
+                                  <TableCell colSpan={8} className="text-muted-foreground whitespace-normal! text-center py-8">
+                                    {repo.error ? getErrorMessage(repo.error, t) : t('common.noData')}
                                   </TableCell>
                                 </TableRow>
-                              ))
-                            )}
-                          </TableBody>
+                              ) : (
+                                getSortedAuthors(repo.authors, repo).map((author, idx) => (
+                                  <TableRow key={`${repo.path}-${author.author}-${idx}`} className="border-b">
+                                    <TableCell className="text-muted-foreground min-w-0 truncate" title={t('dashboard.cellTitleActivityAuthor', { author: author.author })}>
+                                      {author.author}
+                                    </TableCell>
+                                    <TableCell className="text-center w-20 shrink-0">{author.commitCount}</TableCell>
+                                    <TableCell className="text-center w-20 shrink-0">{author.fileCount}</TableCell>
+                                    <TableCell className="text-muted-foreground text-xs w-36 shrink-0 whitespace-nowrap">
+                                      {`${format(new Date(author.firstCommitTime), 'HH:mm')} ${format(new Date(author.firstCommitTime), dashboardDatePattern, { locale: dashboardDateFnsLocale })}`}
+                                    </TableCell>
+                                    <TableCell className="text-muted-foreground text-xs w-36 shrink-0 whitespace-nowrap">
+                                      {`${format(new Date(author.lastCommitTime), 'HH:mm')} ${format(new Date(author.lastCommitTime), dashboardDatePattern, { locale: dashboardDateFnsLocale })}`}
+                                    </TableCell>
+                                    <TableCell className="text-center text-xs w-42 shrink-0">
+                                      <div className="flex gap-1.5 flex-wrap justify-center items-center">
+                                        {author.fileTypes.added > 0 && (
+                                          <Tooltip>
+                                            <TooltipTrigger asChild>
+                                              <span className="inline-flex items-center gap-0.5">
+                                                <StatusIcon code="A" className="h-3.5 w-3.5" vcsType={repo.vcsType} />
+                                                <span className="text-muted-foreground">({author.fileTypes.added})</span>
+                                              </span>
+                                            </TooltipTrigger>
+                                            <TooltipContent>
+                                              {t(repo.vcsType === 'git' ? 'git.status.added' : 'svn.status.added')} × {author.fileTypes.added}
+                                            </TooltipContent>
+                                          </Tooltip>
+                                        )}
+                                        {author.fileTypes.modified > 0 && (
+                                          <Tooltip>
+                                            <TooltipTrigger asChild>
+                                              <span className="inline-flex items-center gap-0.5">
+                                                <StatusIcon code="M" className="h-3.5 w-3.5" vcsType={repo.vcsType} />
+                                                <span className="text-muted-foreground">({author.fileTypes.modified})</span>
+                                              </span>
+                                            </TooltipTrigger>
+                                            <TooltipContent>
+                                              {t('svn.status.modified')} × {author.fileTypes.modified}
+                                            </TooltipContent>
+                                          </Tooltip>
+                                        )}
+                                        {author.fileTypes.deleted > 0 && (
+                                          <Tooltip>
+                                            <TooltipTrigger asChild>
+                                              <span className="inline-flex items-center gap-0.5">
+                                                <StatusIcon code="D" className="h-3.5 w-3.5" vcsType={repo.vcsType} />
+                                                <span className="text-muted-foreground">({author.fileTypes.deleted})</span>
+                                              </span>
+                                            </TooltipTrigger>
+                                            <TooltipContent>
+                                              {t('svn.status.deleted')} × {author.fileTypes.deleted}
+                                            </TooltipContent>
+                                          </Tooltip>
+                                        )}
+                                        {author.fileTypes.added === 0 && author.fileTypes.modified === 0 && author.fileTypes.deleted === 0 && '—'}
+                                      </div>
+                                    </TableCell>
+                                    <TableCell
+                                      className="text-muted-foreground text-xs w-24 shrink-0 truncate"
+                                      title={
+                                        author.branch || repo.branch || repo.currentRevision
+                                          ? t('dashboard.cellTitleBranchRev', {
+                                              value: author.branch || repo.branch || repo.currentRevision || '',
+                                            })
+                                          : undefined
+                                      }
+                                    >
+                                      {author.branch || repo.branch || repo.currentRevision || '—'}
+                                    </TableCell>
+                                    <TableCell className="text-center w-16 shrink-0">
+                                      {!repo.error ? (
+                                        <Tooltip>
+                                          <TooltipTrigger asChild>
+                                            <Button
+                                              variant="ghost"
+                                              size="sm"
+                                              className="h-7 px-2"
+                                              onClick={e => {
+                                                e.stopPropagation()
+                                                window.api.electron.send(IPC.WINDOW.SHOW_LOG, {
+                                                  path: '.',
+                                                  sourceFolder: repo.path,
+                                                  versionControlSystem: repo.vcsType,
+                                                })
+                                              }}
+                                            >
+                                              <ExternalLink className="h-3.5 w-3.5" />
+                                            </Button>
+                                          </TooltipTrigger>
+                                          <TooltipContent>{t('dashboard.activityOpenShowLog')}</TooltipContent>
+                                        </Tooltip>
+                                      ) : (
+                                        '—'
+                                      )}
+                                    </TableCell>
+                                  </TableRow>
+                                ))
+                              )}
+                            </TableBody>
                           </Table>
                         </div>
                       </AccordionContent>

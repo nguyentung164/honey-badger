@@ -1,30 +1,17 @@
-import { useCallback, useState } from "react"
-import { $isTableSelection } from "@lexical/table"
-import {
-  $isRangeSelection,
-  BaseSelection,
-  FORMAT_TEXT_COMMAND,
-  TextFormatType,
-} from "lexical"
-import {
-  BoldIcon,
-  ItalicIcon,
-  StrikethroughIcon,
-  UnderlineIcon,
-} from "lucide-react"
+import { $isTableSelection } from '@lexical/table'
+import { $isRangeSelection, type BaseSelection, FORMAT_TEXT_COMMAND, type TextFormatType } from 'lexical'
+import { BoldIcon, ItalicIcon, StrikethroughIcon, UnderlineIcon } from 'lucide-react'
+import { useCallback, useState } from 'react'
 
-import { useToolbarContext } from "@/components/editor/context/toolbar-context"
-import { useUpdateToolbarHandler } from "@/components/editor/editor-hooks/use-update-toolbar"
-import {
-  ToggleGroup,
-  ToggleGroupItem,
-} from "@/components/ui/toggle-group"
+import { useToolbarContext } from '@/components/editor/context/toolbar-context'
+import { useUpdateToolbarHandler } from '@/components/editor/editor-hooks/use-update-toolbar'
+import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group'
 
 const FORMATS = [
-  { format: "bold", icon: BoldIcon, label: "Bold" },
-  { format: "italic", icon: ItalicIcon, label: "Italic" },
-  { format: "underline", icon: UnderlineIcon, label: "Underline" },
-  { format: "strikethrough", icon: StrikethroughIcon, label: "Strikethrough" },
+  { format: 'bold', icon: BoldIcon, label: 'Bold' },
+  { format: 'italic', icon: ItalicIcon, label: 'Italic' },
+  { format: 'underline', icon: UnderlineIcon, label: 'Underline' },
+  { format: 'strikethrough', icon: StrikethroughIcon, label: 'Strikethrough' },
 ] as const
 
 export function FontFormatToolbarPlugin() {
@@ -39,12 +26,9 @@ export function FontFormatToolbarPlugin() {
           formats.push(format)
         }
       })
-      setActiveFormats((prev) => {
+      setActiveFormats(prev => {
         // Only update if formats have changed
-        if (
-          prev.length !== formats.length ||
-          !formats.every((f) => prev.includes(f))
-        ) {
+        if (prev.length !== formats.length || !formats.every(f => prev.includes(f))) {
           return formats
         }
         return prev
@@ -55,23 +39,14 @@ export function FontFormatToolbarPlugin() {
   useUpdateToolbarHandler($updateToolbar)
 
   return (
-    <ToggleGroup
-      type="multiple"
-      value={activeFormats}
-      onValueChange={setActiveFormats}
-      variant="outline"
-      size="md"
-    >
+    <ToggleGroup type="multiple" value={activeFormats} onValueChange={setActiveFormats} variant="outline" size="md">
       {FORMATS.map(({ format, icon: Icon, label }) => (
         <ToggleGroupItem
           key={format}
           value={format}
           aria-label={label}
           onClick={() => {
-            activeEditor.dispatchCommand(
-              FORMAT_TEXT_COMMAND,
-              format as TextFormatType
-            )
+            activeEditor.dispatchCommand(FORMAT_TEXT_COMMAND, format as TextFormatType)
           }}
         >
           <Icon className="size-4" />

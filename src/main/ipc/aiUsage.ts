@@ -2,15 +2,8 @@ import { ipcMain } from 'electron'
 import l from 'electron-log'
 import { IPC } from 'main/constants'
 import type { AiDisplayCurrency } from '../task/aiUsageDb'
-import {
-  clearAiUsageEvents,
-  getAiUsageEvents,
-  getDisplayCurrency,
-  getFxState,
-  setDisplayCurrency,
-  setFxRates,
-} from '../task/aiUsageDb'
-import { hasDbConfig } from '../task/db'
+import { clearAiUsageEvents, getAiUsageEvents, getDisplayCurrency, getFxState, setDisplayCurrency, setFxRates } from '../task/aiUsageDb'
+import { hasDbConfig } from '../task/schema/db'
 
 export type AiUsageSummary = {
   byFeature: Array<{
@@ -52,10 +45,7 @@ function startOfUtcDay(ts: number): string {
 export async function buildAiUsageSummary(): Promise<AiUsageSummary> {
   const dbAvailable = hasDbConfig()
   const events = await getAiUsageEvents()
-  const byFeatureMap = new Map<
-    string,
-    { calls: number; inputTokens: number; outputTokens: number; costUsd: number; unknownPricingCalls: number }
-  >()
+  const byFeatureMap = new Map<string, { calls: number; inputTokens: number; outputTokens: number; costUsd: number; unknownPricingCalls: number }>()
   const byDetailMap = new Map<
     string,
     {
@@ -90,17 +80,16 @@ export async function buildAiUsageSummary(): Promise<AiUsageSummary> {
     byFeatureMap.set(e.feature, cur)
 
     const detailKey = `${e.feature}\0${e.provider}\0${e.model}`
-    const dcur =
-      byDetailMap.get(detailKey) ?? {
-        feature: e.feature,
-        provider: e.provider,
-        model: e.model,
-        calls: 0,
-        inputTokens: 0,
-        outputTokens: 0,
-        costUsd: 0,
-        unknownPricingCalls: 0,
-      }
+    const dcur = byDetailMap.get(detailKey) ?? {
+      feature: e.feature,
+      provider: e.provider,
+      model: e.model,
+      calls: 0,
+      inputTokens: 0,
+      outputTokens: 0,
+      costUsd: 0,
+      unknownPricingCalls: 0,
+    }
     dcur.calls += 1
     dcur.inputTokens += e.inputTokens
     dcur.outputTokens += e.outputTokens
@@ -117,9 +106,7 @@ export async function buildAiUsageSummary(): Promise<AiUsageSummary> {
     }
   }
 
-  const totalCost = events.some(e => e.costUsd == null)
-    ? null
-    : events.reduce((s, e) => s + (e.costUsd ?? 0), 0)
+  const totalCost = events.some(e => e.costUsd == null) ? null : events.reduce((s, e) => s + (e.costUsd ?? 0), 0)
 
   const byFeature = [...byFeatureMap.entries()]
     .map(([feature, v]) => ({
@@ -145,9 +132,7 @@ export async function buildAiUsageSummary(): Promise<AiUsageSummary> {
     }))
     .sort((a, b) => (b.costUsd ?? 0) - (a.costUsd ?? 0))
 
-  const byDay = [...byDayMap.entries()]
-    .map(([date, costUsd]) => ({ date, costUsd }))
-    .sort((a, b) => a.date.localeCompare(b.date))
+  const byDay = [...byDayMap.entries()].map(([date, costUsd]) => ({ date, costUsd })).sort((a, b) => a.date.localeCompare(b.date))
 
   const fx = await getFxState()
   return {

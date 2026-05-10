@@ -81,7 +81,7 @@ interface EVMStore extends EVMData {
       feature?: string | null
       note?: string | null
       assignee?: string | null
-    },
+    }
   ) => Promise<void>
   removeWbsRow: (id: string) => Promise<void>
   setAc: (ac: ACRow[]) => void

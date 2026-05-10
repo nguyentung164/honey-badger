@@ -25,13 +25,14 @@ import {
   planEndFromStartAndDurationWorkdays,
   planStartWbsDetailLine90,
 } from '@/lib/evmCalculations'
-import { cn } from '@/lib/utils'
 import { matchesEvmAssigneeFilter, matchesEvmPhaseFilter } from '@/lib/evmUi'
 import i18n from '@/lib/i18n'
+import { cn } from '@/lib/utils'
 import { useAppearanceStoreSelect } from '@/stores/useAppearanceStore'
 import { useEVMStore } from '@/stores/useEVMStore'
 import { useEvmAiInsightStore } from '@/stores/useEvmAiInsightStore'
 import { EVM_SCHEDULE_ROW_PX } from './useEvmScheduleColumnVirtualizer'
+
 const PAGE_SIZE_OPTIONS = [25, 50, 100] as const
 
 /** Gán giờ AC vào dòng WBS theo phase + assignee + task/workContents (không có FK). */
@@ -104,10 +105,7 @@ export function WbsTaskTable({
 
   const totalPages = Math.max(1, Math.ceil(filteredWbs.length / pageSize))
 
-  const detailEditRow = useMemo(
-    () => (editingId ? wbs.find(r => r.id === editingId) ?? null : null),
-    [editingId, wbs],
-  )
+  const detailEditRow = useMemo(() => (editingId ? (wbs.find(r => r.id === editingId) ?? null) : null), [editingId, wbs])
 
   useEffect(() => {
     setPage(1)
@@ -137,41 +135,40 @@ export function WbsTaskTable({
     }
   }, [toDelete, removeWbsRow, t])
 
-  const trailingMeta: 'statusBac' | 'acHours' | 'none' =
-    detailTableMode === 'actualOnly' ? 'none' : trailingMetaColumnsProp ?? (acHoursByWbsId ? 'acHours' : 'statusBac')
+  const trailingMeta: 'statusBac' | 'acHours' | 'none' = detailTableMode === 'actualOnly' ? 'none' : (trailingMetaColumnsProp ?? (acHoursByWbsId ? 'acHours' : 'statusBac'))
   const showSchedExtras = true
 
   return (
     <div className="flex min-h-0 flex-1 flex-col gap-4">
       {!hideFilterBar && (
-      <div className="flex shrink-0 flex-wrap items-center gap-4">
-        <div className="flex items-center gap-2">
-          <Label className="whitespace-nowrap text-sm">{t('evm.filterPhase')}:</Label>
-          <Combobox
-            value={filterPhase}
-            onValueChange={setFilterPhase}
-            options={[{ value: 'all', label: t('evm.filterAll') }, ...master.phases.map(p => ({ value: p.code, label: p.name ?? p.code }))]}
-            placeholder={t('evm.filterAll')}
-            triggerClassName="w-[140px]"
-          />
+        <div className="flex shrink-0 flex-wrap items-center gap-4">
+          <div className="flex items-center gap-2">
+            <Label className="whitespace-nowrap text-sm">{t('evm.filterPhase')}:</Label>
+            <Combobox
+              value={filterPhase}
+              onValueChange={setFilterPhase}
+              options={[{ value: 'all', label: t('evm.filterAll') }, ...master.phases.map(p => ({ value: p.code, label: p.name ?? p.code }))]}
+              placeholder={t('evm.filterAll')}
+              triggerClassName="w-[140px]"
+            />
+          </div>
+          <div className="flex items-center gap-2">
+            <Label className="whitespace-nowrap text-sm">{t('evm.filterAssignee')}:</Label>
+            <Combobox
+              value={filterAssignee}
+              onValueChange={setFilterAssignee}
+              options={[{ value: 'all', label: t('evm.filterAll') }, ...master.assignees.map(a => ({ value: a.code, label: a.name ?? a.code }))]}
+              placeholder={t('evm.filterAll')}
+              triggerClassName="w-[140px]"
+            />
+          </div>
+          {showAddButton && detailTableMode === 'full' && (
+            <Button variant={buttonVariant} size="sm" onClick={() => setShowAdd(true)}>
+              <Plus className="mr-1 h-4 w-4" />
+              {t('common.add')}
+            </Button>
+          )}
         </div>
-        <div className="flex items-center gap-2">
-          <Label className="whitespace-nowrap text-sm">{t('evm.filterAssignee')}:</Label>
-          <Combobox
-            value={filterAssignee}
-            onValueChange={setFilterAssignee}
-            options={[{ value: 'all', label: t('evm.filterAll') }, ...master.assignees.map(a => ({ value: a.code, label: a.name ?? a.code }))]}
-            placeholder={t('evm.filterAll')}
-            triggerClassName="w-[140px]"
-          />
-        </div>
-        {showAddButton && detailTableMode === 'full' && (
-          <Button variant={buttonVariant} size="sm" onClick={() => setShowAdd(true)}>
-            <Plus className="mr-1 h-4 w-4" />
-            {t('common.add')}
-          </Button>
-        )}
-      </div>
       )}
 
       <div className="flex min-h-0 min-w-0 flex-1 flex-col rounded-md border border-border/40 bg-card/20 shadow-sm">
@@ -180,7 +177,7 @@ export function WbsTaskTable({
             className={cn(
               'w-max min-w-full text-xs',
               '[&_tbody>tr]:h-[length:var(--evm-schedule-row)] [&_tbody>tr]:overflow-hidden',
-              '[&_tbody_td]:px-1 [&_tbody_td]:py-0.5 [&_tbody_td]:text-[10px] [&_tbody_td]:align-middle',
+              '[&_tbody_td]:px-1 [&_tbody_td]:py-0.5 [&_tbody_td]:text-[10px] [&_tbody_td]:align-middle'
             )}
             style={{ ['--evm-schedule-row' as string]: `${EVM_SCHEDULE_ROW_PX}px` }}
           >
@@ -276,12 +273,7 @@ export function WbsTaskTable({
             if (!detailEditRow) return
             try {
               await updateWbsRow(detailEditRow.id, updates)
-              if (
-                updates.planStartDate !== undefined ||
-                updates.planEndDate !== undefined ||
-                updates.effort !== undefined ||
-                updates.durationDays !== undefined
-              ) {
+              if (updates.planStartDate !== undefined || updates.planEndDate !== undefined || updates.effort !== undefined || updates.durationDays !== undefined) {
                 const merged = { ...detailEditRow, ...updates } as WBSRow
                 const entries = buildWbsDayUnitsFromPlan(merged, nonWorkingDaysList)
                 await replaceWbsDayUnitsForRow(detailEditRow.id, entries)
@@ -295,13 +287,7 @@ export function WbsTaskTable({
         />
       )}
       {showAddButton && detailTableMode === 'full' && (
-        <AddWBSDialog
-          open={showAdd}
-          onClose={() => setShowAdd(false)}
-          master={master}
-          showCategoryFeatureColumns={showCategoryFeatureColumns}
-          showSchedExtras={showSchedExtras}
-        />
+        <AddWBSDialog open={showAdd} onClose={() => setShowAdd(false)} master={master} showCategoryFeatureColumns={showCategoryFeatureColumns} showSchedExtras={showSchedExtras} />
       )}
       <AlertDialog open={!!toDelete} onOpenChange={open => !open && setToDelete(null)}>
         <AlertDialogContent>
@@ -319,15 +305,7 @@ export function WbsTaskTable({
   )
 }
 
-function WBSRowActualOnly({
-  row,
-  master,
-  showCategoryFeatureColumns,
-}: {
-  row: WBSRow
-  master: EVMMaster
-  showCategoryFeatureColumns: boolean
-}) {
+function WBSRowActualOnly({ row, master, showCategoryFeatureColumns }: { row: WBSRow; master: EVMMaster; showCategoryFeatureColumns: boolean }) {
   const { t } = useTranslation()
   const updateWbsRow = useEVMStore(s => s.updateWbsRow)
   const [as, setAs] = useState(row.actualStartDate ?? '')
@@ -490,10 +468,7 @@ function WBSRowEdit({
             <div className="flex min-w-0 flex-nowrap items-center gap-1">
               <span className="min-w-0 truncate">{row.statusName ?? row.status ?? '-'}</span>
               {scheduleSlipWd != null && scheduleSlipWd > 0 ? (
-                <span
-                  className="shrink-0 whitespace-nowrap rounded bg-destructive/15 px-1 py-0 text-[9px] font-medium text-destructive"
-                  title={t('evm.scheduleSlipHint')}
-                >
+                <span className="shrink-0 whitespace-nowrap rounded bg-destructive/15 px-1 py-0 text-[9px] font-medium text-destructive" title={t('evm.scheduleSlipHint')}>
                   {t('evm.scheduleSlipBadge', { days: scheduleSlipWd })}
                 </span>
               ) : null}
@@ -511,9 +486,7 @@ function WBSRowEdit({
           </TableCell>
         </>
       )}
-      {trailingMeta === 'acHours' ? (
-        <TableCell className="text-right font-mono tabular-nums">{(acHours ?? 0).toFixed(1)}</TableCell>
-      ) : null}
+      {trailingMeta === 'acHours' ? <TableCell className="text-right font-mono tabular-nums">{(acHours ?? 0).toFixed(1)}</TableCell> : null}
       <TableCell className="w-10 px-0.5">
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
@@ -641,12 +614,7 @@ function WbsDetailEditDialog({
             <div className="grid gap-2 sm:grid-cols-2">
               <div className="grid gap-1.5">
                 <Label>{t('evm.tablePhase')}</Label>
-                <Combobox
-                  value={phase}
-                  onValueChange={setPhase}
-                  options={master.phases.map(p => ({ value: p.code, label: p.name ?? p.code }))}
-                  placeholder="—"
-                />
+                <Combobox value={phase} onValueChange={setPhase} options={master.phases.map(p => ({ value: p.code, label: p.name ?? p.code }))} placeholder="—" />
               </div>
               {showCategoryFeatureColumns ? (
                 <>
@@ -669,13 +637,7 @@ function WbsDetailEditDialog({
               <div className="grid gap-2 sm:grid-cols-2">
                 <div className="grid gap-1.5">
                   <Label>{t('evm.durationDays')}</Label>
-                  <Input
-                    type="number"
-                    min={0}
-                    className="h-9"
-                    value={durationDays}
-                    onChange={e => setDurationDays(e.target.value)}
-                  />
+                  <Input type="number" min={0} className="h-9" value={durationDays} onChange={e => setDurationDays(e.target.value)} />
                 </div>
                 <div className="grid gap-1.5">
                   <Label>{t('evm.predecessor')}</Label>
@@ -689,12 +651,7 @@ function WbsDetailEditDialog({
             ) : null}
             <div className="grid gap-1.5">
               <Label>{t('evm.tableAssignee')}</Label>
-              <Combobox
-                value={assignee}
-                onValueChange={setAssignee}
-                options={master.assignees.map(a => ({ value: a.code, label: a.name ?? a.code }))}
-                placeholder="—"
-              />
+              <Combobox value={assignee} onValueChange={setAssignee} options={master.assignees.map(a => ({ value: a.code, label: a.name ?? a.code }))} placeholder="—" />
             </div>
           </div>
         ) : null}
@@ -839,12 +796,7 @@ function AddWBSDialog({
           <div className="grid gap-2 sm:grid-cols-2">
             <div className="grid gap-1.5">
               <Label>{t('evm.tablePhase')}</Label>
-              <Combobox
-                value={phase}
-                onValueChange={setPhase}
-                options={master.phases.map(p => ({ value: p.code, label: p.name ?? p.code }))}
-                placeholder="—"
-              />
+              <Combobox value={phase} onValueChange={setPhase} options={master.phases.map(p => ({ value: p.code, label: p.name ?? p.code }))} placeholder="—" />
             </div>
             {showCategoryFeatureColumns ? (
               <>
@@ -867,13 +819,7 @@ function AddWBSDialog({
             <div className="grid gap-2 sm:grid-cols-2">
               <div className="grid gap-1.5">
                 <Label>{t('evm.durationDays')}</Label>
-                <Input
-                  type="number"
-                  min={0}
-                  className="h-9"
-                  value={durationDays}
-                  onChange={e => setDurationDays(e.target.value)}
-                />
+                <Input type="number" min={0} className="h-9" value={durationDays} onChange={e => setDurationDays(e.target.value)} />
               </div>
               <div className="grid gap-1.5">
                 <Label>{t('evm.predecessor')}</Label>
@@ -887,12 +833,7 @@ function AddWBSDialog({
           ) : null}
           <div className="grid gap-1.5">
             <Label>{t('evm.tableAssignee')}</Label>
-            <Combobox
-              value={assignee}
-              onValueChange={setAssignee}
-              options={master.assignees.map(a => ({ value: a.code, label: a.name ?? a.code }))}
-              placeholder="—"
-            />
+            <Combobox value={assignee} onValueChange={setAssignee} options={master.assignees.map(a => ({ value: a.code, label: a.name ?? a.code }))} placeholder="—" />
           </div>
         </div>
         <DialogFooter className="gap-2 sm:gap-0">

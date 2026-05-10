@@ -52,11 +52,7 @@ export function WBSGanttTab() {
         <ResizableHandle className="h-1.5 bg-transparent" />
         <ResizablePanel defaultSize={66} minSize={30} className="min-h-0 overflow-hidden">
           <div className="min-h-0 min-w-0 flex-1 overflow-hidden">
-            <WbsScheduleUnifiedTable
-              wbsRows={wbsFiltered}
-              scrollContainerRef={wbsScheduleScrollRef}
-              horizontalScrollPeerRef={wbsRollupScrollRef}
-            />
+            <WbsScheduleUnifiedTable wbsRows={wbsFiltered} scrollContainerRef={wbsScheduleScrollRef} horizontalScrollPeerRef={wbsRollupScrollRef} />
           </div>
         </ResizablePanel>
       </ResizablePanelGroup>

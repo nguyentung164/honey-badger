@@ -1,6 +1,6 @@
-import l from 'electron-log'
 import fs from 'node:fs'
 import path from 'node:path'
+import l from 'electron-log'
 import configurationStore from '../store/ConfigurationStore'
 import { mergeConflictedPathsForStatus } from './status'
 import { formatGitError, getGitInstance } from './utils'
@@ -134,9 +134,7 @@ export async function discardFiles(filePaths: string[], cwd?: string): Promise<G
     }
 
     const statusResult = await git.status()
-    const stagedNewPaths = new Set(
-      statusResult.files.filter(f => f.index === 'A').map(f => f.path.replace(/\\/g, '/'))
-    )
+    const stagedNewPaths = new Set(statusResult.files.filter(f => f.index === 'A').map(f => f.path.replace(/\\/g, '/')))
 
     let discarded = 0
     for (const relPath of filePaths) {
@@ -219,19 +217,14 @@ export async function discardChanges(filePaths: string[], cwd?: string): Promise
       const total = conflictTargets.length
       return {
         status: 'success',
-        message:
-          conflictTargets.length > 0
-            ? `Resolved ${total} conflicted file(s) using current branch version (ours)`
-            : `Successfully discarded changes for ${total} file(s)`,
+        message: conflictTargets.length > 0 ? `Resolved ${total} conflicted file(s) using current branch version (ours)` : `Successfully discarded changes for ${total} file(s)`,
       }
     }
 
     const modifiedSet = new Set((statusResult.modified || []).map(p => p.replace(/\\/g, '/')))
     const deletedSet = new Set((statusResult.deleted || []).map(p => p.replace(/\\/g, '/')))
     const notAddedSet = new Set((statusResult.not_added || []).map(p => p.replace(/\\/g, '/')))
-    const stagedNewSet = new Set(
-      (statusResult.files || []).filter(f => f.index === 'A').map(f => f.path.replace(/\\/g, '/'))
-    )
+    const stagedNewSet = new Set((statusResult.files || []).filter(f => f.index === 'A').map(f => f.path.replace(/\\/g, '/')))
 
     const toRevert: string[] = []
     const toDiscard: string[] = []
@@ -246,9 +239,7 @@ export async function discardChanges(filePaths: string[], cwd?: string): Promise
         toRevert.push(p)
         continue
       }
-      const fileEntry = (statusResult.files || []).find(
-        f => f.path === p || f.path.replace(/\\/g, '/') === norm
-      )
+      const fileEntry = (statusResult.files || []).find(f => f.path === p || f.path.replace(/\\/g, '/') === norm)
       if (fileEntry) {
         const wd = (fileEntry.working_dir || '').trim()
         const idx = (fileEntry.index || '').trim()

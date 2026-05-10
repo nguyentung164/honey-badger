@@ -7,9 +7,9 @@ import { dialog, ipcMain } from 'electron'
 import l from 'electron-log'
 import { IPC } from 'main/constants'
 import { sendWelcomeEmail } from '../notification/sendMail'
-import { onFirstLogin } from '../task/achievementService'
+import { onFirstLogin } from '../task/achievement/achievementService'
 import { clearTokenFromStore, createToken, getTokenFromStore, removeSession, removeSessionsForUserId, type SessionData, verifyPassword, verifyToken } from '../task/auth'
-import type { CreateUserInput } from '../task/pgTaskStore'
+import type { CreateUserInput } from '../task/stores/pgTaskStore'
 import {
   canUserManageProjectRole,
   createUser,
@@ -23,7 +23,7 @@ import {
   setUserProjectRole,
   updateUser,
   updateUserAvatar,
-} from '../task/pgTaskStore'
+} from '../task/stores/pgTaskStore'
 
 const MAX_AVATAR_SIZE_BYTES = 2 * 1024 * 1024 // 2MB
 const MAX_AVATAR_DIMENSION = 512

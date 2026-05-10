@@ -4,17 +4,12 @@ import { Languages, Loader2 } from 'lucide-react'
 import { useCallback, useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Button } from '@/components/ui/button'
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuTrigger,
-} from '@/components/ui/dropdown-menu'
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu'
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
 import toast from '@/components/ui-elements/Toast'
+import { cn } from '@/lib/utils'
 import { useAppearanceStoreSelect } from '@/stores/useAppearanceStore'
 import { useConfigurationStore } from '@/stores/useConfigurationStore'
-import { cn } from '@/lib/utils'
 
 const TARGET_LANGUAGES = [
   { value: 'vi', label: 'Tiếng Việt' },
@@ -37,12 +32,7 @@ export interface TranslatePanelProps {
   renderHeader?: (controls: { translateButton: React.ReactNode; viewToggleButton: React.ReactNode | null }) => React.ReactNode
 }
 
-function hasApiKeyConfigured(
-  activeApiProvider: string,
-  openaiApiKey: string,
-  claudeApiKey: string,
-  googleApiKey: string
-): boolean {
+function hasApiKeyConfigured(activeApiProvider: string, openaiApiKey: string, claudeApiKey: string, googleApiKey: string): boolean {
   switch (activeApiProvider) {
     case 'openai':
       return !!openaiApiKey?.trim()
@@ -60,7 +50,7 @@ export function TranslatePanel({
   onTranslated,
   onApplyTranslation,
   placeholder,
-  readOnly = true,
+  readOnly: _readOnly = true,
   variant = 'inline',
   className,
   disabled = false,
@@ -85,14 +75,9 @@ export function TranslatePanel({
     setShowOriginal(false)
   }, [resetKey ?? resolvedText])
 
-  const apiKeyConfigured = hasApiKeyConfigured(
-    activeApiProvider,
-    openaiApiKey,
-    claudeApiKey,
-    googleApiKey
-  )
+  const apiKeyConfigured = hasApiKeyConfigured(activeApiProvider, openaiApiKey, claudeApiKey, googleApiKey)
 
-  const targetLangLabel = TARGET_LANGUAGES.find(l => l.value === targetLanguage)?.label ?? targetLanguage
+  const _targetLangLabel = TARGET_LANGUAGES.find(l => l.value === targetLanguage)?.label ?? targetLanguage
   const displayText = translatedText && !showOriginal ? translatedText : resolvedText
   const isTranslated = !!translatedText && !showOriginal
 
@@ -135,7 +120,7 @@ export function TranslatePanel({
         toast.success(t('translation.success'))
       } catch (err: unknown) {
         const msg = err instanceof Error ? err.message : String(err)
-        toast.error(t('translation.error') + ': ' + msg)
+        toast.error(`${t('translation.error')}: ${msg}`)
       } finally {
         setIsTranslating(false)
       }
@@ -153,18 +138,8 @@ export function TranslatePanel({
   const canTranslate = !!resolvedText?.trim() && apiKeyConfigured && !disabled
 
   const translateButton = (
-    <Button
-      variant={buttonVariant}
-      size="icon-sm"
-      className="shrink-0"
-      disabled={!resolvedText?.trim() || isTranslating || disabled}
-      title={t('translation.translate')}
-    >
-      {isTranslating ? (
-        <Loader2 className="h-3.5 w-3.5 animate-spin" />
-      ) : (
-        <Languages className="h-3.5 w-3.5" />
-      )}
+    <Button variant={buttonVariant} size="icon-sm" className="shrink-0" disabled={!resolvedText?.trim() || isTranslating || disabled} title={t('translation.translate')}>
+      {isTranslating ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Languages className="h-3.5 w-3.5" />}
     </Button>
   )
 
@@ -192,9 +167,7 @@ export function TranslatePanel({
               </div>
               {translatedText && (
                 <div className="space-y-2">
-                  <div className="rounded border bg-muted/30 p-2 text-sm max-h-40 overflow-y-auto whitespace-pre-wrap break-words">
-                    {translatedText}
-                  </div>
+                  <div className="rounded border bg-muted/30 p-2 text-sm max-h-40 overflow-y-auto whitespace-pre-wrap break-words">{translatedText}</div>
                   {onApplyTranslation && (
                     <Button variant={buttonVariant} size="sm" className="w-full" onClick={handleApply}>
                       {t('translation.applyTranslation')}
@@ -214,11 +187,7 @@ export function TranslatePanel({
       <DropdownMenuTrigger asChild>{translateButton}</DropdownMenuTrigger>
       <DropdownMenuContent align="start">
         {TARGET_LANGUAGES.map(lang => (
-          <DropdownMenuItem
-            key={lang.value}
-            onClick={() => handleTranslate(lang.value)}
-            disabled={!canTranslate || isTranslating}
-          >
+          <DropdownMenuItem key={lang.value} onClick={() => handleTranslate(lang.value)} disabled={!canTranslate || isTranslating}>
             {lang.label}
           </DropdownMenuItem>
         ))}
@@ -227,12 +196,7 @@ export function TranslatePanel({
   )
 
   const viewToggleButton = translatedText ? (
-    <Button
-      variant={buttonVariant}
-      size="xs"
-      className="h-6 text-xs"
-      onClick={() => setShowOriginal(prev => !prev)}
-    >
+    <Button variant={buttonVariant} size="xs" className="h-6 text-xs" onClick={() => setShowOriginal(prev => !prev)}>
       {showOriginal ? t('translation.viewTranslation') : t('translation.viewOriginal')}
     </Button>
   ) : null
@@ -254,9 +218,7 @@ export function TranslatePanel({
         {renderContent ? (
           renderContent(displayText, isTranslated)
         ) : (
-          <div className="w-full min-h-[60px] overflow-auto resize-none border rounded-md p-2 text-sm break-words whitespace-pre-wrap">
-            {displayText || placeholder || ''}
-          </div>
+          <div className="w-full min-h-[60px] overflow-auto resize-none border rounded-md p-2 text-sm break-words whitespace-pre-wrap">{displayText || placeholder || ''}</div>
         )}
       </div>
     </div>

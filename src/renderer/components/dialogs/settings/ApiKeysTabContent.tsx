@@ -115,9 +115,7 @@ export const ApiKeysTabContent = memo(function ApiKeysTabContent({ configDirty, 
           )}
 
           <div id="settings-commit-message-detail-level" className="space-y-3">
-            <Label className="flex items-center gap-2">
-              {t('settings.apikeys.commitMessageDetailLevel') || 'Độ chi tiết commit message'}
-            </Label>
+            <Label className="flex items-center gap-2">{t('settings.apikeys.commitMessageDetailLevel') || 'Độ chi tiết commit message'}</Label>
             <Combobox
               value={commitMessageDetailLevel}
               onValueChange={value => onSetConfigDeferred('commitMessageDetailLevel', value as CommitMessageDetailLevel)}

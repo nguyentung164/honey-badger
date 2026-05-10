@@ -108,8 +108,7 @@ async function readGitWorkingTreeForDiff(filePath: string, fileStatus: string, c
     return await window.api.system.read_file(filePath, catOpts)
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err)
-    const looksMissing =
-      msg.includes('ENOENT') || /no such file|cannot find|not found|The system cannot find the file/i.test(msg)
+    const looksMissing = msg.includes('ENOENT') || /no such file|cannot find|not found|The system cannot find the file/i.test(msg)
     if (looksMissing) {
       const r = await window.api.git.read_conflict_working_content(filePath, catOpts?.cwd)
       if (r.status === 'success' && typeof r.data === 'string') return r.data

@@ -1,5 +1,8 @@
-"use client"
+'use client'
 
+import { useLexicalComposerContext } from '@lexical/react/LexicalComposerContext'
+import { LexicalTypeaheadMenuPlugin, MenuOption, useBasicTypeaheadTriggerMatch } from '@lexical/react/LexicalTypeaheadMenuPlugin'
+import { $createTextNode, $getSelection, $isRangeSelection, type TextNode } from 'lexical'
 /**
  * Copyright (c) Meta Platforms, Inc. and affiliates.
  *
@@ -8,28 +11,10 @@
  *
  */
 import type { RefObject } from 'react'
-import * as React from 'react'
 import { useCallback, useEffect, useMemo, useState } from 'react'
-import { useLexicalComposerContext } from '@lexical/react/LexicalComposerContext'
-import {
-  LexicalTypeaheadMenuPlugin,
-  MenuOption,
-  useBasicTypeaheadTriggerMatch,
-} from '@lexical/react/LexicalTypeaheadMenuPlugin'
-import {
-  $createTextNode,
-  $getSelection,
-  $isRangeSelection,
-  TextNode,
-} from "lexical"
-import { createPortal } from "react-dom"
+import { createPortal } from 'react-dom'
 
-import {
-  Command,
-  CommandGroup,
-  CommandItem,
-  CommandList,
-} from '@/components/ui/command'
+import { Command, CommandGroup, CommandItem, CommandList } from '@/components/ui/command'
 
 class EmojiOption extends MenuOption {
   title: string
@@ -67,9 +52,9 @@ export function EmojiPickerPlugin() {
   const [editor] = useLexicalComposerContext()
   const [queryString, setQueryString] = useState<string | null>(null)
   const [emojis, setEmojis] = useState<Array<Emoji>>([])
-  const [isOpen, setIsOpen] = useState(false)
+  const [_isOpen, setIsOpen] = useState(false)
   useEffect(() => {
-    import("../utils/emoji-list").then((file) => setEmojis(file.default))
+    import('../utils/emoji-list').then(file => setEmojis(file.default))
   }, [])
 
   const emojiOptions = useMemo(
@@ -85,7 +70,7 @@ export function EmojiPickerPlugin() {
     [emojis]
   )
 
-  const checkForTriggerMatch = useBasicTypeaheadTriggerMatch(":", {
+  const checkForTriggerMatch = useBasicTypeaheadTriggerMatch(':', {
     minLength: 0,
   })
 
@@ -93,11 +78,8 @@ export function EmojiPickerPlugin() {
     return emojiOptions
       .filter((option: EmojiOption) => {
         return queryString != null
-          ? new RegExp(queryString, "gi").exec(option.title) ||
-            option.keywords != null
-            ? option.keywords.some((keyword: string) =>
-                new RegExp(queryString, "gi").exec(keyword)
-              )
+          ? new RegExp(queryString, 'gi').exec(option.title) || option.keywords != null
+            ? option.keywords.some((keyword: string) => new RegExp(queryString, 'gi').exec(keyword))
             : false
           : emojiOptions
       })
@@ -105,11 +87,7 @@ export function EmojiPickerPlugin() {
   }, [emojiOptions, queryString])
 
   const onSelectOption = useCallback(
-    (
-      selectedOption: EmojiOption,
-      nodeToRemove: TextNode | null,
-      closeMenu: () => void
-    ) => {
+    (selectedOption: EmojiOption, nodeToRemove: TextNode | null, closeMenu: () => void) => {
       editor.update(() => {
         const selection = $getSelection()
 
@@ -151,28 +129,19 @@ export function EmojiPickerPlugin() {
           selectedIndex: number | null
           selectOptionAndCleanUp: (option: EmojiOption) => void
           setHighlightedIndex: (index: number) => void
-        },
+        }
       ) => {
         return anchorElementRef.current && options.length
           ? createPortal(
               <div className="fixed z-10 w-[200px] rounded-md shadow-md">
                 <Command
-                  onKeyDown={(e) => {
-                    if (e.key === "ArrowUp") {
+                  onKeyDown={e => {
+                    if (e.key === 'ArrowUp') {
                       e.preventDefault()
-                      setHighlightedIndex(
-                        selectedIndex !== null
-                          ? (selectedIndex - 1 + options.length) %
-                              options.length
-                          : options.length - 1
-                      )
-                    } else if (e.key === "ArrowDown") {
+                      setHighlightedIndex(selectedIndex !== null ? (selectedIndex - 1 + options.length) % options.length : options.length - 1)
+                    } else if (e.key === 'ArrowDown') {
                       e.preventDefault()
-                      setHighlightedIndex(
-                        selectedIndex !== null
-                          ? (selectedIndex + 1) % options.length
-                          : 0
-                      )
+                      setHighlightedIndex(selectedIndex !== null ? (selectedIndex + 1) % options.length : 0)
                     }
                   }}
                 >
@@ -185,11 +154,7 @@ export function EmojiPickerPlugin() {
                           onSelect={() => {
                             selectOptionAndCleanUp(option)
                           }}
-                          className={`flex items-center gap-2 ${
-                            selectedIndex === index
-                              ? "bg-accent"
-                              : "!bg-transparent"
-                          }`}
+                          className={`flex items-center gap-2 ${selectedIndex === index ? 'bg-accent' : '!bg-transparent'}`}
                         >
                           {option.emoji} {option.title}
                         </CommandItem>

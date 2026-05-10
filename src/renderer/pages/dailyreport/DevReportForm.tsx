@@ -98,12 +98,7 @@ function CommitDetailDialog({ commit, vcsType, onClose }: { commit: CommitItem; 
 
   return (
     <div className="fixed inset-0 z-[10000] flex items-center justify-center p-4">
-      <button
-        type="button"
-        className="absolute inset-0 h-full w-full cursor-default border-0 bg-black/50 p-0"
-        aria-label={t('common.close')}
-        onClick={onClose}
-      />
+      <button type="button" className="absolute inset-0 h-full w-full cursor-default border-0 bg-black/50 p-0" aria-label={t('common.close')} onClick={onClose} />
       <div className="relative z-10 flex max-h-[80vh] w-full max-w-xl flex-col overflow-hidden rounded-lg border bg-background shadow-lg">
         <div className="flex items-center justify-between px-4 py-3 border-b shrink-0">
           <h3 className="text-base font-semibold font-mono truncate" title={commit.revision}>

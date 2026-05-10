@@ -1,17 +1,17 @@
 import type { ACRow, EVMProject, WBSRow } from 'shared/types/evm'
 import { describe, expect, it } from 'vitest'
 import {
-  computeEacExcelV5,
   computeEacExcelTable1,
+  computeEacExcelV5,
   computeEVMMetrics,
   computeTaskBacLikeExcel,
   computeTcpiExcelTool,
   computeTspi,
   computeWbsMasterRollupRows,
   DEFAULT_EVM_HOURS_PER_DAY,
+  deriveWbsPlanFromSparseDayUnits,
   evForTaskDashboardAtReportDate,
   evForTaskTableAtReportDate,
-  deriveWbsPlanFromSparseDayUnits,
   excelWorkdayAddForward,
   planStartWbsDetailLine90,
   pvUpToReportDate,
@@ -325,7 +325,7 @@ describe('EVM Excel V5 parity', () => {
     expect(g2?.masterId).toBe('m2')
     expect(g2?.bac).toBe(3)
     expect(g2?.ev).toBeCloseTo(1.5, 6)
-    expect(wbsDetailRowsForRollupKey(wbs, g1!.rollupKey).length).toBe(2)
+    expect(wbsDetailRowsForRollupKey(wbs, g1?.rollupKey).length).toBe(2)
   })
 
   it('Sheet EV / テーブル1: L sau ngày báo cáo → EV bảng = 0; Dashboard vẫn Q×N nếu K≤Report (khớp E11)', () => {
@@ -371,7 +371,7 @@ describe('Plan Start / WORKDAY (EVM_Tool.txt WBS Details)', () => {
         projectStartYmd: '2025-01-04',
         predecessorNo: null,
         nonWorkingDays: nw,
-      }),
+      })
     ).toBe('2025-01-06')
   })
 
@@ -382,7 +382,7 @@ describe('Plan Start / WORKDAY (EVM_Tool.txt WBS Details)', () => {
         predecessorNo: 1,
         predecessorPlanStartYmd: '2025-01-07',
         nonWorkingDays: nw,
-      }),
+      })
     ).toBe('2025-01-08')
   })
 
@@ -392,7 +392,7 @@ describe('Plan Start / WORKDAY (EVM_Tool.txt WBS Details)', () => {
         { workDate: '2025-01-08', unit: 1 },
         { workDate: '2025-01-10', unit: 0.5 },
       ],
-      nw,
+      nw
     )
     expect(r.planStartDate).toBe('2025-01-08')
     expect(r.planEndDate).toBe('2025-01-10')

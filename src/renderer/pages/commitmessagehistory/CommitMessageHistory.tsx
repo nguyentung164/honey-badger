@@ -1,5 +1,6 @@
 'use client'
 import { format } from 'date-fns'
+import { Loader2 } from 'lucide-react'
 import { forwardRef, useCallback, useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { ScrollArea } from '@/components/ui/scroll-area'
@@ -8,7 +9,6 @@ import toast from '@/components/ui-elements/Toast'
 import { cn } from '@/lib/utils'
 import logger from '@/services/logger'
 import { useHistoryStore } from '@/stores/useHistoryStore'
-import { Loader2 } from 'lucide-react'
 import { CommitMessageHistoryToolbar } from './CommitMessageHistoryToolbar'
 
 type CommitHistory = {

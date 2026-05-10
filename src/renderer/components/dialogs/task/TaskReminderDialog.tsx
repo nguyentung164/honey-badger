@@ -40,15 +40,7 @@ export interface ReminderStats {
   }
 }
 
-function ReminderAccordionContent({
-  stats,
-  t,
-  onOpenTaskDetail,
-}: {
-  stats: ReminderStats
-  t: TFunction
-  onOpenTaskDetail?: (taskId: string) => void
-}) {
+function ReminderAccordionContent({ stats, t, onOpenTaskDetail }: { stats: ReminderStats; t: TFunction; onOpenTaskDetail?: (taskId: string) => void }) {
   const showDev = stats.reminderSections?.showDev !== false
   const showPl = stats.reminderSections?.showPl !== false
   const devSections = [
@@ -108,14 +100,8 @@ function ReminderAccordionContent({
 
   const TaskList = ({ tasks, tone }: { tasks: ReminderTaskItem[]; tone: 'dev' | 'pl' }) => {
     // Nền rất nhạt (opacity thấp); odd đậm hơn even ~2.5× để zebra rõ nhưng vẫn nhẹ
-    const stripeEven =
-      tone === 'pl'
-        ? 'bg-violet-500/[0.055] dark:bg-violet-400/[0.045]'
-        : 'bg-emerald-500/[0.055] dark:bg-emerald-400/[0.045]'
-    const stripeOdd =
-      tone === 'pl'
-        ? 'bg-violet-500/[0.12] dark:bg-violet-400/[0.13]'
-        : 'bg-emerald-500/[0.12] dark:bg-emerald-400/[0.13]'
+    const stripeEven = tone === 'pl' ? 'bg-violet-500/[0.055] dark:bg-violet-400/[0.045]' : 'bg-emerald-500/[0.055] dark:bg-emerald-400/[0.045]'
+    const stripeOdd = tone === 'pl' ? 'bg-violet-500/[0.12] dark:bg-violet-400/[0.13]' : 'bg-emerald-500/[0.12] dark:bg-emerald-400/[0.13]'
     const hoverActive =
       tone === 'pl'
         ? 'hover:bg-violet-500/[0.18] dark:hover:bg-violet-400/[0.18] focus-visible:ring-violet-500/25 dark:focus-visible:ring-violet-400/30'
@@ -134,8 +120,7 @@ function ReminderAccordionContent({
                 className={cn(
                   'w-full text-left px-2.5 py-2 flex flex-col gap-0.5 min-w-0',
                   stripe,
-                  interactive &&
-                  cn('cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-1 focus-visible:ring-offset-background', hoverActive),
+                  interactive && cn('cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-1 focus-visible:ring-offset-background', hoverActive),
                   !interactive && 'cursor-default'
                 )}
               >
@@ -175,20 +160,13 @@ function ReminderAccordionContent({
       tone === 'pl'
         ? 'bg-violet-300/88 dark:bg-violet-900/50 hover:bg-violet-400/78 dark:hover:bg-violet-950/58 data-[state=open]:bg-violet-200/95 dark:data-[state=open]:bg-violet-950/45 data-[state=open]:hover:bg-violet-300/88 dark:data-[state=open]:hover:bg-violet-950/55'
         : 'bg-emerald-300/88 dark:bg-emerald-900/45 hover:bg-emerald-400/78 dark:hover:bg-emerald-950/55 data-[state=open]:bg-emerald-200/95 dark:data-[state=open]:bg-emerald-950/40 data-[state=open]:hover:bg-emerald-300/88 dark:data-[state=open]:hover:bg-emerald-950/52'
-    const contentTint =
-      tone === 'pl'
-        ? 'bg-violet-500/[0.08] dark:bg-violet-400/[0.1]'
-        : 'bg-emerald-500/[0.08] dark:bg-emerald-400/[0.1]'
+    const contentTint = tone === 'pl' ? 'bg-violet-500/[0.08] dark:bg-violet-400/[0.1]' : 'bg-emerald-500/[0.08] dark:bg-emerald-400/[0.1]'
     return (
-      <Collapsible
-        open={openAccordionKey === itemKey}
-        onOpenChange={nextOpen => setOpenAccordionKey(nextOpen ? itemKey : null)}
-        className="group"
-      >
+      <Collapsible open={openAccordionKey === itemKey} onOpenChange={nextOpen => setOpenAccordionKey(nextOpen ? itemKey : null)} className="group">
         <CollapsibleTrigger
           className={cn(
             'flex w-full items-center gap-2 py-2.5 px-3 transition-colors text-left border-0 shadow-none outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background',
-            triggerBg,
+            triggerBg
           )}
         >
           <span className="flex items-center gap-1.5 text-sm flex-1 min-w-0 font-medium text-foreground">
@@ -199,9 +177,7 @@ function ReminderAccordionContent({
           <ChevronDown className="h-4 w-4 shrink-0 transition-transform duration-200 group-data-[state=open]:rotate-180 text-muted-foreground" />
         </CollapsibleTrigger>
         <CollapsibleContent>
-          <div
-            className={cn('max-h-[min(40vh,280px)] overflow-y-auto overscroll-contain', contentTint)}
-          >
+          <div className={cn('max-h-[min(40vh,280px)] overflow-y-auto overscroll-contain', contentTint)}>
             <TaskList tasks={tasks} tone={tone} />
           </div>
         </CollapsibleContent>
@@ -220,16 +196,7 @@ function ReminderAccordionContent({
             </h4>
             <div className="rounded-lg w-full overflow-hidden bg-emerald-500/[0.13] dark:bg-emerald-950/30 shadow-sm divide-y divide-emerald-500/15 dark:divide-emerald-500/20">
               {devSections.map(s => (
-                <AccordionSection
-                  key={s.key}
-                  itemKey={s.key}
-                  tone="dev"
-                  label={s.label}
-                  count={s.count}
-                  tasks={s.tasks}
-                  icon={s.icon}
-                  badgeClass={s.badgeClass}
-                />
+                <AccordionSection key={s.key} itemKey={s.key} tone="dev" label={s.label} count={s.count} tasks={s.tasks} icon={s.icon} badgeClass={s.badgeClass} />
               ))}
             </div>
           </div>
@@ -242,16 +209,7 @@ function ReminderAccordionContent({
             </h4>
             <div className="rounded-lg w-full overflow-hidden bg-violet-500/[0.13] dark:bg-violet-950/30 shadow-sm">
               {plSections.map(s => (
-                <AccordionSection
-                  key={s.key}
-                  itemKey={s.key}
-                  tone="pl"
-                  label={s.label}
-                  count={s.count}
-                  tasks={s.tasks}
-                  icon={s.icon}
-                  badgeClass={s.badgeClass}
-                />
+                <AccordionSection key={s.key} itemKey={s.key} tone="pl" label={s.label} count={s.count} tasks={s.tasks} icon={s.icon} badgeClass={s.badgeClass} />
               ))}
             </div>
           </div>

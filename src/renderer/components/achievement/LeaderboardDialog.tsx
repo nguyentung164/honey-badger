@@ -88,10 +88,7 @@ export function LeaderboardDialog({ open, onOpenChange, isAdmin = false }: Leade
    * Admin: >1 project → combobox (all + từng project).
    * PL/PM / Dev: ≥2 project trong phạm vi của họ → combobox; 1 project → ẩn.
    */
-  const showProjectCombobox =
-    pickerReady &&
-    ((pickerScope === 'admin' && projects.length > 1) ||
-      ((pickerScope === 'managed' || pickerScope === 'dev') && projects.length > 1))
+  const showProjectCombobox = pickerReady && ((pickerScope === 'admin' && projects.length > 1) || ((pickerScope === 'managed' || pickerScope === 'dev') && projects.length > 1))
 
   /** undefined = không có dự án / chưa tải xong picker; null = bảng toàn hệ (chỉ admin); string = theo project. */
   const leaderboardProjectId = useMemo((): string | null | undefined => {
@@ -132,29 +129,15 @@ export function LeaderboardDialog({ open, onOpenChange, isAdmin = false }: Leade
 
           <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-x-hidden px-3 pb-4">
             {!pickerReady ? (
-              <div className="flex flex-1 min-h-[13rem] items-center justify-center text-sm text-muted-foreground">
-                Đang tải…
-              </div>
+              <div className="flex flex-1 min-h-[13rem] items-center justify-center text-sm text-muted-foreground">Đang tải…</div>
             ) : (
-              <Leaderboard
-                open={open}
-                isAdmin={isAdmin}
-                projectId={leaderboardProjectId}
-                onUserClick={handleUserClick}
-              />
+              <Leaderboard open={open} isAdmin={isAdmin} projectId={leaderboardProjectId} onUserClick={handleUserClick} />
             )}
           </div>
         </DialogContent>
       </Dialog>
 
-      {selectedUser && (
-        <UserProfilePanel
-          open={true}
-          onOpenChange={handleProfileClose}
-          userId={selectedUser.id}
-          userName={selectedUser.name}
-        />
-      )}
+      {selectedUser && <UserProfilePanel open={true} onOpenChange={handleProfileClose} userId={selectedUser.id} userName={selectedUser.name} />}
     </>
   )
 }

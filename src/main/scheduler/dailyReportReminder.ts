@@ -2,12 +2,11 @@ import { Notification } from 'electron'
 import l from 'electron-log'
 import configurationStore from '../store/ConfigurationStore'
 import { getTokenFromStore, verifyToken } from '../task/auth'
-import { getDailyReportByUserAndDate } from '../task/pgDailyReport'
-import { getProjectMembers, getProjectsWithReminderAtTime } from '../task/pgTaskStore'
+import { getDailyReportByUserAndDate } from '../task/stores/pgDailyReport'
+import { getProjectMembers, getProjectsWithReminderAtTime } from '../task/stores/pgTaskStore'
 
 /** Một user chỉ một toast mỗi lần khớp giờ nhắc (tránh N dự án cùng giờ → N thông báo giống nhau). */
-const lastSentKey = (userId: string, date: string, timeSlotHhMm: string) =>
-  `${userId}_${date}_${timeSlotHhMm}`
+const lastSentKey = (userId: string, date: string, timeSlotHhMm: string) => `${userId}_${date}_${timeSlotHhMm}`
 
 const SENT_CACHE_TTL_MS = 2 * 60 * 1000
 
@@ -114,9 +113,7 @@ export function startDailyReportReminderScheduler(): void {
           body: buildReminderBody(projectNames),
         }).show()
         markSent(selfUserId, today, currentTimeHhMm)
-        l.info(
-          `dailyReportReminder: sent to ${name} (${selfUserId}) for projects: ${[...new Set(projectNames)].join(', ')}`
-        )
+        l.info(`dailyReportReminder: sent to ${name} (${selfUserId}) for projects: ${[...new Set(projectNames)].join(', ')}`)
       } catch (err) {
         l.warn('dailyReportReminder: check failed', err)
       } finally {

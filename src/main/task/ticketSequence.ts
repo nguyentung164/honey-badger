@@ -1,9 +1,9 @@
-import { withTransaction } from './db'
+import { withTransaction } from './schema/db'
 
 /** Lấy ticket_id tiếp theo (format 000001) cho project+source. Atomic. */
 export async function getNextTicketId(projectId: string, source: string): Promise<string> {
   const effectiveSource = (source || 'in_app').toLowerCase().replace(/\s+/g, '_')
-  const nextValue = await withTransaction<number>(async txQuery => {
+  const nextValue = await withTransaction<number>(async (txQuery, _txExec) => {
     await txQuery(
       `INSERT INTO task_ticket_sequences (project_id, source, next_value) VALUES (?, ?, 1)
        ON CONFLICT (project_id, source) DO UPDATE SET next_value = task_ticket_sequences.next_value + 1`,

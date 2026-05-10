@@ -4,13 +4,7 @@ import configurationStore from '../store/ConfigurationStore'
 import { getTokenFromStore, verifyToken } from '../task/auth'
 
 /** Exported for unit testing */
-export function sendTaskNotification(
-  targetUserId: string | null,
-  title: string,
-  body: string,
-  type?: string,
-  options?: { force?: boolean }
-): void {
+export function sendTaskNotification(targetUserId: string | null, title: string, body: string, type?: string, options?: { force?: boolean }): void {
   if (!targetUserId) return
   const { showNotifications } = configurationStore.store
   if (!options?.force && !showNotifications) return

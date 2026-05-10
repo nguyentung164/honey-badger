@@ -1388,9 +1388,9 @@ export function PrBoard({ projectId, userId, repos, templates, tracked, loading,
         ? undefined
         : scope && (scope.repoId !== undefined || scope.trackedBranchId !== undefined)
           ? {
-            ...(scope.repoId !== undefined ? { repoId: scope.repoId } : {}),
-            ...(scope.trackedBranchId !== undefined ? { trackedBranchId: scope.trackedBranchId } : {}),
-          }
+              ...(scope.repoId !== undefined ? { repoId: scope.repoId } : {}),
+              ...(scope.trackedBranchId !== undefined ? { trackedBranchId: scope.trackedBranchId } : {}),
+            }
           : undefined
       bumpUserActivity()
 
@@ -2702,10 +2702,10 @@ export function PrBoard({ projectId, userId, repos, templates, tracked, loading,
                 {totalRowCount === 0
                   ? t('prManager.board.zeroRows')
                   : t('prManager.board.showRows', {
-                    from: (safePage - 1) * pageSize + 1,
-                    to: Math.min(safePage * pageSize, totalRowCount),
-                    total: totalRowCount,
-                  })}
+                      from: (safePage - 1) * pageSize + 1,
+                      to: Math.min(safePage * pageSize, totalRowCount),
+                      total: totalRowCount,
+                    })}
               </div>
               <div className="flex flex-wrap items-center gap-2 sm:gap-3">
                 <div className="flex items-center gap-1.5">
@@ -2835,29 +2835,29 @@ export function PrBoard({ projectId, userId, repos, templates, tracked, loading,
             <AlertDialogTitle>{t('prManager.board.pruneStaleDialogTitle', { count: pruneStalePreview?.wouldDelete ?? 0 })}</AlertDialogTitle>
             <AlertDialogDescription asChild>
               <div className="text-muted-foreground text-sm flex max-h-[min(60vh,22rem)] flex-col gap-3 overflow-hidden text-left">
-              <span>{t('prManager.board.pruneStaleDialogIntro')}</span>
-              {pruneStalePreview != null && pruneStalePreview.preview.length > 0 ? (
-                <ul className="max-h-36 shrink-0 overflow-auto rounded border border-border/60 bg-muted/30 px-3 py-2 font-mono text-xs leading-relaxed">
-                  {pruneStalePreview.preview.slice(0, 5).map(row => (
-                    <li key={row.id}>
-                      {row.repoKey} — {row.branchName}
-                    </li>
-                  ))}
-                </ul>
-              ) : null}
-              {pruneStalePreview != null && pruneStalePreview.preview.length > 5 ? (
-                <span className="text-xs">{t('prManager.board.pruneStalePreviewMore', { count: pruneStalePreview.preview.length - 5 })}</span>
-              ) : null}
-              {pruneStalePreview != null && pruneStalePreview.errors.length > 0 ? (
-                <div className="min-h-0 shrink overflow-auto rounded border border-destructive/40 bg-destructive/5 px-3 py-2 text-xs text-destructive">
-                  <p className="mb-1 font-medium">{t('prManager.board.pruneStaleRepoErrorsIntro')}</p>
-                  <ul className="font-mono leading-relaxed">
-                    {pruneStalePreview.errors.map((line, i) => (
-                      <li key={i}>{line}</li>
+                <span>{t('prManager.board.pruneStaleDialogIntro')}</span>
+                {pruneStalePreview != null && pruneStalePreview.preview.length > 0 ? (
+                  <ul className="max-h-36 shrink-0 overflow-auto rounded border border-border/60 bg-muted/30 px-3 py-2 font-mono text-xs leading-relaxed">
+                    {pruneStalePreview.preview.slice(0, 5).map(row => (
+                      <li key={row.id}>
+                        {row.repoKey} — {row.branchName}
+                      </li>
                     ))}
                   </ul>
-                </div>
-              ) : null}
+                ) : null}
+                {pruneStalePreview != null && pruneStalePreview.preview.length > 5 ? (
+                  <span className="text-xs">{t('prManager.board.pruneStalePreviewMore', { count: pruneStalePreview.preview.length - 5 })}</span>
+                ) : null}
+                {pruneStalePreview != null && pruneStalePreview.errors.length > 0 ? (
+                  <div className="min-h-0 shrink overflow-auto rounded border border-destructive/40 bg-destructive/5 px-3 py-2 text-xs text-destructive">
+                    <p className="mb-1 font-medium">{t('prManager.board.pruneStaleRepoErrorsIntro')}</p>
+                    <ul className="font-mono leading-relaxed">
+                      {pruneStalePreview.errors.map((line, i) => (
+                        <li key={i}>{line}</li>
+                      ))}
+                    </ul>
+                  </div>
+                ) : null}
               </div>
             </AlertDialogDescription>
           </AlertDialogHeader>
@@ -3102,9 +3102,9 @@ function CheckpointCell({
             onClick={
               canOpen
                 ? () => {
-                  if (blockN == null) return
-                  onOpenPrInApp?.(blockN)
-                }
+                    if (blockN == null) return
+                    onOpenPrInApp?.(blockN)
+                  }
                 : undefined
             }
             title={mergeUi.mergeTitle ? `${mergeUi.mergeTitle} ${t('prManager.mergeableUi.openInAppHint')}` : t('prManager.mergeableUi.openInAppHint')}
@@ -3246,9 +3246,9 @@ function CheckpointCell({
                   : cp.ghPrDraft === true
                     ? t('prManager.board.tooltipDraft')
                     : (() => {
-                      const u = getMergeableUi(cp.ghPrMergeableState, t)
-                      return u.blockMerge ? t('prManager.board.openBlocked', { label: u.shortLabel }) : t('prManager.board.openReady')
-                    })()}
+                        const u = getMergeableUi(cp.ghPrMergeableState, t)
+                        return u.blockMerge ? t('prManager.board.openBlocked', { label: u.shortLabel }) : t('prManager.board.openReady')
+                      })()}
             </div>
             <div className="leading-snug text-muted-foreground">{titleText}</div>
             {cp.ghPrUpdatedAt ? (

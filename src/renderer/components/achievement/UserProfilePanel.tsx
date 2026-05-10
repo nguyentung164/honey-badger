@@ -81,13 +81,13 @@ function BadgeSelector({ earned, pinned, onChange }: BadgeSelectorProps) {
 }
 
 const RANK_BADGE_BG: Record<string, React.CSSProperties> = {
-  newbie: { background: '#64748b' },                                        /* slate-500  */
-  contributor: { background: '#059669' },                                        /* emerald-600 */
-  developer: { background: '#0284c7' },                                        /* sky-600    */
-  regular: { background: '#2563eb' },                                        /* blue-600   */
-  pro: { background: 'linear-gradient(135deg, #5b21b6, #7c3aed)' },     /* violet     */
-  expert: { background: 'linear-gradient(135deg, #b45309, #f59e0b)' },     /* amber      */
-  master: { background: 'linear-gradient(135deg, #9f1239, #f43f5e)' },     /* rose       */
+  newbie: { background: '#64748b' } /* slate-500  */,
+  contributor: { background: '#059669' } /* emerald-600 */,
+  developer: { background: '#0284c7' } /* sky-600    */,
+  regular: { background: '#2563eb' } /* blue-600   */,
+  pro: { background: 'linear-gradient(135deg, #5b21b6, #7c3aed)' } /* violet     */,
+  expert: { background: 'linear-gradient(135deg, #b45309, #f59e0b)' } /* amber      */,
+  master: { background: 'linear-gradient(135deg, #9f1239, #f43f5e)' } /* rose       */,
   legend: { background: 'linear-gradient(90deg, #f43f5e, #8b5cf6, #3b82f6)' },
 }
 
@@ -96,13 +96,13 @@ const RANK_BADGE_BG: Record<string, React.CSSProperties> = {
  * legend dùng class .legend-xp-bar (animated) thay vì inline style
  */
 const XP_BAR_COLOR: Record<string, string> = {
-  newbie: 'linear-gradient(90deg, #94a3b8, #10b981)',   /* slate  → emerald */
-  contributor: 'linear-gradient(90deg, #10b981, #0ea5e9)',   /* emerald→ sky     */
-  developer: 'linear-gradient(90deg, #0ea5e9, #3b82f6)',   /* sky    → blue    */
-  regular: 'linear-gradient(90deg, #3b82f6, #8b5cf6)',   /* blue   → violet  */
-  pro: 'linear-gradient(90deg, #8b5cf6, #f59e0b)',   /* violet → amber   */
-  expert: 'linear-gradient(90deg, #f59e0b, #f43f5e)',   /* amber  → rose    */
-  master: 'linear-gradient(90deg, #f43f5e, #8b5cf6)',   /* rose   → violet  */
+  newbie: 'linear-gradient(90deg, #94a3b8, #10b981)' /* slate  → emerald */,
+  contributor: 'linear-gradient(90deg, #10b981, #0ea5e9)' /* emerald→ sky     */,
+  developer: 'linear-gradient(90deg, #0ea5e9, #3b82f6)' /* sky    → blue    */,
+  regular: 'linear-gradient(90deg, #3b82f6, #8b5cf6)' /* blue   → violet  */,
+  pro: 'linear-gradient(90deg, #8b5cf6, #f59e0b)' /* violet → amber   */,
+  expert: 'linear-gradient(90deg, #f59e0b, #f43f5e)' /* amber  → rose    */,
+  master: 'linear-gradient(90deg, #f43f5e, #8b5cf6)' /* rose   → violet  */,
 }
 
 /* ─────────────────── Dev Score helpers ─────────────────── */
@@ -163,21 +163,11 @@ function DevScoreSection({ data }: { data: DevScoreData }) {
 
   return (
     <div className="px-6 pb-4 border-t pt-3">
-      <div
-        className="rounded-xl p-3 space-y-2"
-        style={{ background: grade.bg }}
-      >
+      <div className="rounded-xl p-3 space-y-2" style={{ background: grade.bg }}>
         <div className="flex items-start gap-3">
           <div className="relative w-[88px] h-[50px] shrink-0 overflow-hidden text-muted-foreground">
             <svg viewBox="0 0 88 50" className="w-full h-full" aria-hidden>
-              <path
-                d={`M ${cx - R},${cy} A ${R},${R} 0 0 1 ${cx + R},${cy}`}
-                fill="none"
-                stroke="currentColor"
-                strokeOpacity={0.15}
-                strokeWidth={stroke}
-                strokeLinecap="round"
-              />
+              <path d={`M ${cx - R},${cy} A ${R},${R} 0 0 1 ${cx + R},${cy}`} fill="none" stroke="currentColor" strokeOpacity={0.15} strokeWidth={stroke} strokeLinecap="round" />
               <path
                 d={`M ${cx - R},${cy} A ${R},${R} 0 0 1 ${cx + R},${cy}`}
                 fill="none"
@@ -194,24 +184,16 @@ function DevScoreSection({ data }: { data: DevScoreData }) {
             </div>
           </div>
           <div className="flex-1 min-w-0">
-            <p className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
-              {t('progress.devScore')}
-            </p>
+            <p className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">{t('progress.devScore')}</p>
             <p className="text-xs font-bold mt-0.5" style={{ color: grade.color }}>
               {t(grade.gradeKey)}
             </p>
-            <p className="text-[10px] text-muted-foreground leading-snug mt-1">
-              {t('progress.devScoreSubtitle')}
-            </p>
-            <p className="text-[10px] text-muted-foreground/90 leading-snug mt-1">
-              {t('progress.devScoreDisclaimer')}
-            </p>
+            <p className="text-[10px] text-muted-foreground leading-snug mt-1">{t('progress.devScoreSubtitle')}</p>
+            <p className="text-[10px] text-muted-foreground/90 leading-snug mt-1">{t('progress.devScoreDisclaimer')}</p>
           </div>
         </div>
 
-        <p className="text-[10px] font-medium text-foreground/90 leading-snug">
-          {t(summary.shapeI18nKey)}
-        </p>
+        <p className="text-[10px] font-medium text-foreground/90 leading-snug">{t(summary.shapeI18nKey)}</p>
         <div className="space-y-0.5 text-[10px] leading-snug">
           <p>
             <span className="text-muted-foreground">{t('progress.devScoreStrength')}</span>{' '}
@@ -235,13 +217,12 @@ function DevScoreSection({ data }: { data: DevScoreData }) {
                 <span className="text-[10px] font-medium truncate mr-1" style={{ color: METRIC_COLORS[m.key] }}>
                   {radarMetricLabel(t, m.key)}
                 </span>
-                <span className="text-[10px] font-bold tabular-nums shrink-0" style={{ color: METRIC_COLORS[m.key] }}>{m.value}</span>
+                <span className="text-[10px] font-bold tabular-nums shrink-0" style={{ color: METRIC_COLORS[m.key] }}>
+                  {m.value}
+                </span>
               </div>
               <div className="h-1 w-full rounded-full bg-muted overflow-hidden">
-                <div
-                  className="h-full rounded-full transition-[width] duration-700"
-                  style={{ width: `${m.value}%`, background: METRIC_COLORS[m.key] }}
-                />
+                <div className="h-full rounded-full transition-[width] duration-700" style={{ width: `${m.value}%`, background: METRIC_COLORS[m.key] }} />
               </div>
             </div>
           ))}
@@ -265,16 +246,7 @@ export function UserProfilePanel({ open, onOpenChange, userId: viewingUserId, us
   const { t } = useTranslation()
   const buttonVariant = useAppearanceStoreSelect(s => s.buttonVariant)
   const user = useTaskAuthStore(s => s.user)
-  const {
-    stats,
-    pinned,
-    otherUserBundleAppliedForUserId,
-    fetchAll,
-    fetchAchievementBundleForUser,
-    pinBadges,
-    getEarnedWithDef,
-    getPinnedWithDef,
-  } = useAchievementStore()
+  const { stats, pinned, otherUserBundleAppliedForUserId, fetchAll, fetchAchievementBundleForUser, pinBadges, getEarnedWithDef, getPinnedWithDef } = useAchievementStore()
   const [editingPinned, setEditingPinned] = useState(false)
   const [devScoreData, setDevScoreData] = useState<DevScoreData | null>(null)
   const [tempPinned, setTempPinned] = useState<string[]>([])
@@ -347,10 +319,10 @@ export function UserProfilePanel({ open, onOpenChange, userId: viewingUserId, us
   const initials =
     displayName !== '—'
       ? displayName
-        .split(/\s+/)
-        .map(w => w[0]?.toUpperCase())
-        .join('')
-        .slice(0, 2)
+          .split(/\s+/)
+          .map(w => w[0]?.toUpperCase())
+          .join('')
+          .slice(0, 2)
       : '??'
 
   const handleSavePinned = async () => {
@@ -492,15 +464,8 @@ export function UserProfilePanel({ open, onOpenChange, userId: viewingUserId, us
                 </div>
                 <div className="h-2.5 rounded-full bg-muted overflow-hidden">
                   <div
-                    className={cn(
-                      'h-full rounded-full transition-[width] duration-700',
-                      currentRank === 'legend' && 'legend-xp-bar',
-                    )}
-                    style={
-                      currentRank === 'legend'
-                        ? { width: `${progress}%` }
-                        : { width: `${progress}%`, background: XP_BAR_COLOR[currentRank] ?? '#94a3b8' }
-                    }
+                    className={cn('h-full rounded-full transition-[width] duration-700', currentRank === 'legend' && 'legend-xp-bar')}
+                    style={currentRank === 'legend' ? { width: `${progress}%` } : { width: `${progress}%`, background: XP_BAR_COLOR[currentRank] ?? '#94a3b8' }}
                   />
                 </div>
                 {currentRank !== 'legend' && <div className="text-center text-[10px] text-muted-foreground">{progress.toFixed(1)}% to next rank</div>}

@@ -1,5 +1,8 @@
 import l from 'electron-log'
-import { sendTaskNotification } from '../notification/taskNotification'
+import { getRebaseStatus } from '../../git/rebase'
+import { sendTaskNotification } from '../../notification/taskNotification'
+import { hasDbConfig } from '../schema/db'
+import { insertTaskNotification, markAsRead } from '../stores/taskNotificationStore'
 import {
   type AchievementDefRow,
   awardAchievement,
@@ -12,9 +15,6 @@ import {
   type UserStats,
   updateUserStats,
 } from './achievementStore'
-import { getRebaseStatus } from '../git/rebase'
-import { hasDbConfig } from './db'
-import { insertTaskNotification, markAsRead } from './taskNotificationStore'
 
 export const RANKS = [
   { code: 'newbie', minXp: 0, name: 'Newbie' },
@@ -66,7 +66,7 @@ async function notifyAchievement(userId: string, code: string, name: string, tie
     // Gửi IPC ngay lập tức thay vì đợi poller 30 giây
     sendTaskNotification(userId, title, body, 'achievement_unlocked')
     // Đánh dấu đã đọc để poller không gửi lại
-    markAsRead(id).catch(() => { })
+    markAsRead(id).catch(() => {})
   } catch (err) {
     l.warn('achievementService: notifyAchievement failed', err)
   }
@@ -81,7 +81,7 @@ async function notifyRankUp(userId: string, newRank: string): Promise<void> {
     // Gửi IPC ngay lập tức thay vì đợi poller 30 giây
     sendTaskNotification(userId, title, body, 'rank_up')
     // Đánh dấu đã đọc để poller không gửi lại
-    markAsRead(id).catch(() => { })
+    markAsRead(id).catch(() => {})
   } catch (err) {
     l.warn('achievementService: notifyRankUp failed', err)
   }
@@ -193,13 +193,7 @@ async function checkAndAward(userId: string, stats: UserStats, defs: Achievement
 
 const NEGATIVE_AWARD_MAX_PER_DEF_PER_RUN = 50
 
-function setEarnedCountInMap(
-  earnedMap: Map<string, UserAchievementRow>,
-  userId: string,
-  code: string,
-  existing: UserAchievementRow | undefined,
-  newCount: number
-): void {
+function setEarnedCountInMap(earnedMap: Map<string, UserAchievementRow>, userId: string, code: string, existing: UserAchievementRow | undefined, newCount: number): void {
   earnedMap.set(code, {
     id: existing?.id ?? '',
     user_id: userId,
@@ -698,7 +692,8 @@ function datePartFromDb(value: unknown): string | null {
   if (value == null) return null
   if (typeof value === 'string') {
     const m = value.trim().match(/^(\d{4}-\d{2}-\d{2})/)
-    return m ? m[1]! : null
+    const day = m?.[1]
+    return day ?? null
   }
   if (value instanceof Date && !Number.isNaN(value.getTime())) {
     const y = value.getFullYear()
@@ -720,14 +715,10 @@ export async function checkDailyNegativeBadges(userIds: string[]): Promise<void>
       const stats = await getUserStats(userId)
       if (!stats) continue
 
-      const reviewBaseline = stats.last_review_date
-        ? stats.last_review_date
-        : datePartFromDb(stats.created_at) ?? null
+      const reviewBaseline = stats.last_review_date ? stats.last_review_date : (datePartFromDb(stats.created_at) ?? null)
       const reviewDays = reviewBaseline ? diffDays(reviewBaseline, today) : 0
 
-      const reportBaseline = stats.last_report_date
-        ? stats.last_report_date
-        : datePartFromDb(stats.created_at) ?? null
+      const reportBaseline = stats.last_report_date ? stats.last_report_date : (datePartFromDb(stats.created_at) ?? null)
       const reportDays = reportBaseline ? diffDays(reportBaseline, today) : 0
 
       await updateUserStats(userId, {

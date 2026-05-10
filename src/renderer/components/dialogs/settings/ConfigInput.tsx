@@ -74,15 +74,7 @@ export function ConfigInput({ value, onSync, debounceMs = 300, type, className, 
   const inputType = isPassword && showPassword ? 'text' : type
 
   const inputEl = (
-    <Input
-      {...props}
-      type={inputType}
-      value={localValue}
-      onChange={handleChange}
-      onBlur={handleBlur}
-      onFocus={handleFocus}
-      className={cn(isPassword && 'pr-9', className)}
-    />
+    <Input {...props} type={inputType} value={localValue} onChange={handleChange} onBlur={handleBlur} onFocus={handleFocus} className={cn(isPassword && 'pr-9', className)} />
   )
 
   if (isPassword) {

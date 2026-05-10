@@ -86,10 +86,7 @@ export function useNotificationSound() {
 
   useEffect(() => {
     if (!window.api?.on || !window.api?.removeListener) return
-    const handler = (
-      _event: unknown,
-      payload: { targetUserId: string; title: string; body: string; type?: string }
-    ) => {
+    const handler = (_event: unknown, payload: { targetUserId: string; title: string; body: string; type?: string }) => {
       if (user?.id !== payload.targetUserId) return
       if (!playNotificationSound) return
       const url = resolvedSoundUrl ?? getFallbackSoundUrl()

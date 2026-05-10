@@ -1,6 +1,9 @@
 import { ipcMain } from 'electron'
 import l from 'electron-log'
 import { IPC } from 'main/constants'
+import type { ACRow, EVMMasterUpdatePayload, EVMProject, WBSRow } from 'shared/types/evm'
+import { assertEvmProjectId, assertEvmRecordId, isValidEvmProjectId } from '../task/evmProjectId'
+import type { WbsMasterUpdatePayload } from '../task/stores/pgEVMStore'
 import {
   createAcRow,
   createAcRowsBatch,
@@ -10,22 +13,19 @@ import {
   deleteAcRow,
   deleteWbsRow,
   ensureProjectForEvm,
-  getEvmMasterPhases,
   getEVMData,
+  getEvmMasterPhases,
+  getProjects,
   insertEvmAiInsight,
   listEvmAiInsights,
-  getProjects,
   listEvmProjectPmPlUsers,
-  updateEvmProject,
-  updateAcRow,
-  updateMaster,
-  updateWbsRow,
-  updateWbsMasterRow,
   replaceWbsDayUnitsForWbs,
-} from '../task/pgEVMStore'
-import { assertEvmProjectId, assertEvmRecordId, isValidEvmProjectId } from '../task/evmProjectId'
-import type { ACRow, EVMMasterUpdatePayload, EVMProject, WBSRow } from 'shared/types/evm'
-import type { WbsMasterUpdatePayload } from '../task/pgEVMStore'
+  updateAcRow,
+  updateEvmProject,
+  updateMaster,
+  updateWbsMasterRow,
+  updateWbsRow,
+} from '../task/stores/pgEVMStore'
 
 function normalizeOptionalProjectId(projectId?: string): string | undefined {
   if (projectId == null) return undefined
@@ -209,59 +209,38 @@ export function registerEVMHandlers() {
     }
   })
 
-  ipcMain.handle(
-    IPC.EVM.REPLACE_WBS_DAY_UNITS_FOR_WBS,
-    async (_, projectId: string, wbsId: string, entries: { workDate: string; unit: number }[]) => {
-      try {
-        await replaceWbsDayUnitsForWbs(
-          assertEvmProjectId(projectId),
-          assertEvmRecordId(wbsId, 'wbs id'),
-          entries,
-        )
-        return { status: 'success' as const }
-      } catch (err: unknown) {
-        l.error('evm:replace-wbs-day-units-for-wbs error:', err)
-        return { status: 'error' as const, message: err instanceof Error ? err.message : String(err) }
-      }
+  ipcMain.handle(IPC.EVM.REPLACE_WBS_DAY_UNITS_FOR_WBS, async (_, projectId: string, wbsId: string, entries: { workDate: string; unit: number }[]) => {
+    try {
+      await replaceWbsDayUnitsForWbs(assertEvmProjectId(projectId), assertEvmRecordId(wbsId, 'wbs id'), entries)
+      return { status: 'success' as const }
+    } catch (err: unknown) {
+      l.error('evm:replace-wbs-day-units-for-wbs error:', err)
+      return { status: 'error' as const, message: err instanceof Error ? err.message : String(err) }
     }
-  )
+  })
 
-  ipcMain.handle(
-    IPC.EVM.SAVE_AI_INSIGHT,
-    async (
-      _,
-      args: { projectId: string; insightType: string; outputMarkdown: string; inputPayloadJson?: string | null }
-    ) => {
-      try {
-        const data = await insertEvmAiInsight({
-          projectId: assertEvmProjectId(args.projectId),
-          insightType: args.insightType,
-          outputMarkdown: args.outputMarkdown,
-          inputPayloadJson: args.inputPayloadJson,
-        })
-        return { status: 'success' as const, data }
-      } catch (err: unknown) {
-        l.error('evm:save-ai-insight error:', err)
-        return { status: 'error' as const, message: err instanceof Error ? err.message : String(err) }
-      }
+  ipcMain.handle(IPC.EVM.SAVE_AI_INSIGHT, async (_, args: { projectId: string; insightType: string; outputMarkdown: string; inputPayloadJson?: string | null }) => {
+    try {
+      const data = await insertEvmAiInsight({
+        projectId: assertEvmProjectId(args.projectId),
+        insightType: args.insightType,
+        outputMarkdown: args.outputMarkdown,
+        inputPayloadJson: args.inputPayloadJson,
+      })
+      return { status: 'success' as const, data }
+    } catch (err: unknown) {
+      l.error('evm:save-ai-insight error:', err)
+      return { status: 'error' as const, message: err instanceof Error ? err.message : String(err) }
     }
-  )
+  })
 
-  ipcMain.handle(
-    IPC.EVM.LIST_AI_INSIGHTS,
-    async (_, args: { projectId: string; insightType?: string; limit?: number; offset?: number }) => {
-      try {
-        const data = await listEvmAiInsights(
-          assertEvmProjectId(args.projectId),
-          args.insightType,
-          args.limit ?? 50,
-          args.offset ?? 0
-        )
-        return { status: 'success' as const, data }
-      } catch (err: unknown) {
-        l.error('evm:list-ai-insights error:', err)
-        return { status: 'error' as const, message: err instanceof Error ? err.message : String(err) }
-      }
+  ipcMain.handle(IPC.EVM.LIST_AI_INSIGHTS, async (_, args: { projectId: string; insightType?: string; limit?: number; offset?: number }) => {
+    try {
+      const data = await listEvmAiInsights(assertEvmProjectId(args.projectId), args.insightType, args.limit ?? 50, args.offset ?? 0)
+      return { status: 'success' as const, data }
+    } catch (err: unknown) {
+      l.error('evm:list-ai-insights error:', err)
+      return { status: 'error' as const, message: err instanceof Error ? err.message : String(err) }
     }
-  )
+  })
 }

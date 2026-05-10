@@ -9,32 +9,24 @@ import { useTaskAuthStore } from '@/stores/useTaskAuthStore'
 import { RANK_CONFIG, RankBadge } from './RankBadge'
 
 const POSITION_STYLE: Record<string, { bg: string; text: string }> = {
-  PM:  { bg: 'bg-amber-100  dark:bg-amber-900/50',  text: 'text-amber-700  dark:text-amber-300'  },
-  PL:  { bg: 'bg-violet-100 dark:bg-violet-900/50', text: 'text-violet-700 dark:text-violet-300' },
-  DEV: { bg: 'bg-sky-100    dark:bg-sky-900/50',    text: 'text-sky-700    dark:text-sky-300'    },
+  PM: { bg: 'bg-amber-100  dark:bg-amber-900/50', text: 'text-amber-700  dark:text-amber-300' },
+  PL: { bg: 'bg-violet-100 dark:bg-violet-900/50', text: 'text-violet-700 dark:text-violet-300' },
+  DEV: { bg: 'bg-sky-100    dark:bg-sky-900/50', text: 'text-sky-700    dark:text-sky-300' },
 }
 
 function PositionBadge({ position, className }: { position?: string | null; className?: string }) {
   if (!position) return null
   const style = POSITION_STYLE[position]
   if (!style) return null
-  return (
-    <span
-      className={cn(
-        'inline-flex items-center rounded-full px-1.5 py-0.5 text-[8px] font-bold leading-none shrink-0',
-        style.bg,
-        style.text,
-        className,
-      )}
-    >
-      {position}
-    </span>
-  )
+  return <span className={cn('inline-flex items-center rounded-full px-1.5 py-0.5 text-[8px] font-bold leading-none shrink-0', style.bg, style.text, className)}>{position}</span>
 }
 
 function parseRoleChips(positions?: string | null): string[] {
   if (!positions?.trim()) return []
-  return positions.split(',').map(s => s.trim()).filter(Boolean)
+  return positions
+    .split(',')
+    .map(s => s.trim())
+    .filter(Boolean)
 }
 
 /** Một hoặc nhiều chip PM / PL / DEV (user có thể đồng thời PL + DEV ở các project). */
@@ -446,175 +438,174 @@ export function Leaderboard({ open = true, isAdmin = false, projectId, onUserCli
       <style>{KEYFRAMES}</style>
 
       <div className="flex min-h-0 w-full min-w-0 flex-1 flex-col overflow-x-hidden">
-      {/* ── Top-3 Podium (không scroll) ── */}
-      <div className="relative shrink-0 bg-background pb-3 pt-2" style={{ animation: 'lb-slide-up 0.35s ease-out both' }}>
-        {/* XP info button */}
-        <div className="flex justify-end px-1 pb-1">
-          <XpInfoButton />
-        </div>
-        {/* glow divider at bottom */}
-        <div className="absolute inset-x-0 bottom-0 h-px bg-gradient-to-r from-transparent via-amber-400/50 to-transparent" />
+        {/* ── Top-3 Podium (không scroll) ── */}
+        <div className="relative shrink-0 bg-background pb-3 pt-2" style={{ animation: 'lb-slide-up 0.35s ease-out both' }}>
+          {/* XP info button */}
+          <div className="flex justify-end px-1 pb-1">
+            <XpInfoButton />
+          </div>
+          {/* glow divider at bottom */}
+          <div className="absolute inset-x-0 bottom-0 h-px bg-gradient-to-r from-transparent via-amber-400/50 to-transparent" />
 
-        <div className="flex items-end justify-center gap-0.5">
-          {podiumOrder.map(posIdx => {
-            const entry = top3[posIdx]
-            if (!entry) return null
-            const cfg = PODIUM_CFG[posIdx]
-            const isCurrentUser = entry.user_id === currentUser?.id
-            const rankCfg = RANK_CONFIG[entry.current_rank as keyof typeof RANK_CONFIG] ?? RANK_CONFIG.newbie
-            const isClickable = !!(isAdmin && onUserClick)
+          <div className="flex items-end justify-center gap-0.5">
+            {podiumOrder.map(posIdx => {
+              const entry = top3[posIdx]
+              if (!entry) return null
+              const cfg = PODIUM_CFG[posIdx]
+              const isCurrentUser = entry.user_id === currentUser?.id
+              const rankCfg = RANK_CONFIG[entry.current_rank as keyof typeof RANK_CONFIG] ?? RANK_CONFIG.newbie
+              const isClickable = !!(isAdmin && onUserClick)
 
-            const podiumInner = (
-              <div className="flex flex-col items-center w-full select-none">
-                {/* Medal emoji */}
-                <span className={cn(cfg.medPos, 'mb-1 leading-none')} style={cfg.isGold ? { animation: 'lb-crown-float 2.4s ease-in-out infinite' } : undefined}>
-                  {cfg.medal}
-                </span>
+              const podiumInner = (
+                <div className="flex flex-col items-center w-full select-none">
+                  {/* Medal emoji */}
+                  <span className={cn(cfg.medPos, 'mb-1 leading-none')} style={cfg.isGold ? { animation: 'lb-crown-float 2.4s ease-in-out infinite' } : undefined}>
+                    {cfg.medal}
+                  </span>
 
-                {/* Avatar with sparkles for #1 */}
-                <div className={cn('relative', cfg.isGold && 'group')}>
-                  {cfg.isGold && <GoldSparkles />}
-                  <PodiumAvatarRing posIdx={posIdx}>
-                    <Avatar className={cn(cfg.avatarSize, 'transition-transform duration-200', isClickable && 'group-hover:scale-105')}>
-                      {avatarUrls[entry.user_id] && <AvatarImage src={avatarUrls[entry.user_id] ?? ''} alt={entry.name} className="object-cover" />}
-                      <AvatarFallback className={cn('font-bold', posIdx === 0 ? 'text-base' : 'text-xs', rankCfg.bgColor, rankCfg.color)}>{getInitials(entry.name)}</AvatarFallback>
-                    </Avatar>
-                  </PodiumAvatarRing>
-                </div>
-
-                {/* Name + XP */}
-                <div className="mt-1.5 text-center px-1 w-full max-w-[90px]">
-                  <div className={cn('truncate leading-tight', cfg.nameClass)}>{entry.name}</div>
-                  <div className="flex items-center justify-center gap-1 mt-0.5 flex-wrap">
-                    {isCurrentUser && (
-                      <Badge variant="secondary" className="text-[8px] h-3.5 px-1">
-                        You
-                      </Badge>
-                    )}
-                    <PositionBadgeGroup positions={entry.positions} />
+                  {/* Avatar with sparkles for #1 */}
+                  <div className={cn('relative', cfg.isGold && 'group')}>
+                    {cfg.isGold && <GoldSparkles />}
+                    <PodiumAvatarRing posIdx={posIdx}>
+                      <Avatar className={cn(cfg.avatarSize, 'transition-transform duration-200', isClickable && 'group-hover:scale-105')}>
+                        {avatarUrls[entry.user_id] && <AvatarImage src={avatarUrls[entry.user_id] ?? ''} alt={entry.name} className="object-cover" />}
+                        <AvatarFallback className={cn('font-bold', posIdx === 0 ? 'text-base' : 'text-xs', rankCfg.bgColor, rankCfg.color)}>
+                          {getInitials(entry.name)}
+                        </AvatarFallback>
+                      </Avatar>
+                    </PodiumAvatarRing>
                   </div>
-                  <div className={cn('flex items-center justify-center gap-0.5 mt-0.5', cfg.xpClass)}>
-                    <Zap className="h-2.5 w-2.5" />
-                    <span className="text-[10px] font-bold tabular-nums">
-                      <AnimatedXp value={entry.xp} delay={posIdx * 120} enabled={countUpReady} />
-                    </span>
+
+                  {/* Name + XP */}
+                  <div className="mt-1.5 text-center px-1 w-full max-w-[90px]">
+                    <div className={cn('truncate leading-tight', cfg.nameClass)}>{entry.name}</div>
+                    <div className="flex items-center justify-center gap-1 mt-0.5 flex-wrap">
+                      {isCurrentUser && (
+                        <Badge variant="secondary" className="text-[8px] h-3.5 px-1">
+                          You
+                        </Badge>
+                      )}
+                      <PositionBadgeGroup positions={entry.positions} />
+                    </div>
+                    <div className={cn('flex items-center justify-center gap-0.5 mt-0.5', cfg.xpClass)}>
+                      <Zap className="h-2.5 w-2.5" />
+                      <span className="text-[10px] font-bold tabular-nums">
+                        <AnimatedXp value={entry.xp} delay={posIdx * 120} enabled={countUpReady} />
+                      </span>
+                    </div>
                   </div>
-                </div>
 
-                {/* Pedestal */}
-                <div
-                  className={cn(
-                    'relative w-full mt-2 rounded-t-md flex flex-col items-center justify-center gap-1 pt-2 pb-1.5 overflow-hidden',
-                    cfg.pedestalHeight,
-                  )}
-                  style={{ background: cfg.pedestalGradient }}
-                >
-                  {/* shimmer sweep — only gold */}
-                  {cfg.isGold && (
-                    <div
-                      className="absolute inset-y-0 w-16 bg-gradient-to-r from-transparent via-white/40 to-transparent skew-x-[-20deg] pointer-events-none"
-                      style={{ animation: 'lb-gold-shimmer 2.8s ease-in-out infinite', animationDelay: '0.5s' }}
-                    />
-                  )}
-                  <RankBadge rank={entry.current_rank} size="lg" noGlow />
-                </div>
-              </div>
-            )
-
-            return (
-              <React.Fragment key={entry.user_id}>
-                {isClickable ? (
-                  <button
-                    type="button"
-                    onClick={() => onUserClick?.(entry.user_id, entry.name)}
-                    className="group flex-1 flex justify-center min-w-0 outline-none focus-visible:ring-2 focus-visible:ring-amber-400 focus-visible:ring-offset-2 rounded-t-md"
+                  {/* Pedestal */}
+                  <div
+                    className={cn('relative w-full mt-2 rounded-t-md flex flex-col items-center justify-center gap-1 pt-2 pb-1.5 overflow-hidden', cfg.pedestalHeight)}
+                    style={{ background: cfg.pedestalGradient }}
                   >
-                    {podiumInner}
-                  </button>
-                ) : (
-                  <div className="flex-1 flex justify-center min-w-0">{podiumInner}</div>
-                )}
-              </React.Fragment>
-            )
-          })}
-        </div>
-      </div>
-
-      {/* ── Danh sách từ hạng 4 — chỉ khối này scroll ── */}
-      {rest.length > 0 && (
-        <div className="mt-1 min-h-0 min-w-0 flex-1 overflow-x-hidden overflow-y-auto overscroll-contain">
-          {rest.map((entry, idx) => {
-            const actualRank = idx + 4
-            const isCurrentUser = entry.user_id === currentUser?.id
-            const rankCfg = RANK_CONFIG[entry.current_rank as keyof typeof RANK_CONFIG] ?? RANK_CONFIG.newbie
-            const isClickable = !!(isAdmin && onUserClick)
-            const isEven = idx % 2 === 0
-            const entranceDelay = `${idx * 45}ms`
-
-            const rowContent = (
-              <>
-                <div className="w-7 text-center flex-shrink-0">
-                  <span className="text-xs text-muted-foreground font-mono">{actualRank}</span>
-                </div>
-                <Avatar className={cn('h-8 w-8 flex-shrink-0 ring-2', rankCfg.ringColor)}>
-                  {avatarUrls[entry.user_id] ? <AvatarImage src={avatarUrls[entry.user_id] ?? ''} alt={entry.name} className="object-cover" /> : null}
-                  <AvatarFallback className={cn('text-xs font-bold', rankCfg.bgColor, rankCfg.color)}>{getInitials(entry.name)}</AvatarFallback>
-                </Avatar>
-                <div className="flex-1 min-w-0">
-                  <div className="flex items-center gap-1.5">
-                    <span className={cn('text-sm font-medium truncate', isCurrentUser && 'text-violet-600 dark:text-violet-400')}>{entry.name}</span>
-                    {isCurrentUser && (
-                      <Badge variant="secondary" className="text-[8px] h-3.5 px-1 shrink-0">
-                        You
-                      </Badge>
+                    {/* shimmer sweep — only gold */}
+                    {cfg.isGold && (
+                      <div
+                        className="absolute inset-y-0 w-16 bg-gradient-to-r from-transparent via-white/40 to-transparent skew-x-[-20deg] pointer-events-none"
+                        style={{ animation: 'lb-gold-shimmer 2.8s ease-in-out infinite', animationDelay: '0.5s' }}
+                      />
                     )}
-                    <PositionBadgeGroup positions={entry.positions} />
+                    <RankBadge rank={entry.current_rank} size="lg" noGlow />
                   </div>
-                  <RankBadge rank={entry.current_rank} size="xs" showLabel className="mt-0.5" noGlow />
                 </div>
-                <div className="text-center flex-shrink-0 w-10">
-                  <div className="text-sm font-semibold">{entry.total_achievements}</div>
-                  <div className="text-[9px] text-muted-foreground">badges</div>
-                </div>
-                <div className="text-right flex-shrink-0 w-14">
-                  <div className="text-xs font-bold tabular-nums">
-                    <AnimatedXp value={entry.xp} delay={idx * 40 + 400} enabled={countUpReady} />
-                  </div>
-                  <div className="text-[9px] text-muted-foreground">XP</div>
-                </div>
-              </>
-            )
+              )
 
-            const baseStyle: React.CSSProperties = {
-              animation: `lb-slide-up 0.3s ease-out ${entranceDelay} both`,
-              ...(isCurrentUser ? { animation: `lb-slide-up 0.3s ease-out ${entranceDelay} both, lb-row-glow-in 1.4s ease-out 0.5s 1` } : {}),
-            }
-
-            const baseClass = cn(
-              'flex items-center gap-3 px-3 py-2 transition-all duration-150',
-              isCurrentUser ? 'bg-violet-500/10 dark:bg-violet-900/25 border-l-2 border-violet-500' : isEven ? 'bg-muted/40 dark:bg-muted/20' : 'bg-transparent',
-              isClickable && !isCurrentUser && 'hover:bg-muted/70 cursor-pointer',
-              !isCurrentUser && 'hover:translate-x-0.5'
-            )
-
-            return isClickable ? (
-              <button
-                key={entry.user_id}
-                type="button"
-                onClick={() => onUserClick?.(entry.user_id, entry.name)}
-                className={cn('w-full text-left outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-primary', baseClass)}
-                style={baseStyle}
-              >
-                {rowContent}
-              </button>
-            ) : (
-              <div key={entry.user_id} className={baseClass} style={baseStyle}>
-                {rowContent}
-              </div>
-            )
-          })}
+              return (
+                <React.Fragment key={entry.user_id}>
+                  {isClickable ? (
+                    <button
+                      type="button"
+                      onClick={() => onUserClick?.(entry.user_id, entry.name)}
+                      className="group flex-1 flex justify-center min-w-0 outline-none focus-visible:ring-2 focus-visible:ring-amber-400 focus-visible:ring-offset-2 rounded-t-md"
+                    >
+                      {podiumInner}
+                    </button>
+                  ) : (
+                    <div className="flex-1 flex justify-center min-w-0">{podiumInner}</div>
+                  )}
+                </React.Fragment>
+              )
+            })}
+          </div>
         </div>
-      )}
+
+        {/* ── Danh sách từ hạng 4 — chỉ khối này scroll ── */}
+        {rest.length > 0 && (
+          <div className="mt-1 min-h-0 min-w-0 flex-1 overflow-x-hidden overflow-y-auto overscroll-contain">
+            {rest.map((entry, idx) => {
+              const actualRank = idx + 4
+              const isCurrentUser = entry.user_id === currentUser?.id
+              const rankCfg = RANK_CONFIG[entry.current_rank as keyof typeof RANK_CONFIG] ?? RANK_CONFIG.newbie
+              const isClickable = !!(isAdmin && onUserClick)
+              const isEven = idx % 2 === 0
+              const entranceDelay = `${idx * 45}ms`
+
+              const rowContent = (
+                <>
+                  <div className="w-7 text-center flex-shrink-0">
+                    <span className="text-xs text-muted-foreground font-mono">{actualRank}</span>
+                  </div>
+                  <Avatar className={cn('h-8 w-8 flex-shrink-0 ring-2', rankCfg.ringColor)}>
+                    {avatarUrls[entry.user_id] ? <AvatarImage src={avatarUrls[entry.user_id] ?? ''} alt={entry.name} className="object-cover" /> : null}
+                    <AvatarFallback className={cn('text-xs font-bold', rankCfg.bgColor, rankCfg.color)}>{getInitials(entry.name)}</AvatarFallback>
+                  </Avatar>
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-1.5">
+                      <span className={cn('text-sm font-medium truncate', isCurrentUser && 'text-violet-600 dark:text-violet-400')}>{entry.name}</span>
+                      {isCurrentUser && (
+                        <Badge variant="secondary" className="text-[8px] h-3.5 px-1 shrink-0">
+                          You
+                        </Badge>
+                      )}
+                      <PositionBadgeGroup positions={entry.positions} />
+                    </div>
+                    <RankBadge rank={entry.current_rank} size="xs" showLabel className="mt-0.5" noGlow />
+                  </div>
+                  <div className="text-center flex-shrink-0 w-10">
+                    <div className="text-sm font-semibold">{entry.total_achievements}</div>
+                    <div className="text-[9px] text-muted-foreground">badges</div>
+                  </div>
+                  <div className="text-right flex-shrink-0 w-14">
+                    <div className="text-xs font-bold tabular-nums">
+                      <AnimatedXp value={entry.xp} delay={idx * 40 + 400} enabled={countUpReady} />
+                    </div>
+                    <div className="text-[9px] text-muted-foreground">XP</div>
+                  </div>
+                </>
+              )
+
+              const baseStyle: React.CSSProperties = {
+                animation: `lb-slide-up 0.3s ease-out ${entranceDelay} both`,
+                ...(isCurrentUser ? { animation: `lb-slide-up 0.3s ease-out ${entranceDelay} both, lb-row-glow-in 1.4s ease-out 0.5s 1` } : {}),
+              }
+
+              const baseClass = cn(
+                'flex items-center gap-3 px-3 py-2 transition-all duration-150',
+                isCurrentUser ? 'bg-violet-500/10 dark:bg-violet-900/25 border-l-2 border-violet-500' : isEven ? 'bg-muted/40 dark:bg-muted/20' : 'bg-transparent',
+                isClickable && !isCurrentUser && 'hover:bg-muted/70 cursor-pointer',
+                !isCurrentUser && 'hover:translate-x-0.5'
+              )
+
+              return isClickable ? (
+                <button
+                  key={entry.user_id}
+                  type="button"
+                  onClick={() => onUserClick?.(entry.user_id, entry.name)}
+                  className={cn('w-full text-left outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-primary', baseClass)}
+                  style={baseStyle}
+                >
+                  {rowContent}
+                </button>
+              ) : (
+                <div key={entry.user_id} className={baseClass} style={baseStyle}>
+                  {rowContent}
+                </div>
+              )
+            })}
+          </div>
+        )}
       </div>
     </>
   )

@@ -1,15 +1,15 @@
 import l from 'electron-log'
-import { hasDbConfig } from '../task/db'
+import { hasDbConfig } from '../task/schema/db'
 import {
   getAllUsersWithEmail,
+  getEvmHoursForUserAndDate,
   getGitCommitQueueForUserAndDate,
+  getReviewsDoneForUserAndDate,
   getSnapshotDatesForUser,
   getTasksDoneForUserAndDate,
   getTasksOverdueForDate,
-  getReviewsDoneForUserAndDate,
   getUserBasicInfo,
   hasDailyReportForDate,
-  getEvmHoursForUserAndDate,
   upsertDailySnapshot,
 } from '../task/progressStore'
 
@@ -20,7 +20,7 @@ const BACKFILL_PAUSE_EVERY_DATES = 12
 const BACKFILL_PAUSE_MS = 400
 
 async function yieldEventLoop(): Promise<void> {
-  await new Promise<void>((resolve) => setImmediate(resolve))
+  await new Promise<void>(resolve => setImmediate(resolve))
 }
 
 function msUntilNext0005(): number {
@@ -44,13 +44,7 @@ function subtractDays(from: Date, days: number): Date {
   return d
 }
 
-async function buildDailySnapshot(
-  userId: string,
-  userEmail: string,
-  userName: string,
-  userCode: string,
-  date: string,
-): Promise<void> {
+async function buildDailySnapshot(userId: string, userEmail: string, userName: string, userCode: string, date: string): Promise<void> {
   /** DB có thể đổi trong lúc backfill dài — bỏ qua user không còn trong DB hiện tại. */
   const row = await getUserBasicInfo(userId)
   if (!row) return
@@ -118,11 +112,11 @@ async function buildYesterdaySnapshots(): Promise<void> {
   const yesterday = formatDate(subtractDays(new Date(), 1))
   const users = await getAllUsersWithEmail()
   await Promise.allSettled(
-    users.map((u) =>
-      buildDailySnapshot(u.id, u.email ?? '', u.name ?? '', u.user_code ?? '', yesterday).catch((err) =>
-        l.warn(`progressScheduler: failed to build snapshot for user ${u.id} on ${yesterday}`, err),
-      ),
-    ),
+    users.map(u =>
+      buildDailySnapshot(u.id, u.email ?? '', u.name ?? '', u.user_code ?? '', yesterday).catch(err =>
+        l.warn(`progressScheduler: failed to build snapshot for user ${u.id} on ${yesterday}`, err)
+      )
+    )
   )
   l.info(`progressScheduler: built snapshots for ${users.length} users on ${yesterday}`)
 }
@@ -146,13 +140,13 @@ async function backfillAllUsers(daysBack: number = 365): Promise<void> {
       l.info(`progressScheduler: backfilling ${datesToFill.length} days for user ${user.name}`)
       for (let i = 0; i < datesToFill.length; i++) {
         const date = datesToFill[i]
-        await buildDailySnapshot(user.id, user.email ?? '', user.name ?? '', user.user_code ?? '', date).catch((err) =>
-          l.warn(`progressScheduler: backfill failed for user ${user.id} on ${date}`, err),
+        await buildDailySnapshot(user.id, user.email ?? '', user.name ?? '', user.user_code ?? '', date).catch(err =>
+          l.warn(`progressScheduler: backfill failed for user ${user.id} on ${date}`, err)
         )
         await yieldEventLoop()
         const isLast = i === datesToFill.length - 1
         if (!isLast && (i + 1) % BACKFILL_PAUSE_EVERY_DATES === 0) {
-          await new Promise<void>((r) => setTimeout(r, BACKFILL_PAUSE_MS))
+          await new Promise<void>(r => setTimeout(r, BACKFILL_PAUSE_MS))
         }
       }
     } catch (err) {
@@ -165,7 +159,7 @@ async function backfillAllUsers(daysBack: number = 365): Promise<void> {
 function scheduleNextRun(): void {
   const delay = msUntilNext0005()
   setTimeout(async () => {
-    await buildYesterdaySnapshots().catch((err) => l.warn('progressScheduler: daily run error', err))
+    await buildYesterdaySnapshots().catch(err => l.warn('progressScheduler: daily run error', err))
     scheduleNextRun()
   }, delay)
 }

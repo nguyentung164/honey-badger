@@ -154,8 +154,9 @@ export function VersionControlInfo({
       </div>
       {isValid ? (
         <div
-          className={`h-34 space-y-2 transition-all duration-300 ${!isInitialLoad && !isDetecting && isValid && detectedType && detectedType !== 'none' ? 'opacity-100' : 'opacity-0'
-            }`}
+          className={`h-34 space-y-2 transition-all duration-300 ${
+            !isInitialLoad && !isDetecting && isValid && detectedType && detectedType !== 'none' ? 'opacity-100' : 'opacity-0'
+          }`}
         >
           <div className="text-xs text-muted-foreground space-y-1">
             {detectedType === 'svn' ? (

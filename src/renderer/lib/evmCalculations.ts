@@ -147,7 +147,7 @@ export function isEvmCalendarWorkdayYmd(ymd: string, nonWorkingDays: string[]): 
  */
 export function deriveWbsPlanFromSparseDayUnits(
   entries: { workDate: string; unit: number }[],
-  nonWorkingDays: string[],
+  nonWorkingDays: string[]
 ): { planStartDate?: string; planEndDate?: string; durationDays: number | null } {
   const nw = nonWorkingSetForEvm(nonWorkingDays)
   const days: string[] = []
@@ -197,11 +197,7 @@ export function planStartWbsDetailLine90(params: {
  * Plan end khi duration là số **ngày làm việc** trong khoảng [start…end] (cả hai biên là ngày làm),
  * tương đương chuỗi ngày làm liên tiếp sau khi neo start lên ngày làm đầu tiên (EVM_Tool: WORKDAY + duration).
  */
-export function planEndFromStartAndDurationWorkdays(
-  planStartYmd: string,
-  durationDays: number,
-  nonWorkingDays: string[],
-): string | null {
+export function planEndFromStartAndDurationWorkdays(planStartYmd: string, durationDays: number, nonWorkingDays: string[]): string | null {
   if (!planStartYmd?.trim() || !Number.isFinite(durationDays) || durationDays < 1) return null
   const nw = new Set(nonWorkingDays.map(d => normalizeEvmCalendarDay(d) ?? d.slice(0, 10)))
   const parsed = parseDate(planStartYmd.trim())
@@ -227,7 +223,7 @@ export function evmScheduleSlipWorkingDays(
   planEndYmd: string | null | undefined,
   actualEndYmd: string | null | undefined,
   referenceYmd: string,
-  nonWorkingDays: string[],
+  nonWorkingDays: string[]
 ): number | null {
   const pe = normalizeEvmCalendarDay(planEndYmd ?? undefined)
   if (!pe) return null
@@ -262,12 +258,7 @@ export function taskPlanEffortPerDay(r: WBSRow): number {
  * Ô timeline thuộc dải kế hoạch (Excel): ngày trong [planStart, planEnd], không T7/CN, không ngày nghỉ master.
  * Dùng tô nền dải plan trên lưới AC (ô trắng = ngày làm; cuối tuần xám vẫn không tô xanh).
  */
-export function isYmdInPlanWorkingRange(
-  ds: string,
-  planStart: string | null | undefined,
-  planEnd: string | null | undefined,
-  nonWorkingDays: string[],
-): boolean {
+export function isYmdInPlanWorkingRange(ds: string, planStart: string | null | undefined, planEnd: string | null | undefined, nonWorkingDays: string[]): boolean {
   const dNorm = normalizeEvmCalendarDay(ds)
   const ps = normalizeEvmCalendarDay(planStart)
   const pe = normalizeEvmCalendarDay(planEnd)
@@ -308,11 +299,7 @@ export function buildWbsDayUnitsFromPlan(row: WBSRow, nonWorkingDays: string[]):
  * Ô lưới WBS/Resource: mặc định từ plan × effort/ngày; nếu **đã có** bản ghi `evm_wbs_day_unit` cho dòng thì chỉ dùng DB
  * (tránh lấp lại ô plan sau khi người dùng xóa/xén phân bổ trên lưới Gantt).
  */
-export function mergeWbsDayUnitsStoredWithPlan(
-  wbs: WBSRow[],
-  stored: WbsDayUnitRow[] | undefined,
-  nonWorkingDays: string[],
-): WbsDayUnitRow[] {
+export function mergeWbsDayUnitsStoredWithPlan(wbs: WBSRow[], stored: WbsDayUnitRow[] | undefined, nonWorkingDays: string[]): WbsDayUnitRow[] {
   const m = new Map<string, WbsDayUnitRow>()
   const storedByWbs = new Map<string, WbsDayUnitRow[]>()
   for (const u of stored ?? []) {
@@ -435,10 +422,7 @@ const PERCENT_SNAP_EPS = 1e-5
 /**
  * Chuẩn hóa % hoàn thành (0…1) về một giá trị chuỗi khớp preset hoặc mã tùy chỉnh cho Combobox.
  */
-export function snapPercentDoneToPresetOptions(
-  raw: number | null | undefined,
-  options: number[],
-): { choice: string; orphanLabel?: string } {
+export function snapPercentDoneToPresetOptions(raw: number | null | undefined, options: number[]): { choice: string; orphanLabel?: string } {
   if (raw == null || !Number.isFinite(raw)) return { choice: '' }
   let p = raw > 1 ? raw / 100 : raw
   p = Math.min(1, Math.max(0, p))
@@ -463,13 +447,7 @@ export function snapPercentDoneToPresetOptions(
 /**
  * Snapshot WBS cho EV: dùng trực tiếp dữ liệu WBS (tab AC chỉ cập nhật WBS; không merge ledger AC).
  */
-export function wbsRowsMergedWithAcForGuideline(
-  wbs: WBSRow[],
-  _ac: ACRow[],
-  _reportCutoffStr: string,
-  _hoursPerDay: number,
-  _nonWorkingDays: string[]
-): WBSRow[] {
+export function wbsRowsMergedWithAcForGuideline(wbs: WBSRow[], _ac: ACRow[], _reportCutoffStr: string, _hoursPerDay: number, _nonWorkingDays: string[]): WBSRow[] {
   return wbs.map(r => ({ ...r }))
 }
 
@@ -530,12 +508,7 @@ export function pvUpToReportDate(project: EVMProject, wbs: WBSRow[], reportDate:
 }
 
 /** PV một dòng: lũy kế ô lưới ngày (merged plan + sparse) đến mốc báo cáo — khớp SUMIF timeline Excel (chỉ ngày làm). */
-export function pvForTaskFromMergedDayUnits(
-  r: WBSRow,
-  reportDate: Date | null,
-  merged: WbsDayUnitRow[],
-  nonWorkingDays: string[] = [],
-): number {
+export function pvForTaskFromMergedDayUnits(r: WBSRow, reportDate: Date | null, merged: WbsDayUnitRow[], nonWorkingDays: string[] = []): number {
   if (!reportDate) return 0
   const cutoff = toDateStr(reportDate)
   let s = 0
@@ -549,12 +522,7 @@ export function pvForTaskFromMergedDayUnits(
 }
 
 /** Tổng đơn vị MD/ngày (merged plan + sparse) cho cả nhóm detail tại một ngày — chỉ ngày làm (NETWORKDAYS). */
-export function sumMergedDayUnitsForDetailRowsOnDate(
-  detailRows: WBSRow[],
-  merged: WbsDayUnitRow[],
-  dateStr: string,
-  nonWorkingDays: string[] = [],
-): number {
+export function sumMergedDayUnitsForDetailRowsOnDate(detailRows: WBSRow[], merged: WbsDayUnitRow[], dateStr: string, nonWorkingDays: string[] = []): number {
   if (detailRows.length === 0) return 0
   const dNorm = normalizeEvmCalendarDay(dateStr) ?? dateStr.slice(0, 10)
   if (!isEvmCalendarWorkdayYmd(dNorm, nonWorkingDays)) return 0
@@ -568,12 +536,7 @@ export function sumMergedDayUnitsForDetailRowsOnDate(
   return s
 }
 
-export function pvUpToReportDateFromMergedDayUnits(
-  wbs: WBSRow[],
-  reportDate: Date | null,
-  merged: WbsDayUnitRow[],
-  nonWorkingDays: string[] = [],
-): number {
+export function pvUpToReportDateFromMergedDayUnits(wbs: WBSRow[], reportDate: Date | null, merged: WbsDayUnitRow[], nonWorkingDays: string[] = []): number {
   if (!reportDate) return 0
   return wbs.reduce((s, r) => s + pvForTaskFromMergedDayUnits(r, reportDate, merged, nonWorkingDays), 0)
 }
@@ -587,7 +550,7 @@ export function assigneeMdFromMergedDayUnitsUpTo(
   wbs: WBSRow[],
   merged: WbsDayUnitRow[],
   reportCutoffYmd: string | null,
-  nonWorkingDays: string[] = [],
+  nonWorkingDays: string[] = []
 ): number {
   const aid = assigneeId.trim()
   if (!aid) return 0
@@ -624,7 +587,6 @@ export function computeTspi(bac: number, ev: number, pv: number): number | null 
   return num / denom
 }
 
-
 /** AC (man-day) = tổng giờ các bản ghi có date ≤ reportDate, chia hoursPerDay (Excel: /8). */
 export function acManDaysUpToReportDate(ac: ACRow[], reportDateStr: string, hoursPerDay: number): number {
   const rd = parseDate(reportDateStr)
@@ -645,12 +607,7 @@ export function acManDaysUpToReportDate(ac: ACRow[], reportDateStr: string, hour
 }
 
 /** AC (MD) lũy kế đến ngày báo cáo, chỉ các dòng AC của assignee. */
-export function acManDaysUpToReportDateForAssignee(
-  ac: ACRow[],
-  assignee: string,
-  reportDateStr: string,
-  hoursPerDay: number,
-): number {
+export function acManDaysUpToReportDateForAssignee(ac: ACRow[], assignee: string, reportDateStr: string, hoursPerDay: number): number {
   const aid = assignee.trim()
   if (!aid) return 0
   const filtered = ac.filter(r => (r.assignee ?? '').trim() === aid)
@@ -737,14 +694,7 @@ export interface EVMMetricsInput {
 /**
  * Tính KPI EVM khớp file Excel V5.0 (Plan⇒Gantt).
  */
-export function computeEVMMetrics({
-  project,
-  wbs,
-  ac,
-  hoursPerDay = DEFAULT_EVM_HOURS_PER_DAY,
-  nonWorkingDays = [],
-  wbsDayUnits,
-}: EVMMetricsInput): EVMResult {
+export function computeEVMMetrics({ project, wbs, ac, hoursPerDay = DEFAULT_EVM_HOURS_PER_DAY, nonWorkingDays = [], wbsDayUnits }: EVMMetricsInput): EVMResult {
   const hpd = Math.max(1e-9, hoursPerDay)
   const bac = sumBacLikeExcel(wbs, nonWorkingDays)
   const reportDate = parseDate(project.reportDate)
@@ -906,7 +856,7 @@ export function buildEVMTimeSeries(
   ac: ACRow[],
   hoursPerDay = DEFAULT_EVM_HOURS_PER_DAY,
   nonWorkingDays: string[] = [],
-  wbsDayUnits: WbsDayUnitRow[] = [],
+  wbsDayUnits: WbsDayUnitRow[] = []
 ): EVMTimeSeriesPoint[] {
   const bounds = effectiveProjectBounds(project, wbs)
   if (!bounds) return []
@@ -1059,12 +1009,7 @@ export function wbsDetailRowsForRollupKey(wbs: WBSRow[], rollupKey: string): WBS
 }
 
 /** Table 1 (Excel): group-by phase + category (một Master); SPI = EV/PV; Progress = EV/BAC. */
-export function computeWbsMasterRollupRows(
-  project: EVMProject,
-  wbs: WBSRow[],
-  nonWorkingDays: string[],
-  wbsDayUnits: WbsDayUnitRow[] = [],
-): WbsMasterRollupRow[] {
+export function computeWbsMasterRollupRows(project: EVMProject, wbs: WBSRow[], nonWorkingDays: string[], wbsDayUnits: WbsDayUnitRow[] = []): WbsMasterRollupRow[] {
   const reportDate = parseDate(project.reportDate)
   const merged = mergeWbsDayUnitsStoredWithPlan(wbs, wbsDayUnits, nonWorkingDays)
   const byKey = new Map<string, WBSRow[]>()
@@ -1151,12 +1096,7 @@ function dayUnitKey(wbsId: string, workDate: string): string {
 }
 
 /** Tổng hệ số ô ngày (Excel BZ) cho assignee tại một ngày. */
-export function resourceFactorSumForAssigneeOnDate(
-  assigneeId: string,
-  dateStr: string,
-  wbs: WBSRow[],
-  wbsDayUnits: WbsDayUnitRow[],
-): number {
+export function resourceFactorSumForAssigneeOnDate(assigneeId: string, dateStr: string, wbs: WBSRow[], wbsDayUnits: WbsDayUnitRow[]): number {
   const unitMap = new Map(wbsDayUnits.map(u => [dayUnitKey(u.wbsId, u.workDate), u.unit]))
   let sum = 0
   for (const row of wbs) {
@@ -1173,7 +1113,7 @@ export function resourceHoursFromWbsDayUnitsForAssignee(
   wbs: WBSRow[],
   wbsDayUnits: WbsDayUnitRow[],
   hoursPerDay: number,
-  nonWorkingDays: string[] = [],
+  nonWorkingDays: string[] = []
 ): number {
   if (!isEvmCalendarWorkdayYmd(dateStr, nonWorkingDays)) return 0
   return resourceFactorSumForAssigneeOnDate(assigneeId, dateStr, wbs, wbsDayUnits) * Math.max(1e-9, hoursPerDay)
@@ -1191,11 +1131,10 @@ export function computeEVByPhase(
   hoursPerDay = DEFAULT_EVM_HOURS_PER_DAY,
   nonWorkingDays: string[] = [],
   phaseNotes?: Record<string, string>,
-  wbsDayUnits: WbsDayUnitRow[] = [],
+  wbsDayUnits: WbsDayUnitRow[] = []
 ): EVByPhaseRow[] {
   const hpd = Math.max(1e-9, hoursPerDay)
-  const cutoff =
-    project.reportDate?.trim() ? (normalizeEvmCalendarDay(project.reportDate) ?? project.reportDate.trim().slice(0, 10)) : null
+  const cutoff = project.reportDate?.trim() ? (normalizeEvmCalendarDay(project.reportDate) ?? project.reportDate.trim().slice(0, 10)) : null
   const acReportStr = (cutoff ?? project.reportDate ?? '').trim()
   const rollups = computeWbsMasterRollupRows(project, wbs, nonWorkingDays, wbsDayUnits)
   const agg = new Map<string, { bac: number; pv: number; ev: number }>()
@@ -1223,13 +1162,7 @@ export function computeEVByPhase(
       const cpi = acVal > 0 ? ev / acVal : 0
       return { phase, bac, pv, ev, ac: acVal, sv, cv, progress, cpi, spi }
     })
-    .filter(
-      r =>
-        r.bac > 0 ||
-        r.ac > 0 ||
-        r.ev > 1e-12 ||
-        Boolean(phaseNotes?.[r.phase]?.trim()),
-    )
+    .filter(r => r.bac > 0 || r.ac > 0 || r.ev > 1e-12 || Boolean(phaseNotes?.[r.phase]?.trim()))
 }
 
 export function computeEVByAssignee(
@@ -1240,15 +1173,13 @@ export function computeEVByAssignee(
   hoursPerDay = DEFAULT_EVM_HOURS_PER_DAY,
   nonWorkingDays: string[] = [],
   assigneeNotes?: Record<string, string>,
-  wbsDayUnits: WbsDayUnitRow[] = [],
+  wbsDayUnits: WbsDayUnitRow[] = []
 ): EVByAssigneeRow[] {
   const hpd = Math.max(1e-9, hoursPerDay)
   const merged = mergeWbsDayUnitsStoredWithPlan(wbs, wbsDayUnits, nonWorkingDays)
-  const cutoff =
-    project.reportDate?.trim() ? (normalizeEvmCalendarDay(project.reportDate) ?? project.reportDate.trim().slice(0, 10)) : null
+  const cutoff = project.reportDate?.trim() ? (normalizeEvmCalendarDay(project.reportDate) ?? project.reportDate.trim().slice(0, 10)) : null
   const reportDateForEv = parseDate(project.reportDate ?? '') ?? (cutoff ? parseDate(cutoff) : null)
-  const wbsEv =
-    reportDateForEv ? wbsRowsMergedWithAcForGuideline(wbs, ac, project.reportDate ?? cutoff ?? '', hpd, nonWorkingDays) : wbs
+  const wbsEv = reportDateForEv ? wbsRowsMergedWithAcForGuideline(wbs, ac, project.reportDate ?? cutoff ?? '', hpd, nonWorkingDays) : wbs
   const acReportStr = (cutoff ?? project.reportDate ?? '').trim()
   return assignees
     .map(assignee => {
@@ -1256,12 +1187,7 @@ export function computeEVByAssignee(
       const bac = assigneeMdFromMergedDayUnitsUpTo(assignee, wbs, merged, null, nonWorkingDays)
       const pvRaw = cutoff ? assigneeMdFromMergedDayUnitsUpTo(assignee, wbs, merged, cutoff, nonWorkingDays) : 0
       const pv = reportDateForEv ? pvRaw : 0
-      const ev = reportDateForEv
-        ? assigneeWbsEv.reduce(
-            (s, r) => s + evForTaskDashboardAtReportDate(r, reportDateForEv, nonWorkingDays),
-            0,
-          )
-        : 0
+      const ev = reportDateForEv ? assigneeWbsEv.reduce((s, r) => s + evForTaskDashboardAtReportDate(r, reportDateForEv, nonWorkingDays), 0) : 0
       const assigneeAc = ac.filter(r => (r.assignee ?? '') === assignee)
       const acVal = acManDaysForRowsUpTo(assigneeAc, acReportStr, hpd)
       const sv = ev - pv

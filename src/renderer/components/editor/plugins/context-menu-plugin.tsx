@@ -1,30 +1,10 @@
-import type { JSX } from "react"
-import { useMemo } from "react"
-import { $isLinkNode, TOGGLE_LINK_COMMAND } from "@lexical/link"
-import { useLexicalComposerContext } from "@lexical/react/LexicalComposerContext"
-import {
-  NodeContextMenuOption,
-  NodeContextMenuPlugin,
-  NodeContextMenuSeparator,
-} from "@lexical/react/LexicalNodeContextMenuPlugin"
-import {
-  $getSelection,
-  $isDecoratorNode,
-  $isNodeSelection,
-  $isRangeSelection,
-  COPY_COMMAND,
-  CUT_COMMAND,
-  PASTE_COMMAND,
-  type LexicalNode,
-} from "lexical"
-import {
-  Clipboard,
-  ClipboardType,
-  Copy,
-  Link2Off,
-  Scissors,
-  Trash2,
-} from "lucide-react"
+import { $isLinkNode, TOGGLE_LINK_COMMAND } from '@lexical/link'
+import { useLexicalComposerContext } from '@lexical/react/LexicalComposerContext'
+import { NodeContextMenuOption, NodeContextMenuPlugin, NodeContextMenuSeparator } from '@lexical/react/LexicalNodeContextMenuPlugin'
+import { $getSelection, $isDecoratorNode, $isNodeSelection, $isRangeSelection, COPY_COMMAND, CUT_COMMAND, type LexicalNode, PASTE_COMMAND } from 'lexical'
+import { Clipboard, ClipboardType, Copy, Link2Off, Scissors, Trash2 } from 'lucide-react'
+import type { JSX } from 'react'
+import { useMemo } from 'react'
 
 export function ContextMenuPlugin(): JSX.Element {
   const [editor] = useLexicalComposerContext()
@@ -58,7 +38,7 @@ export function ContextMenuPlugin(): JSX.Element {
       }),
       new NodeContextMenuOption(`Paste`, {
         $onSelect: () => {
-          navigator.clipboard.read().then(async function (...args) {
+          navigator.clipboard.read().then(async (..._args) => {
             const data = new DataTransfer()
 
             const readClipboardItems = await navigator.clipboard.read()
@@ -66,10 +46,10 @@ export function ContextMenuPlugin(): JSX.Element {
 
             const permission = await navigator.permissions.query({
               // @ts-expect-error These types are incorrect.
-              name: "clipboard-read",
+              name: 'clipboard-read',
             })
-            if (permission.state === "denied") {
-              alert("Not allowed to paste from clipboard.")
+            if (permission.state === 'denied') {
+              alert('Not allowed to paste from clipboard.')
               return
             }
 
@@ -78,7 +58,7 @@ export function ContextMenuPlugin(): JSX.Element {
               data.setData(type, dataString)
             }
 
-            const event = new ClipboardEvent("paste", {
+            const event = new ClipboardEvent('paste', {
               clipboardData: data,
             })
 
@@ -90,22 +70,22 @@ export function ContextMenuPlugin(): JSX.Element {
       }),
       new NodeContextMenuOption(`Paste as Plain Text`, {
         $onSelect: () => {
-          navigator.clipboard.read().then(async function (...args) {
+          navigator.clipboard.read().then(async (..._args) => {
             const permission = await navigator.permissions.query({
               // @ts-expect-error These types are incorrect.
-              name: "clipboard-read",
+              name: 'clipboard-read',
             })
 
-            if (permission.state === "denied") {
-              alert("Not allowed to paste from clipboard.")
+            if (permission.state === 'denied') {
+              alert('Not allowed to paste from clipboard.')
               return
             }
 
             const data = new DataTransfer()
             const clipboardText = await navigator.clipboard.readText()
-            data.setData("text/plain", clipboardText)
+            data.setData('text/plain', clipboardText)
 
-            const event = new ClipboardEvent("paste", {
+            const event = new ClipboardEvent('paste', {
               clipboardData: data,
             })
             editor.dispatchCommand(PASTE_COMMAND, event)
@@ -125,7 +105,7 @@ export function ContextMenuPlugin(): JSX.Element {
             ancestorNodeWithRootAsParent?.remove()
           } else if ($isNodeSelection(selection)) {
             const selectedNodes = selection.getNodes()
-            selectedNodes.forEach((node) => {
+            selectedNodes.forEach(node => {
               if ($isDecoratorNode(node)) {
                 node.remove()
               }

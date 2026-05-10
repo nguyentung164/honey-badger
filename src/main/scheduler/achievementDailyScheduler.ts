@@ -1,7 +1,7 @@
 import l from 'electron-log'
-import { hasDbConfig } from '../task/db'
-import { getUserIdsNeedingNegativeCheck } from '../task/achievementStore'
-import { checkDailyNegativeBadges } from '../task/achievementService'
+import { checkDailyNegativeBadges } from '../task/achievement/achievementService'
+import { getUserIdsNeedingNegativeCheck } from '../task/achievement/achievementStore'
+import { hasDbConfig } from '../task/schema/db'
 
 function localTodayStr(): string {
   const d = new Date()

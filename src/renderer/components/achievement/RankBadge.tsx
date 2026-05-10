@@ -83,8 +83,7 @@ export const RANK_CONFIG = {
     color: 'text-transparent bg-clip-text bg-gradient-to-r from-rose-500 via-violet-500 to-blue-500',
     ringColor: 'ring-rose-500',
     bgColor: 'bg-gradient-to-br from-rose-50 via-violet-50 to-blue-50 dark:from-rose-900/20 dark:via-violet-900/20 dark:to-blue-900/20',
-    pillHoverBg:
-      'hover:from-rose-100 hover:via-violet-100 hover:to-blue-100 dark:hover:from-rose-900/32 dark:hover:via-violet-900/32 dark:hover:to-blue-900/32',
+    pillHoverBg: 'hover:from-rose-100 hover:via-violet-100 hover:to-blue-100 dark:hover:from-rose-900/32 dark:hover:via-violet-900/32 dark:hover:to-blue-900/32',
     glowClass: 'rank-glow-legend rank-shimmer',
     achievementGlowClass: 'animate-achievement-rank-glow-legend',
     emoji: '👑',
@@ -115,24 +114,12 @@ export function RankBadge({ rank, size = 'sm', showLabel = false, className, noG
 
   return (
     <span className={cn('inline-flex items-center gap-1', className)}>
-      <span
-        className={cn(
-          'inline-flex items-center justify-center rounded-full',
-          config.bgColor,
-          !noGlow && config.glowClass,
-          sizes.container
-        )}
-        title={config.label}
-      >
+      <span className={cn('inline-flex items-center justify-center rounded-full', config.bgColor, !noGlow && config.glowClass, sizes.container)} title={config.label}>
         <span role="img" aria-label={config.label} style={{ fontSize: size === 'lg' ? 20 : size === 'md' ? 14 : size === 'sm' ? 10 : 8 }}>
           {config.emoji}
         </span>
       </span>
-      {showLabel && (
-        <span className={cn('font-semibold', config.color, sizes.text)}>
-          {config.label}
-        </span>
-      )}
+      {showLabel && <span className={cn('font-semibold', config.color, sizes.text)}>{config.label}</span>}
     </span>
   )
 }

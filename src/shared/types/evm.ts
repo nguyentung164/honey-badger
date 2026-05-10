@@ -121,18 +121,7 @@ export interface EVMMaster {
 /** PATCH evm_master — không gửi `assignees` (nguồn: user_project_roles). */
 export type EVMMasterUpdatePayload = Omit<Partial<EVMMaster>, 'assignees' | 'projectId'>
 
-export type IssueImportMapField =
-  | 'phase'
-  | 'category'
-  | 'feature'
-  | 'task'
-  | 'planStart'
-  | 'planEnd'
-  | 'actualStart'
-  | 'actualEnd'
-  | 'assignee'
-  | 'percentDone'
-  | 'estMd'
+export type IssueImportMapField = 'phase' | 'category' | 'feature' | 'task' | 'planStart' | 'planEnd' | 'actualStart' | 'actualEnd' | 'assignee' | 'percentDone' | 'estMd'
 
 /** Một ô phân bổ ngày trên WBS detail (Resource / Excel BZ). */
 export interface WbsDayUnitRow {

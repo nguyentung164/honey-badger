@@ -160,12 +160,7 @@ export interface IHostingClient {
   getType(): HostingType
   createPR(input: CreatePRInput): Promise<PullRequestSummary>
   mergePR(input: MergePRInput): Promise<{ merged: boolean; message?: string }>
-  getPR(
-    owner: string,
-    repo: string,
-    number: number,
-    options?: { includeReviewSubmissions?: boolean }
-  ): Promise<PullRequestSummary>
+  getPR(owner: string, repo: string, number: number, options?: { includeReviewSubmissions?: boolean }): Promise<PullRequestSummary>
   listPRs(options: ListPRsOptions): Promise<PullRequestSummary[]>
   getPRCommits(owner: string, repo: string, number: number): Promise<PullRequestCommit[]>
   getDefaultBranch(owner: string, repo: string): Promise<string>

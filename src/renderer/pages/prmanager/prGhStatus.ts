@@ -34,11 +34,7 @@ export const PR_GH_STATUS_TOOLTIP: Record<PrGhStatusKind, string> = {
   closed: 'This pull request is closed (not merged).',
 }
 
-export function prSummaryToGhStatusKind(pr: {
-  merged: boolean
-  state: 'open' | 'closed'
-  draft: boolean
-}): PrGhStatusKind {
+export function prSummaryToGhStatusKind(pr: { merged: boolean; state: 'open' | 'closed'; draft: boolean }): PrGhStatusKind {
   if (pr.merged) return 'merged'
   if (pr.state === 'closed') return 'closed'
   if (pr.draft) return 'draft'

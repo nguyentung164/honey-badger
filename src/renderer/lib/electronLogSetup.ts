@@ -6,7 +6,7 @@ import log from 'electron-log/renderer'
 const SEP = ' › '
 
 function setupElectronLogFormat(): void {
-  log.hooks.push((message) => {
+  log.hooks.push(message => {
     const levelLabel = (message.level || 'info').toUpperCase()
     const vars = (message.variables ?? {}) as Record<string, unknown>
     message.variables = {

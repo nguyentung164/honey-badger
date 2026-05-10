@@ -93,15 +93,13 @@ export function TaskSavedViewsPopover({
             size="sm"
             className={cn(
               'h-8 shrink-0 gap-1.5 relative border-dashed border-primary/45 bg-muted/40 font-medium text-foreground shadow-none hover:bg-muted/55 dark:border-primary/35 dark:bg-muted/25 dark:hover:bg-muted/40',
-              disabled && 'pointer-events-none opacity-50',
+              disabled && 'pointer-events-none opacity-50'
             )}
             disabled={disabled}
             title={pinnedViewDirty ? t('taskManagement.savedViewDirtyTooltip') : undefined}
           >
             <Bookmark className="h-3.5 w-3.5 shrink-0" />
-            {pinnedViewDirty ? (
-              <span className="absolute right-1 top-1 h-1.5 w-1.5 rounded-full bg-amber-500 ring-2 ring-background" aria-hidden />
-            ) : null}
+            {pinnedViewDirty ? <span className="absolute right-1 top-1 h-1.5 w-1.5 rounded-full bg-amber-500 ring-2 ring-background" aria-hidden /> : null}
             {t('taskManagement.savedViews')}
             {savedViews.length > 0 && <span className="text-muted-foreground">({savedViews.length})</span>}
           </Button>
@@ -109,9 +107,7 @@ export function TaskSavedViewsPopover({
         <PopoverContent className="w-80 p-0" align="start">
           <div className="p-3 border-b">
             <div className="text-sm font-medium">{t('taskManagement.savedViews')}</div>
-            {pinnedViewDirty ? (
-              <p className="mt-1.5 text-xs text-amber-700 dark:text-amber-400/95">{t('taskManagement.savedViewDirtyHint')}</p>
-            ) : null}
+            {pinnedViewDirty ? <p className="mt-1.5 text-xs text-amber-700 dark:text-amber-400/95">{t('taskManagement.savedViewDirtyHint')}</p> : null}
           </div>
           <div className="max-h-[220px] overflow-y-auto px-2 py-1">
             {savedViews.length === 0 ? (

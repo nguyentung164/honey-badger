@@ -260,11 +260,7 @@ export async function merge(options: MergeOptions): Promise<MergeResult> {
   }
 }
 
-export async function resolveConflictWithContent(
-  filePath: string,
-  resolvedContent: string,
-  sourceFolder?: string
-): Promise<Omit<MergeResult, 'data'>> {
+export async function resolveConflictWithContent(filePath: string, resolvedContent: string, sourceFolder?: string): Promise<Omit<MergeResult, 'data'>> {
   try {
     const cwd = sourceFolder || configurationStore.store.sourceFolder
     if (!cwd) {

@@ -7,7 +7,7 @@ function getSchemaPath(): string {
   if (app.isPackaged) {
     return join(process.resourcesPath, 'task-schema', 'schema.sql')
   }
-  return join(process.cwd(), 'src', 'main', 'task', 'schema.sql')
+  return join(process.cwd(), 'src', 'main', 'task', 'schema', 'schema.sql')
 }
 
 /**

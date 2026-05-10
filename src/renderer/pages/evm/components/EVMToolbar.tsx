@@ -6,36 +6,30 @@ import { lazy, Suspense, useCallback, useEffect, useMemo, useState } from 'react
 import { useTranslation } from 'react-i18next'
 import { Button } from '@/components/ui/button'
 import { Calendar } from '@/components/ui/calendar'
+import { Checkbox } from '@/components/ui/checkbox'
 import { Combobox } from '@/components/ui/combobox'
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog'
-import { Checkbox } from '@/components/ui/checkbox'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
-import { Separator } from '@/components/ui/separator'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
+import { Separator } from '@/components/ui/separator'
 import toast from '@/components/ui-elements/Toast'
 import { formatDateDisplay, getDateFnsLocale, getDateOnlyPattern, parseLocalDate, toYyyyMmDd } from '@/lib/dateUtils'
 import { buildWbsDayUnitsFromPlan } from '@/lib/evmCalculations'
-import {
-  mapTaskLikeToWbsImportRow,
-  mapWbsImportRowToAcSnapshotRow,
-  type MapTaskToWbsOptions,
-} from '@/lib/evmImportFromTask'
+import { type MapTaskToWbsOptions, mapTaskLikeToWbsImportRow, mapWbsImportRowToAcSnapshotRow } from '@/lib/evmImportFromTask'
+import i18n from '@/lib/i18n'
 import { cn } from '@/lib/utils'
 import { useAppearanceStoreSelect } from '@/stores/useAppearanceStore'
 import { useEVMStore } from '@/stores/useEVMStore'
 import { evmTabSupportsAi, useEvmAiInsightStore } from '@/stores/useEvmAiInsightStore'
 import { useEvmToolbarLayoutStore } from '@/stores/useEvmToolbarLayoutStore'
 import { useTaskAuthStore } from '@/stores/useTaskAuthStore'
-import i18n from '@/lib/i18n'
 import type { EVMTabId } from './EVMSidebar'
-import { EVM_PROJECT_CREATE_STUB, EvmProjectInfoDialog } from './EvmProjectInfoDialog'
 import { useEvmAiPanelControl } from './EvmAiPanelContext'
+import { EVM_PROJECT_CREATE_STUB, EvmProjectInfoDialog } from './EvmProjectInfoDialog'
 
-const ProjectMembersDialog = lazy(() =>
-  import('@/components/dialogs/task/ProjectMembersDialog').then(m => ({ default: m.ProjectMembersDialog }))
-)
+const ProjectMembersDialog = lazy(() => import('@/components/dialogs/task/ProjectMembersDialog').then(m => ({ default: m.ProjectMembersDialog })))
 
 const noDrag = { WebkitAppRegion: 'no-drag' } as React.CSSProperties
 const dragRegion = { WebkitAppRegion: 'drag' } as React.CSSProperties
@@ -213,9 +207,7 @@ export function EVMToolbar({ activeEvmTab }: { activeEvmTab: EVMTabId }) {
       try {
         const [usersRes, memRes] = await Promise.all([window.api.user.getUsers(), window.api.task.getProjectMembers(projectId)])
         if (usersRes.status === 'success' && usersRes.data) {
-          setMembersDialogUsers(
-            usersRes.data.map((u: { id: string; name: string; userCode: string }) => ({ id: u.id, name: u.name, userCode: u.userCode }))
-          )
+          setMembersDialogUsers(usersRes.data.map((u: { id: string; name: string; userCode: string }) => ({ id: u.id, name: u.name, userCode: u.userCode })))
         } else {
           setMembersDialogUsers([])
         }
@@ -234,10 +226,7 @@ export function EVMToolbar({ activeEvmTab }: { activeEvmTab: EVMTabId }) {
   )
 
   const projectComboboxOptions = useMemo(() => {
-    const rows =
-      project.id && !evmProjects.some(p => p.id === project.id)
-        ? [{ id: project.id, projectName: project.projectName }, ...evmProjects]
-        : evmProjects
+    const rows = project.id && !evmProjects.some(p => p.id === project.id) ? [{ id: project.id, projectName: project.projectName }, ...evmProjects] : evmProjects
     return rows.map(p => ({
       value: p.id,
       label: p.projectName,
@@ -302,7 +291,7 @@ export function EVMToolbar({ activeEvmTab }: { activeEvmTab: EVMTabId }) {
     [t]
   )
 
-  const showScheduleFiltersRow = project.id && (showScheduleFilters || showAssigneeOnlyFilter)
+  const _showScheduleFiltersRow = project.id && (showScheduleFilters || showAssigneeOnlyFilter)
 
   const handleProjectChange = useCallback(
     (projectId: string) => {
@@ -337,9 +326,7 @@ export function EVMToolbar({ activeEvmTab }: { activeEvmTab: EVMTabId }) {
         return
       }
       const reportDate =
-        ensureRes.data?.reportDate && String(ensureRes.data.reportDate).length >= 10
-          ? String(ensureRes.data.reportDate).slice(0, 10)
-          : (toYyyyMmDd(new Date()) ?? '')
+        ensureRes.data?.reportDate && String(ensureRes.data.reportDate).length >= 10 ? String(ensureRes.data.reportDate).slice(0, 10) : (toYyyyMmDd(new Date()) ?? '')
       const createdWbs = await addWbsRowsBatchToProject(selectedTaskProjectId, wbsRows)
       let importedAcCount = 0
       if (importAcSnapshots) {
@@ -352,9 +339,7 @@ export function EVMToolbar({ activeEvmTab }: { activeEvmTab: EVMTabId }) {
       await loadData(selectedTaskProjectId)
       const nw = useEVMStore.getState().master.nonWorkingDays.map(d => d.date)
       await Promise.all(
-        createdWbs
-          .filter(r => (r.planStartDate ?? '').trim() && (r.planEndDate ?? '').trim())
-          .map(r => replaceWbsDayUnitsForRow(r.id, buildWbsDayUnitsFromPlan(r, nw))),
+        createdWbs.filter(r => (r.planStartDate ?? '').trim() && (r.planEndDate ?? '').trim()).map(r => replaceWbsDayUnitsForRow(r.id, buildWbsDayUnitsFromPlan(r, nw)))
       )
       await fetchEvmProjects()
       if (importAcSnapshots) {
@@ -402,7 +387,7 @@ export function EVMToolbar({ activeEvmTab }: { activeEvmTab: EVMTabId }) {
           footer={projectComboboxFooter}
         />
         {project.id ? (
-          <div className='flex gap-2 pr-4'>
+          <div className="flex gap-2 pr-4">
             <span className="font-medium text-muted-foreground">{t('evm.toolbarDurationLabel')}</span>
             <span className="text-foreground whitespace-nowrap">
               {rangeStartDisp}
@@ -418,10 +403,7 @@ export function EVMToolbar({ activeEvmTab }: { activeEvmTab: EVMTabId }) {
             <Combobox
               value={schedulePhaseFilter}
               onValueChange={v => setScheduleFilters(v, scheduleAssigneeFilter)}
-              options={[
-                { value: 'all', label: t('evm.filterAll') },
-                ...master.phases.map(p => ({ value: p.code, label: p.name ?? p.code })),
-              ]}
+              options={[{ value: 'all', label: t('evm.filterAll') }, ...master.phases.map(p => ({ value: p.code, label: p.name ?? p.code }))]}
               placeholder={t('evm.filterPhase')}
               variant="ghost"
               size="sm"
@@ -432,10 +414,7 @@ export function EVMToolbar({ activeEvmTab }: { activeEvmTab: EVMTabId }) {
             <Combobox
               value={scheduleAssigneeFilter}
               onValueChange={v => setScheduleFilters(schedulePhaseFilter, v)}
-              options={[
-                { value: 'all', label: t('evm.filterAll') },
-                ...master.assignees.map(a => ({ value: a.code, label: a.name ?? a.code })),
-              ]}
+              options={[{ value: 'all', label: t('evm.filterAll') }, ...master.assignees.map(a => ({ value: a.code, label: a.name ?? a.code }))]}
               placeholder={t('evm.filterAssignee')}
               variant="ghost"
               size="sm"
@@ -449,10 +428,7 @@ export function EVMToolbar({ activeEvmTab }: { activeEvmTab: EVMTabId }) {
             <Combobox
               value={scheduleAssigneeFilter}
               onValueChange={v => setScheduleFilters(schedulePhaseFilter, v)}
-              options={[
-                { value: 'all', label: t('evm.filterAll') },
-                ...master.assignees.map(a => ({ value: a.code, label: a.name ?? a.code })),
-              ]}
+              options={[{ value: 'all', label: t('evm.filterAll') }, ...master.assignees.map(a => ({ value: a.code, label: a.name ?? a.code }))]}
               placeholder={t('evm.filterAssignee')}
               variant="ghost"
               size="sm"
@@ -462,26 +438,12 @@ export function EVMToolbar({ activeEvmTab }: { activeEvmTab: EVMTabId }) {
           </>
         ) : null}
         {activeEvmTab === 'gantt' && project.id ? (
-          <Button
-            type="button"
-            variant={buttonVariant}
-            size="sm"
-            className={cn(headerEmeraldActionBtn, 'h-6 px-1.5!')}
-            title={t('common.add')}
-            onClick={() => requestWbsAdd()}
-          >
+          <Button type="button" variant={buttonVariant} size="sm" className={cn(headerEmeraldActionBtn, 'h-6 px-1.5!')} title={t('common.add')} onClick={() => requestWbsAdd()}>
             <Plus className="h-3.5 w-3.5" />
           </Button>
         ) : null}
         {activeEvmTab === 'master' && project.id ? (
-          <Button
-            type="button"
-            variant={buttonVariant}
-            size="sm"
-            className={cn(headerEmeraldActionBtn, 'h-6 px-1.5!')}
-            title={t('common.add')}
-            onClick={() => requestMasterAdd()}
-          >
+          <Button type="button" variant={buttonVariant} size="sm" className={cn(headerEmeraldActionBtn, 'h-6 px-1.5!')} title={t('common.add')} onClick={() => requestMasterAdd()}>
             <Plus className="h-3.5 w-3.5" />
           </Button>
         ) : null}
@@ -517,16 +479,10 @@ export function EVMToolbar({ activeEvmTab }: { activeEvmTab: EVMTabId }) {
                   size="sm"
                   aria-labelledby="evm-toolbar-report-date-label"
                   title={t('evm.dashboardReportDate')}
-                  className={cn(
-                    headerEmeraldActionBtn,
-                    'h-6 px-2 text-xs font-normal justify-start gap-1.5',
-                    !reportDateSelected && 'text-muted-foreground'
-                  )}
+                  className={cn(headerEmeraldActionBtn, 'h-6 px-2 text-xs font-normal justify-start gap-1.5', !reportDateSelected && 'text-muted-foreground')}
                 >
                   <CalendarIcon className="h-3.5 w-3.5 opacity-70" />
-                  {reportDateSelected
-                    ? format(reportDateSelected, reportDateDisplayPattern, { locale: reportDateFnsLocale })
-                    : t('taskManagement.selectDate')}
+                  {reportDateSelected ? format(reportDateSelected, reportDateDisplayPattern, { locale: reportDateFnsLocale }) : t('taskManagement.selectDate')}
                 </Button>
               </PopoverTrigger>
               <PopoverContent className="w-auto p-0" align="end">
@@ -604,11 +560,7 @@ export function EVMToolbar({ activeEvmTab }: { activeEvmTab: EVMTabId }) {
             </div>
             <div className="flex flex-col gap-2">
               <div className="flex items-center gap-2">
-                <Checkbox
-                  id="evm-import-ac"
-                  checked={importAcSnapshots}
-                  onCheckedChange={v => setImportAcSnapshots(v === true)}
-                />
+                <Checkbox id="evm-import-ac" checked={importAcSnapshots} onCheckedChange={v => setImportAcSnapshots(v === true)} />
                 <Label htmlFor="evm-import-ac" className="cursor-pointer font-normal">
                   {t('evm.importAcSnapshotsLabel')}
                 </Label>
@@ -629,13 +581,7 @@ export function EVMToolbar({ activeEvmTab }: { activeEvmTab: EVMTabId }) {
       </Dialog>
 
       <EvmProjectInfoDialog open={showProjectInfo} onOpenChange={setShowProjectInfo} project={project} />
-      <EvmProjectInfoDialog
-        mode="create"
-        open={showNewProject}
-        onOpenChange={setShowNewProject}
-        project={EVM_PROJECT_CREATE_STUB}
-        onAfterCreateSuccess={fetchEvmProjects}
-      />
+      <EvmProjectInfoDialog mode="create" open={showNewProject} onOpenChange={setShowNewProject} project={EVM_PROJECT_CREATE_STUB} onAfterCreateSuccess={fetchEvmProjects} />
       {projectToManageMembers ? (
         <Suspense fallback={null}>
           <ProjectMembersDialog

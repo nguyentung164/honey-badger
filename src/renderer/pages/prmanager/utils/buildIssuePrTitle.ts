@@ -70,10 +70,7 @@ function pickFromMessagesOnly(messages: string[], re: RegExp): { key: string; ve
  * tiếp theo: mã từ commit mới nhất (message đầu) nếu head không suy ra được mã;
  * không dùng max(n) trên mọi mã trong 500+ commit lịch sử (dễ dính mã từ main/merge cũ).
  */
-export function pickIssueKeyAndVersion(
-  messages: string[],
-  headBranch: string
-): { key: string; version: number } | null {
+export function pickIssueKeyAndVersion(messages: string[], headBranch: string): { key: string; version: number } | null {
   const byKey = maxIssueVersionByKey(messages)
   const head = headBranch.trim()
   const headLower = head.toLowerCase()
@@ -85,9 +82,7 @@ export function pickIssueKeyAndVersion(
   }
 
   if (byKey.size > 0) {
-    const keysSorted = [...byKey.keys()].sort(
-      (a, b) => stripIssueHash(b).length - stripIssueHash(a).length
-    )
+    const keysSorted = [...byKey.keys()].sort((a, b) => stripIssueHash(b).length - stripIssueHash(a).length)
     for (const key of keysSorted) {
       const slug = stripIssueHash(key)
       const v = byKey.get(key)

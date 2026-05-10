@@ -159,11 +159,7 @@ export function resolveAndValidatePaths(input: string | string[]): string[] {
   return resolved
 }
 
-export function startFileWatcher(
-  folderPathOrPaths: string | string[],
-  mainWindow: BrowserWindow | null,
-  enabled: boolean
-): void {
+export function startFileWatcher(folderPathOrPaths: string | string[], mainWindow: BrowserWindow | null, enabled: boolean): void {
   stopFileWatcher()
 
   if (!enabled) {

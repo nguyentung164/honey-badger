@@ -145,12 +145,7 @@ export const IntegrationsTabContent = memo(function IntegrationsTabContent({
                         </>
                       )}
                     </Button>
-                    <Button
-                      variant={buttonVariant}
-                      size="sm"
-                      onClick={handleInitSchema}
-                      disabled={!dbHost?.trim() || !dbName?.trim() || initSchemaLoading || seedMockLoading}
-                    >
+                    <Button variant={buttonVariant} size="sm" onClick={handleInitSchema} disabled={!dbHost?.trim() || !dbName?.trim() || initSchemaLoading || seedMockLoading}>
                       {initSchemaLoading ? (
                         <Loader2 className="h-4 w-4 animate-spin" />
                       ) : (
@@ -160,12 +155,7 @@ export const IntegrationsTabContent = memo(function IntegrationsTabContent({
                         </>
                       )}
                     </Button>
-                    <Button
-                      variant={buttonVariant}
-                      size="sm"
-                      onClick={handleSeedMockData}
-                      disabled={!dbHost?.trim() || !dbName?.trim() || seedMockLoading || initSchemaLoading}
-                    >
+                    <Button variant={buttonVariant} size="sm" onClick={handleSeedMockData} disabled={!dbHost?.trim() || !dbName?.trim() || seedMockLoading || initSchemaLoading}>
                       {seedMockLoading ? (
                         <Loader2 className="h-4 w-4 animate-spin" />
                       ) : (

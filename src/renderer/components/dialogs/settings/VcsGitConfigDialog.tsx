@@ -9,8 +9,8 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import toast from '@/components/ui-elements/Toast'
-import { useAppearanceStoreSelect } from '@/stores/useAppearanceStore'
 import { useGitReposFromSourceFolders } from '@/hooks/useGitReposFromSourceFolders'
+import { useAppearanceStoreSelect } from '@/stores/useAppearanceStore'
 
 interface LocalRepoConfig {
   path: string
@@ -28,12 +28,7 @@ interface VcsGitConfigDialogProps {
   selectedSourceFolder?: string | null
 }
 
-export const VcsGitConfigDialog = memo(function VcsGitConfigDialog({
-  open,
-  onOpenChange,
-  selectedProjectId,
-  selectedSourceFolder,
-}: VcsGitConfigDialogProps) {
+export const VcsGitConfigDialog = memo(function VcsGitConfigDialog({ open, onOpenChange, selectedProjectId, selectedSourceFolder }: VcsGitConfigDialogProps) {
   const { t } = useTranslation()
   const buttonVariant = useAppearanceStoreSelect(s => s.buttonVariant)
   const { repos, loading: reposLoading } = useGitReposFromSourceFolders(open, selectedProjectId, selectedSourceFolder)
@@ -64,33 +59,36 @@ export const VcsGitConfigDialog = memo(function VcsGitConfigDialog({
     }
   }, [])
 
-  const loadLocalConfigs = useCallback(async (reposToLoad: { path: string; name: string }[]) => {
-    setConfigLoading(true)
-    setLocalRepos([])
-    try {
-      const locals: LocalRepoConfig[] = []
-      for (const repo of reposToLoad) {
-        try {
-          const config = await window.api.vcs.git_get_config(repo.path)
-          const local = config?.local
-          locals.push({
-            path: repo.path,
-            name: repo.name,
-            userName: local?.userName ?? '',
-            userEmail: local?.userEmail ?? '',
-          })
-        } catch {
-          locals.push({ path: repo.path, name: repo.name, userName: '-', userEmail: '-' })
-        }
-      }
-      setLocalRepos(locals)
-    } catch (_err) {
-      toast.error(t('settings.vcsUsers.loadError', 'Failed to load Git config'))
+  const loadLocalConfigs = useCallback(
+    async (reposToLoad: { path: string; name: string }[]) => {
+      setConfigLoading(true)
       setLocalRepos([])
-    } finally {
-      setConfigLoading(false)
-    }
-  }, [t])
+      try {
+        const locals: LocalRepoConfig[] = []
+        for (const repo of reposToLoad) {
+          try {
+            const config = await window.api.vcs.git_get_config(repo.path)
+            const local = config?.local
+            locals.push({
+              path: repo.path,
+              name: repo.name,
+              userName: local?.userName ?? '',
+              userEmail: local?.userEmail ?? '',
+            })
+          } catch {
+            locals.push({ path: repo.path, name: repo.name, userName: '-', userEmail: '-' })
+          }
+        }
+        setLocalRepos(locals)
+      } catch (_err) {
+        toast.error(t('settings.vcsUsers.loadError', 'Failed to load Git config'))
+        setLocalRepos([])
+      } finally {
+        setConfigLoading(false)
+      }
+    },
+    [t]
+  )
 
   useEffect(() => {
     if (open) loadGlobalConfig()
@@ -136,12 +134,7 @@ export const VcsGitConfigDialog = memo(function VcsGitConfigDialog({
   const handleSaveGitConfig = async () => {
     setEditConfigLoading(true)
     try {
-      const result = await window.api.vcs.git_set_config(
-        editUserName,
-        editUserEmail,
-        editScope,
-        editScope === 'local' && editingRepoPath ? editingRepoPath : undefined
-      )
+      const result = await window.api.vcs.git_set_config(editUserName, editUserEmail, editScope, editScope === 'local' && editingRepoPath ? editingRepoPath : undefined)
       if (result.success) {
         toast.success(`${t('common.save')} OK`)
         loadGitConfig()
@@ -156,9 +149,7 @@ export const VcsGitConfigDialog = memo(function VcsGitConfigDialog({
     }
   }
 
-  const editingRepoName = editScope === 'local' && editingRepoPath
-    ? localRepos.find(r => r.path === editingRepoPath)?.name ?? editingRepoPath
-    : null
+  const editingRepoName = editScope === 'local' && editingRepoPath ? (localRepos.find(r => r.path === editingRepoPath)?.name ?? editingRepoPath) : null
 
   return (
     <>
@@ -193,16 +184,11 @@ export const VcsGitConfigDialog = memo(function VcsGitConfigDialog({
 
                 {localRepos.length > 0 && (
                   <div className="flex flex-col min-h-0 pt-2 border-t">
-                    <p className="text-xs text-muted-foreground mb-2">
-                      {t('settings.vcsUsers.localRepos', 'Local (per repo)')}
-                    </p>
+                    <p className="text-xs text-muted-foreground mb-2">{t('settings.vcsUsers.localRepos', 'Local (per repo)')}</p>
                     <ScrollArea className="h-[200px] pr-2 -mr-2">
                       <div className="space-y-2">
                         {localRepos.map(repo => (
-                          <div
-                            key={repo.path}
-                            className="flex items-center justify-between gap-2 py-2 px-2 rounded-md bg-muted/30 hover:bg-muted/50"
-                          >
+                          <div key={repo.path} className="flex items-center justify-between gap-2 py-2 px-2 rounded-md bg-muted/30 hover:bg-muted/50">
                             <div className="min-w-0 flex-1">
                               <p className="text-xs font-medium truncate" title={repo.name}>
                                 {repo.name}

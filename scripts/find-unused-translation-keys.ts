@@ -4,8 +4,8 @@
  * Run: pnpm tsx scripts/find-unused-translation-keys.ts
  */
 
-import { readFileSync, readdirSync, writeFileSync } from 'node:fs'
-import { join, dirname } from 'node:path'
+import { readdirSync, readFileSync, writeFileSync } from 'node:fs'
+import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 import { isPreservedI18nKey } from './i18nPreservedPrefixes'
@@ -49,9 +49,11 @@ function extractStaticKeysFromCode(): Set<string> {
       } else if (entry.name.endsWith('.tsx') || entry.name.endsWith('.ts')) {
         const content = readFileSync(fullPath, 'utf-8')
         let m: RegExpExecArray | null
-        while ((m = staticPattern.exec(content)) !== null) {
+        m = staticPattern.exec(content)
+        while (m !== null) {
           const key = m[1]
           if (!key.includes('{{') && !key.includes('${')) used.add(key)
+          m = staticPattern.exec(content)
         }
       }
     }
@@ -65,26 +67,19 @@ function getKeysFromConstants(): Set<string> {
   const constantsPath = join(RENDERER_DIR, 'components/shared/constants.ts')
   const content = readFileSync(constantsPath, 'utf-8')
 
-  const relevantExports = [
-    'STATUS_TEXT',
-    'SVN_UPDATE_STATUS_TEXT',
-    'GIT_STATUS_TEXT',
-    'MERGE_STATUS_TEXT',
-    'CATEGORY_DESCRIPTIONS',
-  ]
+  const relevantExports = ['STATUS_TEXT', 'SVN_UPDATE_STATUS_TEXT', 'GIT_STATUS_TEXT', 'MERGE_STATUS_TEXT', 'CATEGORY_DESCRIPTIONS']
 
   for (const exportName of relevantExports) {
-    const exportRegex = new RegExp(
-      `export const ${exportName}[^=]*=\\s*\\{([^}]+)\\}`,
-      's'
-    )
+    const exportRegex = new RegExp(`export const ${exportName}[^=]*=\\s*\\{([^}]+)\\}`, 's')
     const match = content.match(exportRegex)
     if (match) {
       const block = match[1]
       const re = /:\s*['"`]([a-zA-Z0-9_.]+)['"`]/g
       let m: RegExpExecArray | null
-      while ((m = re.exec(block)) !== null) {
+      m = re.exec(block)
+      while (m !== null) {
         used.add(m[1])
+        m = re.exec(block)
       }
     }
   }
@@ -104,9 +99,11 @@ function extractKeysFromObjectLiterals(): Set<string> {
       } else if (entry.name.endsWith('.tsx') || entry.name.endsWith('.ts')) {
         const content = readFileSync(fullPath, 'utf-8')
         let m: RegExpExecArray | null
-        while ((m = keyPattern.exec(content)) !== null) {
+        m = keyPattern.exec(content)
+        while (m !== null) {
           const k = m[1]
           if (!k.startsWith('spotbugs.bugDescriptions')) used.add(k)
+          m = keyPattern.exec(content)
         }
       }
     }
@@ -151,18 +148,13 @@ function main() {
   const dynamicUsed = getDynamicKeys()
 
   const objectLiteralKeys = extractKeysFromObjectLiterals()
-  const usedKeys = new Set<string>([
-    ...staticUsed,
-    ...constantsUsed,
-    ...dynamicUsed,
-    ...objectLiteralKeys,
-  ])
+  const usedKeys = new Set<string>([...staticUsed, ...constantsUsed, ...dynamicUsed, ...objectLiteralKeys])
 
   const unusedKeys: string[] = []
   for (const key of allKeys) {
     if (usedKeys.has(key)) continue
     if (isPreservedI18nKey(key)) continue
-    const isPrefixOfUsed = [...usedKeys].some((u) => u.startsWith(key + '.'))
+    const isPrefixOfUsed = [...usedKeys].some(u => u.startsWith(`${key}.`))
     if (isPrefixOfUsed) continue
     unusedKeys.push(key)
   }

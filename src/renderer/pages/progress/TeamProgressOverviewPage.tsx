@@ -1,34 +1,20 @@
 'use client'
 
 import { subDays } from 'date-fns'
-import {
-  ArrowDown,
-  ArrowUp,
-  BarChart2,
-  ChevronDown,
-  ChevronRight,
-  Code2,
-  GitCommit,
-  Minus,
-  Square,
-  TrendingUp,
-  Users,
-  X,
-  Zap,
-} from 'lucide-react'
-import { type CSSProperties, type ReactNode, Fragment, lazy, memo, Suspense, useCallback, useEffect, useMemo, useState } from 'react'
+import { ArrowDown, ArrowUp, BarChart2, ChevronDown, ChevronRight, Code2, GitCommit, Minus, Square, TrendingUp, Users, X, Zap } from 'lucide-react'
+import { type CSSProperties, Fragment, lazy, memo, type ReactNode, Suspense, useCallback, useEffect, useMemo, useState } from 'react'
+import type { DateRange } from 'react-day-picker'
 import { useTranslation } from 'react-i18next'
-import { DateRangePickerPopover } from '@/components/ui-elements/DateRangePickerPopover'
-import { GlowLoader } from '@/components/ui-elements/GlowLoader'
 import { Combobox } from '@/components/ui/combobox'
 import { Skeleton } from '@/components/ui/skeleton'
 import { Table, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
+import { DateRangePickerPopover } from '@/components/ui-elements/DateRangePickerPopover'
+import { GlowLoader } from '@/components/ui-elements/GlowLoader'
 import { cn } from '@/lib/utils'
-import { useTaskAuthStore } from '@/stores/useTaskAuthStore'
 import type { UserInfo } from '@/stores/useProgressStore'
-import type { DateRange } from 'react-day-picker'
+import { useTaskAuthStore } from '@/stores/useTaskAuthStore'
 
 const TrendCharts = lazy(() => import('./components/TrendCharts').then(m => ({ default: m.TrendCharts })))
 const DeveloperRadar = lazy(() => import('./components/DeveloperRadar').then(m => ({ default: m.DeveloperRadar })))
@@ -232,16 +218,7 @@ const TeamMemberDetailPanel = memo(function TeamMemberDetailPanel({
           <TabsContent value="ontime" className="mt-2 min-w-0 outline-none">
             {tab === 'ontime' ? (
               <Suspense fallback={<PanelSkeleton />}>
-                <TaskPerformancePanel
-                  userId={u.id}
-                  isolated
-                  hideTitle
-                  noRootPadding
-                  dateFrom={fromStr}
-                  dateTo={toStr}
-                  projectId={taskProjectId}
-                  variant="onTimeOnly"
-                />
+                <TaskPerformancePanel userId={u.id} isolated hideTitle noRootPadding dateFrom={fromStr} dateTo={toStr} projectId={taskProjectId} variant="onTimeOnly" />
               </Suspense>
             ) : null}
           </TabsContent>
@@ -298,22 +275,14 @@ function SortTh({
         <TooltipTrigger asChild>
           <button
             type="button"
-            className={cn(
-              'flex min-h-9 w-full max-w-full items-center justify-center gap-1 px-1 py-1.5 text-center text-[11px] font-medium leading-tight hover:bg-muted/45',
-            )}
+            className={cn('flex min-h-9 w-full max-w-full items-center justify-center gap-1 px-1 py-1.5 text-center text-[11px] font-medium leading-tight hover:bg-muted/45')}
             onClick={e => {
               e.stopPropagation()
               onSort(columnKey)
             }}
           >
             <span className="truncate min-w-0 flex-1 text-center">{children}</span>
-            {active ? (
-              dir === 'asc' ? (
-                <ArrowUp className="size-3.5 shrink-0 opacity-80" aria-hidden />
-              ) : (
-                <ArrowDown className="size-3.5 shrink-0 opacity-80" aria-hidden />
-              )
-            ) : null}
+            {active ? dir === 'asc' ? <ArrowUp className="size-3.5 shrink-0 opacity-80" aria-hidden /> : <ArrowDown className="size-3.5 shrink-0 opacity-80" aria-hidden /> : null}
           </button>
         </TooltipTrigger>
         {tipText ? (
@@ -352,21 +321,24 @@ export function TeamProgressOverviewPage() {
   const [sortKey, setSortKey] = useState<SortKey | null>(null)
   const [sortDir, setSortDir] = useState<'asc' | 'desc' | null>(null)
 
-  const onSort = useCallback((key: SortKey) => {
-    if (sortKey !== key) {
-      setSortKey(key)
-      setSortDir('asc')
-      return
-    }
-    if (sortDir === 'asc') {
-      setSortDir('desc')
-    } else if (sortDir === 'desc') {
-      setSortKey(null)
-      setSortDir(null)
-    } else {
-      setSortDir('asc')
-    }
-  }, [sortKey, sortDir])
+  const onSort = useCallback(
+    (key: SortKey) => {
+      if (sortKey !== key) {
+        setSortKey(key)
+        setSortDir('asc')
+        return
+      }
+      if (sortDir === 'asc') {
+        setSortDir('desc')
+      } else if (sortDir === 'desc') {
+        setSortKey(null)
+        setSortDir(null)
+      } else {
+        setSortDir('asc')
+      }
+    },
+    [sortKey, sortDir]
+  )
 
   const toggleExpanded = useCallback((id: string) => {
     setExpanded(prev => {
@@ -384,10 +356,7 @@ export function TeamProgressOverviewPage() {
   useEffect(() => {
     let cancelled = false
     void (async () => {
-      const [pu, uu] = await Promise.all([
-        window.api.progress.getOverviewProjects(),
-        window.api.progress.getAllUsers(),
-      ])
+      const [pu, uu] = await Promise.all([window.api.progress.getOverviewProjects(), window.api.progress.getAllUsers()])
       if (cancelled) return
       if (pu?.status === 'success' && Array.isArray(pu.data)) {
         setProjects(pu.data.map((p: { id: string; name: string }) => ({ id: p.id, name: p.name })))
@@ -512,13 +481,11 @@ export function TeamProgressOverviewPage() {
       'border-0 transition-[background-color] duration-150',
       idx % 2 === 0
         ? '![background-color:color-mix(in_oklch,var(--muted)_24%,var(--background))] hover:![background-color:color-mix(in_oklch,var(--muted)_42%,var(--background))]'
-        : '![background-color:color-mix(in_oklch,var(--muted)_46%,var(--background))] hover:![background-color:color-mix(in_oklch,var(--muted)_62%,var(--background))]',
+        : '![background-color:color-mix(in_oklch,var(--muted)_46%,var(--background))] hover:![background-color:color-mix(in_oklch,var(--muted)_62%,var(--background))]'
     )
 
   /** Chờ xong member project + xong batch summary rồi mới render bảng — tránh hàng lệch tốc độ / danh sách cũ. */
-  const tableBlockingLoad =
-    (projectId !== '__all__' && (memberIdsLoading || memberIds === null)) ||
-    (filteredUsers.length > 0 && summaryLoading)
+  const tableBlockingLoad = (projectId !== '__all__' && (memberIdsLoading || memberIds === null)) || (filteredUsers.length > 0 && summaryLoading)
 
   return (
     <div className="flex h-screen flex-col bg-background overflow-hidden select-none">
@@ -547,19 +514,22 @@ export function TeamProgressOverviewPage() {
                 triggerClassName="h-8 py-0 text-base font-medium rounded-md border-0 bg-transparent text-blue-600 dark:text-blue-400"
               />
             </div>
-            <DateRangePickerPopover
-              dateRange={dateRange}
-              onDateRangeChange={setDateRange}
-              allTimeLabel={t('teamProgress.selectRange')}
-              confirmLabel={t('common.confirm')}
-            />
+            <DateRangePickerPopover dateRange={dateRange} onDateRangeChange={setDateRange} allTimeLabel={t('teamProgress.selectRange')} confirmLabel={t('common.confirm')} />
           </div>
         </div>
         <div className="flex gap-1 shrink-0" style={{ WebkitAppRegion: 'no-drag' } as CSSProperties}>
-          <button type="button" onClick={() => handleWindow('minimize')} className="w-10 h-8 flex items-center justify-center hover:bg-[var(--hover-bg)] hover:text-[var(--hover-fg)]">
+          <button
+            type="button"
+            onClick={() => handleWindow('minimize')}
+            className="w-10 h-8 flex items-center justify-center hover:bg-[var(--hover-bg)] hover:text-[var(--hover-fg)]"
+          >
             <Minus size={15.5} strokeWidth={1} absoluteStrokeWidth />
           </button>
-          <button type="button" onClick={() => handleWindow('maximize')} className="w-10 h-8 flex items-center justify-center hover:bg-[var(--hover-bg)] hover:text-[var(--hover-fg)]">
+          <button
+            type="button"
+            onClick={() => handleWindow('maximize')}
+            className="w-10 h-8 flex items-center justify-center hover:bg-[var(--hover-bg)] hover:text-[var(--hover-fg)]"
+          >
             <Square size={14.5} strokeWidth={1} absoluteStrokeWidth />
           </button>
           <button type="button" onClick={() => handleWindow('close')} className="w-10 h-8 flex items-center justify-center hover:bg-red-600 hover:text-white">
@@ -599,285 +569,263 @@ export function TeamProgressOverviewPage() {
         ) : (
           <div className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-md border border-border/40 shadow-sm min-w-0">
             <TooltipProvider delayDuration={350}>
-            <div className="min-h-0 min-w-0 flex-1 overflow-auto">
-              <Table className="w-max min-w-full border-0 text-sm [&_td]:border-0 [&_th]:border-0">
-                <TableHeader
-                  sticky
-                  className="[&_tr]:border-0 [&_tr:hover]:bg-transparent [&>tr]:bg-[var(--table-header-bg)]"
-                >
-                  <TableRow className="border-0 hover:bg-transparent">
-                <TableHead className="w-8 shrink-0 rounded-tl-md p-0 border-0" aria-hidden />
-                <SortTh
-                  columnKey="name"
-                  currentKey={sortKey}
-                  dir={sortDir}
-                  onSort={onSort}
-                  className="min-w-[72px] max-w-[min(132px,18vw)]"
-                >
-                  {t('common.name')}
-                </SortTh>
-                <TableHead className="h-auto min-w-[56px] max-w-[min(120px,16vw)] border-0 p-0 align-middle">
-                  <Tooltip>
-                    <TooltipTrigger asChild>
-                      <div className="flex min-h-9 cursor-default items-center justify-center px-1 py-1.5">
-                        <span className="truncate text-center text-[11px] font-medium leading-tight">
-                          {t('teamProgress.columnProject')}
-                        </span>
-                      </div>
-                    </TooltipTrigger>
-                    <TooltipContent side="bottom" className="max-w-xs break-words">
-                      {t('teamProgress.columnProject')}
-                    </TooltipContent>
-                  </Tooltip>
-                </TableHead>
-                <SortTh columnKey="report_rate_pct" currentKey={sortKey} dir={sortDir} onSort={onSort} className="w-[64px] max-w-[68px]">
-                  {t('teamProgress.reportRate')}
-                </SortTh>
-                <SortTh columnKey="report_days" currentKey={sortKey} dir={sortDir} onSort={onSort} className="w-[56px] max-w-[60px]">
-                  {t('teamProgress.reportDays')}
-                </SortTh>
-                <SortTh columnKey="tasks_total_done" currentKey={sortKey} dir={sortDir} onSort={onSort} className="w-[56px] max-w-[60px]">
-                  {t('teamProgress.tasksDone')}
-                </SortTh>
-                <SortTh columnKey="on_time_rate_pct" currentKey={sortKey} dir={sortDir} onSort={onSort} className="w-[64px] max-w-[68px]">
-                  {t('teamProgress.onTimeRate')}
-                </SortTh>
-                <SortTh columnKey="avg_delay_days" currentKey={sortKey} dir={sortDir} onSort={onSort} className="w-[60px] max-w-[64px]">
-                  {t('teamProgress.avgDelay')}
-                </SortTh>
-                <SortTh columnKey="avg_cycle_days" currentKey={sortKey} dir={sortDir} onSort={onSort} className="w-[60px] max-w-[64px]">
-                  {t('teamProgress.avgCycle')}
-                </SortTh>
-                <SortTh columnKey="rule_rate_pct" currentKey={sortKey} dir={sortDir} onSort={onSort} className="min-w-[72px] max-w-[96px]">
-                  {t('teamProgress.ruleCheck')}
-                </SortTh>
-                <SortTh columnKey="spotbugs_rate_pct" currentKey={sortKey} dir={sortDir} onSort={onSort} className="min-w-[72px] max-w-[96px]">
-                  {t('teamProgress.spotbugs')}
-                </SortTh>
-                <SortTh columnKey="peak_cnt" currentKey={sortKey} dir={sortDir} onSort={onSort} className="min-w-[68px] max-w-[min(100px,14vw)] rounded-tr-md">
-                  {t('teamProgress.peakHours')}
-                </SortTh>
-                  </TableRow>
-                </TableHeader>
-                {/* Không dùng TableBody: tránh zebra/hover mặc định ghi đè nền hàng */}
-                <tbody data-slot="table-body" className="[&>tr]:border-0">
-                  {sortedUsers.map((u, idx) => {
-                    const s = summaryByUser.get(u.id)
-                    const open = expanded.has(u.id)
-                    const projectLabelTrimmed = (projectLabelByUserId[u.id] ?? '').trim()
-                    const projectCellText = projectLabelTrimmed || '—'
-                    return (
-                      <Fragment key={u.id}>
-                        <TableRow
-                          role="button"
-                          tabIndex={0}
-                          aria-expanded={open}
-                          aria-label={open ? t('teamProgress.collapseDetails') : t('teamProgress.expandDetails')}
-                          className={cn('cursor-pointer', teamRowClass(idx))}
-                          onClick={() => toggleExpanded(u.id)}
-                          onKeyDown={e => {
-                            if (e.key === 'Enter' || e.key === ' ') {
-                              e.preventDefault()
-                              toggleExpanded(u.id)
-                            }
-                          }}
-                        >
-                      <TableCell className="w-8 shrink-0 px-0.5 py-2 border-0 align-middle">
-                        {open ? <ChevronDown className="size-4 text-muted-foreground mx-auto" aria-hidden /> : <ChevronRight className="size-4 text-muted-foreground mx-auto" aria-hidden />}
-                      </TableCell>
-                      <TableCell className="max-w-[min(132px,18vw)] min-w-[72px] py-1.5 px-1 border-0 align-middle">
-                        <CellOverflowTip text={u.name} className="font-medium">
-                          {u.name}
-                        </CellOverflowTip>
-                      </TableCell>
-                      <TableCell className="max-w-[min(120px,16vw)] min-w-[56px] py-1.5 px-1 border-0 align-middle">
-                        <CellOverflowTip text={projectCellText} className="text-muted-foreground text-xs">
-                          {projectCellText}
-                        </CellOverflowTip>
-                      </TableCell>
-                      <TableCell className="w-[64px] max-w-[68px] text-right py-1 px-1 border-0 align-middle">
-                        {s ? (
-                          <div className="flex justify-end">
-                            <span className={cn(METRIC_PILL, rateBadgeClass(toneHigherIsBetter(s.report_rate_pct)))}>{s.report_rate_pct}%</span>
-                          </div>
-                        ) : (
-                          '—'
-                        )}
-                      </TableCell>
-                      <TableCell className="w-[56px] max-w-[60px] text-right py-1 px-1 border-0 align-middle">
-                        {s ? (
-                          <div className="flex justify-end">
-                            <NeutralCountBadge>{s.report_days}</NeutralCountBadge>
-                          </div>
-                        ) : (
-                          '—'
-                        )}
-                      </TableCell>
-                      <TableCell className="w-[56px] max-w-[60px] text-right py-1 px-1 border-0 align-middle">
-                        {s ? (
-                          <div className="flex justify-end">
-                            <NeutralCountBadge>{s.tasks_total_done}</NeutralCountBadge>
-                          </div>
-                        ) : (
-                          '—'
-                        )}
-                      </TableCell>
-                      <TableCell className="w-[64px] max-w-[68px] text-right py-1 px-1 border-0 align-middle">
-                        {s ? (
-                          <div className="flex justify-end">
-                            <span className={cn(METRIC_PILL, rateBadgeClass(toneHigherIsBetter(s.on_time_rate_pct)))}>{s.on_time_rate_pct}%</span>
-                          </div>
-                        ) : (
-                          '—'
-                        )}
-                      </TableCell>
-                      <TableCell className="w-[60px] max-w-[64px] text-right py-1 px-1 border-0 align-middle">
-                        {s?.avg_delay_days != null ? (
-                          <div className="flex justify-end">
-                            <span className={cn(METRIC_PILL, 'gap-0.5', rateBadgeClass(toneDelayDays(Number(s.avg_delay_days))))}>
-                              {Number(s.avg_delay_days) > 0 ? (
-                                <ArrowUp className="size-3 shrink-0 opacity-80" aria-hidden />
-                              ) : Number(s.avg_delay_days) < 0 ? (
-                                <ArrowDown className="size-3 shrink-0 opacity-80" aria-hidden />
-                              ) : null}
-                              {s.avg_delay_days > 0 ? '+' : ''}
-                              {Number(s.avg_delay_days).toFixed(1)}
-                            </span>
-                          </div>
-                        ) : (
-                          '—'
-                        )}
-                      </TableCell>
-                      <TableCell className="w-[60px] max-w-[64px] text-right py-1 px-1 border-0 align-middle">
-                        {s?.avg_cycle_days != null ? (
-                          <div className="flex justify-end">
-                            <span className={cn(METRIC_PILL, rateBadgeClass(toneCycleDays(Number(s.avg_cycle_days))))}>
-                              {Number(s.avg_cycle_days).toFixed(1)}
-                            </span>
-                          </div>
-                        ) : (
-                          '—'
-                        )}
-                      </TableCell>
-                      <TableCell className="min-w-[72px] max-w-[96px] py-1 px-1 border-0 align-middle">
-                        {s ? (
-                          <Tooltip>
-                            <TooltipTrigger asChild>
-                              <div className="min-w-0 max-w-full cursor-default text-right text-xs tabular-nums leading-tight overflow-hidden text-ellipsis whitespace-nowrap">
-                                <span className={cn(METRIC_PILL, 'align-middle', rateBadgeClass(toneHigherIsBetter(s.rule_rate_pct)))}>
-                                  {s.rule_rate_pct}%
-                                </span>
-                                {s.team_rule_rate_pct != null ? (
-                                  <span className="text-muted-foreground">
-                                    {' '}
-                                    · {s.team_rule_rate_pct}% {benchDeltaPlain(s.rule_rate_pct, s.team_rule_rate_pct)}
+              <div className="min-h-0 min-w-0 flex-1 overflow-auto">
+                <Table className="w-max min-w-full border-0 text-sm [&_td]:border-0 [&_th]:border-0">
+                  <TableHeader sticky className="[&_tr]:border-0 [&_tr:hover]:bg-transparent [&>tr]:bg-[var(--table-header-bg)]">
+                    <TableRow className="border-0 hover:bg-transparent">
+                      <TableHead className="w-8 shrink-0 rounded-tl-md p-0 border-0" aria-hidden />
+                      <SortTh columnKey="name" currentKey={sortKey} dir={sortDir} onSort={onSort} className="min-w-[72px] max-w-[min(132px,18vw)]">
+                        {t('common.name')}
+                      </SortTh>
+                      <TableHead className="h-auto min-w-[56px] max-w-[min(120px,16vw)] border-0 p-0 align-middle">
+                        <Tooltip>
+                          <TooltipTrigger asChild>
+                            <div className="flex min-h-9 cursor-default items-center justify-center px-1 py-1.5">
+                              <span className="truncate text-center text-[11px] font-medium leading-tight">{t('teamProgress.columnProject')}</span>
+                            </div>
+                          </TooltipTrigger>
+                          <TooltipContent side="bottom" className="max-w-xs break-words">
+                            {t('teamProgress.columnProject')}
+                          </TooltipContent>
+                        </Tooltip>
+                      </TableHead>
+                      <SortTh columnKey="report_rate_pct" currentKey={sortKey} dir={sortDir} onSort={onSort} className="w-[64px] max-w-[68px]">
+                        {t('teamProgress.reportRate')}
+                      </SortTh>
+                      <SortTh columnKey="report_days" currentKey={sortKey} dir={sortDir} onSort={onSort} className="w-[56px] max-w-[60px]">
+                        {t('teamProgress.reportDays')}
+                      </SortTh>
+                      <SortTh columnKey="tasks_total_done" currentKey={sortKey} dir={sortDir} onSort={onSort} className="w-[56px] max-w-[60px]">
+                        {t('teamProgress.tasksDone')}
+                      </SortTh>
+                      <SortTh columnKey="on_time_rate_pct" currentKey={sortKey} dir={sortDir} onSort={onSort} className="w-[64px] max-w-[68px]">
+                        {t('teamProgress.onTimeRate')}
+                      </SortTh>
+                      <SortTh columnKey="avg_delay_days" currentKey={sortKey} dir={sortDir} onSort={onSort} className="w-[60px] max-w-[64px]">
+                        {t('teamProgress.avgDelay')}
+                      </SortTh>
+                      <SortTh columnKey="avg_cycle_days" currentKey={sortKey} dir={sortDir} onSort={onSort} className="w-[60px] max-w-[64px]">
+                        {t('teamProgress.avgCycle')}
+                      </SortTh>
+                      <SortTh columnKey="rule_rate_pct" currentKey={sortKey} dir={sortDir} onSort={onSort} className="min-w-[72px] max-w-[96px]">
+                        {t('teamProgress.ruleCheck')}
+                      </SortTh>
+                      <SortTh columnKey="spotbugs_rate_pct" currentKey={sortKey} dir={sortDir} onSort={onSort} className="min-w-[72px] max-w-[96px]">
+                        {t('teamProgress.spotbugs')}
+                      </SortTh>
+                      <SortTh columnKey="peak_cnt" currentKey={sortKey} dir={sortDir} onSort={onSort} className="min-w-[68px] max-w-[min(100px,14vw)] rounded-tr-md">
+                        {t('teamProgress.peakHours')}
+                      </SortTh>
+                    </TableRow>
+                  </TableHeader>
+                  {/* Không dùng TableBody: tránh zebra/hover mặc định ghi đè nền hàng */}
+                  <tbody data-slot="table-body" className="[&>tr]:border-0">
+                    {sortedUsers.map((u, idx) => {
+                      const s = summaryByUser.get(u.id)
+                      const open = expanded.has(u.id)
+                      const projectLabelTrimmed = (projectLabelByUserId[u.id] ?? '').trim()
+                      const projectCellText = projectLabelTrimmed || '—'
+                      return (
+                        <Fragment key={u.id}>
+                          <TableRow
+                            role="button"
+                            tabIndex={0}
+                            aria-expanded={open}
+                            aria-label={open ? t('teamProgress.collapseDetails') : t('teamProgress.expandDetails')}
+                            className={cn('cursor-pointer', teamRowClass(idx))}
+                            onClick={() => toggleExpanded(u.id)}
+                            onKeyDown={e => {
+                              if (e.key === 'Enter' || e.key === ' ') {
+                                e.preventDefault()
+                                toggleExpanded(u.id)
+                              }
+                            }}
+                          >
+                            <TableCell className="w-8 shrink-0 px-0.5 py-2 border-0 align-middle">
+                              {open ? (
+                                <ChevronDown className="size-4 text-muted-foreground mx-auto" aria-hidden />
+                              ) : (
+                                <ChevronRight className="size-4 text-muted-foreground mx-auto" aria-hidden />
+                              )}
+                            </TableCell>
+                            <TableCell className="max-w-[min(132px,18vw)] min-w-[72px] py-1.5 px-1 border-0 align-middle">
+                              <CellOverflowTip text={u.name} className="font-medium">
+                                {u.name}
+                              </CellOverflowTip>
+                            </TableCell>
+                            <TableCell className="max-w-[min(120px,16vw)] min-w-[56px] py-1.5 px-1 border-0 align-middle">
+                              <CellOverflowTip text={projectCellText} className="text-muted-foreground text-xs">
+                                {projectCellText}
+                              </CellOverflowTip>
+                            </TableCell>
+                            <TableCell className="w-[64px] max-w-[68px] text-right py-1 px-1 border-0 align-middle">
+                              {s ? (
+                                <div className="flex justify-end">
+                                  <span className={cn(METRIC_PILL, rateBadgeClass(toneHigherIsBetter(s.report_rate_pct)))}>{s.report_rate_pct}%</span>
+                                </div>
+                              ) : (
+                                '—'
+                              )}
+                            </TableCell>
+                            <TableCell className="w-[56px] max-w-[60px] text-right py-1 px-1 border-0 align-middle">
+                              {s ? (
+                                <div className="flex justify-end">
+                                  <NeutralCountBadge>{s.report_days}</NeutralCountBadge>
+                                </div>
+                              ) : (
+                                '—'
+                              )}
+                            </TableCell>
+                            <TableCell className="w-[56px] max-w-[60px] text-right py-1 px-1 border-0 align-middle">
+                              {s ? (
+                                <div className="flex justify-end">
+                                  <NeutralCountBadge>{s.tasks_total_done}</NeutralCountBadge>
+                                </div>
+                              ) : (
+                                '—'
+                              )}
+                            </TableCell>
+                            <TableCell className="w-[64px] max-w-[68px] text-right py-1 px-1 border-0 align-middle">
+                              {s ? (
+                                <div className="flex justify-end">
+                                  <span className={cn(METRIC_PILL, rateBadgeClass(toneHigherIsBetter(s.on_time_rate_pct)))}>{s.on_time_rate_pct}%</span>
+                                </div>
+                              ) : (
+                                '—'
+                              )}
+                            </TableCell>
+                            <TableCell className="w-[60px] max-w-[64px] text-right py-1 px-1 border-0 align-middle">
+                              {s?.avg_delay_days != null ? (
+                                <div className="flex justify-end">
+                                  <span className={cn(METRIC_PILL, 'gap-0.5', rateBadgeClass(toneDelayDays(Number(s.avg_delay_days))))}>
+                                    {Number(s.avg_delay_days) > 0 ? (
+                                      <ArrowUp className="size-3 shrink-0 opacity-80" aria-hidden />
+                                    ) : Number(s.avg_delay_days) < 0 ? (
+                                      <ArrowDown className="size-3 shrink-0 opacity-80" aria-hidden />
+                                    ) : null}
+                                    {s.avg_delay_days > 0 ? '+' : ''}
+                                    {Number(s.avg_delay_days).toFixed(1)}
                                   </span>
-                                ) : null}
-                              </div>
-                            </TooltipTrigger>
-                            <TooltipContent side="top" className="max-w-xs space-y-1 break-words">
-                              <p className="font-medium tabular-nums">
-                                {s.rule_rate_pct}%
-                                {s.team_rule_rate_pct != null ? ` · ${s.team_rule_rate_pct}% (${benchDeltaPlain(s.rule_rate_pct, s.team_rule_rate_pct)})` : ''}
-                              </p>
-                              <p className="text-muted-foreground text-[11px] leading-snug">
-                                {s.team_rule_rate_pct != null
-                                  ? t('teamProgress.teamAvgTooltip')
-                                  : t('teamProgress.noProjectTeamBench')}
-                              </p>
-                            </TooltipContent>
-                          </Tooltip>
-                        ) : (
-                          '—'
-                        )}
-                      </TableCell>
-                      <TableCell className="min-w-[72px] max-w-[96px] py-1 px-1 border-0 align-middle">
-                        {s ? (
-                          <Tooltip>
-                            <TooltipTrigger asChild>
-                              <div className="min-w-0 max-w-full cursor-default text-right text-xs tabular-nums leading-tight overflow-hidden text-ellipsis whitespace-nowrap">
-                                <span className={cn(METRIC_PILL, 'align-middle', rateBadgeClass(toneHigherIsBetter(s.spotbugs_rate_pct)))}>
-                                  {s.spotbugs_rate_pct}%
-                                </span>
-                                {s.team_spotbugs_rate_pct != null ? (
-                                  <span className="text-muted-foreground">
-                                    {' '}
-                                    · {s.team_spotbugs_rate_pct}% {benchDeltaPlain(s.spotbugs_rate_pct, s.team_spotbugs_rate_pct)}
-                                  </span>
-                                ) : null}
-                              </div>
-                            </TooltipTrigger>
-                            <TooltipContent side="top" className="max-w-xs space-y-1 break-words">
-                              <p className="font-medium tabular-nums">
-                                {s.spotbugs_rate_pct}%
-                                {s.team_spotbugs_rate_pct != null
-                                  ? ` · ${s.team_spotbugs_rate_pct}% (${benchDeltaPlain(s.spotbugs_rate_pct, s.team_spotbugs_rate_pct)})`
-                                  : ''}
-                              </p>
-                              <p className="text-muted-foreground text-[11px] leading-snug">
-                                {s.team_spotbugs_rate_pct != null
-                                  ? t('teamProgress.teamAvgTooltip')
-                                  : t('teamProgress.noProjectTeamBench')}
-                              </p>
-                            </TooltipContent>
-                          </Tooltip>
-                        ) : (
-                          '—'
-                        )}
-                      </TableCell>
-                      <TableCell className="min-w-[68px] max-w-[min(100px,14vw)] py-1 px-1 border-0 align-middle">
-                        {s ? (
-                          <div className="flex justify-end min-w-0">
-                            <Tooltip>
-                              <TooltipTrigger asChild>
-                                <span
-                                  className={cn(
-                                    METRIC_PILL,
-                                    'max-w-full cursor-default truncate font-medium bg-violet-500/16 text-violet-950 dark:text-violet-300',
-                                  )}
-                                >
-                                  {peakLabel(s.peak_dow, s.peak_hour, t)}
-                                </span>
-                              </TooltipTrigger>
-                              <TooltipContent side="top" className="max-w-xs break-words">
-                                {peakLabel(s.peak_dow, s.peak_hour, t)}
-                              </TooltipContent>
-                            </Tooltip>
-                          </div>
-                        ) : (
-                          '—'
-                        )}
-                      </TableCell>
-                        </TableRow>
-                        {open ? (
-                          <TableRow className={teamRowClass(idx)}>
-                            <TableCell colSpan={TABLE_COL_COUNT} className="p-0 px-2 pb-3 pt-1 border-0 align-top">
-                              <div
-                                className={cn(
-                                  'rounded-lg border border-border/50 shadow-sm',
-                                  'bg-[color-mix(in_oklch,var(--background)_94%,var(--muted)_6%)]',
-                                  'dark:bg-[color-mix(in_oklch,var(--background)_88%,var(--muted)_12%)]',
-                                  'px-2 py-2 min-w-0',
-                                )}
-                              >
-                                <TeamMemberDetailPanel
-                                  user={u}
-                                  fromStr={fromStr}
-                                  toStr={toStr}
-                                  taskProjectId={projectId === '__all__' ? null : projectId}
-                                  teamUserIds={teamUserIdsForCharts}
-                                  embedInCard
-                                />
-                              </div>
+                                </div>
+                              ) : (
+                                '—'
+                              )}
+                            </TableCell>
+                            <TableCell className="w-[60px] max-w-[64px] text-right py-1 px-1 border-0 align-middle">
+                              {s?.avg_cycle_days != null ? (
+                                <div className="flex justify-end">
+                                  <span className={cn(METRIC_PILL, rateBadgeClass(toneCycleDays(Number(s.avg_cycle_days))))}>{Number(s.avg_cycle_days).toFixed(1)}</span>
+                                </div>
+                              ) : (
+                                '—'
+                              )}
+                            </TableCell>
+                            <TableCell className="min-w-[72px] max-w-[96px] py-1 px-1 border-0 align-middle">
+                              {s ? (
+                                <Tooltip>
+                                  <TooltipTrigger asChild>
+                                    <div className="min-w-0 max-w-full cursor-default text-right text-xs tabular-nums leading-tight overflow-hidden text-ellipsis whitespace-nowrap">
+                                      <span className={cn(METRIC_PILL, 'align-middle', rateBadgeClass(toneHigherIsBetter(s.rule_rate_pct)))}>{s.rule_rate_pct}%</span>
+                                      {s.team_rule_rate_pct != null ? (
+                                        <span className="text-muted-foreground">
+                                          {' '}
+                                          · {s.team_rule_rate_pct}% {benchDeltaPlain(s.rule_rate_pct, s.team_rule_rate_pct)}
+                                        </span>
+                                      ) : null}
+                                    </div>
+                                  </TooltipTrigger>
+                                  <TooltipContent side="top" className="max-w-xs space-y-1 break-words">
+                                    <p className="font-medium tabular-nums">
+                                      {s.rule_rate_pct}%
+                                      {s.team_rule_rate_pct != null ? ` · ${s.team_rule_rate_pct}% (${benchDeltaPlain(s.rule_rate_pct, s.team_rule_rate_pct)})` : ''}
+                                    </p>
+                                    <p className="text-muted-foreground text-[11px] leading-snug">
+                                      {s.team_rule_rate_pct != null ? t('teamProgress.teamAvgTooltip') : t('teamProgress.noProjectTeamBench')}
+                                    </p>
+                                  </TooltipContent>
+                                </Tooltip>
+                              ) : (
+                                '—'
+                              )}
+                            </TableCell>
+                            <TableCell className="min-w-[72px] max-w-[96px] py-1 px-1 border-0 align-middle">
+                              {s ? (
+                                <Tooltip>
+                                  <TooltipTrigger asChild>
+                                    <div className="min-w-0 max-w-full cursor-default text-right text-xs tabular-nums leading-tight overflow-hidden text-ellipsis whitespace-nowrap">
+                                      <span className={cn(METRIC_PILL, 'align-middle', rateBadgeClass(toneHigherIsBetter(s.spotbugs_rate_pct)))}>{s.spotbugs_rate_pct}%</span>
+                                      {s.team_spotbugs_rate_pct != null ? (
+                                        <span className="text-muted-foreground">
+                                          {' '}
+                                          · {s.team_spotbugs_rate_pct}% {benchDeltaPlain(s.spotbugs_rate_pct, s.team_spotbugs_rate_pct)}
+                                        </span>
+                                      ) : null}
+                                    </div>
+                                  </TooltipTrigger>
+                                  <TooltipContent side="top" className="max-w-xs space-y-1 break-words">
+                                    <p className="font-medium tabular-nums">
+                                      {s.spotbugs_rate_pct}%
+                                      {s.team_spotbugs_rate_pct != null
+                                        ? ` · ${s.team_spotbugs_rate_pct}% (${benchDeltaPlain(s.spotbugs_rate_pct, s.team_spotbugs_rate_pct)})`
+                                        : ''}
+                                    </p>
+                                    <p className="text-muted-foreground text-[11px] leading-snug">
+                                      {s.team_spotbugs_rate_pct != null ? t('teamProgress.teamAvgTooltip') : t('teamProgress.noProjectTeamBench')}
+                                    </p>
+                                  </TooltipContent>
+                                </Tooltip>
+                              ) : (
+                                '—'
+                              )}
+                            </TableCell>
+                            <TableCell className="min-w-[68px] max-w-[min(100px,14vw)] py-1 px-1 border-0 align-middle">
+                              {s ? (
+                                <div className="flex justify-end min-w-0">
+                                  <Tooltip>
+                                    <TooltipTrigger asChild>
+                                      <span className={cn(METRIC_PILL, 'max-w-full cursor-default truncate font-medium bg-violet-500/16 text-violet-950 dark:text-violet-300')}>
+                                        {peakLabel(s.peak_dow, s.peak_hour, t)}
+                                      </span>
+                                    </TooltipTrigger>
+                                    <TooltipContent side="top" className="max-w-xs break-words">
+                                      {peakLabel(s.peak_dow, s.peak_hour, t)}
+                                    </TooltipContent>
+                                  </Tooltip>
+                                </div>
+                              ) : (
+                                '—'
+                              )}
                             </TableCell>
                           </TableRow>
-                        ) : null}
-                      </Fragment>
-                    )
-                  })}
-                </tbody>
-              </Table>
-            </div>
+                          {open ? (
+                            <TableRow className={teamRowClass(idx)}>
+                              <TableCell colSpan={TABLE_COL_COUNT} className="p-0 px-2 pb-3 pt-1 border-0 align-top">
+                                <div
+                                  className={cn(
+                                    'rounded-lg border border-border/50 shadow-sm',
+                                    'bg-[color-mix(in_oklch,var(--background)_94%,var(--muted)_6%)]',
+                                    'dark:bg-[color-mix(in_oklch,var(--background)_88%,var(--muted)_12%)]',
+                                    'px-2 py-2 min-w-0'
+                                  )}
+                                >
+                                  <TeamMemberDetailPanel
+                                    user={u}
+                                    fromStr={fromStr}
+                                    toStr={toStr}
+                                    taskProjectId={projectId === '__all__' ? null : projectId}
+                                    teamUserIds={teamUserIdsForCharts}
+                                    embedInCard
+                                  />
+                                </div>
+                              </TableCell>
+                            </TableRow>
+                          ) : null}
+                        </Fragment>
+                      )
+                    })}
+                  </tbody>
+                </Table>
+              </div>
             </TooltipProvider>
           </div>
         )}

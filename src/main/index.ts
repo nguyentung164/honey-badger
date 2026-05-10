@@ -89,7 +89,7 @@ makeAppWithSingleInstanceLock(async () => {
         startDailyReportReminderScheduler()
         const { startTaskNotificationPoller } = await import('./scheduler/taskNotificationPoller')
         startTaskNotificationPoller()
-        const { seedAchievements } = await import('./task/achievementSeed')
+        const { seedAchievements } = await import('./task/achievement/achievementSeed')
         seedAchievements().catch(() => {})
         const { startAchievementDailyScheduler } = await import('./scheduler/achievementDailyScheduler')
         startAchievementDailyScheduler()
@@ -109,7 +109,7 @@ makeAppWithSingleInstanceLock(async () => {
           migrateTaskTypesAddMilestone,
           migrateTasksTicketIdNullable,
           migrateUserProjectRolesProjectIdUkToGenerated,
-        } = await import('./task/taskDbPatches')
+        } = await import('./task/schema/taskDbPatches')
         await migrateUserProjectRolesProjectIdUkToGenerated().catch(() => {})
         await migratePrCheckpointGithubColumns().catch(() => {})
         await migratePrCheckpointTemplateHeaderGroup().catch(() => {})

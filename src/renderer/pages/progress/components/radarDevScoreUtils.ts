@@ -1,8 +1,4 @@
-import {
-  RADAR_METRIC_ORDER,
-  type RadarProfileMetricKey,
-  type RadarProfileScores,
-} from './radarProfileInsights'
+import { RADAR_METRIC_ORDER, type RadarProfileMetricKey, type RadarProfileScores } from './radarProfileInsights'
 
 export function computeDevScoreOrdered(scores: RadarProfileScores): number {
   const sum = RADAR_METRIC_ORDER.reduce((s, k) => s + scores[k], 0)

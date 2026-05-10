@@ -10,7 +10,8 @@ const currentYear = new Date().getFullYear()
 const authorInKebabCase = author.replace(/\s+/g, '-')
 const appId = `com.${authorInKebabCase}.${name}`.toLowerCase()
 
-const artifactName = [`${name}-v${version}`, '-${os}.${ext}'].join('')
+/** electron-builder thay `${os}` / `${ext}` ở runtime — escape để Biome không coi là placeholder JS sai. */
+const artifactName = `${name}-v${version}-\${os}.\${ext}`
 
 export default {
   appId,
@@ -52,7 +53,7 @@ export default {
       filter: ['**/*'],
     },
     {
-      from: 'src/main/task/schema.sql',
+      from: 'src/main/task/schema/schema.sql',
       to: 'task-schema/schema.sql',
     },
   ],

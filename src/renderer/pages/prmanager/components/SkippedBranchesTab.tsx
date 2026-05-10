@@ -6,11 +6,7 @@ import { Button } from '@/components/ui/button'
 import { Label } from '@/components/ui/label'
 import { Textarea } from '@/components/ui/textarea'
 import toast from '@/components/ui-elements/Toast'
-import {
-  hydratePrBoardSkippedBranchesFromApi,
-  readSkippedBranchesSnapshotText,
-  writeSkippedBranchesSnapshotCache,
-} from '../prBoardSkippedBranches'
+import { hydratePrBoardSkippedBranchesFromApi, readSkippedBranchesSnapshotText, writeSkippedBranchesSnapshotCache } from '../prBoardSkippedBranches'
 
 type Props = {
   projectId: string
@@ -71,9 +67,7 @@ export function SkippedBranchesTab({ projectId, userId }: Props) {
       <div className="space-y-1.5">
         <Label htmlFor="pr-skipped-branches">{t('prManager.shell.skippedBranchesLabel')}</Label>
         <p className="text-xs leading-relaxed text-muted-foreground">{t('prManager.shell.skippedBranchesHint')}</p>
-        {needLogin ? (
-          <p className="text-xs text-amber-600 dark:text-amber-500">{t('prManager.shell.skippedBranchesNeedLogin')}</p>
-        ) : null}
+        {needLogin ? <p className="text-xs text-amber-600 dark:text-amber-500">{t('prManager.shell.skippedBranchesNeedLogin')}</p> : null}
         <Textarea
           id="pr-skipped-branches"
           value={draft}

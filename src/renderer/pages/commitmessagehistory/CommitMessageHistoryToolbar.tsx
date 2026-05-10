@@ -44,7 +44,11 @@ export const CommitMessageHistoryToolbar: React.FC<CommitMessageHistoryToolbarPr
                   disabled={isLoading}
                   className="shadow-none focus-visible:ring-0 focus-visible:ring-offset-0 hover:bg-muted transition-colors rounded-sm h-[25px] w-[25px]"
                 >
-                  {isLoading ? <Loader2 strokeWidth={1.25} absoluteStrokeWidth size={15} className="h-4 w-4 animate-spin" /> : <RefreshCw strokeWidth={1.25} absoluteStrokeWidth size={15} className="h-4 w-4" />}
+                  {isLoading ? (
+                    <Loader2 strokeWidth={1.25} absoluteStrokeWidth size={15} className="h-4 w-4 animate-spin" />
+                  ) : (
+                    <RefreshCw strokeWidth={1.25} absoluteStrokeWidth size={15} className="h-4 w-4" />
+                  )}
                 </Button>
               </TooltipTrigger>
               <TooltipContent>{t('common.refresh')}</TooltipContent>
@@ -60,10 +64,18 @@ export const CommitMessageHistoryToolbar: React.FC<CommitMessageHistoryToolbarPr
 
       {/* Right Section (Window Controls) */}
       <div className="flex gap-1" style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties}>
-        <button type="button" onClick={() => handleWindow('minimize')} className="w-10 h-8 flex items-center justify-center hover:bg-[var(--hover-bg)] hover:text-[var(--hover-fg)]">
+        <button
+          type="button"
+          onClick={() => handleWindow('minimize')}
+          className="w-10 h-8 flex items-center justify-center hover:bg-[var(--hover-bg)] hover:text-[var(--hover-fg)]"
+        >
           <Minus size={15.5} strokeWidth={1} absoluteStrokeWidth />
         </button>
-        <button type="button" onClick={() => handleWindow('maximize')} className="w-10 h-8 flex items-center justify-center hover:bg-[var(--hover-bg)] hover:text-[var(--hover-fg)]">
+        <button
+          type="button"
+          onClick={() => handleWindow('maximize')}
+          className="w-10 h-8 flex items-center justify-center hover:bg-[var(--hover-bg)] hover:text-[var(--hover-fg)]"
+        >
           <Square size={14.5} strokeWidth={1} absoluteStrokeWidth />
         </button>
         <button type="button" onClick={() => handleWindow('close')} className="w-10 h-8 flex items-center justify-center hover:bg-red-600 hover:text-white">

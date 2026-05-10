@@ -1,18 +1,6 @@
 'use client'
 
-import {
-  BarChart3,
-  BookOpen,
-  ChartGantt,
-  ChevronsLeft,
-  ChevronsRight,
-  Database,
-  FileText,
-  LayoutDashboard,
-  type LucideIcon,
-  TrendingUp,
-  Users,
-} from 'lucide-react'
+import { BarChart3, BookOpen, ChartGantt, ChevronsLeft, ChevronsRight, Database, FileText, LayoutDashboard, type LucideIcon, TrendingUp, Users } from 'lucide-react'
 import { Fragment, useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
@@ -51,11 +39,9 @@ const GROUPS: { groupLabelKey: string; items: NavItem[] }[] = [
   },
 ]
 
-const sidebarTransition =
-  'transition-[width] duration-300 ease-[cubic-bezier(0.22,1,0.36,1)] motion-reduce:duration-150 motion-reduce:transition-[width]'
+const sidebarTransition = 'transition-[width] duration-300 ease-[cubic-bezier(0.22,1,0.36,1)] motion-reduce:duration-150 motion-reduce:transition-[width]'
 
-const labelTransition =
-  'transition-[opacity,max-width,margin] duration-300 ease-[cubic-bezier(0.22,1,0.36,1)] motion-reduce:duration-150'
+const labelTransition = 'transition-[opacity,max-width,margin] duration-300 ease-[cubic-bezier(0.22,1,0.36,1)] motion-reduce:duration-150'
 
 const EVM_SIDEBAR_COLLAPSED_KEY = 'evm-sidebar-collapsed'
 
@@ -67,13 +53,7 @@ function readEvmSidebarCollapsed(): boolean {
   }
 }
 
-export function EVMSidebar({
-  activeTab,
-  onTabChange,
-}: {
-  activeTab: EVMTabId
-  onTabChange: (id: EVMTabId) => void
-}) {
+export function EVMSidebar({ activeTab, onTabChange }: { activeTab: EVMTabId; onTabChange: (id: EVMTabId) => void }) {
   const { t } = useTranslation()
   const [collapsed, setCollapsed] = useState(readEvmSidebarCollapsed)
 
@@ -87,19 +67,10 @@ export function EVMSidebar({
 
   return (
     <nav
-      className={cn(
-        'flex shrink-0 flex-col overflow-hidden bg-muted/20',
-        sidebarTransition,
-        collapsed ? 'w-[52px] py-2 pl-1 pr-1' : 'w-[220px] py-3 pl-2 pr-1',
-      )}
+      className={cn('flex shrink-0 flex-col overflow-hidden bg-muted/20', sidebarTransition, collapsed ? 'w-[52px] py-2 pl-1 pr-1' : 'w-[220px] py-3 pl-2 pr-1')}
       aria-label={t('evm.sidebarNavLabel')}
     >
-      <div
-        className={cn(
-          'mb-2 flex shrink-0 items-center',
-          collapsed ? 'justify-center px-0' : 'justify-end pr-1',
-        )}
-      >
+      <div className={cn('mb-2 flex shrink-0 items-center', collapsed ? 'justify-center px-0' : 'justify-end pr-1')}>
         <Tooltip delayDuration={400}>
           <TooltipTrigger asChild>
             <button
@@ -110,7 +81,7 @@ export function EVMSidebar({
               className={cn(
                 'flex h-8 w-8 shrink-0 items-center justify-center rounded-md text-muted-foreground',
                 'transition-colors duration-200 hover:bg-accent hover:text-accent-foreground',
-                'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background',
+                'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background'
               )}
             >
               {collapsed ? (
@@ -127,15 +98,12 @@ export function EVMSidebar({
       </div>
 
       {GROUPS.map((group, gi) => (
-        <div
-          key={group.groupLabelKey}
-          className={cn(gi > 0 && 'border-t border-border/60', gi > 0 && (collapsed ? 'mt-2 pt-2' : 'mt-4 pt-4'))}
-        >
+        <div key={group.groupLabelKey} className={cn(gi > 0 && 'border-t border-border/60', gi > 0 && (collapsed ? 'mt-2 pt-2' : 'mt-4 pt-4'))}>
           <p
             className={cn(
               'px-2 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground',
               labelTransition,
-              collapsed ? 'mb-0 max-h-0 opacity-0 overflow-hidden py-0' : 'mb-1.5 max-h-8 opacity-100',
+              collapsed ? 'mb-0 max-h-0 opacity-0 overflow-hidden py-0' : 'mb-1.5 max-h-8 opacity-100'
             )}
             aria-hidden={collapsed}
           >
@@ -157,19 +125,11 @@ export function EVMSidebar({
                     'transition-[background-color,color,padding,gap] duration-200 ease-out',
                     'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background',
                     collapsed ? 'justify-center gap-0 px-0 py-2' : 'gap-2.5 px-3 py-2',
-                    active
-                      ? 'bg-blue-500/15 font-medium text-blue-700 dark:text-blue-400'
-                      : 'text-muted-foreground hover:bg-accent hover:text-accent-foreground',
+                    active ? 'bg-blue-500/15 font-medium text-blue-700 dark:text-blue-400' : 'text-muted-foreground hover:bg-accent hover:text-accent-foreground'
                   )}
                 >
                   <Icon className={cn('h-4 w-4 shrink-0', active ? 'text-blue-500' : '')} aria-hidden />
-                  <span
-                    className={cn(
-                      'min-w-0 truncate',
-                      labelTransition,
-                      collapsed ? 'ml-0 max-w-0 opacity-0 overflow-hidden' : 'max-w-[200px] opacity-100',
-                    )}
-                  >
+                  <span className={cn('min-w-0 truncate', labelTransition, collapsed ? 'ml-0 max-w-0 opacity-0 overflow-hidden' : 'max-w-[200px] opacity-100')}>
                     {t(item.labelKey)}
                   </span>
                 </button>

@@ -81,12 +81,7 @@ export function TaskChangeHistorySection({
   const compactChrome = embedded || dialogMode
 
   return (
-    <div
-      className={cn(
-        'text-sm',
-        compactChrome ? 'rounded-md border border-border/40 bg-muted/10 p-2' : 'rounded-md border border-border/60 bg-muted/10 p-3',
-      )}
-    >
+    <div className={cn('text-sm', compactChrome ? 'rounded-md border border-border/40 bg-muted/10 p-2' : 'rounded-md border border-border/60 bg-muted/10 p-3')}>
       {!compactChrome ? <div className="mb-2 text-sm font-semibold text-foreground">{t('taskManagement.changeHistoryTitle')}</div> : null}
       {loading ? (
         <div className="flex items-center gap-2 py-4 text-muted-foreground">

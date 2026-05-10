@@ -6,7 +6,7 @@ import type SMTPTransport from 'nodemailer/lib/smtp-transport'
 import configurationStore from '../store/ConfigurationStore'
 import mailServerStore from '../store/MailServerStore'
 import { getTokenFromStore, verifyToken } from '../task/auth'
-import { getPlEmailsForProject, getProjectIdByUserAndPath } from '../task/pgTaskStore'
+import { getPlEmailsForProject, getProjectIdByUserAndPath } from '../task/stores/pgTaskStore'
 
 function normalizePath(p: string): string {
   return path.normalize(path.resolve(p))
@@ -14,7 +14,8 @@ function normalizePath(p: string): string {
 
 export async function sendMail(data: CommitInfo): Promise<void> {
   try {
-    const session = getTokenFromStore() ? verifyToken(getTokenFromStore()!) : null
+    const token = getTokenFromStore()
+    const session = token ? verifyToken(token) : null
     if (!session) {
       l.info('sendMail: No session, skip')
       return
@@ -233,10 +234,5 @@ export async function sendWelcomeEmail(params: SendWelcomeEmailParams): Promise<
 }
 
 function escapeHtml(s: string): string {
-  return s
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;')
-    .replace(/'/g, '&#39;')
+  return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;')
 }

@@ -28,10 +28,7 @@ function getIntensityClass(score: number): string {
 function buildYearGrid(year: number, data: HeatmapDay[]) {
   const map = new Map<string, HeatmapDay>()
   for (const d of data) {
-    const key =
-      typeof d.snapshot_date === 'string'
-        ? d.snapshot_date.trim().slice(0, 10)
-        : (toYyyyMmDd(d.snapshot_date as Date | string) ?? '')
+    const key = typeof d.snapshot_date === 'string' ? d.snapshot_date.trim().slice(0, 10) : (toYyyyMmDd(d.snapshot_date as Date | string) ?? '')
     map.set(key, d)
   }
 
@@ -186,84 +183,84 @@ export const ActivityHeatmap = memo(function ActivityHeatmap({ userId }: { userI
         </div>
 
         <div className="rounded-xl bg-muted/40 p-4">
-            {heatmap.loading ? (
-              <Skeleton className="h-[160px] w-full rounded-xl" />
-            ) : (
-              <div className="overflow-x-auto">
-                <div className="inline-block min-w-full">
-                  {/* Month labels — positioned by actual week index */}
-                  <div className="relative h-[14px] mb-1 ml-8">
-                    {monthOffsets.map(({ month, weekIndex }) => (
-                      <span key={month} className="absolute text-[10px] text-muted-foreground" style={{ left: `${weekIndex * 14}px` }}>
-                        {MONTH_LABELS[Number(month) - 1]}
-                      </span>
+          {heatmap.loading ? (
+            <Skeleton className="h-[160px] w-full rounded-xl" />
+          ) : (
+            <div className="overflow-x-auto">
+              <div className="inline-block min-w-full">
+                {/* Month labels — positioned by actual week index */}
+                <div className="relative h-[14px] mb-1 ml-8">
+                  {monthOffsets.map(({ month, weekIndex }) => (
+                    <span key={month} className="absolute text-[10px] text-muted-foreground" style={{ left: `${weekIndex * 14}px` }}>
+                      {MONTH_LABELS[Number(month) - 1]}
+                    </span>
+                  ))}
+                </div>
+                <div className="flex gap-0">
+                  {/* DOW labels */}
+                  <div className="flex flex-col mr-1.5 mt-[2px]">
+                    {DOW_LABELS.map((d, i) => (
+                      <div key={i} className={cn('text-[9px] text-muted-foreground h-[14px] leading-[14px]', i % 2 !== 0 ? '' : 'invisible')}>
+                        {d}
+                      </div>
                     ))}
                   </div>
-                  <div className="flex gap-0">
-                    {/* DOW labels */}
-                    <div className="flex flex-col mr-1.5 mt-[2px]">
-                      {DOW_LABELS.map((d, i) => (
-                        <div key={i} className={cn('text-[9px] text-muted-foreground h-[14px] leading-[14px]', i % 2 !== 0 ? '' : 'invisible')}>
-                          {d}
-                        </div>
-                      ))}
-                    </div>
-                    {/* Grid */}
-                    <div className="flex gap-[2px]">
-                      {weeks.map((week, wi) => (
-                        <div key={wi} className="flex flex-col gap-[2px]">
-                          {week.map((cell, di) => {
-                            if (!cell.date) return <div key={di} className="h-[12px] w-[12px]" />
-                            const score = cell.day ? getScore(cell.day, filter) : 0
-                            return (
-                              <Tooltip key={di}>
-                                <TooltipTrigger asChild>
-                                  <button
-                                    type="button"
-                                    tabIndex={cell.day ? 0 : -1}
-                                    className={cn(
-                                      'h-[12px] w-[12px] rounded-[2px] cursor-pointer transition-opacity hover:opacity-80 p-0 border-0 bg-transparent',
-                                      getIntensityClass(score),
-                                      selectedDate?.date === cell.date ? 'ring-1 ring-blue-400' : ''
-                                    )}
-                                    onClick={() => cell.day && setSelectedDate({ date: cell.date, day: cell.day })}
-                                  />
-                                </TooltipTrigger>
-                                <TooltipContent side="top" className="text-xs max-w-[200px]">
-                                  <p className="font-medium">{formatDateLabel(cell.date, locale)}</p>
-                                  {cell.day ? (
-                                    <div className="mt-1 space-y-0.5 text-[11px]">
-                                      <p>
-                                        {cell.day.commits_count} commits · {formatLinesDelta(cell.day.lines_inserted, cell.day.lines_deleted)} lines
-                                      </p>
-                                      <p>{cell.day.tasks_done} tasks done</p>
-                                      {Number(cell.day.has_daily_report) > 0 && <p className="text-green-400">✓ Daily report</p>}
-                                    </div>
-                                  ) : (
-                                    <p className="text-muted-foreground text-[11px]">No activity</p>
+                  {/* Grid */}
+                  <div className="flex gap-[2px]">
+                    {weeks.map((week, wi) => (
+                      <div key={wi} className="flex flex-col gap-[2px]">
+                        {week.map((cell, di) => {
+                          if (!cell.date) return <div key={di} className="h-[12px] w-[12px]" />
+                          const score = cell.day ? getScore(cell.day, filter) : 0
+                          return (
+                            <Tooltip key={di}>
+                              <TooltipTrigger asChild>
+                                <button
+                                  type="button"
+                                  tabIndex={cell.day ? 0 : -1}
+                                  className={cn(
+                                    'h-[12px] w-[12px] rounded-[2px] cursor-pointer transition-opacity hover:opacity-80 p-0 border-0 bg-transparent',
+                                    getIntensityClass(score),
+                                    selectedDate?.date === cell.date ? 'ring-1 ring-blue-400' : ''
                                   )}
-                                </TooltipContent>
-                              </Tooltip>
-                            )
-                          })}
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-
-                  {/* Intensity legend */}
-                  <div className="flex items-center gap-1.5 mt-2 ml-8">
-                    <span className="text-[10px] text-muted-foreground">{t('progress.less')}</span>
-                    {['bg-muted', 'bg-green-200 dark:bg-green-900', 'bg-green-400 dark:bg-green-700', 'bg-green-600 dark:bg-green-500', 'bg-green-800 dark:bg-green-400'].map(
-                      (cls, i) => (
-                        <div key={i} className={cn('h-[10px] w-[10px] rounded-[2px]', cls)} />
-                      )
-                    )}
-                    <span className="text-[10px] text-muted-foreground">{t('progress.more')}</span>
+                                  onClick={() => cell.day && setSelectedDate({ date: cell.date, day: cell.day })}
+                                />
+                              </TooltipTrigger>
+                              <TooltipContent side="top" className="text-xs max-w-[200px]">
+                                <p className="font-medium">{formatDateLabel(cell.date, locale)}</p>
+                                {cell.day ? (
+                                  <div className="mt-1 space-y-0.5 text-[11px]">
+                                    <p>
+                                      {cell.day.commits_count} commits · {formatLinesDelta(cell.day.lines_inserted, cell.day.lines_deleted)} lines
+                                    </p>
+                                    <p>{cell.day.tasks_done} tasks done</p>
+                                    {Number(cell.day.has_daily_report) > 0 && <p className="text-green-400">✓ Daily report</p>}
+                                  </div>
+                                ) : (
+                                  <p className="text-muted-foreground text-[11px]">No activity</p>
+                                )}
+                              </TooltipContent>
+                            </Tooltip>
+                          )
+                        })}
+                      </div>
+                    ))}
                   </div>
                 </div>
+
+                {/* Intensity legend */}
+                <div className="flex items-center gap-1.5 mt-2 ml-8">
+                  <span className="text-[10px] text-muted-foreground">{t('progress.less')}</span>
+                  {['bg-muted', 'bg-green-200 dark:bg-green-900', 'bg-green-400 dark:bg-green-700', 'bg-green-600 dark:bg-green-500', 'bg-green-800 dark:bg-green-400'].map(
+                    (cls, i) => (
+                      <div key={i} className={cn('h-[10px] w-[10px] rounded-[2px]', cls)} />
+                    )
+                  )}
+                  <span className="text-[10px] text-muted-foreground">{t('progress.more')}</span>
+                </div>
               </div>
-            )}
+            </div>
+          )}
         </div>
 
         {/* Stats strip */}

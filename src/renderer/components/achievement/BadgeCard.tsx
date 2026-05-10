@@ -309,10 +309,7 @@ function AchievementAssetDust({ tier, size, emphasis = false }: { tier: string; 
     const color = TIER_RISE_DUST_COLOR[tier] ?? TIER_RISE_DUST_COLOR.bronze
     const riseScale = SHOWCASE_RISE_SCALE[size]
     return (
-      <div
-        className="pointer-events-none absolute inset-0 z-0 overflow-visible"
-        aria-hidden
-      >
+      <div className="pointer-events-none absolute inset-0 z-0 overflow-visible" aria-hidden>
         {SHOWCASE_RISE_PARTICLES.map((p, i) => {
           const risePx = Math.round(p.riseBasePx * riseScale)
           const driftX = Math.round(p.driftXPx * riseScale)
@@ -370,15 +367,7 @@ function AchievementAssetDust({ tier, size, emphasis = false }: { tier: string; 
 
 function getDynamicIcon(iconName: string, size: number, color: string) {
   const IconComp = ICON_MAP[iconName] ?? Award
-  return (
-    <IconComp
-      size={size}
-      width={size}
-      height={size}
-      className={color}
-      style={{ width: size, height: size, minWidth: size, minHeight: size, flexShrink: 0 }}
-    />
-  )
+  return <IconComp size={size} width={size} height={size} className={color} style={{ width: size, height: size, minWidth: size, minHeight: size, flexShrink: 0 }} />
 }
 
 /** `img:` + đường dẫn trong `src/resources/public` (vd. `/achievements/x.png`). */
@@ -486,33 +475,20 @@ export function BadgeCard({
           badgeBoxClass,
           usesAssetIcon && !isLocked && (isInlineTinyAsset ? 'overflow-hidden rounded-md' : 'overflow-visible'),
           usesAssetIcon
-            ? cn(
-              'border-0 bg-transparent shadow-none',
-              isLocked && 'opacity-45 grayscale',
-              !isLocked && (isInlineTinyAsset ? 'hover:scale-100' : 'hover:scale-105')
-            )
+            ? cn('border-0 bg-transparent shadow-none', isLocked && 'opacity-45 grayscale', !isLocked && (isInlineTinyAsset ? 'hover:scale-100' : 'hover:scale-105'))
             : cn(
-              'rounded-xl',
-              isFilled ? 'border-0' : 'border-2',
-              isFilled && !isLocked ? tierCfg.bgFilled : isFilled && isLocked ? 'bg-gray-200 dark:bg-gray-700 opacity-50' : tierCfg.bg,
-              !isFilled && (isLocked ? 'border-gray-300 dark:border-gray-700 opacity-40 grayscale' : tierCfg.border),
-              !isLocked && def.tier === 'gold' && 'hover:shadow-yellow-400/40 hover:shadow-md',
-              !isLocked && 'hover:scale-110'
-            ),
-          selected &&
-          showSelectedRing &&
-          cn('ring-2 ring-offset-1 ring-offset-background', TIER_SELECTED_RING[def.tier] ?? TIER_SELECTED_RING.bronze)
+                'rounded-xl',
+                isFilled ? 'border-0' : 'border-2',
+                isFilled && !isLocked ? tierCfg.bgFilled : isFilled && isLocked ? 'bg-gray-200 dark:bg-gray-700 opacity-50' : tierCfg.bg,
+                !isFilled && (isLocked ? 'border-gray-300 dark:border-gray-700 opacity-40 grayscale' : tierCfg.border),
+                !isLocked && def.tier === 'gold' && 'hover:shadow-yellow-400/40 hover:shadow-md',
+                !isLocked && 'hover:scale-110'
+              ),
+          selected && showSelectedRing && cn('ring-2 ring-offset-1 ring-offset-background', TIER_SELECTED_RING[def.tier] ?? TIER_SELECTED_RING.bronze)
         )}
       >
-        {usesAssetIcon && !isLocked && !isInlineTinyAsset && (
-          <AchievementAssetDust tier={def.tier} size={size} emphasis={dustEmphasis} />
-        )}
-        <div
-          className={cn(
-            'relative z-[1] box-border flex h-full w-full min-h-0 min-w-0 items-center justify-center',
-            isInlineTinyAsset && 'overflow-hidden'
-          )}
-        >
+        {usesAssetIcon && !isLocked && !isInlineTinyAsset && <AchievementAssetDust tier={def.tier} size={size} emphasis={dustEmphasis} />}
+        <div className={cn('relative z-[1] box-border flex h-full w-full min-h-0 min-w-0 items-center justify-center', isInlineTinyAsset && 'overflow-hidden')}>
           {isLocked ? (
             <Lock
               size={lockIconPx}
@@ -522,12 +498,7 @@ export function BadgeCard({
               style={{ width: lockIconPx, height: lockIconPx, minWidth: lockIconPx, minHeight: lockIconPx, flexShrink: 0 }}
             />
           ) : (
-            <BadgeGraphic
-              icon={def.icon}
-              sizePx={sizeCfg.icon}
-              lucideColorClass={isFilled ? tierCfg.iconColorFilled : tierCfg.iconColor}
-              assetTinyInline={isInlineTinyAsset}
-            />
+            <BadgeGraphic icon={def.icon} sizePx={sizeCfg.icon} lucideColorClass={isFilled ? tierCfg.iconColorFilled : tierCfg.iconColor} assetTinyInline={isInlineTinyAsset} />
           )}
         </div>
 
@@ -591,9 +562,7 @@ export function BadgeCard({
           {isLocked && <div className="text-muted-foreground italic">Not yet earned</div>}
           {rarity !== undefined && (
             <div className="flex items-center gap-1.5 pt-0.5 border-t border-border/50">
-              <span className={cn('font-semibold', getRarityLabel(rarity).color)}>
-                {getRarityLabel(rarity).label}
-              </span>
+              <span className={cn('font-semibold', getRarityLabel(rarity).color)}>{getRarityLabel(rarity).label}</span>
               <span className="text-muted-foreground">· {rarity}% người dùng đã đạt</span>
             </div>
           )}

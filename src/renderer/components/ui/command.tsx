@@ -52,12 +52,7 @@ function CommandInput({ className, ...props }: React.ComponentProps<typeof Comma
   )
 }
 
-function CommandList({
-  className,
-  onWheel,
-  onScroll,
-  ...props
-}: React.ComponentProps<typeof CommandPrimitive.List> & { onScroll?: React.UIEventHandler<HTMLDivElement> }) {
+function CommandList({ className, onWheel, onScroll, ...props }: React.ComponentProps<typeof CommandPrimitive.List> & { onScroll?: React.UIEventHandler<HTMLDivElement> }) {
   const handleWheel = (e: React.WheelEvent<HTMLDivElement>) => {
     e.stopPropagation()
     onWheel?.(e)
@@ -114,4 +109,4 @@ function CommandShortcut({ className, ...props }: React.ComponentProps<'span'>) 
   return <span data-slot="command-shortcut" className={cn('text-muted-foreground ml-auto text-xs tracking-widest', className)} {...props} />
 }
 
-export { Command, CommandDialog, CommandInput, CommandList, CommandEmpty, CommandGroup, CommandItem, CommandShortcut, CommandSeparator }
+export { Command, CommandDialog, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList, CommandSeparator, CommandShortcut }

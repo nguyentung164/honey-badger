@@ -123,30 +123,30 @@ export const ConfigurationTabContent = memo(function ConfigurationTabContent({
                   </span>
                 </AccordionTrigger>
                 <AccordionContent className="px-1 pb-4 pt-0 sm:px-2">
-            <div id="settings-svn-folder" className="space-y-3">
-              <Label className="flex items-center gap-2">
-                <Folder className="w-4 h-4" /> {t('settings.configuration.svnFolder')}
-              </Label>
-              <div className="flex items-center space-x-2">
-                <ConfigInput type="text" placeholder={t('settings.configuration.svnFolderPlaceholder')} value={svnFolder} onSync={v => onSetConfig('svnFolder', v)} />
-                <Button
-                  variant={buttonVariant}
-                  disabled={isSelectingFolder}
-                  onClick={async () => {
-                    setIsSelectingFolder(true)
-                    try {
-                      const folder = await window.api.system.select_folder()
-                      if (folder) onSetConfig('svnFolder', folder)
-                    } finally {
-                      setIsSelectingFolder(false)
-                    }
-                  }}
-                >
-                  {isSelectingFolder ? <Loader2 className="h-4 w-4 animate-spin" /> : <FolderOpen className="h-4 w-4" />}
-                  {t('settings.configuration.chooseFolder')}
-                </Button>
-              </div>
-            </div>
+                  <div id="settings-svn-folder" className="space-y-3">
+                    <Label className="flex items-center gap-2">
+                      <Folder className="w-4 h-4" /> {t('settings.configuration.svnFolder')}
+                    </Label>
+                    <div className="flex items-center space-x-2">
+                      <ConfigInput type="text" placeholder={t('settings.configuration.svnFolderPlaceholder')} value={svnFolder} onSync={v => onSetConfig('svnFolder', v)} />
+                      <Button
+                        variant={buttonVariant}
+                        disabled={isSelectingFolder}
+                        onClick={async () => {
+                          setIsSelectingFolder(true)
+                          try {
+                            const folder = await window.api.system.select_folder()
+                            if (folder) onSetConfig('svnFolder', folder)
+                          } finally {
+                            setIsSelectingFolder(false)
+                          }
+                        }}
+                      >
+                        {isSelectingFolder ? <Loader2 className="h-4 w-4 animate-spin" /> : <FolderOpen className="h-4 w-4" />}
+                        {t('settings.configuration.chooseFolder')}
+                      </Button>
+                    </div>
+                  </div>
                 </AccordionContent>
               </AccordionItem>
 
@@ -158,166 +158,170 @@ export const ConfigurationTabContent = memo(function ConfigurationTabContent({
                   </span>
                 </AccordionTrigger>
                 <AccordionContent className="space-y-4 px-1 pb-4 pt-0 sm:px-2">
-            <div id="settings-webhook-ms" className="space-y-3">
-              <div className="flex items-center justify-between">
-                <Label className="mr-2 flex items-center gap-2">
-                  <Webhook className="w-4 h-4" /> {t('settings.configuration.webhookMS')}
-                </Label>
-                <div className="flex items-center space-x-2">
-                  <Label htmlFor="enable-teams-notification" className="cursor-pointer">
-                    {t('settings.configuration.receiveTeamsNotification')}
-                  </Label>
-                  <Switch id="enable-teams-notification" checked={enableTeamsNotification} onCheckedChange={checked => onSetConfigDeferred('enableTeamsNotification', checked)} />
-                </div>
-              </div>
-              <div className="flex items-center justify-between gap-2">
-                <Combobox
-                  value={webhookMS}
-                  onValueChange={value => onSetConfigDeferred('webhookMS', value)}
-                  options={webhookList.map(webhook => ({ value: webhook.url, label: webhook.name }))}
-                  placeholder={t('settings.configuration.selectWebhook')}
-                  size="sm"
-                  className="w-full"
-                />
-                <Button variant={buttonVariant} size="sm" onClick={onTestWebhook} disabled={!webhookMS?.trim() || testWebhookLoading} className="shrink-0">
-                  {testWebhookLoading ? (
-                    <Loader2 className="h-4 w-4 animate-spin" />
-                  ) : (
-                    <>
-                      <Link2 className="h-4 w-4" />
-                      {t('common.test')}
-                    </>
-                  )}
-                </Button>
-                <div className="flex gap-2">
-                  <Button
-                    variant={buttonVariant}
-                    size="icon-sm"
-                    onClick={() => {
-                      setWebhookName('')
-                      setWebhookUrl('')
-                      setWebhookDialogOpen(true)
-                    }}
-                  >
-                    <Plus className="h-4 w-4" />
-                  </Button>
-                  {webhookMS && (
-                    <>
-                      <Button
-                        variant={buttonVariant}
-                        size="icon-sm"
-                        onClick={() => {
-                          const webhook = webhookList.find(w => w.url === webhookMS)
-                          if (webhook) {
-                            setWebhookName(webhook.name)
-                            setWebhookUrl(webhook.url)
-                            setEditWebhookDialogOpen(true)
-                          }
-                        }}
-                      >
-                        <Pencil className="h-4 w-4" />
+                  <div id="settings-webhook-ms" className="space-y-3">
+                    <div className="flex items-center justify-between">
+                      <Label className="mr-2 flex items-center gap-2">
+                        <Webhook className="w-4 h-4" /> {t('settings.configuration.webhookMS')}
+                      </Label>
+                      <div className="flex items-center space-x-2">
+                        <Label htmlFor="enable-teams-notification" className="cursor-pointer">
+                          {t('settings.configuration.receiveTeamsNotification')}
+                        </Label>
+                        <Switch
+                          id="enable-teams-notification"
+                          checked={enableTeamsNotification}
+                          onCheckedChange={checked => onSetConfigDeferred('enableTeamsNotification', checked)}
+                        />
+                      </div>
+                    </div>
+                    <div className="flex items-center justify-between gap-2">
+                      <Combobox
+                        value={webhookMS}
+                        onValueChange={value => onSetConfigDeferred('webhookMS', value)}
+                        options={webhookList.map(webhook => ({ value: webhook.url, label: webhook.name }))}
+                        placeholder={t('settings.configuration.selectWebhook')}
+                        size="sm"
+                        className="w-full"
+                      />
+                      <Button variant={buttonVariant} size="sm" onClick={onTestWebhook} disabled={!webhookMS?.trim() || testWebhookLoading} className="shrink-0">
+                        {testWebhookLoading ? (
+                          <Loader2 className="h-4 w-4 animate-spin" />
+                        ) : (
+                          <>
+                            <Link2 className="h-4 w-4" />
+                            {t('common.test')}
+                          </>
+                        )}
                       </Button>
-                      <Button variant={buttonVariant} size="icon-sm" onClick={() => onDeleteWebhook(webhookList.find(w => w.url === webhookMS)?.name || '')}>
-                        <Trash2 className="h-4 w-4" />
-                      </Button>
-                    </>
-                  )}
-                </div>
-              </div>
-            </div>
+                      <div className="flex gap-2">
+                        <Button
+                          variant={buttonVariant}
+                          size="icon-sm"
+                          onClick={() => {
+                            setWebhookName('')
+                            setWebhookUrl('')
+                            setWebhookDialogOpen(true)
+                          }}
+                        >
+                          <Plus className="h-4 w-4" />
+                        </Button>
+                        {webhookMS && (
+                          <>
+                            <Button
+                              variant={buttonVariant}
+                              size="icon-sm"
+                              onClick={() => {
+                                const webhook = webhookList.find(w => w.url === webhookMS)
+                                if (webhook) {
+                                  setWebhookName(webhook.name)
+                                  setWebhookUrl(webhook.url)
+                                  setEditWebhookDialogOpen(true)
+                                }
+                              }}
+                            >
+                              <Pencil className="h-4 w-4" />
+                            </Button>
+                            <Button variant={buttonVariant} size="icon-sm" onClick={() => onDeleteWebhook(webhookList.find(w => w.url === webhookMS)?.name || '')}>
+                              <Trash2 className="h-4 w-4" />
+                            </Button>
+                          </>
+                        )}
+                      </div>
+                    </div>
+                  </div>
 
-            <AddOrEditWebhookDialog
-              open={webhookDialogOpen}
-              onOpenChange={setWebhookDialogOpen}
-              isEditMode={false}
-              webhookName={webhookName}
-              webhookUrl={webhookUrl}
-              setWebhookName={setWebhookName}
-              setWebhookUrl={setWebhookUrl}
-              onAdd={onAddWebhook}
-              onUpdate={() => { }}
-            />
-            {editWebhookDialogOpen && (
-              <AddOrEditWebhookDialog
-                open={editWebhookDialogOpen}
-                onOpenChange={setEditWebhookDialogOpen}
-                isEditMode={true}
-                webhookName={webhookName}
-                webhookUrl={webhookUrl}
-                setWebhookName={setWebhookName}
-                setWebhookUrl={setWebhookUrl}
-                onUpdate={onUpdateWebhook}
-                onAdd={() => { }}
-              />
-            )}
-
-            <div id="settings-show-notifications" className="flex items-center justify-between space-x-2 py-1">
-              <Label htmlFor="show-notifications" className="flex items-center gap-2 cursor-pointer">
-                <Bell className="w-4 h-4" /> {t('settings.configuration.showNotifications')}
-              </Label>
-              <Switch id="show-notifications" checked={showNotifications} onCheckedChange={checked => onSetConfigDeferred('showNotifications', checked)} />
-            </div>
-            {playNotificationSound && (
-              <div id="settings-notification-sound-custom" className="space-y-2 py-2">
-                <Label className="flex items-center gap-2">
-                  <Volume2 className="w-4 h-4" /> {t('settings.configuration.notificationSoundFile')}
-                </Label>
-                <div className="flex items-center gap-2">
-                  <ConfigInput
-                    type="text"
-                    placeholder={t('settings.configuration.notificationSoundPlaceholder')}
-                    value={notificationSoundPath}
-                    onSync={v => onSetConfigDeferred('notificationSoundPath', v)}
-                    className="flex-1"
+                  <AddOrEditWebhookDialog
+                    open={webhookDialogOpen}
+                    onOpenChange={setWebhookDialogOpen}
+                    isEditMode={false}
+                    webhookName={webhookName}
+                    webhookUrl={webhookUrl}
+                    setWebhookName={setWebhookName}
+                    setWebhookUrl={setWebhookUrl}
+                    onAdd={onAddWebhook}
+                    onUpdate={() => {}}
                   />
-                  <Button
-                    variant={buttonVariant}
-                    size="icon-sm"
-                    disabled={isSelectingSound}
-                    title={t('common.browse')}
-                    onClick={async () => {
-                      setIsSelectingSound(true)
-                      try {
-                        const path = await window.api.system.select_audio_file()
-                        if (path) onSetConfigDeferred('notificationSoundPath', path)
-                      } finally {
-                        setIsSelectingSound(false)
-                      }
-                    }}
-                  >
-                    {isSelectingSound ? <Loader2 className="h-4 w-4 animate-spin" /> : <FolderOpen className="h-4 w-4" />}
-                  </Button>
-                  <Button
-                    variant={buttonVariant}
-                    size="icon-sm"
-                    disabled={isTestingSound}
-                    onClick={
-                      isSoundPlaying
-                        ? () => stopNotificationSound()
-                        : async () => {
-                          setIsTestingSound(true)
-                          try {
-                            await playNotificationSoundTest(notificationSoundPath)
-                          } catch {
-                            // ignore
-                          } finally {
-                            setIsTestingSound(false)
+                  {editWebhookDialogOpen && (
+                    <AddOrEditWebhookDialog
+                      open={editWebhookDialogOpen}
+                      onOpenChange={setEditWebhookDialogOpen}
+                      isEditMode={true}
+                      webhookName={webhookName}
+                      webhookUrl={webhookUrl}
+                      setWebhookName={setWebhookName}
+                      setWebhookUrl={setWebhookUrl}
+                      onUpdate={onUpdateWebhook}
+                      onAdd={() => {}}
+                    />
+                  )}
+
+                  <div id="settings-show-notifications" className="flex items-center justify-between space-x-2 py-1">
+                    <Label htmlFor="show-notifications" className="flex items-center gap-2 cursor-pointer">
+                      <Bell className="w-4 h-4" /> {t('settings.configuration.showNotifications')}
+                    </Label>
+                    <Switch id="show-notifications" checked={showNotifications} onCheckedChange={checked => onSetConfigDeferred('showNotifications', checked)} />
+                  </div>
+                  {playNotificationSound && (
+                    <div id="settings-notification-sound-custom" className="space-y-2 py-2">
+                      <Label className="flex items-center gap-2">
+                        <Volume2 className="w-4 h-4" /> {t('settings.configuration.notificationSoundFile')}
+                      </Label>
+                      <div className="flex items-center gap-2">
+                        <ConfigInput
+                          type="text"
+                          placeholder={t('settings.configuration.notificationSoundPlaceholder')}
+                          value={notificationSoundPath}
+                          onSync={v => onSetConfigDeferred('notificationSoundPath', v)}
+                          className="flex-1"
+                        />
+                        <Button
+                          variant={buttonVariant}
+                          size="icon-sm"
+                          disabled={isSelectingSound}
+                          title={t('common.browse')}
+                          onClick={async () => {
+                            setIsSelectingSound(true)
+                            try {
+                              const path = await window.api.system.select_audio_file()
+                              if (path) onSetConfigDeferred('notificationSoundPath', path)
+                            } finally {
+                              setIsSelectingSound(false)
+                            }
+                          }}
+                        >
+                          {isSelectingSound ? <Loader2 className="h-4 w-4 animate-spin" /> : <FolderOpen className="h-4 w-4" />}
+                        </Button>
+                        <Button
+                          variant={buttonVariant}
+                          size="icon-sm"
+                          disabled={isTestingSound}
+                          onClick={
+                            isSoundPlaying
+                              ? () => stopNotificationSound()
+                              : async () => {
+                                  setIsTestingSound(true)
+                                  try {
+                                    await playNotificationSoundTest(notificationSoundPath)
+                                  } catch {
+                                    // ignore
+                                  } finally {
+                                    setIsTestingSound(false)
+                                  }
+                                }
                           }
-                        }
-                    }
-                    title={isSoundPlaying ? t('settings.configuration.stopSound') : t('settings.configuration.testSound')}
-                  >
-                    {isTestingSound ? <Loader2 className="h-4 w-4 animate-spin" /> : isSoundPlaying ? <Square className="h-4 w-4" /> : <Volume2 className="h-4 w-4" />}
-                  </Button>
-                </div>
-              </div>
-            )}
-            <div id="settings-play-notification-sound" className="flex items-center justify-between space-x-2 py-1">
-              <Label htmlFor="play-notification-sound" className="flex items-center gap-2 cursor-pointer">
-                <Volume2 className="w-4 h-4" /> {t('settings.configuration.playNotificationSound')}
-              </Label>
-              <Switch id="play-notification-sound" checked={playNotificationSound} onCheckedChange={checked => onSetConfigDeferred('playNotificationSound', checked)} />
-            </div>
+                          title={isSoundPlaying ? t('settings.configuration.stopSound') : t('settings.configuration.testSound')}
+                        >
+                          {isTestingSound ? <Loader2 className="h-4 w-4 animate-spin" /> : isSoundPlaying ? <Square className="h-4 w-4" /> : <Volume2 className="h-4 w-4" />}
+                        </Button>
+                      </div>
+                    </div>
+                  )}
+                  <div id="settings-play-notification-sound" className="flex items-center justify-between space-x-2 py-1">
+                    <Label htmlFor="play-notification-sound" className="flex items-center gap-2 cursor-pointer">
+                      <Volume2 className="w-4 h-4" /> {t('settings.configuration.playNotificationSound')}
+                    </Label>
+                    <Switch id="play-notification-sound" checked={playNotificationSound} onCheckedChange={checked => onSetConfigDeferred('playNotificationSound', checked)} />
+                  </div>
                 </AccordionContent>
               </AccordionItem>
 
@@ -329,92 +333,92 @@ export const ConfigurationTabContent = memo(function ConfigurationTabContent({
                   </span>
                 </AccordionTrigger>
                 <AccordionContent className="space-y-4 px-1 pb-4 pt-0 sm:px-2">
-            <div id="settings-start-on-login" className="flex items-center justify-between space-x-2 py-1">
-              <Label htmlFor="start-on-login" className="flex items-center gap-2 cursor-pointer">
-                <LayoutGrid className="w-4 h-4" /> {t('settings.configuration.startOnLogin')}
-              </Label>
-              <Switch id="start-on-login" checked={startOnLogin} onCheckedChange={checked => onSetConfigDeferred('startOnLogin', checked)} />
-            </div>
-            <div id="settings-external-editor" className="space-y-3">
-              <Label className="flex items-center gap-2">
-                <FileCode className="w-4 h-4" /> {t('settings.configuration.externalEditor')}
-              </Label>
-              <div className="flex items-center justify-between gap-2">
-                <Combobox
-                  value={externalEditorPath || ''}
-                  onValueChange={value => onSetConfigDeferred('externalEditorPath', value)}
-                  options={externalEditorList.map(editor => ({ value: editor.path, label: editor.name }))}
-                  placeholder={t('settings.configuration.selectExternalEditor') || 'Chọn editor'}
-                  size="sm"
-                  className="w-full"
-                />
-                <div className="flex gap-2 shrink-0">
-                  <Button
-                    variant={buttonVariant}
-                    size="icon-sm"
-                    onClick={() => {
-                      setExternalEditorNameForDialog('')
-                      setExternalEditorPathForDialog('')
-                      setExternalEditorDialogOpen(true)
-                    }}
-                    title={t('common.add')}
-                  >
-                    <Plus className="h-4 w-4" />
-                  </Button>
-                  {externalEditorPath && externalEditorList.some(e => e.path === externalEditorPath) && (
-                    <>
-                      <Button
-                        variant={buttonVariant}
-                        size="icon-sm"
-                        onClick={() => {
-                          const editor = externalEditorList.find(e => e.path === externalEditorPath)
-                          if (editor) {
-                            setExternalEditorNameForDialog(editor.name)
-                            setExternalEditorPathForDialog(editor.path)
-                            setEditExternalEditorDialogOpen(true)
-                          }
-                        }}
-                        title={t('common.update')}
-                      >
-                        <Pencil className="h-4 w-4" />
-                      </Button>
-                      <Button
-                        variant={buttonVariant}
-                        size="icon-sm"
-                        onClick={() => onDeleteExternalEditor(externalEditorList.find(e => e.path === externalEditorPath)?.name || '')}
-                        title={t('common.delete')}
-                      >
-                        <Trash2 className="h-4 w-4" />
-                      </Button>
-                    </>
-                  )}
-                </div>
-              </div>
-              <AddOrEditExternalEditorDialog
-                open={externalEditorDialogOpen}
-                onOpenChange={setExternalEditorDialogOpen}
-                isEditMode={false}
-                editorName={externalEditorNameForDialog}
-                editorPath={externalEditorPathForDialog}
-                setEditorName={setExternalEditorNameForDialog}
-                setEditorPath={setExternalEditorPathForDialog}
-                onAdd={onAddExternalEditor}
-                onUpdate={() => { }}
-              />
-              {editExternalEditorDialogOpen && (
-                <AddOrEditExternalEditorDialog
-                  open={editExternalEditorDialogOpen}
-                  onOpenChange={setEditExternalEditorDialogOpen}
-                  isEditMode={true}
-                  editorName={externalEditorNameForDialog}
-                  editorPath={externalEditorPathForDialog}
-                  setEditorName={setExternalEditorNameForDialog}
-                  setEditorPath={setExternalEditorPathForDialog}
-                  onUpdate={onUpdateExternalEditor}
-                  onAdd={() => { }}
-                />
-              )}
-            </div>
+                  <div id="settings-start-on-login" className="flex items-center justify-between space-x-2 py-1">
+                    <Label htmlFor="start-on-login" className="flex items-center gap-2 cursor-pointer">
+                      <LayoutGrid className="w-4 h-4" /> {t('settings.configuration.startOnLogin')}
+                    </Label>
+                    <Switch id="start-on-login" checked={startOnLogin} onCheckedChange={checked => onSetConfigDeferred('startOnLogin', checked)} />
+                  </div>
+                  <div id="settings-external-editor" className="space-y-3">
+                    <Label className="flex items-center gap-2">
+                      <FileCode className="w-4 h-4" /> {t('settings.configuration.externalEditor')}
+                    </Label>
+                    <div className="flex items-center justify-between gap-2">
+                      <Combobox
+                        value={externalEditorPath || ''}
+                        onValueChange={value => onSetConfigDeferred('externalEditorPath', value)}
+                        options={externalEditorList.map(editor => ({ value: editor.path, label: editor.name }))}
+                        placeholder={t('settings.configuration.selectExternalEditor') || 'Chọn editor'}
+                        size="sm"
+                        className="w-full"
+                      />
+                      <div className="flex gap-2 shrink-0">
+                        <Button
+                          variant={buttonVariant}
+                          size="icon-sm"
+                          onClick={() => {
+                            setExternalEditorNameForDialog('')
+                            setExternalEditorPathForDialog('')
+                            setExternalEditorDialogOpen(true)
+                          }}
+                          title={t('common.add')}
+                        >
+                          <Plus className="h-4 w-4" />
+                        </Button>
+                        {externalEditorPath && externalEditorList.some(e => e.path === externalEditorPath) && (
+                          <>
+                            <Button
+                              variant={buttonVariant}
+                              size="icon-sm"
+                              onClick={() => {
+                                const editor = externalEditorList.find(e => e.path === externalEditorPath)
+                                if (editor) {
+                                  setExternalEditorNameForDialog(editor.name)
+                                  setExternalEditorPathForDialog(editor.path)
+                                  setEditExternalEditorDialogOpen(true)
+                                }
+                              }}
+                              title={t('common.update')}
+                            >
+                              <Pencil className="h-4 w-4" />
+                            </Button>
+                            <Button
+                              variant={buttonVariant}
+                              size="icon-sm"
+                              onClick={() => onDeleteExternalEditor(externalEditorList.find(e => e.path === externalEditorPath)?.name || '')}
+                              title={t('common.delete')}
+                            >
+                              <Trash2 className="h-4 w-4" />
+                            </Button>
+                          </>
+                        )}
+                      </div>
+                    </div>
+                    <AddOrEditExternalEditorDialog
+                      open={externalEditorDialogOpen}
+                      onOpenChange={setExternalEditorDialogOpen}
+                      isEditMode={false}
+                      editorName={externalEditorNameForDialog}
+                      editorPath={externalEditorPathForDialog}
+                      setEditorName={setExternalEditorNameForDialog}
+                      setEditorPath={setExternalEditorPathForDialog}
+                      onAdd={onAddExternalEditor}
+                      onUpdate={() => {}}
+                    />
+                    {editExternalEditorDialogOpen && (
+                      <AddOrEditExternalEditorDialog
+                        open={editExternalEditorDialogOpen}
+                        onOpenChange={setEditExternalEditorDialogOpen}
+                        isEditMode={true}
+                        editorName={externalEditorNameForDialog}
+                        editorPath={externalEditorPathForDialog}
+                        setEditorName={setExternalEditorNameForDialog}
+                        setEditorPath={setExternalEditorPathForDialog}
+                        onUpdate={onUpdateExternalEditor}
+                        onAdd={() => {}}
+                      />
+                    )}
+                  </div>
                 </AccordionContent>
               </AccordionItem>
             </Accordion>

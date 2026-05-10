@@ -128,12 +128,7 @@ export function MergePrDialog({ open, onOpenChange, projectId, repo, prNumber, o
           </div>
           <div className="space-y-1">
             <Label className="text-xs">{t('prManager.mergePr.commitMessage')}</Label>
-            <Textarea
-              value={message}
-              onChange={e => setMessage(e.target.value)}
-              placeholder={t('prManager.mergePr.commitMessageOptional')}
-              className="min-h-[100px]"
-            />
+            <Textarea value={message} onChange={e => setMessage(e.target.value)} placeholder={t('prManager.mergePr.commitMessageOptional')} className="min-h-[100px]" />
           </div>
         </div>
 

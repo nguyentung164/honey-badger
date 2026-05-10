@@ -3,11 +3,8 @@
 import { useEffect, useMemo } from 'react'
 
 import { Editor } from '@/components/blocks/editor-x/editor'
+import { isSerializedStateEmpty, parseStoredDescription } from '@/lib/taskDescriptionEditorState'
 import { cn } from '@/lib/utils'
-import {
-  isSerializedStateEmpty,
-  parseStoredDescription,
-} from '@/lib/taskDescriptionEditorState'
 
 export function TaskDescriptionEditor({
   valueRef,
@@ -24,10 +21,7 @@ export function TaskDescriptionEditor({
   placeholder?: string
   id?: string
 }) {
-  const initialSerialized = useMemo(
-    () => parseStoredDescription(initialValue),
-    [initialValue],
-  )
+  const initialSerialized = useMemo(() => parseStoredDescription(initialValue), [initialValue])
 
   useEffect(() => {
     const s = parseStoredDescription(initialValue)

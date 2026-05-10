@@ -1,6 +1,6 @@
 import * as bcrypt from 'bcryptjs'
 import Store from 'electron-store'
-import { getPasswordHash, getUserByUserCodeOrEmail, getUserRoles, isAppAdmin } from './pgTaskStore'
+import { getPasswordHash, getUserByUserCodeOrEmail, getUserRoles, isAppAdmin } from './stores/pgTaskStore'
 
 const store = new Store()
 const _SESSION_KEY = 'taskAuthSessions'

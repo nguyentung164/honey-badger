@@ -509,7 +509,7 @@ let tasksTicketIdNullableMigrationDone = false
 export async function migrateTasksTicketIdNullable(): Promise<void> {
   if (tasksTicketIdNullableMigrationDone || !hasDbConfig()) return
   try {
-    const rows = await query<{ nullable: string }[]>(
+    const rows = await query<{ nullable: string }>(
       `SELECT is_nullable AS nullable FROM information_schema.columns
        WHERE table_schema = current_schema() AND table_name = 'tasks' AND column_name = 'ticket_id' LIMIT 1`
     )
@@ -536,7 +536,7 @@ let userProjectRolesProjectIdUkMigrationDone = false
 export async function migrateUserProjectRolesProjectIdUkToGenerated(): Promise<void> {
   if (userProjectRolesProjectIdUkMigrationDone || !hasDbConfig()) return
 
-  const rows = await query<{ gen: string }[]>(
+  const rows = await query<{ gen: string }>(
     `SELECT COALESCE(a.attgenerated::text, '') AS gen
      FROM pg_attribute a
      JOIN pg_class c ON c.oid = a.attrelid AND c.relkind = 'r'
@@ -565,9 +565,7 @@ export async function migrateUserProjectRolesProjectIdUkToGenerated(): Promise<v
       `ALTER TABLE user_project_roles ADD COLUMN project_id_uk VARCHAR(36)
        GENERATED ALWAYS AS (COALESCE(project_id, '___GLOBAL___')) STORED NOT NULL`
     )
-    await query(
-      'ALTER TABLE user_project_roles ADD CONSTRAINT uk_user_project_role UNIQUE (user_id, project_id_uk, role)'
-    )
+    await query('ALTER TABLE user_project_roles ADD CONSTRAINT uk_user_project_role UNIQUE (user_id, project_id_uk, role)')
   } catch (e) {
     l.error('[db] migrateUserProjectRolesProjectIdUkToGenerated failed', e)
     return

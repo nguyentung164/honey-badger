@@ -50,12 +50,9 @@ function parseDoc(raw: unknown): AiPricingDoc | null {
     const out: Record<string, RawRates> = {}
     for (const [modelId, rates] of Object.entries(m)) {
       if (!isRecord(rates)) continue
-      const inputPer1M =
-        typeof rates.inputPer1M === 'number' ? rates.inputPer1M : undefined
-      const outputPer1M =
-        typeof rates.outputPer1M === 'number' ? rates.outputPer1M : undefined
-      const cachedInputPer1M =
-        typeof rates.cachedInputPer1M === 'number' ? rates.cachedInputPer1M : undefined
+      const inputPer1M = typeof rates.inputPer1M === 'number' ? rates.inputPer1M : undefined
+      const outputPer1M = typeof rates.outputPer1M === 'number' ? rates.outputPer1M : undefined
+      const cachedInputPer1M = typeof rates.cachedInputPer1M === 'number' ? rates.cachedInputPer1M : undefined
       out[modelId] = { inputPer1M, outputPer1M, cachedInputPer1M }
     }
     return out
@@ -73,26 +70,15 @@ function parseDoc(raw: unknown): AiPricingDoc | null {
   }
 }
 
-function normalizeModelRates(
-  raw: RawRates,
-  previous?: ModelRates
-): ModelRates | undefined {
-  const inputPer1M =
-    typeof raw.inputPer1M === 'number' ? raw.inputPer1M : previous?.inputPer1M
-  const outputPer1M =
-    typeof raw.outputPer1M === 'number' ? raw.outputPer1M : previous?.outputPer1M
+function normalizeModelRates(raw: RawRates, previous?: ModelRates): ModelRates | undefined {
+  const inputPer1M = typeof raw.inputPer1M === 'number' ? raw.inputPer1M : previous?.inputPer1M
+  const outputPer1M = typeof raw.outputPer1M === 'number' ? raw.outputPer1M : previous?.outputPer1M
   if (inputPer1M === undefined || outputPer1M === undefined) return undefined
-  const cachedInputPer1M =
-    typeof raw.cachedInputPer1M === 'number'
-      ? raw.cachedInputPer1M
-      : previous?.cachedInputPer1M
+  const cachedInputPer1M = typeof raw.cachedInputPer1M === 'number' ? raw.cachedInputPer1M : previous?.cachedInputPer1M
   return { inputPer1M, outputPer1M, cachedInputPer1M }
 }
 
-function mergeMaps(
-  base: Record<string, ModelRates>,
-  overlay?: Record<string, RawRates>
-): Record<string, ModelRates> {
+function mergeMaps(base: Record<string, ModelRates>, overlay?: Record<string, RawRates>): Record<string, ModelRates> {
   const out: Record<string, ModelRates> = { ...base }
   if (!overlay) return out
   for (const [k, raw] of Object.entries(overlay)) {
@@ -167,10 +153,7 @@ export function invalidateAiPricingCache(): void {
   cachedTables = null
 }
 
-function resolveOpenAiRates(
-  modelId: string,
-  OPENAI_RATES: Record<string, ModelRates>
-): ModelRates | undefined {
+function resolveOpenAiRates(modelId: string, OPENAI_RATES: Record<string, ModelRates>): ModelRates | undefined {
   const id = modelId.trim().toLowerCase()
   if (OPENAI_RATES[modelId]) return OPENAI_RATES[modelId]
   if (OPENAI_RATES[id]) return OPENAI_RATES[id]
@@ -178,25 +161,15 @@ function resolveOpenAiRates(
   return entry?.[1]
 }
 
-function resolveClaudeRates(
-  modelId: string,
-  CLAUDE_RATES: Record<string, ModelRates>
-): ModelRates | undefined {
+function resolveClaudeRates(modelId: string, CLAUDE_RATES: Record<string, ModelRates>): ModelRates | undefined {
   return CLAUDE_RATES[modelId] ?? CLAUDE_RATES['claude-sonnet-4-6']
 }
 
-function resolveGoogleRates(
-  modelId: string,
-  GOOGLE_RATES: Record<string, ModelRates>
-): ModelRates | undefined {
+function resolveGoogleRates(modelId: string, GOOGLE_RATES: Record<string, ModelRates>): ModelRates | undefined {
   return GOOGLE_RATES[modelId] ?? GOOGLE_RATES['gemini-3-flash-preview']
 }
 
-export function estimateCostUsd(
-  provider: ApiProvider,
-  modelId: string,
-  usage: NormalizedUsage
-): { usd: number | null; knownModel: boolean } {
+export function estimateCostUsd(provider: ApiProvider, modelId: string, usage: NormalizedUsage): { usd: number | null; knownModel: boolean } {
   const { openai, claude, google } = getTables()
   const { inputTokens, outputTokens, cachedInputTokens = 0 } = usage
   let rates: ModelRates | undefined
@@ -218,10 +191,7 @@ export function estimateCostUsd(
   const cached = Math.min(cachedInputTokens, inputTokens)
   const uncached = Math.max(0, inputTokens - cached)
   const pCached = rates.cachedInputPer1M ?? rates.inputPer1M
-  const usd =
-    (uncached / 1_000_000) * rates.inputPer1M +
-    (cached / 1_000_000) * pCached +
-    (outputTokens / 1_000_000) * rates.outputPer1M
+  const usd = (uncached / 1_000_000) * rates.inputPer1M + (cached / 1_000_000) * pCached + (outputTokens / 1_000_000) * rates.outputPer1M
 
   return { usd, knownModel: true }
 }

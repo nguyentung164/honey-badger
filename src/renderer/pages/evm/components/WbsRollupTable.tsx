@@ -64,13 +64,7 @@ function metaBodyCellBorder(colIndex: number) {
   return edge
 }
 
-function metaBodyCell(
-  colIndex: number,
-  rowParity: number,
-  className: string,
-  children: ReactNode,
-  title?: string,
-) {
+function metaBodyCell(colIndex: number, rowParity: number, className: string, children: ReactNode, title?: string) {
   const bg = rowParity % 2 === 1 ? 'bg-muted' : 'bg-background'
   const w = META_PIN[colIndex] ?? 40
   return (
@@ -79,7 +73,7 @@ function metaBodyCell(
         'box-border shrink-0 border-solid border-border/55 px-1 py-0.5 text-sm flex items-center justify-center min-h-0 overflow-hidden',
         metaBodyCellBorder(colIndex),
         bg,
-        className,
+        className
       )}
       style={{ width: w, minWidth: w, maxWidth: colIndex === 4 ? 160 : w }}
       title={title}
@@ -167,18 +161,15 @@ export function WbsRollupTable({
     return computed.sort((a, b) => {
       const rowsA = wbsDetailRowsForRollupKey(wbsFiltered, a.rollupKey)
       const rowsB = wbsDetailRowsForRollupKey(wbsFiltered, b.rollupKey)
-      const sortA = rowsA[0]?.masterId ? masterOrder.get(rowsA[0].masterId) ?? 1e9 : 1e9
-      const sortB = rowsB[0]?.masterId ? masterOrder.get(rowsB[0].masterId) ?? 1e9 : 1e9
+      const sortA = rowsA[0]?.masterId ? (masterOrder.get(rowsA[0].masterId) ?? 1e9) : 1e9
+      const sortB = rowsB[0]?.masterId ? (masterOrder.get(rowsB[0].masterId) ?? 1e9) : 1e9
       if (sortA !== sortB) return sortA - sortB
       return a.phase.localeCompare(b.phase) || a.category.localeCompare(b.category) || a.feature.localeCompare(b.feature)
     })
   }, [project, wbsFiltered, nonWorkingDays, wbsMaster, wbsDayUnits])
 
   const projectDays = useMemo(() => computeProjectDays(project), [project])
-  const merged = useMemo(
-    () => mergeWbsDayUnitsStoredWithPlan(wbsFiltered, wbsDayUnits, nonWorkingDays),
-    [wbsFiltered, wbsDayUnits, nonWorkingDays],
-  )
+  const merged = useMemo(() => mergeWbsDayUnitsStoredWithPlan(wbsFiltered, wbsDayUnits, nonWorkingDays), [wbsFiltered, wbsDayUnits, nonWorkingDays])
   const reportNorm = project.reportDate?.trim() ? toYyyyMmDd(project.reportDate.slice(0, 10)) : ''
 
   const dayColMeta = useMemo(() => {
@@ -226,7 +217,7 @@ export function WbsRollupTable({
       const left = e.currentTarget.scrollLeft
       if (peer.scrollLeft !== left) peer.scrollLeft = left
     },
-    [horizontalScrollPeerRef],
+    [horizontalScrollPeerRef]
   )
   const colVirtualizer = useEvmScheduleColumnVirtualizer(scrollRef, projectDays.length, {
     leadingPinnedWidthPx: metaPinTotalPx,
@@ -259,7 +250,7 @@ export function WbsRollupTable({
       setAssignee(masterRec?.assignee ?? '')
       setEditOpen(true)
     },
-    [wbsMaster],
+    [wbsMaster]
   )
 
   const applyBulk = useCallback(async () => {
@@ -311,7 +302,7 @@ export function WbsRollupTable({
       minWidth: metaPinTotalPx,
       boxSizing: 'border-box',
     }),
-    [metaPinTotalPx],
+    [metaPinTotalPx]
   )
 
   return (
@@ -324,70 +315,37 @@ export function WbsRollupTable({
         >
           {hasTimeline ? (
             <>
-              <div
-                className="sticky top-0 z-[35] flex shrink-0 bg-muted shadow-[0_1px_0_0_var(--border)]"
-                style={{ width: tableMinWidth, minWidth: tableMinWidth }}
-              >
+              <div className="sticky top-0 z-[35] flex shrink-0 bg-muted shadow-[0_1px_0_0_var(--border)]" style={{ width: tableMinWidth, minWidth: tableMinWidth }}>
                 <div className="sticky left-0 z-40 shrink-0 bg-muted" style={{ width: metaPinTotalPx }}>
                   <div className="text-sm" style={pinnedHeaderGridStyle}>
-                    <div
-                      className={cn(META_STICKY_HEADER_CELL, metaHeaderCellBorder(0, 'top'))}
-                      style={{ gridRow: '1 / 4', gridColumn: '1 / 2' }}
-                    >
+                    <div className={cn(META_STICKY_HEADER_CELL, metaHeaderCellBorder(0, 'top'))} style={{ gridRow: '1 / 4', gridColumn: '1 / 2' }}>
                       {t('evm.tableNo')}
                     </div>
-                    <div
-                      className={cn(META_STICKY_HEADER_CELL, 'border-t border-r border-b')}
-                      style={{ gridRow: '1 / 2', gridColumn: '2 / 6' }}
-                    >
+                    <div className={cn(META_STICKY_HEADER_CELL, 'border-t border-r border-b')} style={{ gridRow: '1 / 2', gridColumn: '2 / 6' }}>
                       {t('evm.wbsMasterExcelGroupMaster')}
                     </div>
-                    <div
-                      className={cn(META_STICKY_HEADER_CELL, 'border-t border-r border-b')}
-                      style={{ gridRow: '1 / 2', gridColumn: '6 / 8' }}
-                    >
+                    <div className={cn(META_STICKY_HEADER_CELL, 'border-t border-r border-b')} style={{ gridRow: '1 / 2', gridColumn: '6 / 8' }}>
                       {t('evm.wbsSchedulePlanGroup')}
                     </div>
-                    <div
-                      className={cn(META_STICKY_HEADER_CELL, 'border-t border-r border-b')}
-                      style={{ gridRow: '1 / 2', gridColumn: '8 / 10' }}
-                    >
+                    <div className={cn(META_STICKY_HEADER_CELL, 'border-t border-r border-b')} style={{ gridRow: '1 / 2', gridColumn: '8 / 10' }}>
                       {t('evm.wbsScheduleActualGroup')}
                     </div>
-                    <div
-                      className={cn(META_STICKY_HEADER_CELL, metaHeaderCellBorder(9, 'top'))}
-                      style={{ gridRow: '1 / 4', gridColumn: '10 / 11' }}
-                    >
+                    <div className={cn(META_STICKY_HEADER_CELL, metaHeaderCellBorder(9, 'top'))} style={{ gridRow: '1 / 4', gridColumn: '10 / 11' }}>
                       {t('evm.tableAssignee')}
                     </div>
-                    <div
-                      className={cn(META_STICKY_HEADER_CELL, 'border-t border-r border-b')}
-                      style={{ gridRow: '1 / 2', gridColumn: '11 / 17' }}
-                    >
+                    <div className={cn(META_STICKY_HEADER_CELL, 'border-t border-r border-b')} style={{ gridRow: '1 / 2', gridColumn: '11 / 17' }}>
                       {t('evm.wbsMasterExcelGroupEvm')}
                     </div>
-                    <div
-                      className={cn(META_STICKY_HEADER_CELL, 'whitespace-normal', metaHeaderCellBorder(1, 'mid'))}
-                      style={{ gridRow: '2 / 4', gridColumn: '2 / 3' }}
-                    >
+                    <div className={cn(META_STICKY_HEADER_CELL, 'whitespace-normal', metaHeaderCellBorder(1, 'mid'))} style={{ gridRow: '2 / 4', gridColumn: '2 / 3' }}>
                       {t('evm.tablePhase')}
                     </div>
-                    <div
-                      className={cn(META_STICKY_HEADER_CELL, 'whitespace-normal', metaHeaderCellBorder(2, 'mid'))}
-                      style={{ gridRow: '2 / 4', gridColumn: '3 / 4' }}
-                    >
+                    <div className={cn(META_STICKY_HEADER_CELL, 'whitespace-normal', metaHeaderCellBorder(2, 'mid'))} style={{ gridRow: '2 / 4', gridColumn: '3 / 4' }}>
                       {t('evm.tableCategory')}
                     </div>
-                    <div
-                      className={cn(META_STICKY_HEADER_CELL, 'whitespace-normal', metaHeaderCellBorder(3, 'mid'))}
-                      style={{ gridRow: '2 / 4', gridColumn: '4 / 5' }}
-                    >
+                    <div className={cn(META_STICKY_HEADER_CELL, 'whitespace-normal', metaHeaderCellBorder(3, 'mid'))} style={{ gridRow: '2 / 4', gridColumn: '4 / 5' }}>
                       {t('evm.tableFeature')}
                     </div>
-                    <div
-                      className={cn(META_STICKY_HEADER_CELL, 'whitespace-normal', metaHeaderCellBorder(4, 'mid'))}
-                      style={{ gridRow: '2 / 4', gridColumn: '5 / 6' }}
-                    >
+                    <div className={cn(META_STICKY_HEADER_CELL, 'whitespace-normal', metaHeaderCellBorder(4, 'mid'))} style={{ gridRow: '2 / 4', gridColumn: '5 / 6' }}>
                       {t('evm.wbsNote')}
                     </div>
                     <div
@@ -414,40 +372,22 @@ export function WbsRollupTable({
                     >
                       {t('evm.actualEnd')}
                     </div>
-                    <div
-                      className={cn(META_STICKY_HEADER_CELL, 'tabular-nums', metaHeaderCellBorder(10, 'mid'))}
-                      style={{ gridRow: '2 / 4', gridColumn: '11 / 12' }}
-                    >
+                    <div className={cn(META_STICKY_HEADER_CELL, 'tabular-nums', metaHeaderCellBorder(10, 'mid'))} style={{ gridRow: '2 / 4', gridColumn: '11 / 12' }}>
                       {t('evm.kpiBAC')}
                     </div>
-                    <div
-                      className={cn(META_STICKY_HEADER_CELL, 'tabular-nums', metaHeaderCellBorder(11, 'mid'))}
-                      style={{ gridRow: '2 / 4', gridColumn: '12 / 13' }}
-                    >
+                    <div className={cn(META_STICKY_HEADER_CELL, 'tabular-nums', metaHeaderCellBorder(11, 'mid'))} style={{ gridRow: '2 / 4', gridColumn: '12 / 13' }}>
                       {t('evm.kpiPV')}
                     </div>
-                    <div
-                      className={cn(META_STICKY_HEADER_CELL, 'tabular-nums', metaHeaderCellBorder(12, 'mid'))}
-                      style={{ gridRow: '2 / 4', gridColumn: '13 / 14' }}
-                    >
+                    <div className={cn(META_STICKY_HEADER_CELL, 'tabular-nums', metaHeaderCellBorder(12, 'mid'))} style={{ gridRow: '2 / 4', gridColumn: '13 / 14' }}>
                       {t('evm.kpiEV')}
                     </div>
-                    <div
-                      className={cn(META_STICKY_HEADER_CELL, 'tabular-nums', metaHeaderCellBorder(13, 'mid'))}
-                      style={{ gridRow: '2 / 4', gridColumn: '14 / 15' }}
-                    >
+                    <div className={cn(META_STICKY_HEADER_CELL, 'tabular-nums', metaHeaderCellBorder(13, 'mid'))} style={{ gridRow: '2 / 4', gridColumn: '14 / 15' }}>
                       {t('evm.kpiSV')}
                     </div>
-                    <div
-                      className={cn(META_STICKY_HEADER_CELL, 'tabular-nums', metaHeaderCellBorder(14, 'mid'))}
-                      style={{ gridRow: '2 / 4', gridColumn: '15 / 16' }}
-                    >
+                    <div className={cn(META_STICKY_HEADER_CELL, 'tabular-nums', metaHeaderCellBorder(14, 'mid'))} style={{ gridRow: '2 / 4', gridColumn: '15 / 16' }}>
                       {t('evm.kpiSPI')}
                     </div>
-                    <div
-                      className={cn(META_STICKY_HEADER_CELL, 'tabular-nums', metaHeaderCellBorder(15, 'mid'))}
-                      style={{ gridRow: '2 / 4', gridColumn: '16 / 17' }}
-                    >
+                    <div className={cn(META_STICKY_HEADER_CELL, 'tabular-nums', metaHeaderCellBorder(15, 'mid'))} style={{ gridRow: '2 / 4', gridColumn: '16 / 17' }}>
                       {t('evm.kpiProgress')}
                     </div>
                   </div>
@@ -494,7 +434,7 @@ export function WbsRollupTable({
                               'absolute top-0 box-border flex h-full items-center justify-center border-r border-solid border-border/80 px-0 py-0 text-center text-foreground text-sm font-semibold tabular-nums last:border-r-0',
                               !meta.isWorkCal && 'bg-zinc-400/25 dark:bg-zinc-600/35',
                               meta.isWorkCal && 'bg-muted',
-                              meta.isReport && 'bg-amber-200/90 dark:bg-amber-900/45',
+                              meta.isReport && 'bg-amber-200/90 dark:bg-amber-900/45'
                             )}
                             style={{ left: vc.start - metaPinTotalPx, width: vc.size, height: '100%' }}
                             title={meta.isReport ? t('evm.resourceGridReportCol') : meta.ds}
@@ -532,7 +472,7 @@ export function WbsRollupTable({
                               'absolute top-0 box-border flex h-full items-center justify-center border-r border-solid border-border/80 px-0 py-0 text-center text-foreground text-xs font-semibold last:border-r-0',
                               !meta.isWorkCal && 'bg-zinc-400/25 dark:bg-zinc-600/35',
                               meta.isWorkCal && 'bg-muted',
-                              meta.isReport && 'bg-amber-200/90 dark:bg-amber-900/45',
+                              meta.isReport && 'bg-amber-200/90 dark:bg-amber-900/45'
                             )}
                             style={{ left: vc.start - metaPinTotalPx, width: vc.size, height: '100%' }}
                           >
@@ -587,10 +527,7 @@ export function WbsRollupTable({
                           }}
                         >
                           <div
-                            className={cn(
-                              'sticky left-0 z-10 flex shrink-0 items-stretch self-stretch border-solid border-border/55',
-                              ri % 2 === 1 ? 'bg-muted' : 'bg-background',
-                            )}
+                            className={cn('sticky left-0 z-10 flex shrink-0 items-stretch self-stretch border-solid border-border/55', ri % 2 === 1 ? 'bg-muted' : 'bg-background')}
                             style={{ width: metaPinTotalPx, minWidth: metaPinTotalPx }}
                           >
                             {metaBodyCell(0, ri, 'text-center font-mono tabular-nums text-muted-foreground', ri + 1)}
@@ -602,13 +539,7 @@ export function WbsRollupTable({
                             {metaBodyCell(6, ri, 'whitespace-nowrap', formatDateDisplay(r.planEndMax, i18n.language))}
                             {metaBodyCell(7, ri, 'whitespace-nowrap', formatDateDisplay(r.actualStartMin, i18n.language))}
                             {metaBodyCell(8, ri, 'whitespace-nowrap', formatDateDisplay(r.actualEndMax, i18n.language))}
-                            {metaBodyCell(
-                              9,
-                              ri,
-                              'max-w-[100px] truncate justify-start',
-                              assigneeLabel,
-                              assigneeLabel !== '—' ? assigneeLabel : undefined,
-                            )}
+                            {metaBodyCell(9, ri, 'max-w-[100px] truncate justify-start', assigneeLabel, assigneeLabel !== '—' ? assigneeLabel : undefined)}
                             {metaBodyCell(10, ri, 'justify-end text-right tabular-nums', fmt(r.bac, 2))}
                             {metaBodyCell(11, ri, 'justify-end text-right tabular-nums', fmt(r.pv, 2))}
                             {metaBodyCell(12, ri, 'justify-end text-right tabular-nums', fmt(r.ev, 2))}
@@ -636,7 +567,7 @@ export function WbsRollupTable({
                                       'absolute top-0 flex items-center justify-center border-r border-border/50 px-0 py-0.5 text-center text-xs tabular-nums last:border-r-0',
                                       ri % 2 === 1 ? 'bg-muted' : 'bg-background',
                                       !meta.isWorkCal && 'bg-zinc-400/15 dark:bg-zinc-600/25',
-                                      meta.isReport && 'bg-amber-100/70 dark:bg-amber-950/30',
+                                      meta.isReport && 'bg-amber-100/70 dark:bg-amber-950/30'
                                     )}
                                     style={{ left: vc.start - metaPinTotalPx, width: vc.size, height: '100%' }}
                                   >
@@ -666,64 +597,34 @@ export function WbsRollupTable({
                       minWidth: metaPinTotalPx,
                     }}
                   >
-                    <div
-                      className={cn(META_STICKY_HEADER_CELL, metaHeaderCellBorder(0, 'top'))}
-                      style={{ gridRow: '1 / 3', gridColumn: '1 / 2' }}
-                    >
+                    <div className={cn(META_STICKY_HEADER_CELL, metaHeaderCellBorder(0, 'top'))} style={{ gridRow: '1 / 3', gridColumn: '1 / 2' }}>
                       {t('evm.tableNo')}
                     </div>
-                    <div
-                      className={cn(META_STICKY_HEADER_CELL, 'border-t border-r border-b')}
-                      style={{ gridRow: '1 / 2', gridColumn: '2 / 6' }}
-                    >
+                    <div className={cn(META_STICKY_HEADER_CELL, 'border-t border-r border-b')} style={{ gridRow: '1 / 2', gridColumn: '2 / 6' }}>
                       {t('evm.wbsMasterExcelGroupMaster')}
                     </div>
-                    <div
-                      className={cn(META_STICKY_HEADER_CELL, 'border-t border-r border-b')}
-                      style={{ gridRow: '1 / 2', gridColumn: '6 / 8' }}
-                    >
+                    <div className={cn(META_STICKY_HEADER_CELL, 'border-t border-r border-b')} style={{ gridRow: '1 / 2', gridColumn: '6 / 8' }}>
                       {t('evm.wbsSchedulePlanGroup')}
                     </div>
-                    <div
-                      className={cn(META_STICKY_HEADER_CELL, 'border-t border-r border-b')}
-                      style={{ gridRow: '1 / 2', gridColumn: '8 / 10' }}
-                    >
+                    <div className={cn(META_STICKY_HEADER_CELL, 'border-t border-r border-b')} style={{ gridRow: '1 / 2', gridColumn: '8 / 10' }}>
                       {t('evm.wbsScheduleActualGroup')}
                     </div>
-                    <div
-                      className={cn(META_STICKY_HEADER_CELL, metaHeaderCellBorder(9, 'top'))}
-                      style={{ gridRow: '1 / 3', gridColumn: '10 / 11' }}
-                    >
+                    <div className={cn(META_STICKY_HEADER_CELL, metaHeaderCellBorder(9, 'top'))} style={{ gridRow: '1 / 3', gridColumn: '10 / 11' }}>
                       {t('evm.tableAssignee')}
                     </div>
-                    <div
-                      className={cn(META_STICKY_HEADER_CELL, 'border-t border-r border-b')}
-                      style={{ gridRow: '1 / 2', gridColumn: '11 / 17' }}
-                    >
+                    <div className={cn(META_STICKY_HEADER_CELL, 'border-t border-r border-b')} style={{ gridRow: '1 / 2', gridColumn: '11 / 17' }}>
                       {t('evm.wbsMasterExcelGroupEvm')}
                     </div>
-                    <div
-                      className={cn(META_STICKY_HEADER_CELL, 'whitespace-normal', metaHeaderCellBorder(1, 'bot'))}
-                      style={{ gridRow: '2 / 3', gridColumn: '2 / 3' }}
-                    >
+                    <div className={cn(META_STICKY_HEADER_CELL, 'whitespace-normal', metaHeaderCellBorder(1, 'bot'))} style={{ gridRow: '2 / 3', gridColumn: '2 / 3' }}>
                       {t('evm.tablePhase')}
                     </div>
-                    <div
-                      className={cn(META_STICKY_HEADER_CELL, 'whitespace-normal', metaHeaderCellBorder(2, 'bot'))}
-                      style={{ gridRow: '2 / 3', gridColumn: '3 / 4' }}
-                    >
+                    <div className={cn(META_STICKY_HEADER_CELL, 'whitespace-normal', metaHeaderCellBorder(2, 'bot'))} style={{ gridRow: '2 / 3', gridColumn: '3 / 4' }}>
                       {t('evm.tableCategory')}
                     </div>
-                    <div
-                      className={cn(META_STICKY_HEADER_CELL, 'whitespace-normal', metaHeaderCellBorder(3, 'bot'))}
-                      style={{ gridRow: '2 / 3', gridColumn: '4 / 5' }}
-                    >
+                    <div className={cn(META_STICKY_HEADER_CELL, 'whitespace-normal', metaHeaderCellBorder(3, 'bot'))} style={{ gridRow: '2 / 3', gridColumn: '4 / 5' }}>
                       {t('evm.tableFeature')}
                     </div>
-                    <div
-                      className={cn(META_STICKY_HEADER_CELL, 'whitespace-normal', metaHeaderCellBorder(4, 'bot'))}
-                      style={{ gridRow: '2 / 3', gridColumn: '5 / 6' }}
-                    >
+                    <div className={cn(META_STICKY_HEADER_CELL, 'whitespace-normal', metaHeaderCellBorder(4, 'bot'))} style={{ gridRow: '2 / 3', gridColumn: '5 / 6' }}>
                       {t('evm.wbsNote')}
                     </div>
                     <div
@@ -750,50 +651,27 @@ export function WbsRollupTable({
                     >
                       {t('evm.actualEnd')}
                     </div>
-                    <div
-                      className={cn(META_STICKY_HEADER_CELL, 'tabular-nums', metaHeaderCellBorder(10, 'bot'))}
-                      style={{ gridRow: '2 / 3', gridColumn: '11 / 12' }}
-                    >
+                    <div className={cn(META_STICKY_HEADER_CELL, 'tabular-nums', metaHeaderCellBorder(10, 'bot'))} style={{ gridRow: '2 / 3', gridColumn: '11 / 12' }}>
                       {t('evm.kpiBAC')}
                     </div>
-                    <div
-                      className={cn(META_STICKY_HEADER_CELL, 'tabular-nums', metaHeaderCellBorder(11, 'bot'))}
-                      style={{ gridRow: '2 / 3', gridColumn: '12 / 13' }}
-                    >
+                    <div className={cn(META_STICKY_HEADER_CELL, 'tabular-nums', metaHeaderCellBorder(11, 'bot'))} style={{ gridRow: '2 / 3', gridColumn: '12 / 13' }}>
                       {t('evm.kpiPV')}
                     </div>
-                    <div
-                      className={cn(META_STICKY_HEADER_CELL, 'tabular-nums', metaHeaderCellBorder(12, 'bot'))}
-                      style={{ gridRow: '2 / 3', gridColumn: '13 / 14' }}
-                    >
+                    <div className={cn(META_STICKY_HEADER_CELL, 'tabular-nums', metaHeaderCellBorder(12, 'bot'))} style={{ gridRow: '2 / 3', gridColumn: '13 / 14' }}>
                       {t('evm.kpiEV')}
                     </div>
-                    <div
-                      className={cn(META_STICKY_HEADER_CELL, 'tabular-nums', metaHeaderCellBorder(13, 'bot'))}
-                      style={{ gridRow: '2 / 3', gridColumn: '14 / 15' }}
-                    >
+                    <div className={cn(META_STICKY_HEADER_CELL, 'tabular-nums', metaHeaderCellBorder(13, 'bot'))} style={{ gridRow: '2 / 3', gridColumn: '14 / 15' }}>
                       {t('evm.kpiSV')}
                     </div>
-                    <div
-                      className={cn(META_STICKY_HEADER_CELL, 'tabular-nums', metaHeaderCellBorder(14, 'bot'))}
-                      style={{ gridRow: '2 / 3', gridColumn: '15 / 16' }}
-                    >
+                    <div className={cn(META_STICKY_HEADER_CELL, 'tabular-nums', metaHeaderCellBorder(14, 'bot'))} style={{ gridRow: '2 / 3', gridColumn: '15 / 16' }}>
                       {t('evm.kpiSPI')}
                     </div>
-                    <div
-                      className={cn(META_STICKY_HEADER_CELL, 'tabular-nums', metaHeaderCellBorder(15, 'bot'))}
-                      style={{ gridRow: '2 / 3', gridColumn: '16 / 17' }}
-                    >
+                    <div className={cn(META_STICKY_HEADER_CELL, 'tabular-nums', metaHeaderCellBorder(15, 'bot'))} style={{ gridRow: '2 / 3', gridColumn: '16 / 17' }}>
                       {t('evm.kpiProgress')}
                     </div>
                   </div>
                 </div>
-                <div
-                  className={cn(
-                    META_STICKY_HEADER_CELL,
-                    'sticky top-0 z-30 min-w-[120px] flex-1 border-t border-r border-b px-2 py-2',
-                  )}
-                >
+                <div className={cn(META_STICKY_HEADER_CELL, 'sticky top-0 z-30 min-w-[120px] flex-1 border-t border-r border-b px-2 py-2')}>
                   {t('evm.wbsMasterTimelinePlaceholder')}
                 </div>
               </div>
@@ -826,10 +704,7 @@ export function WbsRollupTable({
                         }}
                       >
                         <div
-                          className={cn(
-                            'sticky left-0 z-10 flex shrink-0 items-stretch border-solid border-border/55',
-                            ri % 2 === 1 ? 'bg-muted' : 'bg-background',
-                          )}
+                          className={cn('sticky left-0 z-10 flex shrink-0 items-stretch border-solid border-border/55', ri % 2 === 1 ? 'bg-muted' : 'bg-background')}
                           style={{ width: metaPinTotalPx, minWidth: metaPinTotalPx }}
                         >
                           {metaBodyCell(0, ri, 'text-center font-mono tabular-nums text-muted-foreground', idx + 1)}
@@ -841,13 +716,7 @@ export function WbsRollupTable({
                           {metaBodyCell(6, ri, 'whitespace-nowrap', formatDateDisplay(r.planEndMax, i18n.language))}
                           {metaBodyCell(7, ri, 'whitespace-nowrap', formatDateDisplay(r.actualStartMin, i18n.language))}
                           {metaBodyCell(8, ri, 'whitespace-nowrap', formatDateDisplay(r.actualEndMax, i18n.language))}
-                          {metaBodyCell(
-                            9,
-                            ri,
-                            'max-w-[100px] truncate justify-start',
-                            assigneeLabel,
-                            assigneeLabel !== '—' ? assigneeLabel : undefined,
-                          )}
+                          {metaBodyCell(9, ri, 'max-w-[100px] truncate justify-start', assigneeLabel, assigneeLabel !== '—' ? assigneeLabel : undefined)}
                           {metaBodyCell(10, ri, 'justify-end text-right tabular-nums', fmt(r.bac, 2))}
                           {metaBodyCell(11, ri, 'justify-end text-right tabular-nums', fmt(r.pv, 2))}
                           {metaBodyCell(12, ri, 'justify-end text-right tabular-nums', fmt(r.ev, 2))}
@@ -903,10 +772,7 @@ export function WbsRollupTable({
                   <Combobox
                     value={assignee}
                     onValueChange={setAssignee}
-                    options={[
-                      { value: '', label: '—' },
-                      ...master.assignees.map(a => ({ value: a.code, label: a.name ?? a.code })),
-                    ]}
+                    options={[{ value: '', label: '—' }, ...master.assignees.map(a => ({ value: a.code, label: a.name ?? a.code }))]}
                     placeholder="—"
                     triggerClassName="h-8 border-border/60 text-sm"
                   />

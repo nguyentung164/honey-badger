@@ -2,19 +2,7 @@
 
 import { useVirtualizer } from '@tanstack/react-virtual'
 import { ArrowUpRight, Briefcase, ChevronDown, ChevronRight, Layers, PanelLeftClose, SlidersHorizontal, Users } from 'lucide-react'
-import {
-  createContext,
-  memo,
-  type PointerEvent as ReactPointerEvent,
-  type RefObject,
-  useCallback,
-  useContext,
-  useEffect,
-  useLayoutEffect,
-  useMemo,
-  useRef,
-  useState,
-} from 'react'
+import { createContext, memo, type PointerEvent as ReactPointerEvent, type RefObject, useCallback, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Button } from '@/components/ui/button'
 import { Checkbox } from '@/components/ui/checkbox'
@@ -142,11 +130,7 @@ type KanbanDragContextValue = {
 const KanbanDragContext = createContext<KanbanDragContextValue | null>(null)
 
 /** Hit-test — bỏ qua card đang kéo (vẫn nằm trong DOM, opacity 0). */
-function resolveDropFromPoint(
-  clientX: number,
-  clientY: number,
-  ignoreTaskId: string | null,
-): { columnCode: string | null; overTaskId: string | null } {
+function resolveDropFromPoint(clientX: number, clientY: number, ignoreTaskId: string | null): { columnCode: string | null; overTaskId: string | null } {
   let overTaskId: string | null = null
   let columnCode: string | null = null
   try {
@@ -203,10 +187,7 @@ const DraggableKanbanCard = memo(function DraggableKanbanCard({
     <div
       data-kanban-task-id={task.id}
       onPointerDown={onPointerDown}
-      className={cn(
-        'rounded-md bg-card touch-none cursor-grab active:cursor-grabbing select-none',
-        dragging && 'opacity-0',
-      )}
+      className={cn('rounded-md bg-card touch-none cursor-grab active:cursor-grabbing select-none', dragging && 'opacity-0')}
       style={{ touchAction: 'none' }}
     >
       <TaskBoardCard
@@ -389,10 +370,7 @@ const KanbanColumn = memo(function KanbanColumn(props: {
 
   if (collapsed && onToggleCollapsed) {
     return (
-      <div
-        data-kanban-column={statusCode}
-        className="flex w-11 shrink-0 flex-1 flex-col self-stretch min-h-0 overflow-hidden rounded-lg bg-muted/45 dark:bg-muted/30"
-      >
+      <div data-kanban-column={statusCode} className="flex w-11 shrink-0 flex-1 flex-col self-stretch min-h-0 overflow-hidden rounded-lg bg-muted/45 dark:bg-muted/30">
         <div className={cn('flex min-h-0 flex-1 flex-col items-center gap-2 px-1 py-2', columnDropActive && 'rounded-lg bg-primary/18 dark:bg-primary/22')}>
           <button
             type="button"
@@ -416,10 +394,7 @@ const KanbanColumn = memo(function KanbanColumn(props: {
   }
 
   return (
-    <div
-      data-kanban-column={statusCode}
-      className="flex min-h-0 min-w-[220px] flex-1 basis-0 flex-col self-stretch overflow-hidden rounded-lg bg-muted/45 dark:bg-muted/30"
-    >
+    <div data-kanban-column={statusCode} className="flex min-h-0 min-w-[220px] flex-1 basis-0 flex-col self-stretch overflow-hidden rounded-lg bg-muted/45 dark:bg-muted/30">
       <div className="shrink-0 rounded-t-lg px-2 py-1.5 text-xs font-semibold text-foreground" style={headerTint}>
         <div className="flex items-center gap-1.5 justify-between">
           <span className="min-w-0 truncate">
@@ -641,7 +616,7 @@ export function TaskKanbanBoard({
 
   const activeStatuses = useMemo(
     () => [...statuses].filter(s => s.is_active !== false).sort((a, b) => (a.sort_order ?? 0) - (b.sort_order ?? 0) || a.code.localeCompare(b.code)),
-    [statuses],
+    [statuses]
   )
 
   const orderedCodes = useMemo(() => {
@@ -730,8 +705,8 @@ export function TaskKanbanBoard({
         arrayMoveIds(
           list.map(x => x.id),
           oi,
-          ni,
-        ),
+          ni
+        )
       )
       return
     }
@@ -860,7 +835,7 @@ export function TaskKanbanBoard({
       window.addEventListener('pointerup', onUp)
       window.addEventListener('pointercancel', onUp)
     },
-    [commitDrop, scheduleOverlayMove, updateHighlightFromPoint],
+    [commitDrop, scheduleOverlayMove, updateHighlightFromPoint]
   )
 
   const dragCtx = useMemo<KanbanDragContextValue>(
@@ -868,7 +843,7 @@ export function TaskKanbanBoard({
       draggingTaskId,
       onCardPointerDown,
     }),
-    [draggingTaskId, onCardPointerDown],
+    [draggingTaskId, onCardPointerDown]
   )
 
   return (
@@ -901,12 +876,7 @@ export function TaskKanbanBoard({
               </ToggleGroup>
             </>
           ) : null}
-          <div
-            className={cn(
-              'flex min-w-0 shrink-0 items-center gap-2 rounded-md border border-border/60 bg-background/60 px-2 py-1',
-              !disableSwimlanes && 'ml-auto',
-            )}
-          >
+          <div className={cn('flex min-w-0 shrink-0 items-center gap-2 rounded-md border border-border/60 bg-background/60 px-2 py-1', !disableSwimlanes && 'ml-auto')}>
             <Switch
               id="hb-kanban-only-mine"
               size="sm"
@@ -961,7 +931,7 @@ export function TaskKanbanBoard({
           ref={overlayRef}
           className={cn(
             'pointer-events-none fixed left-0 top-0 z-[200] min-w-[220px] max-w-[min(92vw,420px)] will-change-transform',
-            draggingTaskId ? 'opacity-100' : 'opacity-0 invisible',
+            draggingTaskId ? 'opacity-100' : 'opacity-0 invisible'
           )}
           style={{ transform: 'translate3d(-9999px, -9999px, 0)' }}
           aria-hidden={!draggingTaskId}

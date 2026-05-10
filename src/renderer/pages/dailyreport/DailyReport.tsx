@@ -1,17 +1,12 @@
 'use client'
 
 import { format } from 'date-fns'
-import type { DateRange } from 'react-day-picker'
 import { BarChart3, CalendarDays, FileEdit, List, Loader2, Minus, RefreshCw, Square, X } from 'lucide-react'
 import { lazy, Suspense, useCallback, useEffect, useState } from 'react'
+import type { DateRange } from 'react-day-picker'
 import { useTranslation } from 'react-i18next'
 import { Button } from '@/components/ui/button'
-import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-} from '@/components/ui/dialog'
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import { DateRangePickerPopover } from '@/components/ui-elements/DateRangePickerPopover'
@@ -80,7 +75,7 @@ export function DailyReport() {
       if (res.status === 'success' && res.data) {
         setEditReportInitialDate(todayStr)
         setEditReportInitialProjectId(res.data.projectId ?? null)
-        const ids = res.data.projectIds?.length ? res.data.projectIds : (res.data.projectId ? [res.data.projectId] : [])
+        const ids = res.data.projectIds?.length ? res.data.projectIds : res.data.projectId ? [res.data.projectId] : []
         setEditReportInitialProjectIds(ids)
       } else {
         setEditReportInitialDate(undefined)
@@ -191,10 +186,18 @@ export function DailyReport() {
               </Tooltip>
             </>
           )}
-          <button type="button" onClick={() => handleWindow('minimize')} className="w-10 h-8 flex items-center justify-center hover:bg-[var(--hover-bg)] hover:text-[var(--hover-fg)]">
+          <button
+            type="button"
+            onClick={() => handleWindow('minimize')}
+            className="w-10 h-8 flex items-center justify-center hover:bg-[var(--hover-bg)] hover:text-[var(--hover-fg)]"
+          >
             <Minus size={15.5} strokeWidth={1} absoluteStrokeWidth />
           </button>
-          <button type="button" onClick={() => handleWindow('maximize')} className="w-10 h-8 flex items-center justify-center hover:bg-[var(--hover-bg)] hover:text-[var(--hover-fg)]">
+          <button
+            type="button"
+            onClick={() => handleWindow('maximize')}
+            className="w-10 h-8 flex items-center justify-center hover:bg-[var(--hover-bg)] hover:text-[var(--hover-fg)]"
+          >
             <Square size={14.5} strokeWidth={1} absoluteStrokeWidth />
           </button>
           <button type="button" onClick={() => handleWindow('close')} className="w-10 h-8 flex items-center justify-center hover:bg-red-600 hover:text-white">
@@ -205,9 +208,7 @@ export function DailyReport() {
 
       <div className="flex-1 min-h-0 overflow-hidden flex flex-col p-4">
         {!user ? (
-          <div className="flex flex-1 items-center justify-center text-muted-foreground">
-            {t('dailyReport.pleaseLogin')}
-          </div>
+          <div className="flex flex-1 items-center justify-center text-muted-foreground">{t('dailyReport.pleaseLogin')}</div>
         ) : isPlOrAdmin ? (
           <Suspense
             fallback={
@@ -216,14 +217,7 @@ export function DailyReport() {
               </div>
             }
           >
-            <PLReportList
-              activeTab={plActiveTab}
-              dateRange={plDateRange}
-              projectId={null}
-              projects={projects}
-              refreshKey={refreshKey}
-              onOpenEditReport={handleOpenEditReport}
-            />
+            <PLReportList activeTab={plActiveTab} dateRange={plDateRange} projectId={null} projects={projects} refreshKey={refreshKey} onOpenEditReport={handleOpenEditReport} />
           </Suspense>
         ) : (
           <Suspense
@@ -234,10 +228,7 @@ export function DailyReport() {
             }
           >
             <div className="flex-1 min-h-0 overflow-hidden flex flex-col">
-              <DevReportHistory
-                refreshKey={refreshKey}
-                onOpenEditReport={(date, projectIdFromReport) => handleOpenEditReport(date, projectIdFromReport)}
-              />
+              <DevReportHistory refreshKey={refreshKey} onOpenEditReport={(date, projectIdFromReport) => handleOpenEditReport(date, projectIdFromReport)} />
             </div>
           </Suspense>
         )}
@@ -248,7 +239,13 @@ export function DailyReport() {
               <DialogTitle>{editReportInitialDate ? t('dailyReport.editReport') : t('dailyReport.createReport')}</DialogTitle>
             </DialogHeader>
             <div className="flex-1 min-h-0 overflow-y-auto pr-2">
-              <Suspense fallback={<div className="flex items-center justify-center py-16"><Loader2 className="h-8 w-8 animate-spin text-muted-foreground" /></div>}>
+              <Suspense
+                fallback={
+                  <div className="flex items-center justify-center py-16">
+                    <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
+                  </div>
+                }
+              >
                 <DevReportForm
                   initialReportDate={editReportInitialDate}
                   initialProjectId={editReportInitialProjectId}

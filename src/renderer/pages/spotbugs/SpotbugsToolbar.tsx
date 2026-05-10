@@ -56,10 +56,18 @@ export const SpotbugsToolbar: React.FC<ShowlogProps> = ({ isLoadingAI = false, o
       </Button>
       {/* Right Section (Window Controls) */}
       <div className="flex gap-1" style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties}>
-        <button type="button" onClick={() => handleWindow('minimize')} className="w-10 h-8 flex items-center justify-center hover:bg-[var(--hover-bg)] hover:text-[var(--hover-fg)]">
+        <button
+          type="button"
+          onClick={() => handleWindow('minimize')}
+          className="w-10 h-8 flex items-center justify-center hover:bg-[var(--hover-bg)] hover:text-[var(--hover-fg)]"
+        >
           <Minus size={15.5} strokeWidth={1} absoluteStrokeWidth />
         </button>
-        <button type="button" onClick={() => handleWindow('maximize')} className="w-10 h-8 flex items-center justify-center hover:bg-[var(--hover-bg)] hover:text-[var(--hover-fg)]">
+        <button
+          type="button"
+          onClick={() => handleWindow('maximize')}
+          className="w-10 h-8 flex items-center justify-center hover:bg-[var(--hover-bg)] hover:text-[var(--hover-fg)]"
+        >
           <Square size={14.5} strokeWidth={1} absoluteStrokeWidth />
         </button>
         <button type="button" onClick={() => handleWindow('close')} className="w-10 h-8 flex items-center justify-center hover:bg-red-600 hover:text-white">

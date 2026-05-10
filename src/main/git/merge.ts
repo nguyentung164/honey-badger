@@ -162,10 +162,7 @@ function parseLsFilesUnmergedRecord(line: string): { mode: string; object: strin
 }
 
 /** Đọc blob unmerged bằng hash (ổn định hơn `git show :2:path` khi file không có trên đĩa). */
-async function readUnmergedBlobViaCatFile(
-  git: NonNullable<Awaited<ReturnType<typeof getGitInstance>>>,
-  indexPathPosix: string,
-): Promise<string | undefined> {
+async function readUnmergedBlobViaCatFile(git: NonNullable<Awaited<ReturnType<typeof getGitInstance>>>, indexPathPosix: string): Promise<string | undefined> {
   const want = indexPathPosix.replace(/\\/g, '/').replace(/^\/+/, '')
   let lines: string[] = []
   try {
@@ -179,12 +176,15 @@ async function readUnmergedBlobViaCatFile(
       const all = (await git.raw(['ls-files', '-u'])).trim()
       if (all) {
         const wl = want.toLowerCase()
-        lines = all.split('\n').filter(Boolean).filter(raw => {
-          const e = parseLsFilesUnmergedRecord(raw)
-          if (!e) return false
-          const p = e.filePath.replace(/^\/+/, '').toLowerCase()
-          return p === wl
-        })
+        lines = all
+          .split('\n')
+          .filter(Boolean)
+          .filter(raw => {
+            const e = parseLsFilesUnmergedRecord(raw)
+            if (!e) return false
+            const p = e.filePath.replace(/^\/+/, '').toLowerCase()
+            return p === wl
+          })
       }
     } catch {
       return undefined
@@ -220,10 +220,7 @@ async function readUnmergedBlobViaCatFile(
  * Đọc nội dung file conflict để sửa tay: ưu tiên working tree (có marker),
  * nếu ENOENT thì đọc blob index unmerged (cat-file) rồi mới thử git show.
  */
-export async function readConflictWorkingContent(
-  filePath: string,
-  cwd?: string
-): Promise<{ status: 'success'; data: string } | { status: 'error'; message: string }> {
+export async function readConflictWorkingContent(filePath: string, cwd?: string): Promise<{ status: 'success'; data: string } | { status: 'error'; message: string }> {
   try {
     const git = await getGitInstance(cwd)
     if (!git) {

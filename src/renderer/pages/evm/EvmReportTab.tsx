@@ -1,25 +1,14 @@
 'use client'
 
+import { BarChart3, Table2 } from 'lucide-react'
 import { useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Bar, BarChart, CartesianGrid, XAxis, YAxis } from 'recharts'
-import { BarChart3, Table2 } from 'lucide-react'
-import {
-  ChartContainer,
-  ChartLegend,
-  ChartLegendContent,
-  ChartTooltip,
-  ChartTooltipContent,
-} from '@/components/ui/chart'
+import { ChartContainer, ChartLegend, ChartLegendContent, ChartTooltip, ChartTooltipContent } from '@/components/ui/chart'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group'
-import {
-  computeEVByAssignee,
-  computeEVByPhase,
-  DEFAULT_EVM_HOURS_PER_DAY,
-  evmAssigneeDisplayName,
-} from '@/lib/evmCalculations'
+import { computeEVByAssignee, computeEVByPhase, DEFAULT_EVM_HOURS_PER_DAY, evmAssigneeDisplayName } from '@/lib/evmCalculations'
 import { cn } from '@/lib/utils'
 import { useEVMStore } from '@/stores/useEVMStore'
 
@@ -28,18 +17,7 @@ function fmt(n: number, d: number) {
 }
 
 /** Cùng độ rộng cột cho bảng Phase và Assignee (`table-fixed` + colgroup). */
-const EVM_REPORT_COL_WIDTHS = [
-  '13rem',
-  '5.25rem',
-  '5.25rem',
-  '5.25rem',
-  '5.25rem',
-  '5.25rem',
-  '5.25rem',
-  '4.5rem',
-  '4.5rem',
-  '4.75rem',
-] as const
+const EVM_REPORT_COL_WIDTHS = ['13rem', '5.25rem', '5.25rem', '5.25rem', '5.25rem', '5.25rem', '5.25rem', '4.5rem', '4.5rem', '4.75rem'] as const
 
 function EvmReportColGroup() {
   return (
@@ -80,12 +58,7 @@ function EvmReportPvEvAcBarChart({
 }) {
   if (data.length === 0) {
     return (
-      <div
-        className={cn(
-          'flex min-h-[200px] flex-1 items-center justify-center rounded-md border border-border/40 bg-card/40 p-6',
-          className
-        )}
-      >
+      <div className={cn('flex min-h-[200px] flex-1 items-center justify-center rounded-md border border-border/40 bg-card/40 p-6', className)}>
         <p className="text-center text-sm text-muted-foreground">{emptyLabel}</p>
       </div>
     )
@@ -94,36 +67,14 @@ function EvmReportPvEvAcBarChart({
   const chartH = Math.max(280, Math.min(720, data.length * 44 + 120))
 
   return (
-    <div
-      className={cn(
-        'flex min-h-0 flex-1 flex-col overflow-hidden rounded-md border border-border/40 bg-card/40 p-4',
-        className
-      )}
-    >
+    <div className={cn('flex min-h-0 flex-1 flex-col overflow-hidden rounded-md border border-border/40 bg-card/40 p-4', className)}>
       <h3 className="mb-3 shrink-0 text-sm font-medium text-foreground">{title}</h3>
       <div className="min-h-0 w-full min-w-0 flex-1">
-        <ChartContainer
-          config={reportBarChartConfig}
-          className="aspect-auto h-full min-h-[240px] w-full min-w-0"
-          rechartsHeight={chartH}
-        >
-          <BarChart
-            data={data}
-            layout="vertical"
-            margin={{ top: 4, right: 12, left: 4, bottom: 4 }}
-            accessibilityLayer
-          >
+        <ChartContainer config={reportBarChartConfig} className="aspect-auto h-full min-h-[240px] w-full min-w-0" rechartsHeight={chartH}>
+          <BarChart data={data} layout="vertical" margin={{ top: 4, right: 12, left: 4, bottom: 4 }} accessibilityLayer>
             <CartesianGrid strokeDasharray="3 3" horizontal={false} />
             <XAxis type="number" tick={{ fontSize: 10 }} tickLine={false} axisLine={false} />
-            <YAxis
-              type="category"
-              dataKey="name"
-              width={100}
-              tick={{ fontSize: 10 }}
-              tickLine={false}
-              axisLine={false}
-              tickFormatter={truncateTickLabel}
-            />
+            <YAxis type="category" dataKey="name" width={100} tick={{ fontSize: 10 }} tickLine={false} axisLine={false} tickFormatter={truncateTickLabel} />
             <ChartTooltip content={<ChartTooltipContent />} cursor={{ fill: 'var(--muted)', opacity: 0.35 }} />
             <ChartLegend content={<ChartLegendContent className="flex-wrap gap-x-4 gap-y-1" payload={undefined} />} />
             <Bar dataKey="pv" fill="var(--color-pv)" radius={[0, 2, 2, 0]} maxBarSize={28} />
@@ -241,20 +192,10 @@ export function EvmReportTab() {
             size="md"
             className="shrink-0"
           >
-            <ToggleGroupItem
-              value="table"
-              aria-label={t('evm.reportViewTableAria')}
-              title={t('evm.reportViewTable')}
-              className="px-2.5 border-none"
-            >
+            <ToggleGroupItem value="table" aria-label={t('evm.reportViewTableAria')} title={t('evm.reportViewTable')} className="px-2.5 border-none">
               <Table2 className="h-4 w-4" />
             </ToggleGroupItem>
-            <ToggleGroupItem
-              value="chart"
-              aria-label={t('evm.reportViewChartAria')}
-              title={t('evm.reportViewChart')}
-              className="px-2.5 border-none"
-            >
+            <ToggleGroupItem value="chart" aria-label={t('evm.reportViewChartAria')} title={t('evm.reportViewChart')} className="px-2.5 border-none">
               <BarChart3 className="h-4 w-4" />
             </ToggleGroupItem>
           </ToggleGroup>

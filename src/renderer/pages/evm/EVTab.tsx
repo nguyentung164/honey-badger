@@ -14,24 +14,14 @@ export function EVTab() {
   const master = useEVMStore(s => s.master)
   const wbsDayUnits = useEVMStore(s => s.wbsDayUnits ?? [])
 
-  const nonWorkingDays = useMemo(
-    () => master.nonWorkingDays.map(n => n.date),
-    [master.nonWorkingDays]
-  )
+  const nonWorkingDays = useMemo(() => master.nonWorkingDays.map(n => n.date), [master.nonWorkingDays])
 
   const hpd = master.hoursPerDay ?? DEFAULT_EVM_HOURS_PER_DAY
-  const timeSeriesData = useMemo(
-    () => buildEVMTimeSeries(project, wbs, ac, hpd, nonWorkingDays, wbsDayUnits),
-    [project, wbs, ac, hpd, nonWorkingDays, wbsDayUnits]
-  )
+  const timeSeriesData = useMemo(() => buildEVMTimeSeries(project, wbs, ac, hpd, nonWorkingDays, wbsDayUnits), [project, wbs, ac, hpd, nonWorkingDays, wbsDayUnits])
 
   return (
     <div className="flex h-full min-h-0 flex-col gap-4 overflow-hidden p-4">
-      <EarnedValueSeriesTable
-        dailySeries={timeSeriesData}
-        defaultGranularity="day"
-        title={t('evm.evEarnedValueTableTitle')}
-      />
+      <EarnedValueSeriesTable dailySeries={timeSeriesData} defaultGranularity="day" title={t('evm.evEarnedValueTableTitle')} />
     </div>
   )
 }

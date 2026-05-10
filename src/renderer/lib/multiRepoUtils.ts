@@ -5,19 +5,11 @@
 
 export const MULTI_REPO_LIMIT = 5
 
-export function computeIsMultiRepo(
-  versionControlSystem: 'svn' | 'git',
-  multiRepoEnabled: boolean,
-  effectivePathsLength: number
-): boolean {
+export function computeIsMultiRepo(versionControlSystem: 'svn' | 'git', multiRepoEnabled: boolean, effectivePathsLength: number): boolean {
   return versionControlSystem === 'git' && !!multiRepoEnabled && effectivePathsLength >= 1
 }
 
-export function applyRepoLimit(
-  paths: string[],
-  labels: string[],
-  limit: number = MULTI_REPO_LIMIT
-): { paths: string[]; labels: string[]; truncated: boolean } {
+export function applyRepoLimit(paths: string[], labels: string[], limit: number = MULTI_REPO_LIMIT): { paths: string[]; labels: string[]; truncated: boolean } {
   const truncated = paths.length > limit
   return {
     paths: truncated ? paths.slice(0, limit) : paths,
@@ -44,10 +36,7 @@ export function buildMultiRepoPayload(
   return { repos, labels: effectiveLabels }
 }
 
-export function hasStagedInAnyRepo(
-  effectivePaths: string[],
-  getStagedPerRepo: (index: number) => { filePath: string }[]
-): boolean {
+export function hasStagedInAnyRepo(effectivePaths: string[], getStagedPerRepo: (index: number) => { filePath: string }[]): boolean {
   return effectivePaths.some((_, i) => (getStagedPerRepo(i) ?? []).length > 0)
 }
 

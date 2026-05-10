@@ -17,10 +17,8 @@ export const TASK_TYPE_MILESTONE_GANTT_DIAMOND_CLASS = 'text-rose-600 dark:text-
 export const TASK_TYPE_MILESTONE_GANTT_TITLE_CLASS = 'text-rose-700 dark:text-rose-400'
 
 /** Gantt timeline — rotated square on the date axis (not amber / bug). */
-export const TASK_TYPE_MILESTONE_GANTT_TIMELINE_MARKER_SOLID =
-  'border-rose-500 bg-rose-400/85 dark:border-rose-400 dark:bg-rose-600/55'
-export const TASK_TYPE_MILESTONE_GANTT_TIMELINE_MARKER_PARENT_RING =
-  'border-rose-600 dark:border-rose-400'
+export const TASK_TYPE_MILESTONE_GANTT_TIMELINE_MARKER_SOLID = 'border-rose-500 bg-rose-400/85 dark:border-rose-400 dark:bg-rose-600/55'
+export const TASK_TYPE_MILESTONE_GANTT_TIMELINE_MARKER_PARENT_RING = 'border-rose-600 dark:border-rose-400'
 
 /** Half-and-half fill when milestone row has children (unselected). */
 export const TASK_TYPE_MILESTONE_GANTT_TIMELINE_GRAD_PARENT_UNSELECTED =

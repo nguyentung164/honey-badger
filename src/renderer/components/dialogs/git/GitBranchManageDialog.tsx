@@ -1,9 +1,10 @@
 'use client'
 
+import type { VariantProps } from 'class-variance-authority'
 import { CircleArrowRight, CloudOff, GitBranch, GitBranchPlus, Loader2, Pencil, Trash2 } from 'lucide-react'
-import { type VariantProps } from 'class-variance-authority'
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
+import { type GitFile, GitSwitchBranchDialog } from '@/components/dialogs/git/GitSwitchBranchDialog'
 import {
   AlertDialog,
   AlertDialogAction,
@@ -14,8 +15,7 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog'
-import { type GitFile, GitSwitchBranchDialog } from '@/components/dialogs/git/GitSwitchBranchDialog'
-import { Button, buttonVariants } from '@/components/ui/button'
+import { Button, type buttonVariants } from '@/components/ui/button'
 import { Checkbox } from '@/components/ui/checkbox'
 import { Combobox } from '@/components/ui/combobox'
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog'
@@ -264,14 +264,14 @@ export function GitBranchManageDialog({ open, onOpenChange, currentBranch, onSuc
 
   useEffect(() => {
     if (open) {
-      const initial = (cwd && cwd.trim()) || repoChoices?.[0]?.path || ''
+      const initial = cwd?.trim() || repoChoices?.[0]?.path || ''
       setSelectedRepoPath(initial)
     }
   }, [open, cwd, repoChoices])
 
   const effectiveCwd = useMemo(() => {
     if (showRepoPicker && selectedRepoPath.trim()) return selectedRepoPath.trim()
-    return (cwd && cwd.trim()) || ''
+    return cwd?.trim() || ''
   }, [showRepoPicker, selectedRepoPath, cwd])
 
   const repoPickerOptions = useMemo(
@@ -554,9 +554,9 @@ export function GitBranchManageDialog({ open, onOpenChange, currentBranch, onSuc
         setSwitchUncommittedFiles(
           Array.isArray(rawFiles)
             ? rawFiles.map((file: any) => ({
-              filePath: typeof file === 'string' ? file : file.path,
-              status: file.working_dir ?? file.index ?? 'M',
-            }))
+                filePath: typeof file === 'string' ? file : file.path,
+                status: file.working_dir ?? file.index ?? 'M',
+              }))
             : []
         )
         setShowSwitchBranchDialog(true)
@@ -800,11 +800,7 @@ export function GitBranchManageDialog({ open, onOpenChange, currentBranch, onSuc
                                           onClick={() => handleSwitchToBranch(branch)}
                                           title={t('git.branchManage.switchToBranch')}
                                         >
-                                          {switchingToBranch === branch ? (
-                                            <Loader2 className="h-3 w-3 animate-spin" />
-                                          ) : (
-                                            <CircleArrowRight className="h-3 w-3" />
-                                          )}
+                                          {switchingToBranch === branch ? <Loader2 className="h-3 w-3 animate-spin" /> : <CircleArrowRight className="h-3 w-3" />}
                                         </Button>
                                       )}
                                       <Button

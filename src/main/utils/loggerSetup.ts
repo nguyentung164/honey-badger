@@ -23,7 +23,7 @@ function getCaller(): string {
 }
 
 export function setupElectronLogWithCaller(): void {
-  log.hooks.push((message) => {
+  log.hooks.push(message => {
     const caller = getCaller()
     const levelLabel = (message.level || 'info').toUpperCase()
     message.variables = {

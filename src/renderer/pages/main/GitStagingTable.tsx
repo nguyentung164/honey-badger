@@ -512,19 +512,22 @@ export const GitStagingTable = forwardRef(({ onLoadingChange, cwd, label }: GitS
     }
   }, [])
 
-  const handleFilePathDoubleClick = useCallback(async (row: any) => {
-    const { filePath, status } = row.original
-    try {
-      window.api.git.open_diff(filePath, {
-        fileStatus: status,
-        ...(cwd ? { cwd } : {}),
-      })
-    } catch (error) {
-      const errorMessage = error instanceof Error ? error.message : String(error)
-      logger.error(errorMessage)
-      toast.error(errorMessage)
-    }
-  }, [cwd])
+  const handleFilePathDoubleClick = useCallback(
+    async (row: any) => {
+      const { filePath, status } = row.original
+      try {
+        window.api.git.open_diff(filePath, {
+          fileStatus: status,
+          ...(cwd ? { cwd } : {}),
+        })
+      } catch (error) {
+        const errorMessage = error instanceof Error ? error.message : String(error)
+        logger.error(errorMessage)
+        toast.error(errorMessage)
+      }
+    },
+    [cwd]
+  )
 
   const changesColumns = useMemo(
     () =>
@@ -795,10 +798,7 @@ export const GitStagingTable = forwardRef(({ onLoadingChange, cwd, label }: GitS
               {table.getRowModel().rows?.length ? (
                 table.getRowModel().rows.map((row: any) => {
                   const filePath = row.original.filePath
-                  const selectedRows =
-                    row.getIsSelected() && table.getSelectedRowModel().rows.length > 0
-                      ? table.getSelectedRowModel().rows
-                      : [row]
+                  const selectedRows = row.getIsSelected() && table.getSelectedRowModel().rows.length > 0 ? table.getSelectedRowModel().rows : [row]
                   const filesToActOn = selectedRows.map((r: any) => r.original.filePath)
                   const showDiscardChanges = !isStaged && filesToActOn.length > 0
 

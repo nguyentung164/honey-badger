@@ -61,10 +61,7 @@ function ChartContainer({
         {...props}
       >
         <ChartStyle id={chartId} config={config} />
-        <RechartsPrimitive.ResponsiveContainer
-          width={rechartsWidth ?? '100%'}
-          height={rechartsHeight ?? '100%'}
-        >
+        <RechartsPrimitive.ResponsiveContainer width={rechartsWidth ?? '100%'} height={rechartsHeight ?? '100%'}>
           {children}
         </RechartsPrimitive.ResponsiveContainer>
       </div>
@@ -277,4 +274,4 @@ function getPayloadConfigFromPayload(config: ChartConfig, payload: unknown, key:
   return configLabelKey in config ? config[configLabelKey] : config[key as keyof typeof config]
 }
 
-export { ChartContainer, ChartTooltip, ChartTooltipContent, ChartLegend, ChartLegendContent, ChartStyle }
+export { ChartContainer, ChartLegend, ChartLegendContent, ChartStyle, ChartTooltip, ChartTooltipContent }

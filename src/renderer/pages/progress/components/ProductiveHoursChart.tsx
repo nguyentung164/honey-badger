@@ -1,6 +1,6 @@
-import { memo, useEffect, useMemo, type CSSProperties } from 'react'
-import { useTranslation } from 'react-i18next'
 import { Clock } from 'lucide-react'
+import { type CSSProperties, memo, useEffect, useMemo } from 'react'
+import { useTranslation } from 'react-i18next'
 import { Skeleton } from '@/components/ui/skeleton'
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
 import { cn } from '@/lib/utils'
@@ -46,9 +46,7 @@ export const ProductiveHoursChart = memo(function ProductiveHoursChart({ userId 
     const sorted = Object.entries(hourTotals).sort((a, b) => Number(b[1]) - Number(a[1]))
     const peakHours = sorted.slice(0, 2).map(([h]) => Number(h))
 
-    const lateNightCount = data
-      .filter(c => (Number(c.hour) >= 23 || Number(c.hour) <= 3) && Number(c.cnt) > 0)
-      .reduce((s, c) => s + Number(c.cnt), 0)
+    const lateNightCount = data.filter(c => (Number(c.hour) >= 23 || Number(c.hour) <= 3) && Number(c.cnt) > 0).reduce((s, c) => s + Number(c.cnt), 0)
 
     return { grid, maxCnt, peakHours, lateNightCount }
   }, [productiveHours.data])
@@ -70,7 +68,7 @@ export const ProductiveHoursChart = memo(function ProductiveHoursChart({ userId 
                   onClick={() => setProductiveWeeksBack(w)}
                   className={cn(
                     'px-2.5 py-1 text-xs rounded-md transition-colors',
-                    productiveWeeksBack === w ? 'bg-indigo-500/20 text-indigo-700 dark:text-indigo-400 font-medium' : 'hover:bg-accent text-muted-foreground',
+                    productiveWeeksBack === w ? 'bg-indigo-500/20 text-indigo-700 dark:text-indigo-400 font-medium' : 'hover:bg-accent text-muted-foreground'
                   )}
                 >
                   {w}w
@@ -81,72 +79,74 @@ export const ProductiveHoursChart = memo(function ProductiveHoursChart({ userId 
         />
 
         <div className="rounded-xl bg-muted/40 p-4">
-            {productiveHours.loading ? (
-              <Skeleton className="h-[320px] w-full rounded-xl" />
-            ) : isEmpty ? (
-              <div className="flex h-[240px] items-center justify-center text-sm text-muted-foreground">{t('progress.noData')}</div>
-            ) : (
-              <div className="overflow-x-auto">
-                <div className="inline-block min-w-[480px]">
-                  {/* DOW header */}
-                  <div className="flex mb-1">
-                    <div className="w-8 shrink-0" />
-                    {DOW_LABELS.map((d, i) => (
-                      <div key={i} className="flex-1 text-center text-[10px] text-muted-foreground">{d}</div>
-                    ))}
-                  </div>
+          {productiveHours.loading ? (
+            <Skeleton className="h-[320px] w-full rounded-xl" />
+          ) : isEmpty ? (
+            <div className="flex h-[240px] items-center justify-center text-sm text-muted-foreground">{t('progress.noData')}</div>
+          ) : (
+            <div className="overflow-x-auto">
+              <div className="inline-block min-w-[480px]">
+                {/* DOW header */}
+                <div className="flex mb-1">
+                  <div className="w-8 shrink-0" />
+                  {DOW_LABELS.map((d, i) => (
+                    <div key={i} className="flex-1 text-center text-[10px] text-muted-foreground">
+                      {d}
+                    </div>
+                  ))}
+                </div>
 
-                  {/* Grid rows by hour */}
-                  <div className="space-y-[2px]">
-                    {HOURS.map(hour => {
-                      const rowTotal = DOW_LABELS.reduce((s, _, dow) => s + (grid[`${dow + 1}-${hour}`] ?? 0), 0)
-                      if (rowTotal === 0 && hour !== 9 && hour !== 10 && hour !== 11) {
-                        const nearPeak = peakHours.some(p => Math.abs(p - hour) <= 1)
-                        if (!nearPeak && hour < 7) return null
-                      }
-                      return (
-                        <div key={hour} className="flex items-center gap-0">
-                          <div className="w-8 shrink-0 text-[10px] text-muted-foreground text-right pr-1.5">
-                            {String(hour).padStart(2, '0')}h
-                          </div>
-                          {DOW_LABELS.map((_, dow) => {
-                            const cnt = grid[`${dow + 1}-${hour}`] ?? 0
-                            return (
-                              <Tooltip key={dow}>
-                                <TooltipTrigger asChild>
-                                  <div
-                                    className={cn(
-                                      'flex-1 h-[14px] mx-[1px] rounded-[2px] transition-opacity hover:opacity-80',
-                                      peakHours.includes(hour) && cnt > 0 ? 'ring-1 ring-inset ring-[var(--chart-2)]' : '',
-                                    )}
-                                    style={getCellStyle(cnt, maxCnt)}
-                                  />
-                                </TooltipTrigger>
-                                <TooltipContent side="top" className="text-xs">
-                                  <p>{DOW_LABELS[dow]} {String(hour).padStart(2, '0')}:00</p>
-                                  <p className="font-semibold">{cnt} commits</p>
-                                </TooltipContent>
-                              </Tooltip>
-                            )
-                          })}
-                        </div>
-                      )
-                    })}
-                  </div>
+                {/* Grid rows by hour */}
+                <div className="space-y-[2px]">
+                  {HOURS.map(hour => {
+                    const rowTotal = DOW_LABELS.reduce((s, _, dow) => s + (grid[`${dow + 1}-${hour}`] ?? 0), 0)
+                    if (rowTotal === 0 && hour !== 9 && hour !== 10 && hour !== 11) {
+                      const nearPeak = peakHours.some(p => Math.abs(p - hour) <= 1)
+                      if (!nearPeak && hour < 7) return null
+                    }
+                    return (
+                      <div key={hour} className="flex items-center gap-0">
+                        <div className="w-8 shrink-0 text-[10px] text-muted-foreground text-right pr-1.5">{String(hour).padStart(2, '0')}h</div>
+                        {DOW_LABELS.map((_, dow) => {
+                          const cnt = grid[`${dow + 1}-${hour}`] ?? 0
+                          return (
+                            <Tooltip key={dow}>
+                              <TooltipTrigger asChild>
+                                <div
+                                  className={cn(
+                                    'flex-1 h-[14px] mx-[1px] rounded-[2px] transition-opacity hover:opacity-80',
+                                    peakHours.includes(hour) && cnt > 0 ? 'ring-1 ring-inset ring-[var(--chart-2)]' : ''
+                                  )}
+                                  style={getCellStyle(cnt, maxCnt)}
+                                />
+                              </TooltipTrigger>
+                              <TooltipContent side="top" className="text-xs">
+                                <p>
+                                  {DOW_LABELS[dow]} {String(hour).padStart(2, '0')}:00
+                                </p>
+                                <p className="font-semibold">{cnt} commits</p>
+                              </TooltipContent>
+                            </Tooltip>
+                          )
+                        })}
+                      </div>
+                    )
+                  })}
+                </div>
 
-                  {/* Legend */}
-                  <div className="flex items-center gap-1.5 mt-2 ml-8">
-                    <span className="text-[10px] text-muted-foreground">{t('progress.less')}</span>
-                    {[0, 0.15, 0.35, 0.6, 1].map((ratio, i) => {
-                      const m = Math.max(maxCnt, 1)
-                      const fake = Math.round(ratio * m)
-                      return <div key={i} className="h-[10px] w-[10px] shrink-0 rounded-[2px]" style={getCellStyle(fake, m)} />
-                    })}
-                    <span className="text-[10px] text-muted-foreground">{t('progress.more')}</span>
-                  </div>
+                {/* Legend */}
+                <div className="flex items-center gap-1.5 mt-2 ml-8">
+                  <span className="text-[10px] text-muted-foreground">{t('progress.less')}</span>
+                  {[0, 0.15, 0.35, 0.6, 1].map((ratio, i) => {
+                    const m = Math.max(maxCnt, 1)
+                    const fake = Math.round(ratio * m)
+                    return <div key={i} className="h-[10px] w-[10px] shrink-0 rounded-[2px]" style={getCellStyle(fake, m)} />
+                  })}
+                  <span className="text-[10px] text-muted-foreground">{t('progress.more')}</span>
                 </div>
               </div>
-            )}
+            </div>
+          )}
         </div>
 
         {!productiveHours.loading && !isEmpty && (
@@ -157,9 +157,7 @@ export const ProductiveHoursChart = memo(function ProductiveHoursChart({ userId 
               </p>
             )}
             {lateNightCount > 0 && (
-              <p className="text-xs text-amber-600 dark:text-amber-400">
-                ⚠ {t('progress.lateNightWarning', { count: lateNightCount, weeks: productiveWeeksBack })}
-              </p>
+              <p className="text-xs text-amber-600 dark:text-amber-400">⚠ {t('progress.lateNightWarning', { count: lateNightCount, weeks: productiveWeeksBack })}</p>
             )}
             <p className="text-[10px] text-muted-foreground">{t('progress.productiveHoursNote')}</p>
           </div>

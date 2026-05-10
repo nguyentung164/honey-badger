@@ -1,11 +1,7 @@
 import debounce from 'lodash/debounce'
 import { useMemo, useRef } from 'react'
 
-export function useDebounce<T extends (...args: never[]) => void>(
-  fn: T,
-  ms: number,
-  maxWait?: number
-) {
+export function useDebounce<T extends (...args: never[]) => void>(fn: T, ms: number, maxWait?: number) {
   const funcRef = useRef<T | null>(null)
   funcRef.current = fn
 

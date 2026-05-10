@@ -3,15 +3,7 @@ import { RichTextPlugin } from '@lexical/react/LexicalRichTextPlugin'
 
 import { ContentEditable } from '@/components/editor/editor-ui/content-editable'
 
-export function Plugins({
-  placeholder,
-  contentClassName,
-  contentEditableId,
-}: {
-  placeholder: string
-  contentClassName?: string
-  contentEditableId?: string
-}) {
+export function Plugins({ placeholder, contentClassName, contentEditableId }: { placeholder: string; contentClassName?: string; contentEditableId?: string }) {
   return (
     <div className="relative">
       <div className="relative">
@@ -19,11 +11,7 @@ export function Plugins({
           contentEditable={
             <div className="">
               <div className="">
-                <ContentEditable
-                  id={contentEditableId}
-                  placeholder={placeholder}
-                  className={contentClassName}
-                />
+                <ContentEditable id={contentEditableId} placeholder={placeholder} className={contentClassName} />
               </div>
             </div>
           }

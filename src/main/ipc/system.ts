@@ -3,10 +3,10 @@ import fs from 'node:fs'
 import { readFile, writeFile } from 'node:fs/promises'
 import path from 'node:path'
 import { dialog, ipcMain, shell } from 'electron'
-import { getResourcePath, resolvePathRelativeToBase } from '../utils/utils'
 import l from 'electron-log'
 import { IPC } from 'main/constants'
 import configurationStore from '../store/ConfigurationStore'
+import { getResourcePath, resolvePathRelativeToBase } from '../utils/utils'
 import { detectVersionControl, getVersionControlDetails } from '../utils/versionControlDetector'
 
 /** Gắn đường dẫn từ git status với đúng thư mục gốc worktree (cwd có thể là folder con của repo). */

@@ -88,11 +88,9 @@ export function ResourceUsageTab() {
       if (r.assignee) set.add(r.assignee)
     }
     const sorted = [...set].sort((a, b) =>
-      evmAssigneeDisplayName(master, a, assigneeNameFromWbs.get(a) ?? null).localeCompare(
-        evmAssigneeDisplayName(master, b, assigneeNameFromWbs.get(b) ?? null),
-        undefined,
-        { sensitivity: 'base' },
-      ),
+      evmAssigneeDisplayName(master, a, assigneeNameFromWbs.get(a) ?? null).localeCompare(evmAssigneeDisplayName(master, b, assigneeNameFromWbs.get(b) ?? null), undefined, {
+        sensitivity: 'base',
+      })
     )
     if (scheduleAssigneeFilter !== 'all') {
       return sorted.filter(c => c === scheduleAssigneeFilter)
@@ -135,10 +133,7 @@ export function ResourceUsageTab() {
     return m
   }, [assigneeCodes, wbs, nonWorkingDays])
 
-  const effectiveWbsDayUnits = useMemo(
-    () => mergeWbsDayUnitsStoredWithPlan(wbs, wbsDayUnits, nonWorkingDays),
-    [wbs, wbsDayUnits, nonWorkingDays],
-  )
+  const effectiveWbsDayUnits = useMemo(() => mergeWbsDayUnitsStoredWithPlan(wbs, wbsDayUnits, nonWorkingDays), [wbs, wbsDayUnits, nonWorkingDays])
 
   /** Một Float32Array / assignee theo chỉ số cột ngày — tránh Map chuỗi khi vẽ lưới ảo. */
   const hoursByAssignee = useMemo(() => {
@@ -149,8 +144,7 @@ export function ResourceUsageTab() {
       const arr = new Float32Array(n)
       for (let i = 0; i < n; i++) {
         const ds = dateStrs[i]
-        if (ds)
-          arr[i] = resourceHoursFromWbsDayUnitsForAssignee(code, ds, wbs, effectiveWbsDayUnits, hpd, nonWorkingDays)
+        if (ds) arr[i] = resourceHoursFromWbsDayUnitsForAssignee(code, ds, wbs, effectiveWbsDayUnits, hpd, nonWorkingDays)
       }
       m.set(code, arr)
     }
@@ -168,7 +162,7 @@ export function ResourceUsageTab() {
           isReport: Boolean(reportDateStr && ds === reportDateStr),
         }
       }),
-    [dayStrs, projectDays, reportDateStr],
+    [dayStrs, projectDays, reportDateStr]
   )
 
   const resourceLeadingPinnedPx = useMemo(() => {
@@ -202,7 +196,7 @@ export function ResourceUsageTab() {
       minHeight: EVM_SCHEDULE_TIMELINE_HEADER_3_ROWS_PX,
       boxSizing: 'border-box',
     }),
-    [resourceLeadingPinnedPx],
+    [resourceLeadingPinnedPx]
   )
 
   if (!project.id) {
@@ -211,24 +205,14 @@ export function ResourceUsageTab() {
 
   return (
     <div className="flex h-full min-h-0 flex-col gap-3 overflow-hidden p-4">
-
       {projectDays.length === 0 ? (
         <p className="text-muted-foreground text-sm">{t('evm.wbsDayGridNoRange')}</p>
       ) : (
-        <div
-          ref={scrollRef}
-          className="min-h-0 flex-1 overflow-auto rounded-md bg-muted/5 [overflow-anchor:none]"
-        >
-          <div
-            className="sticky top-0 z-[35] flex shrink-0 bg-muted shadow-[0_1px_0_0_var(--border)]"
-            style={{ width: tableScrollMinWidth, minWidth: tableScrollMinWidth }}
-          >
+        <div ref={scrollRef} className="min-h-0 flex-1 overflow-auto rounded-md bg-muted/5 [overflow-anchor:none]">
+          <div className="sticky top-0 z-[35] flex shrink-0 bg-muted shadow-[0_1px_0_0_var(--border)]" style={{ width: tableScrollMinWidth, minWidth: tableScrollMinWidth }}>
             <div className="sticky left-0 z-40 shrink-0 bg-muted" style={{ width: resourceLeadingPinnedPx }}>
               <div className="text-sm" style={resourcePinnedHeaderGridStyle}>
-                <div
-                  className={cn(RES_PIN_HEADER_CELL, 'border-t border-l border-r border-b')}
-                  style={{ gridRow: '1 / 4', gridColumn: '1 / 2' }}
-                >
+                <div className={cn(RES_PIN_HEADER_CELL, 'border-t border-l border-r border-b')} style={{ gridRow: '1 / 4', gridColumn: '1 / 2' }}>
                   {t('evm.tableNo')}
                 </div>
                 <div className={cn(RES_PIN_HEADER_CELL, 'border-t border-r border-b')} style={{ gridRow: '1 / 4', gridColumn: '2 / 3' }}>
@@ -281,7 +265,7 @@ export function ResourceUsageTab() {
                           'absolute top-0 box-border flex h-full items-center justify-center border-r border-solid border-border/80 px-0 py-0 text-center text-foreground text-sm font-semibold tabular-nums last:border-r-0',
                           meta.isWeekend && 'bg-zinc-400/25 dark:bg-zinc-600/35',
                           !meta.isWeekend && 'bg-muted',
-                          meta.isReport && 'bg-amber-200/90 dark:bg-amber-900/45',
+                          meta.isReport && 'bg-amber-200/90 dark:bg-amber-900/45'
                         )}
                         style={{ left: vc.start - resourceLeadingPinnedPx, width: vc.size, height: '100%' }}
                         title={meta.isReport ? t('evm.resourceGridReportCol') : meta.ds}
@@ -319,7 +303,7 @@ export function ResourceUsageTab() {
                           'absolute top-0 box-border flex h-full items-center justify-center border-r border-solid border-border/80 px-0 py-0 text-center text-foreground text-xs font-semibold last:border-r-0',
                           meta.isWeekend && 'bg-zinc-400/25 dark:bg-zinc-600/35',
                           !meta.isWeekend && 'bg-muted',
-                          meta.isReport && 'bg-amber-200/90 dark:bg-amber-900/45',
+                          meta.isReport && 'bg-amber-200/90 dark:bg-amber-900/45'
                         )}
                         style={{ left: vc.start - resourceLeadingPinnedPx, width: vc.size, height: '100%' }}
                       >
@@ -361,16 +345,13 @@ export function ResourceUsageTab() {
                       }}
                     >
                       <div
-                        className={cn(
-                          'sticky left-0 z-10 flex shrink-0 items-stretch self-stretch border-solid border-border/55',
-                          rowIdx % 2 === 1 ? 'bg-muted' : 'bg-background',
-                        )}
+                        className={cn('sticky left-0 z-10 flex shrink-0 items-stretch self-stretch border-solid border-border/55', rowIdx % 2 === 1 ? 'bg-muted' : 'bg-background')}
                         style={{ width: resourceLeadingPinnedPx, minWidth: resourceLeadingPinnedPx }}
                       >
                         <div
                           className={cn(
                             'box-border flex shrink-0 items-center justify-center border-l border-r border-b border-solid px-1 py-0.5 text-center text-sm tabular-nums',
-                            rowIdx % 2 === 1 ? 'bg-muted' : 'bg-background',
+                            rowIdx % 2 === 1 ? 'bg-muted' : 'bg-background'
                           )}
                           style={{ width: PIN_NO_W, minWidth: PIN_NO_W, maxWidth: PIN_NO_W }}
                         >
@@ -379,7 +360,7 @@ export function ResourceUsageTab() {
                         <div
                           className={cn(
                             'box-border max-w-[9rem] shrink-0 truncate border-r border-b border-solid px-1 py-0.5 text-sm font-medium',
-                            rowIdx % 2 === 1 ? 'bg-muted' : 'bg-background',
+                            rowIdx % 2 === 1 ? 'bg-muted' : 'bg-background'
                           )}
                           style={{ width: PIN_ASSIGNEE_W, minWidth: PIN_ASSIGNEE_W }}
                           title={evmAssigneeDisplayName(master, code, assigneeNameFromWbs.get(code) ?? null)}
@@ -389,17 +370,14 @@ export function ResourceUsageTab() {
                         <div
                           className={cn(
                             'box-border shrink-0 border-r border-b border-solid px-1 py-0.5 text-right text-sm tabular-nums',
-                            rowIdx % 2 === 1 ? 'bg-muted' : 'bg-background',
+                            rowIdx % 2 === 1 ? 'bg-muted' : 'bg-background'
                           )}
                           style={{ width: PIN_BAC_W, minWidth: PIN_BAC_W }}
                         >
                           {(bacByAssignee.get(code) ?? 0).toFixed(1)}
                         </div>
                       </div>
-                      <div
-                        className="relative shrink-0 self-stretch border-r border-b border-solid border-border/50"
-                        style={{ minWidth: dayTimelinePx, width: dayTimelinePx }}
-                      >
+                      <div className="relative shrink-0 self-stretch border-r border-b border-solid border-border/50" style={{ minWidth: dayTimelinePx, width: dayTimelinePx }}>
                         <div className="relative" style={{ width: colVirtualizer.getTotalSize(), height: vr.size }}>
                           {colVirtualizer.getVirtualItems().map(vc => {
                             const meta = dayColMeta[vc.index]
@@ -416,7 +394,7 @@ export function ResourceUsageTab() {
                                   rowIdx % 2 === 1 ? 'bg-muted' : 'bg-background',
                                   meta.isWeekend && 'bg-zinc-400/20 dark:bg-zinc-600/30',
                                   meta.isReport && 'ring-1 ring-inset ring-amber-400/70 dark:ring-amber-600/50',
-                                  overload && 'bg-red-500/25 font-medium text-destructive dark:bg-red-950/45',
+                                  overload && 'bg-red-500/25 font-medium text-destructive dark:bg-red-950/45'
                                 )}
                                 style={{ left: vc.start - resourceLeadingPinnedPx, width: vc.size, height: '100%' }}
                                 title={overload ? t('evm.resourceOverloadDay', { hours: hpd }) : undefined}

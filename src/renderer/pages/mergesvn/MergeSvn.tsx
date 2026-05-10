@@ -624,8 +624,9 @@ export function MergeSvn() {
                             <button
                               key={index}
                               type="button"
-                              className={`w-full text-left mb-1 p-1 rounded-xs cursor-pointer text-sm ${selectedConflict?.path === conflict.path ? 'bg-primary text-primary-foreground' : 'hover:bg-muted'
-                                }`}
+                              className={`w-full text-left mb-1 p-1 rounded-xs cursor-pointer text-sm ${
+                                selectedConflict?.path === conflict.path ? 'bg-primary text-primary-foreground' : 'hover:bg-muted'
+                              }`}
                               onClick={() => setSelectedConflict(conflict)}
                               aria-pressed={selectedConflict?.path === conflict.path}
                             >

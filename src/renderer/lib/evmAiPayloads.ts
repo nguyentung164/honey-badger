@@ -1,6 +1,5 @@
 import type { ACRow, EVMMaster, EVMProject, WBSRow, WbsDayUnitRow } from 'shared/types/evm'
-import { taskPlanEffortPerDay } from '@/lib/evmCalculations'
-import { computeEACScenarios, computeEVByPhase, computeEVMMetrics, DEFAULT_EVM_HOURS_PER_DAY, type EVMResult } from '@/lib/evmCalculations'
+import { computeEACScenarios, computeEVByPhase, computeEVMMetrics, DEFAULT_EVM_HOURS_PER_DAY, type EVMResult, taskPlanEffortPerDay } from '@/lib/evmCalculations'
 
 export const MAX_SCHEDULE_TASKS_IN_PAYLOAD = 120
 
@@ -15,7 +14,7 @@ export function buildMilestoneRows(
   project: EVMProject,
   ac: ACRow[],
   nonWorkingDays: string[],
-  wbsDayUnits: WbsDayUnitRow[] = [],
+  wbsDayUnits: WbsDayUnitRow[] = []
 ): Array<{
   phaseCode: string
   phase: string
@@ -115,14 +114,7 @@ export function buildScheduleRiskPayload(input: {
   tasks: WBSRow[]
   truncated?: boolean
 }): string {
-  const milestones = buildMilestoneRows(
-    input.master,
-    input.wbs,
-    input.project,
-    input.ac,
-    input.nonWorkingDays,
-    input.wbsDayUnits ?? [],
-  )
+  const milestones = buildMilestoneRows(input.master, input.wbs, input.project, input.ac, input.nonWorkingDays, input.wbsDayUnits ?? [])
   const taskRows = input.tasks.slice(0, MAX_SCHEDULE_TASKS_IN_PAYLOAD).map(r => ({
     phase: r.phase,
     task: r.task,

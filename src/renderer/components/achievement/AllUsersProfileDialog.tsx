@@ -102,9 +102,7 @@ export function AllUsersProfileDialog({ open, onOpenChange }: AllUsersProfileDia
           </DialogHeader>
           <div className="flex-1 overflow-y-auto p-4">
             {loading ? (
-              <div className="flex items-center justify-center h-40 text-sm text-muted-foreground">
-                {t('common.loading')}
-              </div>
+              <div className="flex items-center justify-center h-40 text-sm text-muted-foreground">{t('common.loading')}</div>
             ) : users.length === 0 ? (
               <div className="flex flex-col items-center justify-center h-40 gap-2 text-muted-foreground">
                 <Users size={32} className="opacity-30" />
@@ -128,9 +126,7 @@ export function AllUsersProfileDialog({ open, onOpenChange }: AllUsersProfileDia
                       return (
                         <Avatar className={cn('h-9 w-9 shrink-0 ring-2', rankCfg.ringColor)}>
                           {avatarUrls[u.id] && <AvatarImage src={avatarUrls[u.id] ?? ''} alt={u.name} className="object-cover" />}
-                          <AvatarFallback className={cn('text-sm font-bold', rankCfg.bgColor, rankCfg.color)}>
-                            {getInitials(u.name)}
-                          </AvatarFallback>
+                          <AvatarFallback className={cn('text-sm font-bold', rankCfg.bgColor, rankCfg.color)}>{getInitials(u.name)}</AvatarFallback>
                         </Avatar>
                       )
                     })()}
@@ -147,13 +143,7 @@ export function AllUsersProfileDialog({ open, onOpenChange }: AllUsersProfileDia
       </Dialog>
 
       {selectedUser && (
-        <UserProfilePanel
-          open={true}
-          onOpenChange={handleProfileClose}
-          userId={selectedUser.id}
-          userName={selectedUser.name}
-          backLabel={t('achievement.backToList')}
-        />
+        <UserProfilePanel open={true} onOpenChange={handleProfileClose} userId={selectedUser.id} userName={selectedUser.name} backLabel={t('achievement.backToList')} />
       )}
     </>
   )

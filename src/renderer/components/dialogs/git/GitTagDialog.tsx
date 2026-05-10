@@ -20,9 +20,9 @@ import { Label } from '@/components/ui/label'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Textarea } from '@/components/ui/textarea'
 import toast from '@/components/ui-elements/Toast'
+import { useGitReposFromSourceFolders } from '@/hooks/useGitReposFromSourceFolders'
 import logger from '@/services/logger'
 import { useAppearanceStoreSelect } from '@/stores/useAppearanceStore'
-import { useGitReposFromSourceFolders } from '@/hooks/useGitReposFromSourceFolders'
 
 interface GitTagDialogProps {
   open: boolean
@@ -204,115 +204,109 @@ export function GitTagDialog({ open, onOpenChange, onTagComplete, selectedProjec
 
   const renderContent = () => (
     <div className="space-y-3">
-            {showCreateForm ? (
-              <div className="space-y-2 p-3 border rounded-lg bg-muted/30">
-                <div className="space-y-1.5">
-                  <Label className="text-sm">{t('git.tag.tagName')}</Label>
-                  <Input placeholder={t('git.tag.tagNamePlaceholder')} value={newTagName} onChange={e => setNewTagName(e.target.value)} className="h-8" />
-                </div>
-                <div className="space-y-1.5">
-                  <Label className="text-sm text-muted-foreground">{t('git.tag.message')} (optional)</Label>
-                  <Textarea
-                    placeholder={t('git.tag.messagePlaceholder')}
-                    value={newTagMessage}
-                    onChange={e => setNewTagMessage(e.target.value)}
-                    rows={2}
-                    className="min-h-[60px]"
-                  />
-                </div>
-                <div className="flex gap-2">
-                  <Button variant={buttonVariant} size="sm" onClick={handleCreateTag} disabled={isCreating || !newTagName.trim()}>
-                    {isCreating ? <Loader2 className="h-3 w-3 animate-spin mr-2" /> : <Plus className="h-3 w-3 mr-2" />}
-                    {t('git.tag.create')}
-                  </Button>
-                  <Button variant={buttonVariant} size="sm" onClick={() => setShowCreateForm(false)}>
-                    {t('git.tag.cancel')}
-                  </Button>
-                </div>
-              </div>
-            ) : (
-              <Button variant={buttonVariant} size="sm" onClick={() => setShowCreateForm(true)} className="w-full">
-                <Plus className="h-3 w-3 mr-2" />
-                {t('git.tag.createNew')}
-              </Button>
-            )}
+      {showCreateForm ? (
+        <div className="space-y-2 p-3 border rounded-lg bg-muted/30">
+          <div className="space-y-1.5">
+            <Label className="text-sm">{t('git.tag.tagName')}</Label>
+            <Input placeholder={t('git.tag.tagNamePlaceholder')} value={newTagName} onChange={e => setNewTagName(e.target.value)} className="h-8" />
+          </div>
+          <div className="space-y-1.5">
+            <Label className="text-sm text-muted-foreground">{t('git.tag.message')} (optional)</Label>
+            <Textarea placeholder={t('git.tag.messagePlaceholder')} value={newTagMessage} onChange={e => setNewTagMessage(e.target.value)} rows={2} className="min-h-[60px]" />
+          </div>
+          <div className="flex gap-2">
+            <Button variant={buttonVariant} size="sm" onClick={handleCreateTag} disabled={isCreating || !newTagName.trim()}>
+              {isCreating ? <Loader2 className="h-3 w-3 animate-spin mr-2" /> : <Plus className="h-3 w-3 mr-2" />}
+              {t('git.tag.create')}
+            </Button>
+            <Button variant={buttonVariant} size="sm" onClick={() => setShowCreateForm(false)}>
+              {t('git.tag.cancel')}
+            </Button>
+          </div>
+        </div>
+      ) : (
+        <Button variant={buttonVariant} size="sm" onClick={() => setShowCreateForm(true)} className="w-full">
+          <Plus className="h-3 w-3 mr-2" />
+          {t('git.tag.createNew')}
+        </Button>
+      )}
 
-            <div className="space-y-1.5 flex flex-col">
-              <Label className="text-sm flex-shrink-0">{t('git.tag.localTags')}</Label>
-              {isLoading ? (
-                <div className="flex items-center justify-center py-6 flex-shrink-0">
-                  <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
-                </div>
-              ) : tags.length === 0 ? (
-                <div className="text-center py-6 text-muted-foreground border rounded-md text-sm flex-shrink-0">
-                  <Tag className="h-10 w-10 mx-auto mb-1 opacity-50" />
-                  <p>{t('git.tag.noTags')}</p>
-                </div>
-              ) : (
-                <div className="h-[180px] overflow-y-auto overflow-x-hidden border rounded-md">
-                  <div className="p-2 space-y-1">
-                    {tags.map(tag => {
-                      const isOnRemote = remoteTagsSet.has(tag)
-                      return (
-                        <div key={tag} className="flex items-center justify-between gap-2 py-1.5 px-2 rounded hover:bg-muted/50 transition-colors group">
-                          <span className="text-sm font-mono truncate flex-1 min-w-0">{tag}</span>
-                          <span
-                            className={`text-[10px] px-1.5 py-0.5 rounded flex-shrink-0 ${
-                              isOnRemote ? 'bg-green-500/20 text-green-600 dark:text-green-400' : 'bg-amber-500/20 text-amber-600 dark:text-amber-400'
-                            }`}
-                            title={isOnRemote ? t('git.tag.onRemote') : t('git.tag.localOnly')}
-                          >
-                            {isOnRemote ? <Check className="h-3 w-3 inline mr-0.5 align-middle" /> : null}
-                            {isOnRemote ? t('git.tag.onRemote') : t('git.tag.localOnly')}
-                          </span>
-                          <div className="flex gap-1 flex-shrink-0">
-                            <Button
-                              size="icon"
-                              variant={buttonVariant}
-                              className="h-7 w-7"
-                              onClick={() => handlePushTag(tag)}
-                              disabled={operatingTag === tag || isOnRemote}
-                              title={isOnRemote ? t('git.tag.alreadyOnRemote') : t('git.tag.pushToRemote')}
-                            >
-                              {operatingTag === tag ? <Loader2 className="h-3 w-3 animate-spin" /> : <Upload className="h-3 w-3" />}
-                            </Button>
-                            <Button
-                              size="icon"
-                              variant="ghost"
-                              className="h-7 w-7 text-destructive hover:text-destructive hover:bg-destructive/10"
-                              onClick={() => handleDeleteTagClick(tag)}
-                              disabled={operatingTag === tag}
-                              title={t('git.tag.delete')}
-                            >
-                              {operatingTag === tag ? <Loader2 className="h-3 w-3 animate-spin" /> : <Trash2 className="h-3 w-3" />}
-                            </Button>
-                          </div>
-                        </div>
-                      )
-                    })}
+      <div className="space-y-1.5 flex flex-col">
+        <Label className="text-sm flex-shrink-0">{t('git.tag.localTags')}</Label>
+        {isLoading ? (
+          <div className="flex items-center justify-center py-6 flex-shrink-0">
+            <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
+          </div>
+        ) : tags.length === 0 ? (
+          <div className="text-center py-6 text-muted-foreground border rounded-md text-sm flex-shrink-0">
+            <Tag className="h-10 w-10 mx-auto mb-1 opacity-50" />
+            <p>{t('git.tag.noTags')}</p>
+          </div>
+        ) : (
+          <div className="h-[180px] overflow-y-auto overflow-x-hidden border rounded-md">
+            <div className="p-2 space-y-1">
+              {tags.map(tag => {
+                const isOnRemote = remoteTagsSet.has(tag)
+                return (
+                  <div key={tag} className="flex items-center justify-between gap-2 py-1.5 px-2 rounded hover:bg-muted/50 transition-colors group">
+                    <span className="text-sm font-mono truncate flex-1 min-w-0">{tag}</span>
+                    <span
+                      className={`text-[10px] px-1.5 py-0.5 rounded flex-shrink-0 ${
+                        isOnRemote ? 'bg-green-500/20 text-green-600 dark:text-green-400' : 'bg-amber-500/20 text-amber-600 dark:text-amber-400'
+                      }`}
+                      title={isOnRemote ? t('git.tag.onRemote') : t('git.tag.localOnly')}
+                    >
+                      {isOnRemote ? <Check className="h-3 w-3 inline mr-0.5 align-middle" /> : null}
+                      {isOnRemote ? t('git.tag.onRemote') : t('git.tag.localOnly')}
+                    </span>
+                    <div className="flex gap-1 flex-shrink-0">
+                      <Button
+                        size="icon"
+                        variant={buttonVariant}
+                        className="h-7 w-7"
+                        onClick={() => handlePushTag(tag)}
+                        disabled={operatingTag === tag || isOnRemote}
+                        title={isOnRemote ? t('git.tag.alreadyOnRemote') : t('git.tag.pushToRemote')}
+                      >
+                        {operatingTag === tag ? <Loader2 className="h-3 w-3 animate-spin" /> : <Upload className="h-3 w-3" />}
+                      </Button>
+                      <Button
+                        size="icon"
+                        variant="ghost"
+                        className="h-7 w-7 text-destructive hover:text-destructive hover:bg-destructive/10"
+                        onClick={() => handleDeleteTagClick(tag)}
+                        disabled={operatingTag === tag}
+                        title={t('git.tag.delete')}
+                      >
+                        {operatingTag === tag ? <Loader2 className="h-3 w-3 animate-spin" /> : <Trash2 className="h-3 w-3" />}
+                      </Button>
+                    </div>
                   </div>
-                </div>
-              )}
+                )
+              })}
             </div>
+          </div>
+        )}
+      </div>
 
-            {!isLoading && remoteOnlyTags.length > 0 && (
-              <div className="space-y-1.5 flex flex-col">
-                <Label className="text-sm flex-shrink-0 flex items-center gap-1">
-                  <Server className="h-3.5 w-3.5" />
-                  {t('git.tag.remoteOnlyTags')}
-                </Label>
-                <div className="h-[120px] overflow-y-auto overflow-x-hidden border rounded-md">
-                  <div className="p-2 space-y-1">
-                    {remoteOnlyTags.map(tag => (
-                      <div key={tag} className="flex items-center justify-between gap-2 py-1.5 px-2 rounded hover:bg-muted/50 transition-colors">
-                        <span className="text-sm font-mono truncate flex-1 min-w-0 text-muted-foreground">{tag}</span>
-                        <span className="text-[10px] text-muted-foreground flex-shrink-0">{t('git.tag.remoteOnly')}</span>
-                      </div>
-                    ))}
-                  </div>
+      {!isLoading && remoteOnlyTags.length > 0 && (
+        <div className="space-y-1.5 flex flex-col">
+          <Label className="text-sm flex-shrink-0 flex items-center gap-1">
+            <Server className="h-3.5 w-3.5" />
+            {t('git.tag.remoteOnlyTags')}
+          </Label>
+          <div className="h-[120px] overflow-y-auto overflow-x-hidden border rounded-md">
+            <div className="p-2 space-y-1">
+              {remoteOnlyTags.map(tag => (
+                <div key={tag} className="flex items-center justify-between gap-2 py-1.5 px-2 rounded hover:bg-muted/50 transition-colors">
+                  <span className="text-sm font-mono truncate flex-1 min-w-0 text-muted-foreground">{tag}</span>
+                  <span className="text-[10px] text-muted-foreground flex-shrink-0">{t('git.tag.remoteOnly')}</span>
                 </div>
-              </div>
-            )}
+              ))}
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 

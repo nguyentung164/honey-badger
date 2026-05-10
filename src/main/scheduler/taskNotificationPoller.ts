@@ -2,7 +2,7 @@ import l from 'electron-log'
 import { sendTaskNotification } from '../notification/taskNotification'
 import configurationStore from '../store/ConfigurationStore'
 import { getTokenFromStore, verifyToken } from '../task/auth'
-import { getUnreadByUserId, markAsReadBatch } from '../task/taskNotificationStore'
+import { getUnreadByUserId, markAsReadBatch } from '../task/stores/taskNotificationStore'
 
 const POLL_INTERVAL_MS = 30_000
 const MARK_READ_RETRY_COUNT = 2

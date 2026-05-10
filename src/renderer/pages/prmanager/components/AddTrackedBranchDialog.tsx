@@ -85,11 +85,7 @@ export function AddTrackedBranchDialog({ open, onOpenChange, projectId, userId, 
           </div>
           <div className="space-y-1">
             <Label className="text-xs">{t('prManager.addTrackedBranch.branchName')}</Label>
-            <Input
-              value={branchName}
-              onChange={e => setBranchName(e.target.value)}
-              placeholder={t('prManager.addTrackedBranch.branchPlaceholder')}
-            />
+            <Input value={branchName} onChange={e => setBranchName(e.target.value)} placeholder={t('prManager.addTrackedBranch.branchPlaceholder')} />
           </div>
           <div className="space-y-1">
             <Label className="text-xs">{t('prManager.addTrackedBranch.noteOptional')}</Label>

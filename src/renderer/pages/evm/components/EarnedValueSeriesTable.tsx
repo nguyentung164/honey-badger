@@ -6,11 +6,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@
 import { TablePaginationBar } from '@/components/ui/table-pagination-bar'
 import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group'
 import { formatEvmTimeSeriesPeriodCell } from '@/lib/dateUtils'
-import {
-  aggregateEvmTimeSeriesByPeriod,
-  type EVMTimeSeriesPoint,
-  type EvmReportGranularity,
-} from '@/lib/evmCalculations'
+import { aggregateEvmTimeSeriesByPeriod, type EVMTimeSeriesPoint, type EvmReportGranularity } from '@/lib/evmCalculations'
 import { evmIndexHealthCn } from '@/lib/evmUi'
 import i18n from '@/lib/i18n'
 import { cn } from '@/lib/utils'
@@ -47,10 +43,7 @@ export function EarnedValueSeriesTable({
     setPage(1)
   }, [granularity, dailySeries.length])
 
-  const rows = useMemo(
-    () => aggregateEvmTimeSeriesByPeriod(dailySeries, granularity),
-    [dailySeries, granularity]
-  )
+  const rows = useMemo(() => aggregateEvmTimeSeriesByPeriod(dailySeries, granularity), [dailySeries, granularity])
 
   const totalPages = Math.max(1, Math.ceil(rows.length / pageSize))
   const paginated = useMemo(() => {
@@ -127,12 +120,8 @@ export function EarnedValueSeriesTable({
                   <TableCell className="text-right font-mono tabular-nums">{fmtFixed(r.ac, 2)}</TableCell>
                   <TableCell className="text-right font-mono tabular-nums">{fmtFixed(r.sv, 2)}</TableCell>
                   <TableCell className="text-right font-mono tabular-nums">{fmtFixed(r.cv, 2)}</TableCell>
-                  <TableCell className={cn('text-right font-mono tabular-nums', evmIndexHealthCn(r.spi, true))}>
-                    {fmtFixed(r.spi, 3)}
-                  </TableCell>
-                  <TableCell className={cn('text-right font-mono tabular-nums', evmIndexHealthCn(r.cpi, true))}>
-                    {fmtFixed(r.cpi, 3)}
-                  </TableCell>
+                  <TableCell className={cn('text-right font-mono tabular-nums', evmIndexHealthCn(r.spi, true))}>{fmtFixed(r.spi, 3)}</TableCell>
+                  <TableCell className={cn('text-right font-mono tabular-nums', evmIndexHealthCn(r.cpi, true))}>{fmtFixed(r.cpi, 3)}</TableCell>
                   <TableCell className="text-right font-mono tabular-nums">{fmtFixed(r.eac, 2)}</TableCell>
                   <TableCell className="text-right font-mono tabular-nums">{(r.progress * 100).toFixed(2)}%</TableCell>
                 </TableRow>

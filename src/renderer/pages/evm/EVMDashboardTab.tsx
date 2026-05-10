@@ -32,12 +32,10 @@ const chartConfig = {
 }
 
 /** Giống Progress: khối nền muted, không viền (sidebar / nav). */
-const KPI_CARD_FRAME =
-  'flex flex-col gap-0 rounded-md border-0 py-0 shadow-none'
+const KPI_CARD_FRAME = 'flex flex-col gap-0 rounded-md border-0 py-0 shadow-none'
 
 /** Cùng khung card + vùng chart co giãn theo chiều cao vùng làm việc. */
-const DASHBOARD_PAIR_CHART_CARD =
-  'flex min-h-0 w-full flex-1 flex-col rounded-md border-0 bg-card/40 p-4 shadow-none'
+const DASHBOARD_PAIR_CHART_CARD = 'flex min-h-0 w-full flex-1 flex-col rounded-md border-0 bg-card/40 p-4 shadow-none'
 const DASHBOARD_PAIR_CHART_TITLE = 'mb-3 shrink-0 text-sm font-medium'
 /** Vùng chart pie: flex-1 khi card kéo cao (cùng hàng bar). */
 const DASHBOARD_PAIR_CHART_AREA = 'flex min-h-0 w-full min-w-0 flex-1 flex-col'
@@ -63,24 +61,11 @@ const EVM_KPI_TOOLTIP_KEY: Record<string, string> = {
   'evm.kpiTSPI': 'evm.guideTspi',
 }
 
-function DashboardHoverCard({
-  description,
-  className,
-  children,
-}: {
-  description: string
-  className?: string
-  children: ReactNode
-}) {
+function DashboardHoverCard({ description, className, children }: { description: string; className?: string; children: ReactNode }) {
   return (
     <Tooltip>
       <TooltipTrigger asChild>
-        <div
-          className={cn(
-            'min-h-0 w-full cursor-help rounded-md outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2',
-            className
-          )}
-        >
+        <div className={cn('min-h-0 w-full cursor-help rounded-md outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2', className)}>
           {children}
         </div>
       </TooltipTrigger>
@@ -100,26 +85,14 @@ export function EVMDashboardTab() {
   const master = useEVMStore(s => s.master)
   const wbsDayUnits = useEVMStore(s => s.wbsDayUnits ?? [])
 
-  const nonWorkingDays = useMemo(
-    () => master.nonWorkingDays.map(n => n.date),
-    [master.nonWorkingDays]
-  )
+  const nonWorkingDays = useMemo(() => master.nonWorkingDays.map(n => n.date), [master.nonWorkingDays])
 
   const hpd = master.hoursPerDay ?? DEFAULT_EVM_HOURS_PER_DAY
-  const metrics = useMemo(
-    () => computeEVMMetrics({ project, wbs, ac, hoursPerDay: hpd, nonWorkingDays, wbsDayUnits }),
-    [project, wbs, ac, hpd, nonWorkingDays, wbsDayUnits]
-  )
+  const metrics = useMemo(() => computeEVMMetrics({ project, wbs, ac, hoursPerDay: hpd, nonWorkingDays, wbsDayUnits }), [project, wbs, ac, hpd, nonWorkingDays, wbsDayUnits])
 
-  const timeSeriesData = useMemo(
-    () => buildEVMTimeSeries(project, wbs, ac, hpd, nonWorkingDays, wbsDayUnits),
-    [project, wbs, ac, hpd, nonWorkingDays, wbsDayUnits]
-  )
+  const timeSeriesData = useMemo(() => buildEVMTimeSeries(project, wbs, ac, hpd, nonWorkingDays, wbsDayUnits), [project, wbs, ac, hpd, nonWorkingDays, wbsDayUnits])
 
-  const chartSeriesData = useMemo(
-    () => aggregateEvmTimeSeriesByPeriod(timeSeriesData, sCurveGranularity),
-    [timeSeriesData, sCurveGranularity]
-  )
+  const chartSeriesData = useMemo(() => aggregateEvmTimeSeriesByPeriod(timeSeriesData, sCurveGranularity), [timeSeriesData, sCurveGranularity])
 
   const phases = useMemo(() => {
     const set = new Set<string>()
@@ -160,13 +133,7 @@ export function EVMDashboardTab() {
     return m
   }, [wbs])
 
-  const pieData = useMemo(
-    () =>
-      evByPhase
-        .filter(r => r.ev > 0)
-        .map((r, i) => ({ name: r.phase, value: r.ev, fill: `var(--chart-${(i % 5) + 1})` })),
-    [evByPhase]
-  )
+  const pieData = useMemo(() => evByPhase.filter(r => r.ev > 0).map((r, i) => ({ name: r.phase, value: r.ev, fill: `var(--chart-${(i % 5) + 1})` })), [evByPhase])
 
   const barData = useMemo(
     () =>
@@ -233,11 +200,7 @@ export function EVMDashboardTab() {
                 className={cn(
                   KPI_CARD_FRAME,
                   'h-full bg-card/40',
-                  k.index != null &&
-                  Number.isFinite(k.index) &&
-                  k.index > 0 &&
-                  k.index < 1 &&
-                  'bg-destructive/10',
+                  k.index != null && Number.isFinite(k.index) && k.index > 0 && k.index < 1 && 'bg-destructive/10',
                   k.index != null && Number.isFinite(k.index) && k.index >= 1 && 'bg-emerald-500/10 dark:bg-emerald-500/15'
                 )}
               >
@@ -245,12 +208,7 @@ export function EVMDashboardTab() {
                   <CardTitle className="text-[9px] font-medium leading-tight text-muted-foreground">{t(k.labelKey)}</CardTitle>
                 </CardHeader>
                 <CardContent className="px-2 pb-1 pt-0">
-                  <span
-                    className={cn(
-                      'font-mono text-[11px] font-semibold leading-tight tabular-nums',
-                      k.index != null ? evmIndexHealthCn(k.index) : 'text-foreground'
-                    )}
-                  >
+                  <span className={cn('font-mono text-[11px] font-semibold leading-tight tabular-nums', k.index != null ? evmIndexHealthCn(k.index) : 'text-foreground')}>
                     {k.value}
                   </span>
                 </CardContent>
@@ -266,9 +224,7 @@ export function EVMDashboardTab() {
                   <CardTitle className="text-[9px] font-medium leading-tight text-muted-foreground">{t(k.labelKey)}</CardTitle>
                 </CardHeader>
                 <CardContent className="px-2 pb-1 pt-0">
-                  <span className={cn('font-mono text-[11px] font-semibold leading-tight tabular-nums', k.warn && 'text-destructive')}>
-                    {k.value}
-                  </span>
+                  <span className={cn('font-mono text-[11px] font-semibold leading-tight tabular-nums', k.warn && 'text-destructive')}>{k.value}</span>
                 </CardContent>
               </Card>
             </DashboardHoverCard>
@@ -302,24 +258,13 @@ export function EVMDashboardTab() {
         </DashboardHoverCard>
 
         {(hasPieChart || hasBarChart) && (
-          <div
-            className={cn(
-              'flex min-h-0 flex-1 flex-col gap-4',
-              pieBarSideBySide && 'lg:flex-row lg:items-stretch'
-            )}
-          >
+          <div className={cn('flex min-h-0 flex-1 flex-col gap-4', pieBarSideBySide && 'lg:flex-row lg:items-stretch')}>
             {hasPieChart && (
-              <DashboardHoverCard
-                description={t('evm.dashboardTooltipEvByPhase')}
-                className={cn(pieBarSideBySide && 'lg:flex lg:w-[30%] lg:max-w-[30%] lg:shrink-0')}
-              >
+              <DashboardHoverCard description={t('evm.dashboardTooltipEvByPhase')} className={cn(pieBarSideBySide && 'lg:flex lg:w-[30%] lg:max-w-[30%] lg:shrink-0')}>
                 <div className={DASHBOARD_PAIR_CHART_CARD}>
                   <h3 className={DASHBOARD_PAIR_CHART_TITLE}>{t('evm.sectionEvByPhase')}</h3>
                   <div className={DASHBOARD_PAIR_CHART_AREA}>
-                    <ChartContainer
-                      config={chartConfig}
-                      className={cn(DASHBOARD_PAIR_CHART_H, 'aspect-auto max-w-full min-h-0 w-full min-w-0 flex-1 justify-start p-0')}
-                    >
+                    <ChartContainer config={chartConfig} className={cn(DASHBOARD_PAIR_CHART_H, 'aspect-auto max-w-full min-h-0 w-full min-w-0 flex-1 justify-start p-0')}>
                       <PieChart>
                         <ChartTooltip content={<ChartTooltipContent />} />
                         <Pie data={pieData} dataKey="value" nameKey="name" cx="50%" cy="50%" outerRadius="72%" label />
@@ -330,41 +275,18 @@ export function EVMDashboardTab() {
               </DashboardHoverCard>
             )}
             {hasBarChart && (
-              <DashboardHoverCard
-                description={t('evm.dashboardTooltipEvByAssignee')}
-                className={cn(pieBarSideBySide && 'lg:flex lg:min-w-0 lg:flex-1')}
-              >
+              <DashboardHoverCard description={t('evm.dashboardTooltipEvByAssignee')} className={cn(pieBarSideBySide && 'lg:flex lg:min-w-0 lg:flex-1')}>
                 <div className={DASHBOARD_PAIR_CHART_CARD}>
                   <h3 className={DASHBOARD_PAIR_CHART_TITLE}>{t('evm.sectionEvByAssignee')}</h3>
                   <div className={DASHBOARD_BAR_CHART_SHELL}>
                     {/* Một chuỗi EV: không có Legend; tránh margin.bottom lớn + XAxis height chồng (trông như vạch legend trống). Giống StatisticDialog bar: tick ngang, margin gọn. */}
-                    <ChartContainer
-                      config={chartConfig}
-                      className={cn('mx-auto aspect-auto w-full min-w-0 flex-1 justify-start p-0', DASHBOARD_PAIR_CHART_H)}
-                    >
-                      <BarChart
-                        accessibilityLayer
-                        data={barData}
-                        margin={{ top: 12, right: 8, left: 4, bottom: 4 }}
-                      >
+                    <ChartContainer config={chartConfig} className={cn('mx-auto aspect-auto w-full min-w-0 flex-1 justify-start p-0', DASHBOARD_PAIR_CHART_H)}>
+                      <BarChart accessibilityLayer data={barData} margin={{ top: 12, right: 8, left: 4, bottom: 4 }}>
                         <CartesianGrid strokeDasharray="3 3" vertical={false} />
-                        <XAxis
-                          dataKey="name"
-                          tickLine={false}
-                          tickMargin={10}
-                          axisLine={false}
-                          minTickGap={14}
-                          tick={{ fontSize: 10 }}
-                        />
+                        <XAxis dataKey="name" tickLine={false} tickMargin={10} axisLine={false} minTickGap={14} tick={{ fontSize: 10 }} />
                         <YAxis width={40} tick={{ fontSize: 10 }} tickLine={false} axisLine={false} />
                         <ChartTooltip content={<ChartTooltipContent />} />
-                        <Bar
-                          dataKey="ev"
-                          fill="var(--chart-2)"
-                          radius={4}
-                          name="EV"
-                          legendType="none"
-                        />
+                        <Bar dataKey="ev" fill="var(--chart-2)" radius={4} name="EV" legendType="none" />
                       </BarChart>
                     </ChartContainer>
                   </div>
@@ -374,7 +296,6 @@ export function EVMDashboardTab() {
           </div>
         )}
       </div>
-
     </div>
   )
 }

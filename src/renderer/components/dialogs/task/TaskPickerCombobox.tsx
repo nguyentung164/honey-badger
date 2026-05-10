@@ -126,10 +126,12 @@ export function TaskPickerCombobox({
         ...fetchParamsBase,
       })
       if (res.status !== 'success' || !res.data) return
+      const page = res.data
       setRows(prev => {
         const seen = new Set(prev.map(r => r.id))
         const next = [...prev]
-        for (const it of res.data!.items) {
+        const items = page.items ?? []
+        for (const it of items) {
           if (!seen.has(it.id)) {
             seen.add(it.id)
             next.push(it)
@@ -137,7 +139,7 @@ export function TaskPickerCombobox({
         }
         return next
       })
-      setRemoteHasMore(res.data.hasMore)
+      setRemoteHasMore(page.hasMore)
     } finally {
       loadingLock.current = false
       setLoadingMore(false)
@@ -220,11 +222,7 @@ export function TaskPickerCombobox({
                 {!value ? <CheckIcon className="ml-auto size-4" /> : null}
               </CommandItem>
               {rows.map(row => (
-                <CommandItem
-                  key={row.id}
-                  value={`${formatTaskLabel(row.ticketId, row.title)} ${row.id}`}
-                  onSelect={() => handleSelect(row.id)}
-                >
+                <CommandItem key={row.id} value={`${formatTaskLabel(row.ticketId, row.title)} ${row.id}`} onSelect={() => handleSelect(row.id)}>
                   {formatTaskLabel(row.ticketId, row.title)}
                   {value === row.id ? <CheckIcon className="ml-auto size-4" /> : null}
                 </CommandItem>

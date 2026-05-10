@@ -422,16 +422,11 @@ export function GitStashDialog({ open, onOpenChange, onStashApplied, cwd }: GitS
                 <ScrollArea className="h-[400px] min-w-0 max-w-full pr-4">
                   <div className="min-w-0 space-y-3">
                     {stashList.map(stash => (
-                      <div
-                        key={stash.index}
-                        className="min-w-0 max-w-full overflow-hidden border rounded-lg p-4 hover:bg-muted/50 transition-colors"
-                      >
+                      <div key={stash.index} className="min-w-0 max-w-full overflow-hidden border rounded-lg p-4 hover:bg-muted/50 transition-colors">
                         <div className="flex min-w-0 flex-wrap items-start justify-between gap-4">
                           <div className="min-w-0 flex-1">
                             <div className="flex min-w-0 flex-wrap items-center gap-2 mb-1">
-                              <span className="shrink-0 text-xs font-mono bg-muted px-2 py-0.5 rounded">
-                                stash@{`{${stash.index}}`}
-                              </span>
+                              <span className="shrink-0 text-xs font-mono bg-muted px-2 py-0.5 rounded">stash@{`{${stash.index}}`}</span>
                               <span className="min-w-0 break-words text-xs text-muted-foreground">{formatStashDate(stash.date)}</span>
                               {stashApplied[stash.index] && (
                                 <span className="text-xs bg-green-500/20 text-green-700 dark:text-green-400 px-2 py-0.5 rounded" title={t('git.stash.alreadyApplied')}>
@@ -471,7 +466,13 @@ export function GitStashDialog({ open, onOpenChange, onStashApplied, cwd }: GitS
                             >
                               {operatingIndex === stash.index ? <Loader2 className="h-3 w-3 animate-spin" /> : t('git.stash.apply')}
                             </Button>
-                            <Button size="sm" variant={buttonVariant} onClick={() => handlePop(stash.index)} disabled={operatingIndex === stash.index} title={t('git.stash.popTitle')}>
+                            <Button
+                              size="sm"
+                              variant={buttonVariant}
+                              onClick={() => handlePop(stash.index)}
+                              disabled={operatingIndex === stash.index}
+                              title={t('git.stash.popTitle')}
+                            >
                               {operatingIndex === stash.index ? <Loader2 className="h-3 w-3 animate-spin" /> : t('git.stash.pop')}
                             </Button>
                             <Button
@@ -572,11 +573,7 @@ export function GitStashDialog({ open, onOpenChange, onStashApplied, cwd }: GitS
       </Dialog>
 
       <Dialog open={viewStashIndex !== null} onOpenChange={open => !open && setViewStashIndex(null)}>
-        <DialogContent
-          className="max-w-7xl! max-h-[85vh] flex flex-col overflow-hidden"
-          onInteractOutside={e => e.preventDefault()}
-          onPointerDownOutside={e => e.preventDefault()}
-        >
+        <DialogContent className="max-w-7xl! max-h-[85vh] flex flex-col overflow-hidden" onInteractOutside={e => e.preventDefault()} onPointerDownOutside={e => e.preventDefault()}>
           <DialogHeader className="shrink-0">
             <DialogTitle>
               {t('git.stash.viewTitle')} {viewStashIndex !== null ? `stash@{${viewStashIndex}}` : ''}

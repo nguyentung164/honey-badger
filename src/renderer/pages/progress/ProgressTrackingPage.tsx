@@ -1,20 +1,5 @@
 'use client'
-import {
-  BarChart2,
-  ChevronsLeft,
-  ChevronsRight,
-  ClipboardList,
-  Clock,
-  Code2,
-  Flame,
-  GitCommit,
-  Minus,
-  Square,
-  Star,
-  TrendingUp,
-  X,
-  Zap,
-} from 'lucide-react'
+import { BarChart2, ChevronsLeft, ChevronsRight, ClipboardList, Clock, Code2, Flame, GitCommit, Minus, Square, Star, TrendingUp, X, Zap } from 'lucide-react'
 import { type CSSProperties, Fragment, lazy, Suspense, useEffect, useMemo, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useSearchParams } from 'react-router-dom'
@@ -39,11 +24,9 @@ const DailyReportContent = lazy(() => import('./components/DailyReportContent').
 
 type Section = 'heatmap' | 'trend' | 'radar' | 'taskperf' | 'quality' | 'hours' | 'highlights' | 'dailyreport'
 
-const progressSidebarTransition =
-  'transition-[width] duration-300 ease-[cubic-bezier(0.22,1,0.36,1)] motion-reduce:duration-150 motion-reduce:transition-[width]'
+const progressSidebarTransition = 'transition-[width] duration-300 ease-[cubic-bezier(0.22,1,0.36,1)] motion-reduce:duration-150 motion-reduce:transition-[width]'
 
-const progressLabelTransition =
-  'transition-[opacity,max-width,margin] duration-300 ease-[cubic-bezier(0.22,1,0.36,1)] motion-reduce:duration-150'
+const progressLabelTransition = 'transition-[opacity,max-width,margin] duration-300 ease-[cubic-bezier(0.22,1,0.36,1)] motion-reduce:duration-150'
 
 const PROGRESS_SIDEBAR_COLLAPSED_KEY = 'progress-sidebar-collapsed'
 
@@ -93,9 +76,7 @@ export function ProgressTrackingPage() {
   const { t } = useTranslation()
   const [searchParams] = useSearchParams()
   const sectionFromUrl = searchParams.get('section')
-  const [activeSection, setActiveSection] = useState<Section>(
-    sectionFromUrl === 'dailyreport' ? 'dailyreport' : 'heatmap'
-  )
+  const [activeSection, setActiveSection] = useState<Section>(sectionFromUrl === 'dailyreport' ? 'dailyreport' : 'heatmap')
   const currentUser = useTaskAuthStore(s => s.user)
   const verifySession = useTaskAuthStore(s => s.verifySession)
   const { selectedUserId, selectedUserName, allUsers, allUsersLoaded, setSelectedUser, loadAllUsers } = useProgressStore()
@@ -111,10 +92,7 @@ export function ProgressTrackingPage() {
     return acc
   }, {})
 
-  const viewerKey = useMemo(
-    () => (currentUser ? `${currentUser.id}|${currentUser.role}` : ''),
-    [currentUser?.id, currentUser?.role],
-  )
+  const viewerKey = useMemo(() => (currentUser ? `${currentUser.id}|${currentUser.role}` : ''), [currentUser?.id, currentUser?.role])
 
   useEffect(() => {
     verifySession()
@@ -174,10 +152,7 @@ export function ProgressTrackingPage() {
     if (u) setSelectedUser(u.id, u.email, u.name)
   }
 
-  const canPickProgressUser =
-    allUsersLoaded &&
-    (currentUser?.role === 'admin' || currentUser?.role === 'pm' || currentUser?.role === 'pl') &&
-    allUsers.length >= 1
+  const canPickProgressUser = allUsersLoaded && (currentUser?.role === 'admin' || currentUser?.role === 'pm' || currentUser?.role === 'pl') && allUsers.length >= 1
 
   const userComboboxOptions = useMemo(
     () =>
@@ -199,7 +174,7 @@ export function ProgressTrackingPage() {
           ),
         }
       }),
-    [allUsers, avatarUrls, userRanks, currentUser],
+    [allUsers, avatarUrls, userRanks, currentUser]
   )
 
   const handleWindow = (action: string) => {
@@ -239,7 +214,7 @@ export function ProgressTrackingPage() {
                           triggerClassName={cn(
                             'h-7 text-xs font-medium rounded-md border-0 bg-transparent text-blue-600 dark:text-blue-400',
                             'hover:bg-muted! hover:text-blue-700! dark:hover:text-blue-300!',
-                            'justify-start px-2 py-1',
+                            'justify-start px-2 py-1'
                           )}
                         />
                       </div>
@@ -254,10 +229,18 @@ export function ProgressTrackingPage() {
 
         {/* Right: window controls */}
         <div className="flex gap-1" style={{ WebkitAppRegion: 'no-drag' } as CSSProperties}>
-          <button type="button" onClick={() => handleWindow('minimize')} className="w-10 h-8 flex items-center justify-center hover:bg-[var(--hover-bg)] hover:text-[var(--hover-fg)]">
+          <button
+            type="button"
+            onClick={() => handleWindow('minimize')}
+            className="w-10 h-8 flex items-center justify-center hover:bg-[var(--hover-bg)] hover:text-[var(--hover-fg)]"
+          >
             <Minus size={15.5} strokeWidth={1} absoluteStrokeWidth />
           </button>
-          <button type="button" onClick={() => handleWindow('maximize')} className="w-10 h-8 flex items-center justify-center hover:bg-[var(--hover-bg)] hover:text-[var(--hover-fg)]">
+          <button
+            type="button"
+            onClick={() => handleWindow('maximize')}
+            className="w-10 h-8 flex items-center justify-center hover:bg-[var(--hover-bg)] hover:text-[var(--hover-fg)]"
+          >
             <Square size={14.5} strokeWidth={1} absoluteStrokeWidth />
           </button>
           <button type="button" onClick={() => handleWindow('close')} className="w-10 h-8 flex items-center justify-center hover:bg-red-600 hover:text-white">
@@ -268,19 +251,8 @@ export function ProgressTrackingPage() {
 
       <div className="flex min-h-0 flex-1 overflow-hidden">
         {/* Sidebar */}
-        <div
-          className={cn(
-            'flex shrink-0 flex-col overflow-hidden bg-muted/30',
-            progressSidebarTransition,
-            sidebarCollapsed ? 'w-[52px]' : 'w-[210px]',
-          )}
-        >
-          <div
-            className={cn(
-              'flex shrink-0 items-center',
-              sidebarCollapsed ? 'justify-center px-1 pb-1 pt-2' : 'justify-end px-2 pb-1 pt-2',
-            )}
-          >
+        <div className={cn('flex shrink-0 flex-col overflow-hidden bg-muted/30', progressSidebarTransition, sidebarCollapsed ? 'w-[52px]' : 'w-[210px]')}>
+          <div className={cn('flex shrink-0 items-center', sidebarCollapsed ? 'justify-center px-1 pb-1 pt-2' : 'justify-end px-2 pb-1 pt-2')}>
             <Tooltip delayDuration={400}>
               <TooltipTrigger asChild>
                 <button
@@ -291,7 +263,7 @@ export function ProgressTrackingPage() {
                   className={cn(
                     'flex h-8 w-8 shrink-0 items-center justify-center rounded-md text-muted-foreground',
                     'transition-colors duration-200 hover:bg-accent hover:text-accent-foreground',
-                    'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background',
+                    'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background'
                   )}
                 >
                   {sidebarCollapsed ? (
@@ -311,23 +283,18 @@ export function ProgressTrackingPage() {
           <div className={cn('shrink-0', sidebarCollapsed ? 'px-1 pb-2 pt-0' : 'p-3 pt-0')}>
             <div className={cn('flex items-center', sidebarCollapsed ? 'justify-center' : 'gap-2')}>
               {(() => {
-                const rank = selectedUserId === currentUser?.id
-                  ? (achievementStats?.current_rank ?? 'newbie')
-                  : (selectedUserId ? userRanks[selectedUserId] ?? 'newbie' : 'newbie')
+                const rank = selectedUserId === currentUser?.id ? (achievementStats?.current_rank ?? 'newbie') : selectedUserId ? (userRanks[selectedUserId] ?? 'newbie') : 'newbie'
                 const rankCfg = RANK_CONFIG[rank as keyof typeof RANK_CONFIG] ?? RANK_CONFIG.newbie
                 const avatar = (
                   <Avatar className={cn('shrink-0 ring-2', rankCfg.ringColor, sidebarCollapsed ? 'h-9 w-9' : 'h-8 w-8')}>
-                    {selectedUserId &&
-                      (selectedUserId === currentUser?.id ? currentUser?.avatarUrl : avatarUrls[selectedUserId]) && (
-                        <AvatarImage
-                          src={(selectedUserId === currentUser?.id ? currentUser?.avatarUrl : avatarUrls[selectedUserId]) ?? ''}
-                          alt={selectedUserName ?? ''}
-                          className="object-cover"
-                        />
-                      )}
-                    <AvatarFallback className={cn(sidebarCollapsed ? 'text-xs' : 'text-sm', rankCfg.bgColor, rankCfg.color)}>
-                      {getInitials(selectedUserName ?? '—')}
-                    </AvatarFallback>
+                    {selectedUserId && (selectedUserId === currentUser?.id ? currentUser?.avatarUrl : avatarUrls[selectedUserId]) && (
+                      <AvatarImage
+                        src={(selectedUserId === currentUser?.id ? currentUser?.avatarUrl : avatarUrls[selectedUserId]) ?? ''}
+                        alt={selectedUserName ?? ''}
+                        className="object-cover"
+                      />
+                    )}
+                    <AvatarFallback className={cn(sidebarCollapsed ? 'text-xs' : 'text-sm', rankCfg.bgColor, rankCfg.color)}>{getInitials(selectedUserName ?? '—')}</AvatarFallback>
                   </Avatar>
                 )
                 if (sidebarCollapsed) {
@@ -365,19 +332,11 @@ export function ProgressTrackingPage() {
                     'flex w-full items-center rounded-md text-sm text-left',
                     'transition-[background-color,color,padding,gap] duration-200 ease-out',
                     sidebarCollapsed ? 'justify-center gap-0 px-0 py-2' : 'gap-2.5 px-3 py-2',
-                    isActive
-                      ? 'bg-blue-500/15 font-medium text-blue-700 dark:text-blue-400'
-                      : 'text-muted-foreground hover:bg-accent hover:text-accent-foreground',
+                    isActive ? 'bg-blue-500/15 font-medium text-blue-700 dark:text-blue-400' : 'text-muted-foreground hover:bg-accent hover:text-accent-foreground'
                   )}
                 >
                   <Icon className={cn('h-4 w-4 shrink-0', isActive ? 'text-blue-500' : '')} />
-                  <span
-                    className={cn(
-                      'truncate',
-                      progressLabelTransition,
-                      sidebarCollapsed ? 'max-w-0 opacity-0 overflow-hidden' : 'max-w-[200px] opacity-100',
-                    )}
-                  >
+                  <span className={cn('truncate', progressLabelTransition, sidebarCollapsed ? 'max-w-0 opacity-0 overflow-hidden' : 'max-w-[200px] opacity-100')}>
                     {t(sec.labelKey)}
                   </span>
                 </button>
@@ -397,13 +356,7 @@ export function ProgressTrackingPage() {
           </nav>
 
           {/* Version note */}
-          <div
-            className={cn(
-              'shrink-0 overflow-hidden',
-              progressLabelTransition,
-              sidebarCollapsed ? 'max-h-0 p-0 opacity-0' : 'p-3 opacity-100',
-            )}
-          >
+          <div className={cn('shrink-0 overflow-hidden', progressLabelTransition, sidebarCollapsed ? 'max-h-0 p-0 opacity-0' : 'p-3 opacity-100')}>
             <p className="text-center text-[10px] text-muted-foreground/60">{t('progress.dataNote')}</p>
           </div>
         </div>

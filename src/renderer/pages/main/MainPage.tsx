@@ -178,41 +178,41 @@ export function MainPage() {
       return
     }
     let cancelled = false
-      ; (async () => {
-        const res = await window.api.task.getSourceFoldersByProject(selectedProjectId)
+    ;(async () => {
+      const res = await window.api.task.getSourceFoldersByProject(selectedProjectId)
+      if (cancelled) return
+      if (res.status !== 'success' || !Array.isArray(res.data) || res.data.length === 0) {
+        effectivePathsRef.current = []
+        setEffectivePaths([])
+        setEffectiveLabels([])
+        setEffectiveMultiRepo([], [])
+        return
+      }
+      const paths: string[] = []
+      const labels: string[] = []
+      for (const folder of res.data) {
+        const p = (folder.path ?? '').trim()
+        if (!p) continue
+        const det = await window.api.system.detect_version_control(p)
         if (cancelled) return
-        if (res.status !== 'success' || !Array.isArray(res.data) || res.data.length === 0) {
-          effectivePathsRef.current = []
-          setEffectivePaths([])
-          setEffectiveLabels([])
-          setEffectiveMultiRepo([], [])
-          return
+        if (det.status === 'success' && det.data?.type === 'git' && det.data?.isValid) {
+          paths.push(p)
+          labels.push(folder.name ?? p.split(/[/\\]/).filter(Boolean).pop() ?? p)
         }
-        const paths: string[] = []
-        const labels: string[] = []
-        for (const folder of res.data) {
-          const p = (folder.path ?? '').trim()
-          if (!p) continue
-          const det = await window.api.system.detect_version_control(p)
-          if (cancelled) return
-          if (det.status === 'success' && det.data?.type === 'git' && det.data?.isValid) {
-            paths.push(p)
-            labels.push(folder.name ?? p.split(/[/\\]/).filter(Boolean).pop() ?? p)
-          }
-        }
-        if (cancelled) return
-        const limit = 5
-        const truncated = paths.length > limit
-        const finalPaths = truncated ? paths.slice(0, limit) : paths
-        const finalLabels = truncated ? labels.slice(0, limit) : labels
-        effectivePathsRef.current = finalPaths
-        setEffectivePaths(finalPaths)
-        setEffectiveLabels(finalLabels)
-        setEffectiveMultiRepo(finalPaths, finalLabels)
-        if (truncated && !cancelled) {
-          toast.warning(t('settings.versioncontrol.multiRepoTooManyTruncated', 'Chỉ hiển thị tối đa 5 repo; các repo còn lại bị ẩn'))
-        }
-      })()
+      }
+      if (cancelled) return
+      const limit = 5
+      const truncated = paths.length > limit
+      const finalPaths = truncated ? paths.slice(0, limit) : paths
+      const finalLabels = truncated ? labels.slice(0, limit) : labels
+      effectivePathsRef.current = finalPaths
+      setEffectivePaths(finalPaths)
+      setEffectiveLabels(finalLabels)
+      setEffectiveMultiRepo(finalPaths, finalLabels)
+      if (truncated && !cancelled) {
+        toast.warning(t('settings.versioncontrol.multiRepoTooManyTruncated', 'Chỉ hiển thị tối đa 5 repo; các repo còn lại bị ẩn'))
+      }
+    })()
     return () => {
       cancelled = true
     }
@@ -241,13 +241,13 @@ export function MainPage() {
   // Sync multi-repo watch paths to main (byProject: paths from effectivePaths; else or empty → main uses sourceFolder)
   useEffect(() => {
     if (versionControlSystem !== 'git' || !multiRepoEnabled) {
-      window.api.configuration.setMultirepoWatchPaths([]).catch(() => { })
+      window.api.configuration.setMultirepoWatchPaths([]).catch(() => {})
       return
     }
     if (effectivePaths.length > 0) {
-      window.api.configuration.setMultirepoWatchPaths(effectivePaths).catch(() => { })
+      window.api.configuration.setMultirepoWatchPaths(effectivePaths).catch(() => {})
     } else {
-      window.api.configuration.setMultirepoWatchPaths([]).catch(() => { })
+      window.api.configuration.setMultirepoWatchPaths([]).catch(() => {})
     }
   }, [versionControlSystem, multiRepoEnabled, effectivePaths])
 

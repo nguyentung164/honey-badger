@@ -108,15 +108,11 @@ async function getHeadHash(cwd: string): Promise<string> {
 function buildBranchOptions(branches: { local?: { all?: string[] }; remote?: { all?: string[] } } | null): { value: string; label: string }[] {
   if (!branches) return []
   const local = (branches.local?.all || []).map(b => ({ value: b, label: `${b} (local)` }))
-  const remote = (branches.remote?.all || [])
-    .filter(b => !b.endsWith('/HEAD'))
-    .map(b => ({ value: b, label: `${b} (remote)` }))
+  const remote = (branches.remote?.all || []).filter(b => !b.endsWith('/HEAD')).map(b => ({ value: b, label: `${b} (remote)` }))
   return [...local, ...remote]
 }
 
-function buildLocalBranchOptions(
-  branches: { local?: { all?: string[] } } | null
-): { value: string; label: string }[] {
+function buildLocalBranchOptions(branches: { local?: { all?: string[] } } | null): { value: string; label: string }[] {
   if (!branches) return []
   return (branches.local?.all || []).map(b => ({ value: b, label: `${b} (local)` }))
 }
@@ -124,13 +120,7 @@ function buildLocalBranchOptions(
 export function GitCherryPickBranchesDialog({ open, onOpenChange, onComplete }: GitCherryPickBranchesDialogProps) {
   const { t } = useTranslation()
   const { sourceFolderList, loadSourceFolderConfig } = useSourceFolderStore()
-  const repos = useMemo(
-    () =>
-      sourceFolderList
-        .map(f => ({ path: (f.path ?? '').trim(), name: f.name ?? f.path ?? '' }))
-        .filter(f => !!f.path),
-    [sourceFolderList]
-  )
+  const repos = useMemo(() => sourceFolderList.map(f => ({ path: (f.path ?? '').trim(), name: f.name ?? f.path ?? '' })).filter(f => !!f.path), [sourceFolderList])
   const [reposLoading, setReposLoading] = useState(false)
   const [selectedRepo, setSelectedRepo] = useState<{ path: string; name: string } | null>(null)
   const sourceFolder = selectedRepo?.path
@@ -186,10 +176,7 @@ export function GitCherryPickBranchesDialog({ open, onOpenChange, onComplete }: 
     if (!sourceFolder) return
     setBranchesLoading(true)
     try {
-      const [brRes, stRes] = await Promise.all([
-        window.api.git.get_branches(sourceFolder),
-        window.api.git.status({ cwd: sourceFolder }),
-      ])
+      const [brRes, stRes] = await Promise.all([window.api.git.get_branches(sourceFolder), window.api.git.status({ cwd: sourceFolder })])
       if (brRes.status === 'success' && brRes.data) {
         setBranches(brRes.data)
         const cur = brRes.data.current || (stRes.status === 'success' && stRes.data?.current ? stRes.data.current : '') || ''
@@ -204,10 +191,7 @@ export function GitCherryPickBranchesDialog({ open, onOpenChange, onComplete }: 
         if (targetOpts.length > 0) {
           if (defaultMainOnNextBranchLoadRef.current) {
             defaultMainOnNextBranchLoadRef.current = false
-            const want =
-              (targetOpts.some(o => o.value === 'main') && 'main') ||
-              (targetOpts.some(o => o.value === 'master') && 'master') ||
-              null
+            const want = (targetOpts.some(o => o.value === 'main') && 'main') || (targetOpts.some(o => o.value === 'master') && 'master') || null
             if (want) {
               setTargetBranch(want)
             } else {
@@ -222,7 +206,7 @@ export function GitCherryPickBranchesDialog({ open, onOpenChange, onComplete }: 
         }
         if (sourceOpts.length > 0) {
           const firstOther = sourceOpts.find(o => o.value !== (cur || sourceOpts[0].value))
-          setSourceBranch(prev => (prev && sourceOpts.some(o => o.value === prev) ? prev : firstOther?.value ?? sourceOpts[0].value))
+          setSourceBranch(prev => (prev && sourceOpts.some(o => o.value === prev) ? prev : (firstOther?.value ?? sourceOpts[0].value)))
         } else {
           setSourceBranch(null)
         }
@@ -357,16 +341,7 @@ export function GitCherryPickBranchesDialog({ open, onOpenChange, onComplete }: 
   const loadMoreRight = useCallback(async () => {
     const target = targetBranch?.trim() ?? ''
     const source = sourceBranch?.trim() ?? ''
-    if (
-      !sourceFolder ||
-      !target ||
-      !source ||
-      target === source ||
-      !hasMoreRight ||
-      loadingMoreRight ||
-      logLoadingRight ||
-      loadMoreRightInFlight.current
-    ) {
+    if (!sourceFolder || !target || !source || target === source || !hasMoreRight || loadingMoreRight || logLoadingRight || loadMoreRightInFlight.current) {
       return
     }
     loadMoreRightInFlight.current = true
@@ -405,16 +380,7 @@ export function GitCherryPickBranchesDialog({ open, onOpenChange, onComplete }: 
       setLoadingMoreRight(false)
       loadMoreRightInFlight.current = false
     }
-  }, [
-    sourceFolder,
-    targetBranch,
-    sourceBranch,
-    rightFullLog,
-    hasMoreRight,
-    loadingMoreRight,
-    logLoadingRight,
-    rightLog.length,
-  ])
+  }, [sourceFolder, targetBranch, sourceBranch, rightFullLog, hasMoreRight, loadingMoreRight, logLoadingRight, rightLog.length])
 
   /**
    * Cùng ý nghĩa với icon load ở hai nhánh: tải lại list commit đang hiển thị
@@ -493,10 +459,7 @@ export function GitCherryPickBranchesDialog({ open, onOpenChange, onComplete }: 
         toast.error(t('git.cherryPickBranches.dirtyTree'))
         return
       }
-      const pr =
-        cur === b
-          ? await window.api.git.pull('origin', b, undefined, sourceFolder)
-          : await window.api.git.fetch_update_local_branch('origin', b, sourceFolder)
+      const pr = cur === b ? await window.api.git.pull('origin', b, undefined, sourceFolder) : await window.api.git.fetch_update_local_branch('origin', b, sourceFolder)
       if (pr.status !== 'success') {
         toast.error(pr.message || t('git.cherryPickBranches.pullError'))
         return
@@ -559,15 +522,7 @@ export function GitCherryPickBranchesDialog({ open, onOpenChange, onComplete }: 
 
   const handleRightScroll = useCallback(() => {
     const el = rightScrollRef.current
-    if (
-      !el ||
-      logLoadingRight ||
-      loadingMoreRight ||
-      !hasMoreRight ||
-      !targetBranch?.trim() ||
-      !sourceBranch?.trim() ||
-      targetBranch === sourceBranch
-    ) {
+    if (!el || logLoadingRight || loadingMoreRight || !hasMoreRight || !targetBranch?.trim() || !sourceBranch?.trim() || targetBranch === sourceBranch) {
       return
     }
     if (el.scrollHeight - (el.scrollTop + el.clientHeight) <= 80) {
@@ -669,11 +624,7 @@ export function GitCherryPickBranchesDialog({ open, onOpenChange, onComplete }: 
     const target = targetBranch ?? ''
     const source = sourceBranch ?? ''
     const prev = prevRightSeenRef.current
-    const onlyTargetChanged =
-      prev != null &&
-      prev.target !== target &&
-      prev.source === source &&
-      prev.full === rightFullLog
+    const onlyTargetChanged = prev != null && prev.target !== target && prev.source === source && prev.full === rightFullLog
 
     if (onlyTargetChanged) {
       if (target === source) {
@@ -995,11 +946,7 @@ export function GitCherryPickBranchesDialog({ open, onOpenChange, onComplete }: 
         onClick={() => void handlePullTarget()}
         aria-busy={refreshSide === 'leftPull'}
       >
-        {refreshSide === 'leftPull' ? (
-          <Loader2 className="h-4 w-4 animate-spin" aria-hidden />
-        ) : (
-          <Download className="h-4 w-4" aria-hidden />
-        )}
+        {refreshSide === 'leftPull' ? <Loader2 className="h-4 w-4 animate-spin" aria-hidden /> : <Download className="h-4 w-4" aria-hidden />}
       </Button>
       <Button
         type="button"
@@ -1025,11 +972,7 @@ export function GitCherryPickBranchesDialog({ open, onOpenChange, onComplete }: 
           onClick={() => void handlePushTarget()}
           aria-busy={refreshSide === 'leftPush'}
         >
-          {refreshSide === 'leftPush' ? (
-            <Loader2 className="h-4 w-4 animate-spin" aria-hidden />
-          ) : (
-            <Upload className="h-4 w-4" aria-hidden />
-          )}
+          {refreshSide === 'leftPush' ? <Loader2 className="h-4 w-4 animate-spin" aria-hidden /> : <Upload className="h-4 w-4" aria-hidden />}
         </Button>
       )}
     </div>
@@ -1053,285 +996,251 @@ export function GitCherryPickBranchesDialog({ open, onOpenChange, onComplete }: 
 
           <div className="flex min-h-0 flex-1 flex-col gap-3 overflow-hidden py-0">
             <div className="flex min-h-0 flex-1 flex-col gap-3 overflow-hidden">
-                {renderRepoPicker()}
-                {showConflictPanel && sourceFolder ? (
-                  <div className="shrink-0 space-y-2 rounded-md border bg-muted/30 p-2">
-                    <p className="text-sm font-medium">{t('git.cherryPickBranches.conflictPanelTitle')}</p>
-                    <GitConflictPanel
-                      sourceFolder={sourceFolder}
-                      onResolved={handleConflictResolved}
-                      onAbort={handleConflictAbort}
-                      compact
-                    />
-                  </div>
-                ) : null}
+              {renderRepoPicker()}
+              {showConflictPanel && sourceFolder ? (
+                <div className="shrink-0 space-y-2 rounded-md border bg-muted/30 p-2">
+                  <p className="text-sm font-medium">{t('git.cherryPickBranches.conflictPanelTitle')}</p>
+                  <GitConflictPanel sourceFolder={sourceFolder} onResolved={handleConflictResolved} onAbort={handleConflictAbort} compact />
+                </div>
+              ) : null}
 
-                <div className="grid shrink-0 grid-cols-1 items-start gap-3 md:grid-cols-2">
-                  <div className="flex min-h-0 flex-col gap-2">
-                    <div className="flex min-h-9 flex-wrap items-center justify-between gap-x-3 gap-y-1">
-                      <Label className="shrink-0 text-sm font-medium">{t('git.cherryPickBranches.targetBranch')}</Label>
-                      <div className="flex items-center gap-2">
-                        <Switch
-                          id="create-new-branch"
-                          checked={createNewBranch}
-                          onCheckedChange={v => {
-                            if (!v) {
-                              setNewBranchName('')
-                              setCreateNewBranch(false)
-                              defaultMainOnNextBranchLoadRef.current = false
-                              return
-                            }
-                            setCreateNewBranch(true)
+              <div className="grid shrink-0 grid-cols-1 items-start gap-3 md:grid-cols-2">
+                <div className="flex min-h-0 flex-col gap-2">
+                  <div className="flex min-h-9 flex-wrap items-center justify-between gap-x-3 gap-y-1">
+                    <Label className="shrink-0 text-sm font-medium">{t('git.cherryPickBranches.targetBranch')}</Label>
+                    <div className="flex items-center gap-2">
+                      <Switch
+                        id="create-new-branch"
+                        checked={createNewBranch}
+                        onCheckedChange={v => {
+                          if (!v) {
                             setNewBranchName('')
-                            defaultMainOnNextBranchLoadRef.current = true
-                            setRefreshSide('left')
-                            void (async () => {
-                              try {
-                                const fr = await window.api.git.fetch('origin', { prune: true }, sourceFolder)
-                                if (fr.status !== 'success') {
-                                  toast.error(fr.message || t('git.cherryPickBranches.refreshFetchError'))
-                                }
-                              } catch (e) {
-                                logger.error(e)
-                                toast.error(t('git.cherryPickBranches.refreshFetchError'))
-                              }
-                              await loadBranches()
-                              setRefreshSide(null)
-                            })()
-                          }}
-                          disabled={!sourceFolder || running || addingBranch}
-                        />
-                        <Label htmlFor="create-new-branch" className="cursor-pointer text-sm font-normal">
-                          {t('git.cherryPickBranches.createNewBranch')}
-                        </Label>
-                      </div>
-                    </div>
-                    {createNewBranch ? (
-                      <div className="flex min-w-0 flex-nowrap items-center gap-2 overflow-x-auto pb-0.5 [scrollbar-width:thin]">
-                        <Combobox
-                          className="min-w-0 flex-1"
-                          value={targetBranch ?? ''}
-                          onValueChange={setTargetBranch}
-                          disabled={branchesLoading || !!refreshSide || running || !sourceFolder || addingBranch}
-                          options={targetBranchOptions}
-                          placeholder={t('git.cherryPickBranches.branchPlaceholder')}
-                        />
-                        {renderTargetActionButtons()}
-                        <div className="flex min-w-0 flex-1 items-center gap-1.5">
-                          <GitBranch className="h-3.5 w-3.5 shrink-0 text-muted-foreground" aria-hidden />
-                          <Input
-                            className="h-9 min-w-0 flex-1 text-sm"
-                            placeholder={t('git.cherryPickBranches.newBranchNamePlaceholder')}
-                            value={newBranchName}
-                            onChange={e => setNewBranchName(e.target.value)}
-                            disabled={running || addingBranch}
-                            onKeyDown={e => {
-                              if (e.key === 'Enter') {
-                                e.preventDefault()
-                                void handleAddNewBranch()
-                              }
-                            }}
-                          />
-                        </div>
-                        <Button
-                          type="button"
-                          variant="secondary"
-                          size="sm"
-                          className="h-9 shrink-0"
-                          disabled={
-                            !sourceFolder ||
-                            running ||
-                            addingBranch ||
-                            branchesLoading ||
-                            !!refreshSide ||
-                            !newBranchName.trim() ||
-                            !isValidBranchName(newBranchName.trim()) ||
-                            !targetBranch?.trim()
+                            setCreateNewBranch(false)
+                            defaultMainOnNextBranchLoadRef.current = false
+                            return
                           }
-                          onClick={() => void handleAddNewBranch()}
-                        >
-                          {addingBranch ? <Loader2 className="h-4 w-4 animate-spin" /> : t('git.cherryPickBranches.addBranch')}
-                        </Button>
-                      </div>
-                    ) : (
-                      <div className="flex min-w-0 gap-2">
-                        <Combobox
-                          className="min-w-0 flex-1"
-                          value={targetBranch ?? ''}
-                          onValueChange={setTargetBranch}
-                          disabled={branchesLoading || !!refreshSide || running || !sourceFolder}
-                          options={targetBranchOptions}
-                          placeholder={t('git.cherryPickBranches.branchPlaceholder')}
-                        />
-                        {renderTargetActionButtons()}
-                      </div>
-                    )}
-                  </div>
-                  <div className="flex min-h-0 flex-col gap-2">
-                    <div className="flex min-h-9 flex-wrap items-center justify-between gap-x-3 gap-y-1">
-                      <Label className="shrink-0 text-sm font-medium">{t('git.cherryPickBranches.sourceBranch')}</Label>
-                      <div className="invisible flex items-center gap-2 pointer-events-none" aria-hidden>
-                        <div className="h-5 w-9" />
-                        <span className="whitespace-nowrap text-sm">.</span>
-                      </div>
+                          setCreateNewBranch(true)
+                          setNewBranchName('')
+                          defaultMainOnNextBranchLoadRef.current = true
+                          setRefreshSide('left')
+                          void (async () => {
+                            try {
+                              const fr = await window.api.git.fetch('origin', { prune: true }, sourceFolder)
+                              if (fr.status !== 'success') {
+                                toast.error(fr.message || t('git.cherryPickBranches.refreshFetchError'))
+                              }
+                            } catch (e) {
+                              logger.error(e)
+                              toast.error(t('git.cherryPickBranches.refreshFetchError'))
+                            }
+                            await loadBranches()
+                            setRefreshSide(null)
+                          })()
+                        }}
+                        disabled={!sourceFolder || running || addingBranch}
+                      />
+                      <Label htmlFor="create-new-branch" className="cursor-pointer text-sm font-normal">
+                        {t('git.cherryPickBranches.createNewBranch')}
+                      </Label>
                     </div>
-                    <div className="flex gap-2">
+                  </div>
+                  {createNewBranch ? (
+                    <div className="flex min-w-0 flex-nowrap items-center gap-2 overflow-x-auto pb-0.5 [scrollbar-width:thin]">
                       <Combobox
                         className="min-w-0 flex-1"
-                        value={sourceBranch ?? ''}
-                        onValueChange={setSourceBranch}
-                        disabled={branchesLoading || !!refreshSide || running}
-                        options={sourceBranchOptions}
+                        value={targetBranch ?? ''}
+                        onValueChange={setTargetBranch}
+                        disabled={branchesLoading || !!refreshSide || running || !sourceFolder || addingBranch}
+                        options={targetBranchOptions}
                         placeholder={t('git.cherryPickBranches.branchPlaceholder')}
                       />
+                      {renderTargetActionButtons()}
+                      <div className="flex min-w-0 flex-1 items-center gap-1.5">
+                        <GitBranch className="h-3.5 w-3.5 shrink-0 text-muted-foreground" aria-hidden />
+                        <Input
+                          className="h-9 min-w-0 flex-1 text-sm"
+                          placeholder={t('git.cherryPickBranches.newBranchNamePlaceholder')}
+                          value={newBranchName}
+                          onChange={e => setNewBranchName(e.target.value)}
+                          disabled={running || addingBranch}
+                          onKeyDown={e => {
+                            if (e.key === 'Enter') {
+                              e.preventDefault()
+                              void handleAddNewBranch()
+                            }
+                          }}
+                        />
+                      </div>
                       <Button
                         type="button"
-                        variant="outline"
-                        size="icon"
-                        className="h-9 w-9 shrink-0"
+                        variant="secondary"
+                        size="sm"
+                        className="h-9 shrink-0"
                         disabled={
                           !sourceFolder ||
+                          running ||
+                          addingBranch ||
                           branchesLoading ||
                           !!refreshSide ||
-                          !targetBranch?.trim() ||
-                          !sourceBranch?.trim() ||
-                          targetBranch === sourceBranch
+                          !newBranchName.trim() ||
+                          !isValidBranchName(newBranchName.trim()) ||
+                          !targetBranch?.trim()
                         }
-                        title={t('git.cherryPickBranches.refreshFetchTooltipSource')}
-                        aria-label={t('git.cherryPickBranches.refreshFetchTooltipSource')}
-                        onClick={() => void reloadSourceCommits()}
+                        onClick={() => void handleAddNewBranch()}
                       >
-                        <RefreshCw className={cn('h-4 w-4', refreshSide === 'right' && 'animate-spin')} />
+                        {addingBranch ? <Loader2 className="h-4 w-4 animate-spin" /> : t('git.cherryPickBranches.addBranch')}
                       </Button>
                     </div>
-                  </div>
+                  ) : (
+                    <div className="flex min-w-0 gap-2">
+                      <Combobox
+                        className="min-w-0 flex-1"
+                        value={targetBranch ?? ''}
+                        onValueChange={setTargetBranch}
+                        disabled={branchesLoading || !!refreshSide || running || !sourceFolder}
+                        options={targetBranchOptions}
+                        placeholder={t('git.cherryPickBranches.branchPlaceholder')}
+                      />
+                      {renderTargetActionButtons()}
+                    </div>
+                  )}
                 </div>
-
-                <div className="flex shrink-0 flex-wrap items-center justify-between gap-2">
-                  <div className="flex items-center gap-2">
-                    <Switch
-                      id="right-full-log"
-                      checked={rightFullLog}
-                      onCheckedChange={v => setRightFullLog(!!v)}
-                      disabled={!sourceBranch || !targetBranch || sameBranch}
+                <div className="flex min-h-0 flex-col gap-2">
+                  <div className="flex min-h-9 flex-wrap items-center justify-between gap-x-3 gap-y-1">
+                    <Label className="shrink-0 text-sm font-medium">{t('git.cherryPickBranches.sourceBranch')}</Label>
+                    <div className="invisible flex items-center gap-2 pointer-events-none" aria-hidden>
+                      <div className="h-5 w-9" />
+                      <span className="whitespace-nowrap text-sm">.</span>
+                    </div>
+                  </div>
+                  <div className="flex gap-2">
+                    <Combobox
+                      className="min-w-0 flex-1"
+                      value={sourceBranch ?? ''}
+                      onValueChange={setSourceBranch}
+                      disabled={branchesLoading || !!refreshSide || running}
+                      options={sourceBranchOptions}
+                      placeholder={t('git.cherryPickBranches.branchPlaceholder')}
                     />
-                    <Label htmlFor="right-full-log" className="text-sm font-normal cursor-pointer">
-                      {t('git.cherryPickBranches.fullRightLog')}
-                    </Label>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="icon"
+                      className="h-9 w-9 shrink-0"
+                      disabled={!sourceFolder || branchesLoading || !!refreshSide || !targetBranch?.trim() || !sourceBranch?.trim() || targetBranch === sourceBranch}
+                      title={t('git.cherryPickBranches.refreshFetchTooltipSource')}
+                      aria-label={t('git.cherryPickBranches.refreshFetchTooltipSource')}
+                      onClick={() => void reloadSourceCommits()}
+                    >
+                      <RefreshCw className={cn('h-4 w-4', refreshSide === 'right' && 'animate-spin')} />
+                    </Button>
                   </div>
-                  <span className="text-xs text-muted-foreground">
-                    {t('git.cherryPickBranches.maxCountHint', { count: MAX_LOG_COUNT })}
-                  </span>
                 </div>
-
-                <ResizablePanelGroup orientation="horizontal" className="min-h-0 flex-1 basis-0 overflow-hidden rounded-md border">
-                  <ResizablePanel defaultSize={50} minSize={25} className="flex min-h-0 min-w-0 flex-col overflow-hidden">
-                    <div className="shrink-0 border-b bg-muted/40 px-2 py-1.5 text-xs font-medium">{t('git.cherryPickBranches.panelTarget')}</div>
-                    <div
-                      ref={leftScrollRef}
-                      onScroll={handleLeftScroll}
-                      className="min-h-0 flex-1 overflow-y-auto overflow-x-hidden overscroll-y-contain"
-                    >
-                      {logLoadingLeft ? (
-                        <div className="flex justify-center py-8">
-                          <Loader2 className="h-6 w-6 animate-spin" />
-                        </div>
-                      ) : (
-                        <>
-                          <Table>
-                            <TableHeader sticky>
-                              <TableRow>
-                                <TableHead className="w-[100px] font-mono text-xs">{t('git.cherryPickBranches.colHash')}</TableHead>
-                                <TableHead>{t('git.cherryPickBranches.colMessage')}</TableHead>
-                                <TableHead className="w-[100px]">{t('git.cherryPickBranches.colAuthor')}</TableHead>
-                              </TableRow>
-                            </TableHeader>
-                            <TableBody>
-                              {leftLog.map((row, idx) => {
-                                const isHi = highlightLeft.has(row.hash)
-                                return (
-                                  <TableRow
-                                    key={row.hash}
-                                    data-cherry-pick-left-row={idx}
-                                    className={cn(isHi && 'bg-primary/15')}
-                                  >
-                                    <TableCell className="font-mono text-xs">{row.hash.slice(0, 7)}</TableCell>
-                                    <TableCell className="max-w-[200px] truncate" title={row.subject}>
-                                      {row.subject}
-                                    </TableCell>
-                                    <TableCell className="text-xs truncate">{row.author}</TableCell>
-                                  </TableRow>
-                                )
-                              })}
-                            </TableBody>
-                          </Table>
-                          {loadingMoreLeft && hasMoreLeft && (
-                            <div className="flex justify-center py-2">
-                              <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
-                            </div>
-                          )}
-                        </>
-                      )}
-                    </div>
-                  </ResizablePanel>
-                  <ResizableHandle withHandle={false} />
-                  <ResizablePanel defaultSize={50} minSize={25} className="flex min-h-0 min-w-0 flex-col overflow-hidden">
-                    <div className="shrink-0 border-b bg-muted/40 px-2 py-1.5 text-xs font-medium">{t('git.cherryPickBranches.panelSource')}</div>
-                    <div
-                      ref={rightScrollRef}
-                      onScroll={handleRightScroll}
-                      className="min-h-0 flex-1 overflow-y-auto overflow-x-hidden overscroll-y-contain"
-                    >
-                      {logLoadingRight ? (
-                        <div className="flex justify-center py-8">
-                          <Loader2 className="h-6 w-6 animate-spin" />
-                        </div>
-                      ) : sameBranch ? (
-                        <p className="p-4 text-sm text-muted-foreground">{t('git.cherryPickBranches.sameBranch')}</p>
-                      ) : (
-                        <>
-                          <Table>
-                            <TableHeader sticky>
-                              <TableRow>
-                                <TableHead className="w-[100px] font-mono text-xs">{t('git.cherryPickBranches.colHash')}</TableHead>
-                                <TableHead>{t('git.cherryPickBranches.colMessage')}</TableHead>
-                                <TableHead className="w-[100px]">{t('git.cherryPickBranches.colAuthor')}</TableHead>
-                              </TableRow>
-                            </TableHeader>
-                            <TableBody className="[&>tr[data-selected=true]]:!bg-primary/15 [&>tr[data-selected=true]]:hover:!bg-primary/10">
-                              {rightLog.map(row => {
-                                const sel = selectedRight.has(row.hash)
-                                return (
-                                  <TableRow
-                                    key={row.hash}
-                                    data-selected={sel ? 'true' : undefined}
-                                    className={cn(
-                                      'cursor-pointer',
-                                      sel && '!bg-primary/10 hover:!bg-primary/15'
-                                    )}
-                                    onClick={e => toggleSelectRight(e, row.hash)}
-                                  >
-                                    <TableCell className="font-mono text-xs">{row.hash.slice(0, 7)}</TableCell>
-                                    <TableCell className="max-w-[200px] truncate" title={row.subject}>
-                                      {row.subject}
-                                    </TableCell>
-                                    <TableCell className="text-xs truncate">{row.author}</TableCell>
-                                  </TableRow>
-                                )
-                              })}
-                            </TableBody>
-                          </Table>
-                          {loadingMoreRight && hasMoreRight && (
-                            <div className="flex justify-center py-2">
-                              <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
-                            </div>
-                          )}
-                        </>
-                      )}
-                    </div>
-                  </ResizablePanel>
-                </ResizablePanelGroup>
               </div>
+
+              <div className="flex shrink-0 flex-wrap items-center justify-between gap-2">
+                <div className="flex items-center gap-2">
+                  <Switch id="right-full-log" checked={rightFullLog} onCheckedChange={v => setRightFullLog(!!v)} disabled={!sourceBranch || !targetBranch || sameBranch} />
+                  <Label htmlFor="right-full-log" className="text-sm font-normal cursor-pointer">
+                    {t('git.cherryPickBranches.fullRightLog')}
+                  </Label>
+                </div>
+                <span className="text-xs text-muted-foreground">{t('git.cherryPickBranches.maxCountHint', { count: MAX_LOG_COUNT })}</span>
+              </div>
+
+              <ResizablePanelGroup orientation="horizontal" className="min-h-0 flex-1 basis-0 overflow-hidden rounded-md border">
+                <ResizablePanel defaultSize={50} minSize={25} className="flex min-h-0 min-w-0 flex-col overflow-hidden">
+                  <div className="shrink-0 border-b bg-muted/40 px-2 py-1.5 text-xs font-medium">{t('git.cherryPickBranches.panelTarget')}</div>
+                  <div ref={leftScrollRef} onScroll={handleLeftScroll} className="min-h-0 flex-1 overflow-y-auto overflow-x-hidden overscroll-y-contain">
+                    {logLoadingLeft ? (
+                      <div className="flex justify-center py-8">
+                        <Loader2 className="h-6 w-6 animate-spin" />
+                      </div>
+                    ) : (
+                      <>
+                        <Table>
+                          <TableHeader sticky>
+                            <TableRow>
+                              <TableHead className="w-[100px] font-mono text-xs">{t('git.cherryPickBranches.colHash')}</TableHead>
+                              <TableHead>{t('git.cherryPickBranches.colMessage')}</TableHead>
+                              <TableHead className="w-[100px]">{t('git.cherryPickBranches.colAuthor')}</TableHead>
+                            </TableRow>
+                          </TableHeader>
+                          <TableBody>
+                            {leftLog.map((row, idx) => {
+                              const isHi = highlightLeft.has(row.hash)
+                              return (
+                                <TableRow key={row.hash} data-cherry-pick-left-row={idx} className={cn(isHi && 'bg-primary/15')}>
+                                  <TableCell className="font-mono text-xs">{row.hash.slice(0, 7)}</TableCell>
+                                  <TableCell className="max-w-[200px] truncate" title={row.subject}>
+                                    {row.subject}
+                                  </TableCell>
+                                  <TableCell className="text-xs truncate">{row.author}</TableCell>
+                                </TableRow>
+                              )
+                            })}
+                          </TableBody>
+                        </Table>
+                        {loadingMoreLeft && hasMoreLeft && (
+                          <div className="flex justify-center py-2">
+                            <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
+                          </div>
+                        )}
+                      </>
+                    )}
+                  </div>
+                </ResizablePanel>
+                <ResizableHandle withHandle={false} />
+                <ResizablePanel defaultSize={50} minSize={25} className="flex min-h-0 min-w-0 flex-col overflow-hidden">
+                  <div className="shrink-0 border-b bg-muted/40 px-2 py-1.5 text-xs font-medium">{t('git.cherryPickBranches.panelSource')}</div>
+                  <div ref={rightScrollRef} onScroll={handleRightScroll} className="min-h-0 flex-1 overflow-y-auto overflow-x-hidden overscroll-y-contain">
+                    {logLoadingRight ? (
+                      <div className="flex justify-center py-8">
+                        <Loader2 className="h-6 w-6 animate-spin" />
+                      </div>
+                    ) : sameBranch ? (
+                      <p className="p-4 text-sm text-muted-foreground">{t('git.cherryPickBranches.sameBranch')}</p>
+                    ) : (
+                      <>
+                        <Table>
+                          <TableHeader sticky>
+                            <TableRow>
+                              <TableHead className="w-[100px] font-mono text-xs">{t('git.cherryPickBranches.colHash')}</TableHead>
+                              <TableHead>{t('git.cherryPickBranches.colMessage')}</TableHead>
+                              <TableHead className="w-[100px]">{t('git.cherryPickBranches.colAuthor')}</TableHead>
+                            </TableRow>
+                          </TableHeader>
+                          <TableBody className="[&>tr[data-selected=true]]:!bg-primary/15 [&>tr[data-selected=true]]:hover:!bg-primary/10">
+                            {rightLog.map(row => {
+                              const sel = selectedRight.has(row.hash)
+                              return (
+                                <TableRow
+                                  key={row.hash}
+                                  data-selected={sel ? 'true' : undefined}
+                                  className={cn('cursor-pointer', sel && '!bg-primary/10 hover:!bg-primary/15')}
+                                  onClick={e => toggleSelectRight(e, row.hash)}
+                                >
+                                  <TableCell className="font-mono text-xs">{row.hash.slice(0, 7)}</TableCell>
+                                  <TableCell className="max-w-[200px] truncate" title={row.subject}>
+                                    {row.subject}
+                                  </TableCell>
+                                  <TableCell className="text-xs truncate">{row.author}</TableCell>
+                                </TableRow>
+                              )
+                            })}
+                          </TableBody>
+                        </Table>
+                        {loadingMoreRight && hasMoreRight && (
+                          <div className="flex justify-center py-2">
+                            <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
+                          </div>
+                        )}
+                      </>
+                    )}
+                  </div>
+                </ResizablePanel>
+              </ResizablePanelGroup>
+            </div>
           </div>
 
           <DialogFooter className="shrink-0 sm:justify-end">
@@ -1351,10 +1260,12 @@ export function GitCherryPickBranchesDialog({ open, onOpenChange, onComplete }: 
             <AlertDialogTitle>{t('git.cherryPickBranches.confirmTitle')}</AlertDialogTitle>
             <AlertDialogDescription asChild>
               <div className="space-y-2 text-sm">
-                <p>{t('git.cherryPickBranches.confirmIntro', {
-                  target: (createNewBranch && newBranchNameTrimmed) ? `[new] ${newBranchNameTrimmed}` : (targetBranch ?? ''),
-                  source: sourceBranch ?? '',
-                })}</p>
+                <p>
+                  {t('git.cherryPickBranches.confirmIntro', {
+                    target: createNewBranch && newBranchNameTrimmed ? `[new] ${newBranchNameTrimmed}` : (targetBranch ?? ''),
+                    source: sourceBranch ?? '',
+                  })}
+                </p>
                 <ul className="list-disc pl-4 max-h-40 overflow-y-auto space-y-1">
                   {sortSelectedForPick(selectedRight).map(h => {
                     const row = rightLog.find(r => r.hash === h)

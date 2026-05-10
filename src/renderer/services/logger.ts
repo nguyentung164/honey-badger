@@ -119,7 +119,9 @@ class Logger {
     const styledPrefix = colorFn ? colorFn(prefix) : prefix
     const callerTag = caller ? chalk.bgHex(customColors.caller.background).hex(customColors.caller.text)(`[${caller}]`) : ''
     const ts = this.getTimestamp()
-    const line = callerTag ? `${ts}${Logger.SEP}${callerTag}${Logger.SEP}${styledPrefix}${Logger.SEP}${this.format(message)}` : `${ts}${Logger.SEP}${styledPrefix}${Logger.SEP}${this.format(message)}`
+    const line = callerTag
+      ? `${ts}${Logger.SEP}${callerTag}${Logger.SEP}${styledPrefix}${Logger.SEP}${this.format(message)}`
+      : `${ts}${Logger.SEP}${styledPrefix}${Logger.SEP}${this.format(message)}`
     console.log(line, ...optionalParams)
   }
 

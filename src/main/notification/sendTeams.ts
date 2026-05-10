@@ -1,10 +1,10 @@
-import path from 'node:path'
-import { randomUuidV7 } from 'shared/randomUuidV7'
 import os from 'node:os'
+import path from 'node:path'
 import axios from 'axios'
 import { app } from 'electron'
 import l from 'electron-log'
 import type { CommitInfo, SupportFeedback } from 'main/types/types'
+import { randomUuidV7 } from 'shared/randomUuidV7'
 import configurationStore from '../store/ConfigurationStore'
 import { uploadImagesToOneDrive } from '../utils/oneDriveUploader'
 

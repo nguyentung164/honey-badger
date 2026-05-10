@@ -3,6 +3,7 @@
 import { MoreVertical, Pencil, Trash2 } from 'lucide-react'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
+import { AddOrEditCodingRuleDialog } from '@/components/dialogs/settings/AddOrEditCodingRuleDialog'
 import {
   AlertDialog,
   AlertDialogAction,
@@ -15,12 +16,11 @@ import {
 } from '@/components/ui/alert-dialog'
 import { Button } from '@/components/ui/button'
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from '@/components/ui/dropdown-menu'
-import { TablePaginationBar } from '@/components/ui/table-pagination-bar'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
+import { TablePaginationBar } from '@/components/ui/table-pagination-bar'
 import toast from '@/components/ui-elements/Toast'
 import { useAppearanceStoreSelect } from '@/stores/useAppearanceStore'
 import { useTaskAuthStore } from '@/stores/useTaskAuthStore'
-import { AddOrEditCodingRuleDialog } from '@/components/dialogs/settings/AddOrEditCodingRuleDialog'
 
 interface RuleItem {
   id: string
@@ -44,7 +44,9 @@ export function CodingRulesTabContent({ triggerAddTimestamp = 0, onAddTriggered 
   const [loading, setLoading] = useState(true)
   const [addDialogOpen, setAddDialogOpen] = useState(false)
   const onAddTriggeredRef = useRef(onAddTriggered)
-  useEffect(() => { onAddTriggeredRef.current = onAddTriggered }, [onAddTriggered])
+  useEffect(() => {
+    onAddTriggeredRef.current = onAddTriggered
+  }, [onAddTriggered])
   useEffect(() => {
     if (triggerAddTimestamp > 0) {
       setRuleName('')
@@ -98,7 +100,9 @@ export function CodingRulesTabContent({ triggerAddTimestamp = 0, onAddTriggered 
       if (!cancelled) setLoading(false)
     }
     run()
-    return () => { cancelled = true }
+    return () => {
+      cancelled = true
+    }
   }, [loadRules, loadProjects])
 
   const handleAdd = useCallback(
@@ -158,11 +162,7 @@ export function CodingRulesTabContent({ triggerAddTimestamp = 0, onAddTriggered 
   }
 
   if (loading) {
-    return (
-      <div className="text-muted-foreground">
-        {t('common.loading', 'Đang tải...')}
-      </div>
-    )
+    return <div className="text-muted-foreground">{t('common.loading', 'Đang tải...')}</div>
   }
 
   return (
@@ -243,7 +243,10 @@ export function CodingRulesTabContent({ triggerAddTimestamp = 0, onAddTriggered 
       />
       <AddOrEditCodingRuleDialog
         open={editDialogOpen}
-        onOpenChange={open => { setEditDialogOpen(open); if (!open) setEditingRuleId(''); }}
+        onOpenChange={open => {
+          setEditDialogOpen(open)
+          if (!open) setEditingRuleId('')
+        }}
         isEditMode={true}
         ruleName={ruleName}
         ruleContent={ruleContent}

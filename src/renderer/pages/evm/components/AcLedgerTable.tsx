@@ -88,10 +88,7 @@ function AcRowEdit({
           <Combobox
             value={pct === '' ? '__empty__' : pct}
             onValueChange={v => setPct(v === '__empty__' ? '' : v)}
-            options={[
-              { value: '__empty__', label: '—' },
-              ...pctOptions.map((p: number) => ({ value: String(p), label: `${(p * 100).toFixed(0)}%` })),
-            ]}
+            options={[{ value: '__empty__', label: '—' }, ...pctOptions.map((p: number) => ({ value: String(p), label: `${(p * 100).toFixed(0)}%` }))]}
             size="sm"
           />
         </TableCell>
@@ -112,8 +109,7 @@ function AcRowEdit({
     )
   }
 
-  const pctLabel =
-    row.percentDone != null && Number.isFinite(row.percentDone) ? `${(row.percentDone * 100).toFixed(0)}%` : '—'
+  const pctLabel = row.percentDone != null && Number.isFinite(row.percentDone) ? `${(row.percentDone * 100).toFixed(0)}%` : '—'
 
   return (
     <TableRow>

@@ -1,5 +1,5 @@
 import { randomUuidV7 } from 'shared/randomUuidV7'
-import { hasDbConfig, query, validatedPgSchemaName } from './db'
+import { hasDbConfig, query, validatedPgSchemaName } from '../schema/db'
 
 const DEFAULT_UNREAD_LIMIT = 50
 let isReadColumnIsBoolean: boolean | null = null
@@ -53,19 +53,17 @@ async function detectIsReadColumnType(): Promise<boolean> {
  * Insert thông báo task vào DB (cho cross-machine polling).
  * @returns id của notification vừa tạo
  */
-export async function insertTaskNotification(
-  targetUserId: string,
-  type: TaskNotificationType,
-  title: string,
-  body: string,
-  taskId?: string | null
-): Promise<string> {
+export async function insertTaskNotification(targetUserId: string, type: TaskNotificationType, title: string, body: string, taskId?: string | null): Promise<string> {
   if (!hasDbConfig()) throw new Error('Task database not configured')
   const id = randomUuidV7()
-  await query(
-    `INSERT INTO task_notifications (id, target_user_id, type, title, body, task_id) VALUES (?, ?, ?, ?, ?, ?)`,
-    [id, targetUserId, type, title, body || '', taskId ?? null]
-  )
+  await query(`INSERT INTO task_notifications (id, target_user_id, type, title, body, task_id) VALUES (?, ?, ?, ?, ?, ?)`, [
+    id,
+    targetUserId,
+    type,
+    title,
+    body || '',
+    taskId ?? null,
+  ])
   return id
 }
 

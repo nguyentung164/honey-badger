@@ -92,12 +92,7 @@ export function ReportManagerPage() {
             </TabsList>
           </Tabs>
           <div className="shrink-0" style={{ WebkitAppRegion: 'no-drag' } as CSSProperties}>
-            <DateRangePickerPopover
-              dateRange={dateRange}
-              onDateRangeChange={setDateRange}
-              allTimeLabel={t('dailyReport.selectDateRange')}
-              confirmLabel={t('common.confirm')}
-            />
+            <DateRangePickerPopover dateRange={dateRange} onDateRangeChange={setDateRange} allTimeLabel={t('dailyReport.selectDateRange')} confirmLabel={t('common.confirm')} />
           </div>
           <div className="shrink-0 min-w-[120px] max-w-[180px]" style={{ WebkitAppRegion: 'no-drag' } as CSSProperties}>
             <Combobox
@@ -134,10 +129,18 @@ export function ReportManagerPage() {
         </div>
 
         <div className="flex items-center gap-1 shrink-0" style={{ WebkitAppRegion: 'no-drag' } as CSSProperties}>
-          <button type="button" onClick={() => handleWindow('minimize')} className="w-10 h-9 flex items-center justify-center hover:bg-[var(--hover-bg)] hover:text-[var(--hover-fg)]">
+          <button
+            type="button"
+            onClick={() => handleWindow('minimize')}
+            className="w-10 h-9 flex items-center justify-center hover:bg-[var(--hover-bg)] hover:text-[var(--hover-fg)]"
+          >
             <Minus size={15.5} strokeWidth={1} absoluteStrokeWidth />
           </button>
-          <button type="button" onClick={() => handleWindow('maximize')} className="w-10 h-9 flex items-center justify-center hover:bg-[var(--hover-bg)] hover:text-[var(--hover-fg)]">
+          <button
+            type="button"
+            onClick={() => handleWindow('maximize')}
+            className="w-10 h-9 flex items-center justify-center hover:bg-[var(--hover-bg)] hover:text-[var(--hover-fg)]"
+          >
             <Square size={14.5} strokeWidth={1} absoluteStrokeWidth />
           </button>
           <button type="button" onClick={() => handleWindow('close')} className="w-10 h-9 flex items-center justify-center hover:bg-red-600 hover:text-white">
@@ -149,13 +152,9 @@ export function ReportManagerPage() {
       {/* Content */}
       <div className="flex-1 min-h-0 overflow-hidden flex flex-col p-4">
         {!user ? (
-          <div className="flex flex-1 items-center justify-center text-muted-foreground text-sm">
-            {t('dailyReport.pleaseLogin')}
-          </div>
+          <div className="flex flex-1 items-center justify-center text-muted-foreground text-sm">{t('dailyReport.pleaseLogin')}</div>
         ) : !isPlOrAdmin ? (
-          <div className="flex flex-1 items-center justify-center text-muted-foreground text-sm">
-            {t('common.noPermission', 'Bạn không có quyền truy cập.')}
-          </div>
+          <div className="flex flex-1 items-center justify-center text-muted-foreground text-sm">{t('common.noPermission', 'Bạn không có quyền truy cập.')}</div>
         ) : (
           <Suspense
             fallback={
@@ -164,14 +163,7 @@ export function ReportManagerPage() {
               </div>
             }
           >
-            <PLReportList
-              activeTab={activeTab}
-              dateRange={dateRange}
-              projectId={selectedProjectId}
-              projects={projects}
-              refreshKey={refreshKey}
-              onOpenEditReport={() => { }}
-            />
+            <PLReportList activeTab={activeTab} dateRange={dateRange} projectId={selectedProjectId} projects={projects} refreshKey={refreshKey} onOpenEditReport={() => {}} />
           </Suspense>
         )}
       </div>

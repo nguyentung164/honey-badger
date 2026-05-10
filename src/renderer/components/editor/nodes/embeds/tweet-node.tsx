@@ -5,26 +5,13 @@
  * LICENSE file in the root directory of this source tree.
  *
  */
-import * as React from "react"
-import { JSX, useCallback, useEffect, useRef, useState } from "react"
-import { BlockWithAlignableContents } from "@lexical/react/LexicalBlockWithAlignableContents"
-import {
-  DecoratorBlockNode,
-  SerializedDecoratorBlockNode,
-} from "@lexical/react/LexicalDecoratorBlockNode"
-import type {
-  DOMConversionMap,
-  DOMConversionOutput,
-  DOMExportOutput,
-  EditorConfig,
-  ElementFormatType,
-  LexicalEditor,
-  LexicalNode,
-  NodeKey,
-  Spread,
-} from "lexical"
 
-const WIDGET_SCRIPT_URL = "https://platform.twitter.com/widgets.js"
+import { BlockWithAlignableContents } from '@lexical/react/LexicalBlockWithAlignableContents'
+import { DecoratorBlockNode, type SerializedDecoratorBlockNode } from '@lexical/react/LexicalDecoratorBlockNode'
+import type { DOMConversionMap, DOMConversionOutput, DOMExportOutput, EditorConfig, ElementFormatType, LexicalEditor, LexicalNode, NodeKey, Spread } from 'lexical'
+import { type JSX, useCallback, useEffect, useRef, useState } from 'react'
+
+const WIDGET_SCRIPT_URL = 'https://platform.twitter.com/widgets.js'
 
 type TweetComponentProps = Readonly<{
   className: Readonly<{
@@ -39,10 +26,8 @@ type TweetComponentProps = Readonly<{
   tweetID: string
 }>
 
-function $convertTweetElement(
-  domNode: HTMLDivElement
-): DOMConversionOutput | null {
-  const id = domNode.getAttribute("data-lexical-tweet-id")
+function $convertTweetElement(domNode: HTMLDivElement): DOMConversionOutput | null {
+  const id = domNode.getAttribute('data-lexical-tweet-id')
   if (id) {
     const node = $createTweetNode(id)
     return { node }
@@ -52,18 +37,10 @@ function $convertTweetElement(
 
 let isTwitterScriptLoading = true
 
-function TweetComponent({
-  className,
-  format,
-  loadingComponent,
-  nodeKey,
-  onError,
-  onLoad,
-  tweetID,
-}: TweetComponentProps) {
+function TweetComponent({ className, format, loadingComponent, nodeKey, onError, onLoad, tweetID }: TweetComponentProps) {
   const containerRef = useRef<HTMLDivElement | null>(null)
 
-  const previousTweetIDRef = useRef<string>("")
+  const previousTweetIDRef = useRef<string>('')
   const [isTweetLoading, setIsTweetLoading] = useState(false)
 
   const createTweet = useCallback(async () => {
@@ -89,7 +66,7 @@ function TweetComponent({
       setIsTweetLoading(true)
 
       if (isTwitterScriptLoading) {
-        const script = document.createElement("script")
+        const script = document.createElement('script')
         script.src = WIDGET_SCRIPT_URL
         script.async = true
         document.body?.appendChild(script)
@@ -108,16 +85,9 @@ function TweetComponent({
   }, [createTweet, onError, tweetID])
 
   return (
-    <BlockWithAlignableContents
-      className={className}
-      format={format}
-      nodeKey={nodeKey}
-    >
+    <BlockWithAlignableContents className={className} format={format} nodeKey={nodeKey}>
       {isTweetLoading ? loadingComponent : null}
-      <div
-        style={{ display: "inline-block", width: "550px" }}
-        ref={containerRef}
-      />
+      <div style={{ display: 'inline-block', width: '550px' }} ref={containerRef} />
     </BlockWithAlignableContents>
   )
 }
@@ -133,7 +103,7 @@ export class TweetNode extends DecoratorBlockNode {
   __id: string
 
   static getType(): string {
-    return "tweet"
+    return 'tweet'
   }
 
   static clone(node: TweetNode): TweetNode {
@@ -150,7 +120,7 @@ export class TweetNode extends DecoratorBlockNode {
     return {
       ...super.exportJSON(),
       id: this.getId(),
-      type: "tweet",
+      type: 'tweet',
       version: 1,
     }
   }
@@ -158,7 +128,7 @@ export class TweetNode extends DecoratorBlockNode {
   static importDOM(): DOMConversionMap<HTMLDivElement> | null {
     return {
       div: (domNode: HTMLDivElement) => {
-        if (!domNode.hasAttribute("data-lexical-tweet-id")) {
+        if (!domNode.hasAttribute('data-lexical-tweet-id')) {
           return null
         }
         return {
@@ -170,8 +140,8 @@ export class TweetNode extends DecoratorBlockNode {
   }
 
   exportDOM(): DOMExportOutput {
-    const element = document.createElement("div")
-    element.setAttribute("data-lexical-tweet-id", this.__id)
+    const element = document.createElement('div')
+    element.setAttribute('data-lexical-tweet-id', this.__id)
     const text = document.createTextNode(this.getTextContent())
     element.append(text)
     return { element }
@@ -195,21 +165,13 @@ export class TweetNode extends DecoratorBlockNode {
     return `https://x.com/i/web/status/${this.__id}`
   }
 
-  decorate(editor: LexicalEditor, config: EditorConfig): JSX.Element {
+  decorate(_editor: LexicalEditor, config: EditorConfig): JSX.Element {
     const embedBlockTheme = config.theme.embedBlock || {}
     const className = {
-      base: embedBlockTheme.base || "",
-      focus: embedBlockTheme.focus || "",
+      base: embedBlockTheme.base || '',
+      focus: embedBlockTheme.focus || '',
     }
-    return (
-      <TweetComponent
-        className={className}
-        format={this.__format}
-        loadingComponent="Loading..."
-        nodeKey={this.getKey()}
-        tweetID={this.__id}
-      />
-    )
+    return <TweetComponent className={className} format={this.__format} loadingComponent="Loading..." nodeKey={this.getKey()} tweetID={this.__id} />
   }
 }
 
@@ -217,8 +179,6 @@ export function $createTweetNode(tweetID: string): TweetNode {
   return new TweetNode(tweetID)
 }
 
-export function $isTweetNode(
-  node: TweetNode | LexicalNode | null | undefined
-): node is TweetNode {
+export function $isTweetNode(node: TweetNode | LexicalNode | null | undefined): node is TweetNode {
   return node instanceof TweetNode
 }

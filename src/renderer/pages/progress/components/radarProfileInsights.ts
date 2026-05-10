@@ -2,26 +2,13 @@
  * Heuristic "shape" labels for radar scores — coaching hints, not job ratings.
  */
 
-export type RadarProfileMetricKey =
-  | 'velocity'
-  | 'quality'
-  | 'reliability'
-  | 'delivery'
-  | 'collaboration'
-  | 'impact'
+export type RadarProfileMetricKey = 'velocity' | 'quality' | 'reliability' | 'delivery' | 'collaboration' | 'impact'
 
 /** Same shape as computeRadarScores() result */
 export type RadarProfileScores = Record<RadarProfileMetricKey, number>
 
 /** Fixed iteration order for averages, tie-breaks, and UI. */
-export const RADAR_METRIC_ORDER: RadarProfileMetricKey[] = [
-  'velocity',
-  'quality',
-  'reliability',
-  'delivery',
-  'collaboration',
-  'impact',
-]
+export const RADAR_METRIC_ORDER: RadarProfileMetricKey[] = ['velocity', 'quality', 'reliability', 'delivery', 'collaboration', 'impact']
 
 /** If max(score) − min(score) ≤ this, treat as a balanced radar */
 export const BALANCED_SPREAD_MAX = 15

@@ -4,10 +4,10 @@ import { useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Button } from '@/components/ui/button'
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog'
-import { useAppearanceStoreSelect } from '@/stores/useAppearanceStore'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Switch } from '@/components/ui/switch'
+import { useAppearanceStoreSelect } from '@/stores/useAppearanceStore'
 
 interface User {
   id: string
@@ -86,9 +86,7 @@ export function AddOrEditUserDialog({ open, onOpenChange, user, hasPlRole = fals
             <Input id="user-name" value={name} onChange={e => setName(e.target.value)} placeholder={t('taskManagement.userNamePlaceholder')} />
           </div>
           <div className="grid gap-2">
-            <Label htmlFor="user-email">
-              {isEdit ? t('taskManagement.userEmail') : t('taskManagement.userEmailRequired')}
-            </Label>
+            <Label htmlFor="user-email">{isEdit ? t('taskManagement.userEmail') : t('taskManagement.userEmailRequired')}</Label>
             <Input id="user-email" type="email" value={email} onChange={e => setEmail(e.target.value)} placeholder={t('taskManagement.userEmailPlaceholder')} />
           </div>
           {isEdit && hasPlRole && (
@@ -96,11 +94,7 @@ export function AddOrEditUserDialog({ open, onOpenChange, user, hasPlRole = fals
               <Label htmlFor="receive-commit-notification" className="cursor-pointer flex-1">
                 {t('taskManagement.receiveCommitNotification', 'Nhận thông báo commit qua email')}
               </Label>
-              <Switch
-                id="receive-commit-notification"
-                checked={receiveCommitNotification}
-                onCheckedChange={setReceiveCommitNotification}
-              />
+              <Switch id="receive-commit-notification" checked={receiveCommitNotification} onCheckedChange={setReceiveCommitNotification} />
             </div>
           )}
         </div>
@@ -108,11 +102,7 @@ export function AddOrEditUserDialog({ open, onOpenChange, user, hasPlRole = fals
           <Button variant={buttonVariant} onClick={() => onOpenChange(false)} disabled={isSubmitting}>
             {t('common.cancel')}
           </Button>
-          <Button
-            variant={buttonVariant}
-            onClick={handleSubmit}
-            disabled={!userCode.trim() || !name.trim() || (!isEdit && !email.trim()) || isSubmitting}
-          >
+          <Button variant={buttonVariant} onClick={handleSubmit} disabled={!userCode.trim() || !name.trim() || (!isEdit && !email.trim()) || isSubmitting}>
             {isSubmitting ? t('common.sending') : isEdit ? t('common.save') : t('taskManagement.addUser')}
           </Button>
         </DialogFooter>

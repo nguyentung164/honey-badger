@@ -6,7 +6,7 @@
  */
 
 import { readFileSync, writeFileSync } from 'node:fs'
-import { join, dirname } from 'node:path'
+import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 import { isPreservedI18nKey } from './i18nPreservedPrefixes'
@@ -39,10 +39,10 @@ function main() {
   const unusedPath = join(ROOT, 'unused-translation-keys.txt')
   const rawLines = readFileSync(unusedPath, 'utf-8')
     .split('\n')
-    .map((s) => s.trim())
-    .filter((s) => s.length > 0 && !s.startsWith('spotbugs.bugDescriptions'))
+    .map(s => s.trim())
+    .filter(s => s.length > 0 && !s.startsWith('spotbugs.bugDescriptions'))
 
-  const unusedKeys = rawLines.filter((k) => !isPreservedI18nKey(k))
+  const unusedKeys = rawLines.filter(k => !isPreservedI18nKey(k))
   const skipped = rawLines.length - unusedKeys.length
   if (skipped > 0) {
     console.log(`Skipping ${skipped} keys (dynamic/template — see i18nPreservedPrefixes.ts)`)
@@ -61,7 +61,7 @@ function main() {
     }
     console.log(`  ${locale}: removed ${removed} keys`)
 
-    writeFileSync(filePath, JSON.stringify(data, null, 2) + '\n', 'utf-8')
+    writeFileSync(filePath, `${JSON.stringify(data, null, 2)}\n`, 'utf-8')
   }
 
   console.log('Done.')

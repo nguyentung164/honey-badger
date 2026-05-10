@@ -1,5 +1,7 @@
-"use client"
+'use client'
 
+import { useLexicalComposerContext } from '@lexical/react/LexicalComposerContext'
+import { $getSelection, $isRangeSelection, $setSelection, FOCUS_COMMAND } from 'lexical'
 /**
  * Copyright (c) Meta Platforms, Inc. and affiliates.
  *
@@ -7,14 +9,7 @@
  * LICENSE file in the root directory of this source tree.
  *
  */
-import { useEffect } from "react"
-import { useLexicalComposerContext } from "@lexical/react/LexicalComposerContext"
-import {
-  $getSelection,
-  $isRangeSelection,
-  $setSelection,
-  FOCUS_COMMAND,
-} from "lexical"
+import { useEffect } from 'react'
 
 const COMMAND_PRIORITY_LOW = 1
 const TAB_TO_FOCUS_INTERVAL = 100
@@ -24,10 +19,10 @@ let hasRegisteredKeyDownListener = false
 
 function registerKeyTimeStampTracker() {
   window.addEventListener(
-    "keydown",
+    'keydown',
     (event: KeyboardEvent) => {
       // Tab
-      if (event.key === "Tab") {
+      if (event.key === 'Tab') {
         lastTabKeyDownTimestamp = event.timeStamp
       }
     },
@@ -49,10 +44,7 @@ export function TabFocusPlugin(): null {
       (event: FocusEvent) => {
         const selection = $getSelection()
         if ($isRangeSelection(selection)) {
-          if (
-            lastTabKeyDownTimestamp + TAB_TO_FOCUS_INTERVAL >
-            event.timeStamp
-          ) {
+          if (lastTabKeyDownTimestamp + TAB_TO_FOCUS_INTERVAL > event.timeStamp) {
             $setSelection(selection.clone())
           }
         }

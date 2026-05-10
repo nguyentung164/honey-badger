@@ -169,14 +169,9 @@ export function PLReportStatistics({ dateRange, projectId, projects }: PLReportS
     if (!stats) return null
     const byDate = stats.notReportedByDate
     const daysWithGaps = byDate ? byDate.filter(d => d.users.length > 0).length : null
-    const totalMisses = byDate
-      ? byDate.reduce((acc, d) => acc + d.users.length, 0)
-      : stats.notReportedDevs.length
+    const totalMisses = byDate ? byDate.reduce((acc, d) => acc + d.users.length, 0) : stats.notReportedDevs.length
     const missedWithData = stats.missedDaysStats.filter(m => m.missedDates.length > 0)
-    const worst =
-      missedWithData.length === 0
-        ? null
-        : [...missedWithData].sort((a, b) => b.missedDates.length - a.missedDates.length)[0]
+    const worst = missedWithData.length === 0 ? null : [...missedWithData].sort((a, b) => b.missedDates.length - a.missedDates.length)[0]
 
     let peakNotReportedDay: { date: string; count: number } | null = null
     if (byDate) {
@@ -224,37 +219,26 @@ export function PLReportStatistics({ dateRange, projectId, projects }: PLReportS
 
   const showStatsSearch = Boolean(
     stats &&
-    (stats.notReportedByDate?.some(d => d.users.length > 0) ||
-      (stats.notReportedByDate === undefined &&
-        (stats.reportedDevs.length > 0 || stats.notReportedDevs.length > 0)) ||
-      stats.missedDaysStats.some(m => m.missedDates.length > 0))
+      (stats.notReportedByDate?.some(d => d.users.length > 0) ||
+        (stats.notReportedByDate === undefined && (stats.reportedDevs.length > 0 || stats.notReportedDevs.length > 0)) ||
+        stats.missedDaysStats.some(m => m.missedDates.length > 0))
   )
 
   if (projects.length === 0) {
-    return (
-      <div className="flex flex-1 min-h-0 items-center justify-center px-4 py-8 text-center text-sm text-muted-foreground">
-        {t('dailyReport.noProjects')}
-      </div>
-    )
+    return <div className="flex flex-1 min-h-0 items-center justify-center px-4 py-8 text-center text-sm text-muted-foreground">{t('dailyReport.noProjects')}</div>
   }
 
   return (
     <div className="flex flex-1 min-h-0 flex-col gap-4 overflow-hidden">
       <div className="relative flex-1 min-h-0 overflow-hidden flex flex-col">
         {isLoading && (
-          <div
-            className="absolute inset-0 z-10 flex flex-col items-center justify-center gap-3 rounded-xl border-0 bg-background/90 backdrop-blur-sm"
-            aria-busy
-            aria-live="polite"
-          >
+          <div className="absolute inset-0 z-10 flex flex-col items-center justify-center gap-3 rounded-xl border-0 bg-background/90 backdrop-blur-sm" aria-busy aria-live="polite">
             <Loader2 className="h-9 w-9 animate-spin text-muted-foreground" />
             <span className="text-sm text-muted-foreground">{t('common.loading')}</span>
           </div>
         )}
         {!effectiveProjectId ? (
-          <div className="flex min-h-[12rem] items-center justify-center py-8 text-center text-sm text-muted-foreground">
-            {t('dailyReport.selectProjectToView')}
-          </div>
+          <div className="flex min-h-[12rem] items-center justify-center py-8 text-center text-sm text-muted-foreground">{t('dailyReport.selectProjectToView')}</div>
         ) : stats ? (
           <>
             <div className="shrink-0 space-y-4 pb-4">
@@ -263,14 +247,14 @@ export function PLReportStatistics({ dateRange, projectId, projects }: PLReportS
                 <h3 className="font-medium">
                   {stats.dateFrom && stats.dateTo
                     ? t('dailyReport.statsTitleRange', {
-                      dateFrom: formatStatsDateInput(stats.dateFrom, i18n.language),
-                      dateTo: formatStatsDateInput(stats.dateTo, i18n.language),
-                      project: stats.projectName ?? '',
-                    })
+                        dateFrom: formatStatsDateInput(stats.dateFrom, i18n.language),
+                        dateTo: formatStatsDateInput(stats.dateTo, i18n.language),
+                        project: stats.projectName ?? '',
+                      })
                     : t('dailyReport.statsTitle', {
-                      date: formatStatsDateInput(stats.reportDate, i18n.language),
-                      project: stats.projectName ?? '',
-                    })}
+                        date: formatStatsDateInput(stats.reportDate, i18n.language),
+                        project: stats.projectName ?? '',
+                      })}
                 </h3>
               </div>
 
@@ -278,9 +262,7 @@ export function PLReportStatistics({ dateRange, projectId, projects }: PLReportS
                 <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
                   <Card className="gap-0 py-0 shadow-sm">
                     <CardHeader className="p-3 pb-0">
-                      <CardTitle className="text-xs font-medium leading-snug text-muted-foreground">
-                        {t('dailyReport.statsSummaryDaysWithGaps')}
-                      </CardTitle>
+                      <CardTitle className="text-xs font-medium leading-snug text-muted-foreground">{t('dailyReport.statsSummaryDaysWithGaps')}</CardTitle>
                     </CardHeader>
                     <CardContent className="p-3 pt-1">
                       <p className="text-xl font-semibold tabular-nums tracking-tight">
@@ -290,9 +272,7 @@ export function PLReportStatistics({ dateRange, projectId, projects }: PLReportS
                   </Card>
                   <Card className="gap-0 py-0 shadow-sm">
                     <CardHeader className="p-3 pb-0">
-                      <CardTitle className="text-xs font-medium leading-snug text-muted-foreground">
-                        {t('dailyReport.statsSummaryTotalMisses')}
-                      </CardTitle>
+                      <CardTitle className="text-xs font-medium leading-snug text-muted-foreground">{t('dailyReport.statsSummaryTotalMisses')}</CardTitle>
                     </CardHeader>
                     <CardContent className="p-3 pt-1">
                       <p className="text-xl font-semibold tabular-nums tracking-tight">{summary.totalMisses}</p>
@@ -300,47 +280,30 @@ export function PLReportStatistics({ dateRange, projectId, projects }: PLReportS
                   </Card>
                   <Card className="gap-0 py-0 shadow-sm">
                     <CardHeader className="p-3 pb-0">
-                      <CardTitle className="text-xs font-medium leading-snug text-muted-foreground">
-                        {t('dailyReport.statsSummaryPeakNotReportedDay')}
-                      </CardTitle>
+                      <CardTitle className="text-xs font-medium leading-snug text-muted-foreground">{t('dailyReport.statsSummaryPeakNotReportedDay')}</CardTitle>
                     </CardHeader>
                     <CardContent className="p-3 pt-1">
                       {summary.peakNotReportedDay ? (
                         <>
                           <p className="text-base font-semibold tabular-nums leading-tight">
-                            {format(
-                              parseLocalDate(summary.peakNotReportedDay.date.slice(0, 10)) ??
-                                parseISO(summary.peakNotReportedDay.date),
-                              datePat
-                            )}
+                            {format(parseLocalDate(summary.peakNotReportedDay.date.slice(0, 10)) ?? parseISO(summary.peakNotReportedDay.date), datePat)}
                           </p>
-                          <p className="mt-1 text-xs text-muted-foreground">
-                            {t('dailyReport.statsExpandPeople', { count: summary.peakNotReportedDay.count })}
-                          </p>
+                          <p className="mt-1 text-xs text-muted-foreground">{t('dailyReport.statsExpandPeople', { count: summary.peakNotReportedDay.count })}</p>
                         </>
                       ) : (
-                        <p className="text-xl font-semibold tabular-nums tracking-tight">
-                          {summary.daysWithGaps === null
-                            ? t('dailyReport.statsSummaryNoDayBreakdown')
-                            : '—'}
-                        </p>
+                        <p className="text-xl font-semibold tabular-nums tracking-tight">{summary.daysWithGaps === null ? t('dailyReport.statsSummaryNoDayBreakdown') : '—'}</p>
                       )}
                     </CardContent>
                   </Card>
                   <Card className="gap-0 py-0 shadow-sm">
                     <CardHeader className="p-3 pb-0">
-                      <CardTitle className="text-xs font-medium leading-snug text-muted-foreground">
-                        {t('dailyReport.statsSummaryWorstDev')}
-                      </CardTitle>
+                      <CardTitle className="text-xs font-medium leading-snug text-muted-foreground">{t('dailyReport.statsSummaryWorstDev')}</CardTitle>
                     </CardHeader>
                     <CardContent className="p-3 pt-1">
                       <p className="text-sm font-semibold leading-snug">
                         {summary.worst ? (
                           <>
-                            {summary.worst.userName}{' '}
-                            <span className="font-normal text-muted-foreground">
-                              ({summary.worst.missedDates.length})
-                            </span>
+                            {summary.worst.userName} <span className="font-normal text-muted-foreground">({summary.worst.missedDates.length})</span>
                           </>
                         ) : (
                           '—'
@@ -385,13 +348,10 @@ export function PLReportStatistics({ dateRange, projectId, projects }: PLReportS
                   value={stats.totalDevs === 0 ? 0 : stats.reportRatePercent}
                   className={cn('h-2', stats.totalDevs === 0 && 'opacity-60')}
                   indicatorStyle={{
-                    backgroundColor:
-                      stats.totalDevs === 0 ? 'hsl(var(--muted-foreground) / 0.35)' : getRateColor(stats.reportRatePercent),
+                    backgroundColor: stats.totalDevs === 0 ? 'hsl(var(--muted-foreground) / 0.35)' : getRateColor(stats.reportRatePercent),
                   }}
                 />
-                <p className="text-xs text-muted-foreground">
-                  {t('dailyReport.devsReported', { reported: stats.reportedCount, total: stats.totalDevs })}
-                </p>
+                <p className="text-xs text-muted-foreground">{t('dailyReport.devsReported', { reported: stats.reportedCount, total: stats.totalDevs })}</p>
               </div>
             </div>
 
@@ -418,24 +378,18 @@ export function PLReportStatistics({ dateRange, projectId, projects }: PLReportS
                         <Card className="gap-0 py-0 shadow-sm">
                           <CardContent className="flex flex-col items-center gap-2 p-6 text-center">
                             <CheckCircle2 className="h-10 w-10 text-emerald-600 dark:text-emerald-400" aria-hidden />
-                            <p className="text-base font-semibold text-emerald-700 dark:text-emerald-400">
-                              {t('dailyReport.statsAllReportedTitle')}
-                            </p>
+                            <p className="text-base font-semibold text-emerald-700 dark:text-emerald-400">{t('dailyReport.statsAllReportedTitle')}</p>
                             <p className="max-w-md text-sm text-muted-foreground">{t('dailyReport.statsAllReportedHint')}</p>
                           </CardContent>
                         </Card>
                       ) : (
                         <Card className={cn(statsPanelCardClass, 'flex-1 shadow-sm')}>
                           <CardHeader className={statsPanelHeaderClass}>
-                            <CardTitle className={statsPanelTitleClass}>
-                              {t('dailyReport.reportedAndNotReportedByDate')}
-                            </CardTitle>
+                            <CardTitle className={statsPanelTitleClass}>{t('dailyReport.reportedAndNotReportedByDate')}</CardTitle>
                           </CardHeader>
                           <CardContent className="min-h-0 flex-1 overflow-auto p-0">
                             {filteredByDateDays.length === 0 ? (
-                              <p className="px-4 py-6 text-center text-sm text-muted-foreground">
-                                {t('dailyReport.statsNoSearchResults')}
-                              </p>
+                              <p className="px-4 py-6 text-center text-sm text-muted-foreground">{t('dailyReport.statsNoSearchResults')}</p>
                             ) : (
                               <div className="divide-y divide-border">
                                 {filteredByDateDays.map(day => {
@@ -444,9 +398,7 @@ export function PLReportStatistics({ dateRange, projectId, projects }: PLReportS
                                   return (
                                     <Collapsible key={day.date} className="group">
                                       <CollapsibleTrigger className="grid w-full grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-x-3 px-3 py-2.5 text-left text-sm transition-colors hover:bg-muted/40">
-                                        <span className="min-w-0 truncate font-medium whitespace-nowrap text-muted-foreground">
-                                          {displayDate}
-                                        </span>
+                                        <span className="min-w-0 truncate font-medium whitespace-nowrap text-muted-foreground">{displayDate}</span>
                                         <span className="shrink-0 tabular-nums text-right font-medium whitespace-nowrap text-amber-700 dark:text-amber-300">
                                           {t('dailyReport.statsExpandPeople', { count: day.users.length })}
                                         </span>
@@ -474,9 +426,7 @@ export function PLReportStatistics({ dateRange, projectId, projects }: PLReportS
                     <div className="grid min-h-0 flex-1 gap-4 md:grid-cols-2">
                       <Card className={cn(statsPanelCardClass, 'min-h-0 flex-1 shadow-sm')}>
                         <CardHeader className={statsPanelHeaderClass}>
-                          <CardTitle className={cn(statsPanelTitleClass, 'text-emerald-700 dark:text-emerald-400')}>
-                            {t('dailyReport.reported')}
-                          </CardTitle>
+                          <CardTitle className={cn(statsPanelTitleClass, 'text-emerald-700 dark:text-emerald-400')}>{t('dailyReport.reported')}</CardTitle>
                         </CardHeader>
                         <CardContent className="min-h-0 flex-1 overflow-auto p-3 pt-0">
                           {stats.reportedDevs.length === 0 ? (
@@ -494,17 +444,13 @@ export function PLReportStatistics({ dateRange, projectId, projects }: PLReportS
                       </Card>
                       <Card className={cn(statsPanelCardClass, 'min-h-0 flex-1 shadow-sm')}>
                         <CardHeader className={statsPanelHeaderClass}>
-                          <CardTitle className={cn(statsPanelTitleClass, 'text-amber-600 dark:text-amber-400')}>
-                            {t('dailyReport.notReported')}
-                          </CardTitle>
+                          <CardTitle className={cn(statsPanelTitleClass, 'text-amber-600 dark:text-amber-400')}>{t('dailyReport.notReported')}</CardTitle>
                         </CardHeader>
                         <CardContent className="min-h-0 flex-1 overflow-auto p-3 pt-0">
                           {stats.notReportedDevs.length === 0 ? (
                             <div className="flex flex-col items-center gap-2 py-2 text-center">
                               <CheckCircle2 className="h-8 w-8 text-emerald-600 dark:text-emerald-400" aria-hidden />
-                              <p className="text-base font-semibold text-emerald-700 dark:text-emerald-400">
-                                {t('dailyReport.allReported')}
-                              </p>
+                              <p className="text-base font-semibold text-emerald-700 dark:text-emerald-400">{t('dailyReport.allReported')}</p>
                               <p className="text-xs text-muted-foreground">{t('dailyReport.statsAllReportedHint')}</p>
                             </div>
                           ) : filteredNotReportedDevsLegacy.length === 0 ? (
@@ -527,9 +473,7 @@ export function PLReportStatistics({ dateRange, projectId, projects }: PLReportS
                     <Card className="gap-0 py-0 shadow-sm">
                       <CardContent className="flex flex-col items-center gap-2 p-6 text-center">
                         <CheckCircle2 className="h-10 w-10 text-emerald-600 dark:text-emerald-400" aria-hidden />
-                        <p className="text-base font-semibold text-emerald-700 dark:text-emerald-400">
-                          {t('dailyReport.noMissedReports')}
-                        </p>
+                        <p className="text-base font-semibold text-emerald-700 dark:text-emerald-400">{t('dailyReport.noMissedReports')}</p>
                         <p className="max-w-md text-sm text-muted-foreground">{t('dailyReport.noMissedReportsHint')}</p>
                       </CardContent>
                     </Card>
@@ -540,18 +484,13 @@ export function PLReportStatistics({ dateRange, projectId, projects }: PLReportS
                       </CardHeader>
                       <CardContent className="min-h-0 flex-1 overflow-auto p-0">
                         {filteredMissedStats.length === 0 ? (
-                          <p className="px-4 py-6 text-center text-sm text-muted-foreground">
-                            {t('dailyReport.statsNoSearchResults')}
-                          </p>
+                          <p className="px-4 py-6 text-center text-sm text-muted-foreground">{t('dailyReport.statsNoSearchResults')}</p>
                         ) : (
                           <div className="divide-y divide-border">
                             {filteredMissedStats.map(m => (
                               <Collapsible key={m.userId} className="group">
                                 <CollapsibleTrigger className="grid w-full grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-x-3 px-3 py-2.5 text-left text-sm transition-colors hover:bg-muted/40">
-                                  <span
-                                    className="min-w-0 truncate font-medium whitespace-nowrap text-muted-foreground"
-                                    title={`${m.userName} (${m.userCode})`}
-                                  >
+                                  <span className="min-w-0 truncate font-medium whitespace-nowrap text-muted-foreground" title={`${m.userName} (${m.userCode})`}>
                                     {m.userName} ({m.userCode})
                                   </span>
                                   <span className="shrink-0 tabular-nums text-right font-medium whitespace-nowrap text-amber-700 dark:text-amber-300">

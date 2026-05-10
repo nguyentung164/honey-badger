@@ -357,24 +357,24 @@ export function PrAiAssistSheet({ open, onOpenChange, projectId, userId, repos, 
     }
     let alive = true
     setPersistReady(false)
-      ; (async () => {
-        try {
-          const res = await window.api.pr.aiAssistChatGet(uid, pid)
-          if (!alive) return
-          if (res.status !== 'success') {
-            setLines([])
-            setPersistReady(false)
-            return
-          }
-          setLines(normalizeLoadedLines(res.data?.lines))
-          setPersistReady(true)
-        } catch {
-          if (alive) {
-            setLines([])
-            setPersistReady(false)
-          }
+    ;(async () => {
+      try {
+        const res = await window.api.pr.aiAssistChatGet(uid, pid)
+        if (!alive) return
+        if (res.status !== 'success') {
+          setLines([])
+          setPersistReady(false)
+          return
         }
-      })()
+        setLines(normalizeLoadedLines(res.data?.lines))
+        setPersistReady(true)
+      } catch {
+        if (alive) {
+          setLines([])
+          setPersistReady(false)
+        }
+      }
+    })()
     return () => {
       alive = false
     }

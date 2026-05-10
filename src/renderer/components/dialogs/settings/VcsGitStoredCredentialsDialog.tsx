@@ -29,10 +29,7 @@ interface VcsGitStoredCredentialsDialogProps {
   onOpenChange: (open: boolean) => void
 }
 
-export const VcsGitStoredCredentialsDialog = memo(function VcsGitStoredCredentialsDialog({
-  open,
-  onOpenChange,
-}: VcsGitStoredCredentialsDialogProps) {
+export const VcsGitStoredCredentialsDialog = memo(function VcsGitStoredCredentialsDialog({ open, onOpenChange }: VcsGitStoredCredentialsDialogProps) {
   const { t } = useTranslation()
   const [gitCredentials, setGitCredentials] = useState<GitCredential[]>([])
   const [loading, setLoading] = useState(false)

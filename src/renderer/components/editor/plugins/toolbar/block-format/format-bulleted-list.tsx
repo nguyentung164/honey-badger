@@ -1,12 +1,12 @@
-import { INSERT_UNORDERED_LIST_COMMAND } from "@lexical/list"
-import { $setBlocksType } from "@lexical/selection"
-import { $createParagraphNode, $getSelection, $isRangeSelection } from "lexical"
+import { INSERT_UNORDERED_LIST_COMMAND } from '@lexical/list'
+import { $setBlocksType } from '@lexical/selection'
+import { $createParagraphNode, $getSelection, $isRangeSelection } from 'lexical'
 
-import { useToolbarContext } from "@/components/editor/context/toolbar-context"
-import { blockTypeToBlockName } from "@/components/editor/plugins/toolbar/block-format/block-format-data"
-import { SelectItem } from "@/components/ui/select"
+import { useToolbarContext } from '@/components/editor/context/toolbar-context'
+import { blockTypeToBlockName } from '@/components/editor/plugins/toolbar/block-format/block-format-data'
+import { SelectItem } from '@/components/ui/select'
 
-const BLOCK_FORMAT_VALUE = "bullet"
+const BLOCK_FORMAT_VALUE = 'bullet'
 
 export function FormatBulletedList() {
   const { activeEditor, blockType } = useToolbarContext()
@@ -21,7 +21,7 @@ export function FormatBulletedList() {
   }
 
   const formatBulletedList = () => {
-    if (blockType !== "bullet") {
+    if (blockType !== 'bullet') {
       activeEditor.dispatchCommand(INSERT_UNORDERED_LIST_COMMAND, undefined)
     } else {
       formatParagraph()

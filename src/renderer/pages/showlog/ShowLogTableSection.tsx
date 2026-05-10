@@ -11,8 +11,8 @@ import { Combobox } from '@/components/ui/combobox'
 import { ContextMenu, ContextMenuContent, ContextMenuItem, ContextMenuSub, ContextMenuSubContent, ContextMenuSubTrigger, ContextMenuTrigger } from '@/components/ui/context-menu'
 import { Input } from '@/components/ui/input'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
-import { DEFAULT_TABLE_PAGE_SIZE_OPTIONS, TablePaginationBar } from '@/components/ui/table-pagination-bar'
 import { TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
+import { DEFAULT_TABLE_PAGE_SIZE_OPTIONS, TablePaginationBar } from '@/components/ui/table-pagination-bar'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import { STATUS_ICON } from '@/components/ui-elements/StatusIcon'
 import { cn } from '@/lib/utils'
@@ -309,9 +309,7 @@ export const ShowLogTableSection = memo(function ShowLogTableSection({
           )}
         </div>
       </div>
-      {isLoading && filteredLogData.length === 0 && (
-        <div className="flex shrink-0 items-center pt-2 px-1 text-sm text-muted-foreground">Loading...</div>
-      )}
+      {isLoading && filteredLogData.length === 0 && <div className="flex shrink-0 items-center pt-2 px-1 text-sm text-muted-foreground">Loading...</div>}
       {!isLoading && filteredLogData.length > 0 && (
         <TablePaginationBar
           className="pt-2"

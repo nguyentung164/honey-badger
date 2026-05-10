@@ -239,10 +239,7 @@ function StreamLogViewer({
             )
           case 'section':
             return (
-              <div
-                key={i}
-                className="flex items-center gap-2 py-1.5 mt-1 first:mt-0 border-b border-border/60 text-foreground font-medium"
-              >
+              <div key={i} className="flex items-center gap-2 py-1.5 mt-1 first:mt-0 border-b border-border/60 text-foreground font-medium">
                 <Tag className="w-4 h-4 shrink-0 text-primary" />
                 <span className="font-mono text-xs tracking-tight">{parsed.text}</span>
               </div>
@@ -331,7 +328,7 @@ export function VcsOperationLogDialog({
           setFetchedDetails({ url: d.url, branch: d.branch, revision: d.revision })
         }
       })
-      .catch(() => { })
+      .catch(() => {})
     return () => {
       cancelled = true
     }
@@ -343,11 +340,7 @@ export function VcsOperationLogDialog({
     }
   }, [operationStatus, isStreaming])
 
-  const displayCompletedAt = completedAtProp
-    ? typeof completedAtProp === 'string'
-      ? completedAtProp
-      : completedAtProp.toISOString()
-    : completedAt
+  const displayCompletedAt = completedAtProp ? (typeof completedAtProp === 'string' ? completedAtProp : completedAtProp.toISOString()) : completedAt
 
   useEffect(() => {
     if (streamingLog && logScrollRef.current) {
@@ -445,7 +438,9 @@ export function VcsOperationLogDialog({
                       <FolderOpen className="h-3.5 w-3.5 shrink-0" />
                       {t('dialog.updateResult.folder')}
                     </span>
-                    <span className="font-mono truncate min-w-0" title={folderPath}>{folderPath}</span>
+                    <span className="font-mono truncate min-w-0" title={folderPath}>
+                      {folderPath}
+                    </span>
                   </>
                 )}
                 {effectiveRepoUrl && (
@@ -454,14 +449,14 @@ export function VcsOperationLogDialog({
                       <ExternalLink className="h-3.5 w-3.5 shrink-0" />
                       {t('dialog.updateResult.repository')}
                     </span>
-                    <span className="font-mono truncate min-w-0" title={effectiveRepoUrl}>{effectiveRepoUrl}</span>
+                    <span className="font-mono truncate min-w-0" title={effectiveRepoUrl}>
+                      {effectiveRepoUrl}
+                    </span>
                   </>
                 )}
                 {vcsType === 'git' && effectiveBranch && (
                   <>
-                    <span className="flex items-center gap-1.5 text-muted-foreground shrink-0 min-w-0">
-                      {t('dialog.updateResult.branch')}
-                    </span>
+                    <span className="flex items-center gap-1.5 text-muted-foreground shrink-0 min-w-0">{t('dialog.updateResult.branch')}</span>
                     <span className="text-[10px] text-blue-600 dark:text-blue-400 bg-blue-50 dark:bg-blue-900/30 px-1.5 py-0.5 rounded flex items-center gap-0.5 w-fit font-mono">
                       <GitBranch className="h-2.5 w-2.5 shrink-0" />
                       {effectiveBranch}

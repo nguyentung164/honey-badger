@@ -34,8 +34,7 @@ export function registerSvnIpcHandlers() {
   ipcMain.handle(IPC.SVN.INFO_WITH_STREAM, async (event, filePath: string) => await info(filePath, event.sender))
   ipcMain.handle(
     IPC.SVN.CAT,
-    async (_event, filePath: string, fileStatus: string, revision?: string, options?: { cwd?: string }) =>
-      await cat(filePath, fileStatus, revision, options?.cwd)
+    async (_event, filePath: string, fileStatus: string, revision?: string, options?: { cwd?: string }) => await cat(filePath, fileStatus, revision, options?.cwd)
   )
   ipcMain.handle(IPC.SVN.BLAME, async (_event, filePath: string) => await blame(filePath))
   ipcMain.handle(IPC.SVN.REVERT, async (_event, filePath: string | string[]) => await revert(filePath))

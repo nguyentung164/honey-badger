@@ -9,10 +9,10 @@ import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle }
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import toast from '@/components/ui-elements/Toast'
-import i18n from '@/lib/i18n'
 import { formatDateDisplay } from '@/lib/dateUtils'
-import { useAppearanceStoreSelect } from '@/stores/useAppearanceStore'
+import i18n from '@/lib/i18n'
 import logger from '@/services/logger'
+import { useAppearanceStoreSelect } from '@/stores/useAppearanceStore'
 import { Badge } from '../../ui/badge'
 import { ChartContainer, ChartLegend, ChartLegendContent, ChartTooltip, ChartTooltipContent } from '../../ui/chart'
 import { Checkbox } from '../../ui/checkbox'
@@ -446,14 +446,7 @@ export function StatisticDialog({ isOpen, onOpenChange, filePath, sourceFolderPa
                             <BarChart accessibilityLayer layout="vertical" data={processedTotalDateData} margin={{ top: 25, right: 30, left: 50, bottom: 5 }}>
                               <CartesianGrid strokeDasharray="3 3" />
                               <XAxis type="number" dataKey="count" />
-                              <YAxis
-                                dataKey="date"
-                                type="category"
-                                tickLine={false}
-                                axisLine={false}
-                                width={80}
-                                tickFormatter={formatChartDateTick}
-                              />
+                              <YAxis dataKey="date" type="category" tickLine={false} axisLine={false} width={80} tickFormatter={formatChartDateTick} />
                               <ChartTooltip labelFormatter={formatChartDateTick} content={<ChartTooltipContent hideLabel />} />
                               <ChartLegend content={<ChartLegendContent payload={undefined} />} />
                               <Bar dataKey="count" fill="var(--chart-1)" radius={8}>

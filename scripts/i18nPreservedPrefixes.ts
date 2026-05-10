@@ -25,5 +25,5 @@ export const I18N_PRESERVED_PREFIXES = [
 export function isPreservedI18nKey(key: string): boolean {
   const k = key.trim()
   if (!k || k.endsWith('.')) return true
-  return I18N_PRESERVED_PREFIXES.some((p) => k === p || k.startsWith(p))
+  return I18N_PRESERVED_PREFIXES.some(p => k === p || k.startsWith(p))
 }

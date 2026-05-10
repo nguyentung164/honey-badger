@@ -1,8 +1,6 @@
 'use client'
 
 import { format, parseISO } from 'date-fns'
-import i18n from '@/lib/i18n'
-import { formatDateDisplay, getDateTimeWithSecondsDisplayPattern, parseLocalDate } from '@/lib/dateUtils'
 import { File, Loader2, X } from 'lucide-react'
 import type React from 'react'
 import { useCallback, useEffect, useState } from 'react'
@@ -13,6 +11,8 @@ import { ScrollArea } from '@/components/ui/scroll-area'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import { STATUS_ICON } from '@/components/ui-elements/StatusIcon'
 import toast from '@/components/ui-elements/Toast'
+import { formatDateDisplay, getDateTimeWithSecondsDisplayPattern, parseLocalDate } from '@/lib/dateUtils'
+import i18n from '@/lib/i18n'
 import { cn } from '@/lib/utils'
 
 interface SelectedCommit {
@@ -77,15 +77,7 @@ function getStatusCounts(files: { filePath: string; status: string }[]): Map<str
   return counts
 }
 
-function StatusIconsWithCount({
-  files,
-  vcsType,
-  className,
-}: {
-  files: { filePath: string; status: string }[]
-  vcsType: string | null
-  className?: string
-}) {
+function StatusIconsWithCount({ files, vcsType, className }: { files: { filePath: string; status: string }[]; vcsType: string | null; className?: string }) {
   const { t } = useTranslation()
   const counts = getStatusCounts(files)
   const isGit = vcsType === 'git'
@@ -106,7 +98,9 @@ function StatusIconsWithCount({
                 <span className="text-xs">({count})</span>
               </span>
             </TooltipTrigger>
-            <TooltipContent>{label} ({count})</TooltipContent>
+            <TooltipContent>
+              {label} ({count})
+            </TooltipContent>
           </Tooltip>
         )
       })}
@@ -114,26 +108,15 @@ function StatusIconsWithCount({
   )
 }
 
-function CommitDetailDialog({
-  commit,
-  vcsType,
-  onClose,
-}: {
-  commit: SelectedCommit
-  vcsType: string | null
-  onClose: () => void
-}) {
+function CommitDetailDialog({ commit, vcsType, onClose }: { commit: SelectedCommit; vcsType: string | null; onClose: () => void }) {
   const { t } = useTranslation()
 
   return (
     <div className="fixed inset-0 z-[10000] flex items-center justify-center bg-black/50 p-4" onClick={onClose}>
-      <div
-        className="bg-background border rounded-lg shadow-lg max-w-xl w-full max-h-[80vh] flex flex-col overflow-hidden"
-        onClick={e => e.stopPropagation()}
-      >
+      <div className="bg-background border rounded-lg shadow-lg max-w-xl w-full max-h-[80vh] flex flex-col overflow-hidden" onClick={e => e.stopPropagation()}>
         <div className="flex items-center justify-between px-4 py-3 border-b shrink-0">
           <h3 className="text-base font-semibold font-mono truncate" title={commit.revision}>
-            {commit.revision.length > 12 ? commit.revision.substring(0, 12) + '...' : commit.revision}
+            {commit.revision.length > 12 ? `${commit.revision.substring(0, 12)}...` : commit.revision}
           </h3>
           <Button variant="ghost" size="icon" className="h-8 w-8 shrink-0" onClick={onClose}>
             <X className="h-4 w-4" />
@@ -154,18 +137,18 @@ function CommitDetailDialog({
                 </h4>
                 <div className="max-h-[180px] rounded-md border overflow-y-auto text-left">
                   <div className="space-y-1.5 p-3 text-left">
-                  {commit.files.map((f, j) => {
-                    const Icon = (STATUS_ICON as Record<string, React.ElementType>)[f.status?.trim() || '?'] ?? File
-                    const isGit = vcsType === 'git'
-                    const colorMap = isGit ? GIT_STATUS_COLOR_CLASS_MAP : STATUS_COLOR_CLASS_MAP
-                    const colorClass = (colorMap as Record<string, string>)[f.status?.trim() || '?'] ?? 'text-muted-foreground'
-                    return (
-                      <div key={j} className="flex items-center gap-2 text-sm">
-                        <Icon strokeWidth={1.5} className={cn('w-4 h-4 shrink-0', colorClass)} />
-                        <span className="break-all">{f.filePath}</span>
-                      </div>
-                    )
-                  })}
+                    {commit.files.map((f, j) => {
+                      const Icon = (STATUS_ICON as Record<string, React.ElementType>)[f.status?.trim() || '?'] ?? File
+                      const isGit = vcsType === 'git'
+                      const colorMap = isGit ? GIT_STATUS_COLOR_CLASS_MAP : STATUS_COLOR_CLASS_MAP
+                      const colorClass = (colorMap as Record<string, string>)[f.status?.trim() || '?'] ?? 'text-muted-foreground'
+                      return (
+                        <div key={j} className="flex items-center gap-2 text-sm">
+                          <Icon strokeWidth={1.5} className={cn('w-4 h-4 shrink-0', colorClass)} />
+                          <span className="break-all">{f.filePath}</span>
+                        </div>
+                      )
+                    })}
                   </div>
                 </div>
               </div>
@@ -217,7 +200,7 @@ export function PLReportDetail({ open, onOpenChange, userId, reportDate }: PLRep
     let cancelled = false
     const load = async () => {
       try {
-        const ids = detail.projectIds && detail.projectIds.length > 0 ? detail.projectIds : (detail.projectId ? [detail.projectId] : [])
+        const ids = detail.projectIds && detail.projectIds.length > 0 ? detail.projectIds : detail.projectId ? [detail.projectId] : []
         if (ids.length > 0) {
           const res = await window.api.task.getSourceFoldersByProjects(ids)
           if (cancelled) return
@@ -233,28 +216,27 @@ export function PLReportDetail({ open, onOpenChange, userId, reportDate }: PLRep
       }
     }
     load()
-    return () => { cancelled = true }
+    return () => {
+      cancelled = true
+    }
   }, [detail?.id, detail?.projectId, detail?.projectIds])
 
-  const getFolderName = useCallback((path: string) => {
-    const byList = detailFolderList.find(f => f.path === path)?.name
-    if (byList) return byList
-    const segment = path.split(/[/\\]/).filter(Boolean).pop()
-    return segment || path
-  }, [detailFolderList])
+  const getFolderName = useCallback(
+    (path: string) => {
+      const byList = detailFolderList.find(f => f.path === path)?.name
+      if (byList) return byList
+      const segment = path.split(/[/\\]/).filter(Boolean).pop()
+      return segment || path
+    },
+    [detailFolderList]
+  )
 
   if (!open) return null
 
   return (
     <>
-      <div
-        className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/50 p-4"
-        onClick={() => onOpenChange(false)}
-      >
-        <div
-          className="bg-background border rounded-lg shadow-lg max-w-2xl w-full max-h-[85vh] flex flex-col overflow-hidden"
-          onClick={e => e.stopPropagation()}
-        >
+      <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/50 p-4" onClick={() => onOpenChange(false)}>
+        <div className="bg-background border rounded-lg shadow-lg max-w-2xl w-full max-h-[85vh] flex flex-col overflow-hidden" onClick={e => e.stopPropagation()}>
           <div className="flex items-center justify-between px-4 py-3 border-b shrink-0">
             <h2 className="text-lg font-semibold">
               {t('dailyReport.reportDetailWithDate', {
@@ -293,11 +275,7 @@ export function PLReportDetail({ open, onOpenChange, userId, reportDate }: PLRep
                         <h4 className="text-sm font-medium text-muted-foreground mb-1.5">{t('dailyReport.sourceFolderLabel')}</h4>
                         <div className="flex flex-wrap gap-1.5">
                           {tags.map(tg => (
-                            <span
-                              key={tg.key}
-                              className="inline-flex items-center rounded-md bg-muted px-2.5 py-1 text-xs font-medium text-foreground"
-                              title={tg.title}
-                            >
+                            <span key={tg.key} className="inline-flex items-center rounded-md bg-muted px-2.5 py-1 text-xs font-medium text-foreground" title={tg.title}>
                               {tg.label}
                             </span>
                           ))}
@@ -313,9 +291,7 @@ export function PLReportDetail({ open, onOpenChange, userId, reportDate }: PLRep
                   </div>
                   {detail.selectedCommits && detail.selectedCommits.length > 0 && (
                     <div>
-                      <h4 className="text-sm font-medium text-muted-foreground mb-2">
-                        {t('dailyReport.reportedCommits', { count: detail.selectedCommits.length })}
-                      </h4>
+                      <h4 className="text-sm font-medium text-muted-foreground mb-2">{t('dailyReport.reportedCommits', { count: detail.selectedCommits.length })}</h4>
                       <ScrollArea className="h-[280px] border rounded-md overflow-y-auto">
                         <div className="p-4 space-y-2">
                           {detail.selectedCommits.map(c => (
@@ -327,13 +303,18 @@ export function PLReportDetail({ open, onOpenChange, userId, reportDate }: PLRep
                               <div className="flex items-center justify-between gap-2 text-sm">
                                 <div className="flex items-center gap-2 min-w-0 flex-1">
                                   {getSourceBadgeLabel(c, getFolderName) ? (
-                                    <span className="inline-flex items-center rounded-md bg-primary/10 px-2.5 py-1 text-xs font-medium text-primary shrink-0" title={getSourceBadgeLabel(c, getFolderName)}>{getSourceBadgeLabel(c, getFolderName)}</span>
+                                    <span
+                                      className="inline-flex items-center rounded-md bg-primary/10 px-2.5 py-1 text-xs font-medium text-primary shrink-0"
+                                      title={getSourceBadgeLabel(c, getFolderName)}
+                                    >
+                                      {getSourceBadgeLabel(c, getFolderName)}
+                                    </span>
                                   ) : (
-                                    <span className="font-mono text-primary text-xs shrink-0" title={c.revision}>{c.revision.length > 8 ? c.revision.substring(0, 8) : c.revision}</span>
+                                    <span className="font-mono text-primary text-xs shrink-0" title={c.revision}>
+                                      {c.revision.length > 8 ? c.revision.substring(0, 8) : c.revision}
+                                    </span>
                                   )}
-                                  {c.files && c.files.length > 0 && (
-                                    <StatusIconsWithCount files={c.files} vcsType={c.vcsType ?? detail.vcsType} className="shrink-0" />
-                                  )}
+                                  {c.files && c.files.length > 0 && <StatusIconsWithCount files={c.files} vcsType={c.vcsType ?? detail.vcsType} className="shrink-0" />}
                                 </div>
                                 <span className="text-muted-foreground text-xs shrink-0">{formatCommitDate(c.date)}</span>
                               </div>
@@ -352,13 +333,7 @@ export function PLReportDetail({ open, onOpenChange, userId, reportDate }: PLRep
           </div>
         </div>
       </div>
-      {selectedCommit && detail && (
-        <CommitDetailDialog
-          commit={selectedCommit}
-          vcsType={selectedCommit.vcsType ?? detail.vcsType}
-          onClose={() => setSelectedCommit(null)}
-        />
-      )}
+      {selectedCommit && detail && <CommitDetailDialog commit={selectedCommit} vcsType={selectedCommit.vcsType ?? detail.vcsType} onClose={() => setSelectedCommit(null)} />}
     </>
   )
 }

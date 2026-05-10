@@ -62,65 +62,75 @@ const TIER_DIALOG_CORNER_BL: Record<string, string> = {
 
 /** Màu confetti riêng theo tier – thay vì dùng màu generic */
 const TIER_CONFETTI_COLORS: Record<string, string[]> = {
-  bronze:   ['#CD7F32', '#E8A050', '#F4C080', '#B8860B', '#FFA040'],
-  silver:   ['#C0C0C0', '#E8E8F4', '#A8A8B8', '#D8D8E8', '#F0F0F8'],
-  gold:     ['#FFD700', '#FFC200', '#FFEC6E', '#FF8C00', '#FFA500'],
-  special:  ['#8B5CF6', '#A78BFA', '#C084FC', '#E879F9', '#7C3AED'],
+  bronze: ['#CD7F32', '#E8A050', '#F4C080', '#B8860B', '#FFA040'],
+  silver: ['#C0C0C0', '#E8E8F4', '#A8A8B8', '#D8D8E8', '#F0F0F8'],
+  gold: ['#FFD700', '#FFC200', '#FFEC6E', '#FF8C00', '#FFA500'],
+  special: ['#8B5CF6', '#A78BFA', '#C084FC', '#E879F9', '#7C3AED'],
   negative: ['#F97316', '#FB923C', '#FDBA74', '#EA580C', '#FF6B35'],
 }
 
 const RANK_CONFETTI_COLORS: Record<string, string[]> = {
-  newbie:      ['#9CA3AF', '#D1D5DB', '#F3F4F6', '#6B7280', '#E5E7EB'],
+  newbie: ['#9CA3AF', '#D1D5DB', '#F3F4F6', '#6B7280', '#E5E7EB'],
   contributor: ['#22C55E', '#86EFAC', '#4ADE80', '#16A34A', '#BBF7D0'],
-  developer:   ['#3B82F6', '#93C5FD', '#60A5FA', '#2563EB', '#BFDBFE'],
-  regular:     ['#06B6D4', '#67E8F9', '#22D3EE', '#0891B2', '#A5F3FC'],
-  pro:         ['#8B5CF6', '#C4B5FD', '#A78BFA', '#7C3AED', '#DDD6FE'],
-  expert:      ['#F59E0B', '#FDE68A', '#FCD34D', '#D97706', '#FEF3C7'],
-  master:      ['#F97316', '#FDBA74', '#FB923C', '#EA580C', '#FED7AA'],
-  legend:      ['#EC4899', '#8B5CF6', '#06B6D4', '#F43F5E', '#A78BFA'],
+  developer: ['#3B82F6', '#93C5FD', '#60A5FA', '#2563EB', '#BFDBFE'],
+  regular: ['#06B6D4', '#67E8F9', '#22D3EE', '#0891B2', '#A5F3FC'],
+  pro: ['#8B5CF6', '#C4B5FD', '#A78BFA', '#7C3AED', '#DDD6FE'],
+  expert: ['#F59E0B', '#FDE68A', '#FCD34D', '#D97706', '#FEF3C7'],
+  master: ['#F97316', '#FDBA74', '#FB923C', '#EA580C', '#FED7AA'],
+  legend: ['#EC4899', '#8B5CF6', '#06B6D4', '#F43F5E', '#A78BFA'],
 }
 
 /** Style cho label pill + icon + shimmer text theo tier */
 const TIER_LABEL_CONFIG = {
   bronze: {
-    pill: 'bg-orange-700/10', icon: 'text-orange-600 dark:text-orange-400',
-    iconGlow: 'animate-achievement-icon-glow-bronze', shimmer: 'animate-achievement-text-shimmer-bronze',
+    pill: 'bg-orange-700/10',
+    icon: 'text-orange-600 dark:text-orange-400',
+    iconGlow: 'animate-achievement-icon-glow-bronze',
+    shimmer: 'animate-achievement-text-shimmer-bronze',
   },
   silver: {
-    pill: 'bg-slate-400/10', icon: 'text-slate-500 dark:text-slate-300',
-    iconGlow: 'animate-achievement-icon-glow-silver', shimmer: 'animate-achievement-text-shimmer-silver',
+    pill: 'bg-slate-400/10',
+    icon: 'text-slate-500 dark:text-slate-300',
+    iconGlow: 'animate-achievement-icon-glow-silver',
+    shimmer: 'animate-achievement-text-shimmer-silver',
   },
   gold: {
-    pill: 'bg-yellow-500/15', icon: 'text-yellow-500 dark:text-yellow-400',
-    iconGlow: 'animate-achievement-icon-glow', shimmer: 'animate-achievement-text-shimmer',
+    pill: 'bg-yellow-500/15',
+    icon: 'text-yellow-500 dark:text-yellow-400',
+    iconGlow: 'animate-achievement-icon-glow',
+    shimmer: 'animate-achievement-text-shimmer',
   },
   special: {
-    pill: 'bg-violet-500/10', icon: 'text-violet-500',
-    iconGlow: 'animate-achievement-icon-glow-violet', shimmer: 'animate-achievement-text-shimmer-violet',
+    pill: 'bg-violet-500/10',
+    icon: 'text-violet-500',
+    iconGlow: 'animate-achievement-icon-glow-violet',
+    shimmer: 'animate-achievement-text-shimmer-violet',
   },
   negative: {
-    pill: 'bg-orange-500/10', icon: 'text-orange-500 dark:text-orange-400',
-    iconGlow: 'animate-achievement-icon-glow-orange', shimmer: 'animate-achievement-text-shimmer-negative',
+    pill: 'bg-orange-500/10',
+    icon: 'text-orange-500 dark:text-orange-400',
+    iconGlow: 'animate-achievement-icon-glow-orange',
+    shimmer: 'animate-achievement-text-shimmer-negative',
   },
 } as const
 
 /** Màu sparkle ambient theo tier */
 const TIER_SPARKLE_COLOR: Record<string, string> = {
-  bronze:   'rgba(205,127,50,0.55)',
-  silver:   'rgba(192,192,210,0.55)',
-  gold:     'rgba(255,215,0,0.65)',
-  special:  'rgba(139,92,246,0.55)',
+  bronze: 'rgba(205,127,50,0.55)',
+  silver: 'rgba(192,192,210,0.55)',
+  gold: 'rgba(255,215,0,0.65)',
+  special: 'rgba(139,92,246,0.55)',
   negative: 'rgba(249,115,22,0.55)',
-  rank_up:  'rgba(245,158,11,0.60)',
+  rank_up: 'rgba(245,158,11,0.60)',
 }
 
 const SPARKLE_SLOTS = [
-  { left: '10%',  delay: '0s',    size: 3   },
-  { left: '28%',  delay: '0.9s',  size: 2   },
-  { left: '50%',  delay: '1.7s',  size: 3.5 },
-  { left: '68%',  delay: '0.45s', size: 2.5 },
-  { left: '85%',  delay: '1.3s',  size: 3   },
-  { left: '40%',  delay: '2.2s',  size: 2   },
+  { left: '10%', delay: '0s', size: 3 },
+  { left: '28%', delay: '0.9s', size: 2 },
+  { left: '50%', delay: '1.7s', size: 3.5 },
+  { left: '68%', delay: '0.45s', size: 2.5 },
+  { left: '85%', delay: '1.3s', size: 3 },
+  { left: '40%', delay: '2.2s', size: 2 },
 ]
 
 function FloatingSparkles({ tier }: { tier: string }) {
@@ -149,7 +159,10 @@ function FloatingSparkles({ tier }: { tier: string }) {
 function useCountUp(target: number, duration = 900, startDelay = 380): number {
   const [count, setCount] = useState(0)
   useEffect(() => {
-    if (target <= 0) { setCount(0); return }
+    if (target <= 0) {
+      setCount(0)
+      return
+    }
     setCount(0)
     let rafId: number
     const timeout = setTimeout(() => {
@@ -157,13 +170,16 @@ function useCountUp(target: number, duration = 900, startDelay = 380): number {
       const step = (now: number) => {
         const elapsed = now - start
         const progress = Math.min(elapsed / duration, 1)
-        const eased = 1 - Math.pow(1 - progress, 3)
+        const eased = 1 - (1 - progress) ** 3
         setCount(Math.round(eased * target))
         if (progress < 1) rafId = requestAnimationFrame(step)
       }
       rafId = requestAnimationFrame(step)
     }, startDelay)
-    return () => { clearTimeout(timeout); cancelAnimationFrame(rafId) }
+    return () => {
+      clearTimeout(timeout)
+      cancelAnimationFrame(rafId)
+    }
   }, [target, duration, startDelay])
   return count
 }
@@ -204,16 +220,10 @@ function DialogContentInner({ item }: { item: AchievementToastItem }) {
 
       {/* Decorative corner accents — màu theo tier */}
       <div
-        className={cn(
-          'absolute -top-12 -right-12 h-24 w-24 rounded-full bg-gradient-to-br to-transparent blur-2xl',
-          TIER_DIALOG_CORNER_TR[tier] ?? TIER_DIALOG_CORNER_TR.bronze
-        )}
+        className={cn('absolute -top-12 -right-12 h-24 w-24 rounded-full bg-gradient-to-br to-transparent blur-2xl', TIER_DIALOG_CORNER_TR[tier] ?? TIER_DIALOG_CORNER_TR.bronze)}
       />
       <div
-        className={cn(
-          'absolute -bottom-8 -left-8 h-20 w-20 rounded-full bg-gradient-to-tr to-transparent blur-xl',
-          TIER_DIALOG_CORNER_BL[tier] ?? TIER_DIALOG_CORNER_BL.bronze
-        )}
+        className={cn('absolute -bottom-8 -left-8 h-20 w-20 rounded-full bg-gradient-to-tr to-transparent blur-xl', TIER_DIALOG_CORNER_BL[tier] ?? TIER_DIALOG_CORNER_BL.bronze)}
       />
 
       {/* Top shine line */}
@@ -245,13 +255,7 @@ function DialogContentInner({ item }: { item: AchievementToastItem }) {
                 <Trophy size={18} className="text-amber-500 animate-achievement-icon-shine animate-achievement-icon-glow" />
               </div>
               <div className="text-3xl font-extrabold tracking-tight animate-achievement-title">
-                <span
-                  className={cn(
-                    'inline-block',
-                    rankCfg?.achievementGlowClass ?? 'animate-achievement-rank-glow-gray',
-                    rankCfg?.color ?? 'text-foreground'
-                  )}
-                >
+                <span className={cn('inline-block', rankCfg?.achievementGlowClass ?? 'animate-achievement-rank-glow-gray', rankCfg?.color ?? 'text-foreground')}>
                   {rankCfg?.label ?? newRank}
                 </span>
               </div>
@@ -261,12 +265,7 @@ function DialogContentInner({ item }: { item: AchievementToastItem }) {
         ) : def ? (
           <>
             <div className="relative">
-              <div
-                className={cn(
-                  'absolute -inset-4 rounded-full blur-2xl',
-                  TIER_DIALOG_HALO[tier] ?? TIER_DIALOG_HALO.bronze
-                )}
-              />
+              <div className={cn('absolute -inset-4 rounded-full blur-2xl', TIER_DIALOG_HALO[tier] ?? TIER_DIALOG_HALO.bronze)} />
               {/* Outer handles entrance pop scale, inner handles continuous float Y */}
               <div className="relative animate-achievement-badge">
                 <div className="animate-achievement-badge-float">
@@ -313,8 +312,14 @@ function DialogContentInner({ item }: { item: AchievementToastItem }) {
 
 const TIER_SCALE = { bronze: 0.7, silver: 0.85, gold: 1, special: 1.25, negative: 0.65 } as const
 const RANK_SCALE = {
-  newbie: 0.6, contributor: 0.7, developer: 0.8, regular: 0.9,
-  pro: 1, expert: 1.15, master: 1.35, legend: 1.5,
+  newbie: 0.6,
+  contributor: 0.7,
+  developer: 0.8,
+  regular: 0.9,
+  pro: 1,
+  expert: 1.15,
+  master: 1.35,
+  legend: 1.5,
 } as const
 
 function getConfettiMeta(item: AchievementToastItem): { scale: number; colors: string[] } {

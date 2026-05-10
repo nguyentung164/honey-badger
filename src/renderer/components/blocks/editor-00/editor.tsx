@@ -1,9 +1,6 @@
 'use client'
 
-import {
-  type InitialConfigType,
-  LexicalComposer,
-} from '@lexical/react/LexicalComposer'
+import { type InitialConfigType, LexicalComposer } from '@lexical/react/LexicalComposer'
 import { OnChangePlugin } from '@lexical/react/LexicalOnChangePlugin'
 import type { EditorState, SerializedEditorState } from 'lexical'
 
@@ -51,17 +48,11 @@ export function Editor({
           ...editorConfig,
           editable,
           ...(editorState ? { editorState } : {}),
-          ...(editorSerializedState
-            ? { editorState: JSON.stringify(editorSerializedState) }
-            : {}),
+          ...(editorSerializedState ? { editorState: JSON.stringify(editorSerializedState) } : {}),
         }}
       >
         <TooltipProvider>
-          <Plugins
-            placeholder={placeholder}
-            contentClassName={contentClassName}
-            contentEditableId={contentEditableId}
-          />
+          <Plugins placeholder={placeholder} contentClassName={contentClassName} contentEditableId={contentEditableId} />
 
           <OnChangePlugin
             ignoreSelectionChange={true}

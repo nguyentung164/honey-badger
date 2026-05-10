@@ -1,5 +1,5 @@
 import { randomUuidV7 } from 'shared/randomUuidV7'
-import { hasDbConfig, query } from './db'
+import { hasDbConfig, query } from './schema/db'
 
 export interface HeatmapDay {
   snapshot_date: string
@@ -165,7 +165,7 @@ function prevMonth(yearMonth: string): string {
 
 export async function getHeatmapData(userId: string, year: number): Promise<HeatmapDay[]> {
   if (!hasDbConfig()) return []
-  const rows = await query<HeatmapDay[]>(
+  const rows = await query<HeatmapDay>(
     `SELECT snapshot_date, commits_count, tasks_done, has_daily_report, lines_inserted, lines_deleted, reviews_done
      FROM user_daily_snapshots
      WHERE user_id = ? AND EXTRACT(YEAR FROM snapshot_date::date) = ?
@@ -183,7 +183,7 @@ export async function getTrendData(userId: string, from: string, to: string, gra
       : granularity === 'week'
         ? `to_char(snapshot_date::date, 'IYYY-IW')`
         : `to_char(snapshot_date::date, 'YYYY-MM')`
-  const rows = await query<TrendPoint[]>(
+  const rows = await query<TrendPoint>(
     `SELECT
        ${periodExpr} AS period,
        SUM(commits_count)   AS commits,
@@ -218,7 +218,7 @@ async function aggregateSnapshotForRange(userId: string, from: string, to: strin
       working_days: 0,
     }
   }
-  const rows = await query<Array<Record<string, number>>>(
+  const rows = await query<Record<string, number>>(
     `SELECT
        SUM(commits_count)                                    AS commits_count,
        COUNT(CASE WHEN commits_count > 0 THEN 1 END)        AS coding_days,
@@ -301,7 +301,7 @@ export async function getTaskPerformance(userId: string, from: string, to: strin
   const baseParams: unknown[] = [userId, from, to]
   const byParams = projectId ? [userId, from, to, projectId] : baseParams
 
-  const byTypeRows = await query<TaskPerformanceRow[]>(
+  const byTypeRows = await query<TaskPerformanceRow>(
     `SELECT
        type,
        COUNT(*) AS total_done,
@@ -317,7 +317,7 @@ export async function getTaskPerformance(userId: string, from: string, to: strin
   )
 
   const onTimeTrendParams = projectId ? [userId, from, to, projectId] : [userId, from, to]
-  const onTimeTrendRows = await query<Array<{ month: string; total: number; on_time: number }>>(
+  const onTimeTrendRows = await query<{ month: string; total: number; on_time: number }>(
     `SELECT
        to_char(actual_end_date::timestamp, 'YYYY-MM') AS month,
        COUNT(*) AS total,
@@ -331,7 +331,7 @@ export async function getTaskPerformance(userId: string, from: string, to: strin
     onTimeTrendParams
   )
 
-  const totalsRow = await query<Array<Record<string, number | null>>>(
+  const totalsRow = await query<Record<string, number | null>>(
     `SELECT
        COUNT(*) AS total_done,
        SUM(CASE WHEN plan_end_date IS NOT NULL AND actual_end_date <= plan_end_date THEN 1 ELSE 0 END) AS on_time,
@@ -379,17 +379,16 @@ export async function getQualityTrend(userId: string, weeksBack: number, teamUse
     return { trend: [], userRuleRate: 0, userSpotbugsRate: 0, teamAvg: { rule_check_rate: 0, spotbugs_rate: 0 } }
   }
 
-  const useRange = Boolean(from && to)
   const safeRate = (num: number, den: number) => (den > 0 ? Math.round((num / den) * 100) : 0)
 
   let trendRows: QualityWeekPoint[]
   let userTotals: Array<{ rule_checked: number; spotbugs_checked: number; total: number }>
   let teamTotals: Array<{ rule_checked: number; spotbugs_checked: number; total: number }>
 
-  if (useRange) {
-    const f = from!
-    const t = to!
-    const tr1 = await query<QualityWeekPoint[]>(
+  if (from && to) {
+    const f = from
+    const t = to
+    const tr1 = await query<QualityWeekPoint>(
       `SELECT
          to_char(snapshot_date::date, 'IYYY-IW') AS week,
          SUM(commits_with_rule_check)  AS rule_checked,
@@ -403,7 +402,7 @@ export async function getQualityTrend(userId: string, weeksBack: number, teamUse
     )
     trendRows = Array.isArray(tr1) ? tr1 : []
 
-    const ut1 = await query<Array<{ rule_checked: number; spotbugs_checked: number; total: number }>>(
+    const ut1 = await query<{ rule_checked: number; spotbugs_checked: number; total: number }>(
       `SELECT
          SUM(commits_with_rule_check) AS rule_checked,
          SUM(commits_with_spotbugs)   AS spotbugs_checked,
@@ -416,7 +415,7 @@ export async function getQualityTrend(userId: string, weeksBack: number, teamUse
 
     if (teamUserIds && teamUserIds.length > 0) {
       const ph = teamUserIds.map(() => '?').join(',')
-      const tt1 = await query<Array<{ rule_checked: number; spotbugs_checked: number; total: number }>>(
+      const tt1 = await query<{ rule_checked: number; spotbugs_checked: number; total: number }>(
         `SELECT
            SUM(commits_with_rule_check) AS rule_checked,
            SUM(commits_with_spotbugs)   AS spotbugs_checked,
@@ -427,7 +426,7 @@ export async function getQualityTrend(userId: string, weeksBack: number, teamUse
       )
       teamTotals = Array.isArray(tt1) ? tt1 : []
     } else {
-      const tt1 = await query<Array<{ rule_checked: number; spotbugs_checked: number; total: number }>>(
+      const tt1 = await query<{ rule_checked: number; spotbugs_checked: number; total: number }>(
         `SELECT
            SUM(commits_with_rule_check) AS rule_checked,
            SUM(commits_with_spotbugs)   AS spotbugs_checked,
@@ -439,7 +438,7 @@ export async function getQualityTrend(userId: string, weeksBack: number, teamUse
       teamTotals = Array.isArray(tt1) ? tt1 : []
     }
   } else {
-    const tr2 = await query<QualityWeekPoint[]>(
+    const tr2 = await query<QualityWeekPoint>(
       `SELECT
          to_char(snapshot_date::date, 'IYYY-IW') AS week,
          SUM(commits_with_rule_check)  AS rule_checked,
@@ -453,7 +452,7 @@ export async function getQualityTrend(userId: string, weeksBack: number, teamUse
     )
     trendRows = Array.isArray(tr2) ? tr2 : []
 
-    const ut2 = await query<Array<{ rule_checked: number; spotbugs_checked: number; total: number }>>(
+    const ut2 = await query<{ rule_checked: number; spotbugs_checked: number; total: number }>(
       `SELECT
          SUM(commits_with_rule_check) AS rule_checked,
          SUM(commits_with_spotbugs)   AS spotbugs_checked,
@@ -466,7 +465,7 @@ export async function getQualityTrend(userId: string, weeksBack: number, teamUse
 
     if (teamUserIds && teamUserIds.length > 0) {
       const ph = teamUserIds.map(() => '?').join(',')
-      const tt2 = await query<Array<{ rule_checked: number; spotbugs_checked: number; total: number }>>(
+      const tt2 = await query<{ rule_checked: number; spotbugs_checked: number; total: number }>(
         `SELECT
            SUM(commits_with_rule_check) AS rule_checked,
            SUM(commits_with_spotbugs)   AS spotbugs_checked,
@@ -477,7 +476,7 @@ export async function getQualityTrend(userId: string, weeksBack: number, teamUse
       )
       teamTotals = Array.isArray(tt2) ? tt2 : []
     } else {
-      const tt2 = await query<Array<{ rule_checked: number; spotbugs_checked: number; total: number }>>(
+      const tt2 = await query<{ rule_checked: number; spotbugs_checked: number; total: number }>(
         `SELECT
            SUM(commits_with_rule_check) AS rule_checked,
            SUM(commits_with_spotbugs)   AS spotbugs_checked,
@@ -530,9 +529,9 @@ export async function getProductiveHours(userId: string, weeksBack: number, from
   const timeFilter = useRange
     ? `AND (${COMMIT_TS_SQL})::date >= ?::date AND (${COMMIT_TS_SQL})::date <= ?::date`
     : `AND ${COMMIT_TS_SQL} >= CURRENT_TIMESTAMP - (?::bigint * interval '7 days')`
-  const timeParams: unknown[] = useRange ? [from!, to!] : [weeksBack]
+  const timeParams: unknown[] = from && to ? [from, to] : [weeksBack]
 
-  const rows = await query<ProductiveHourCell[]>(
+  const rows = await query<ProductiveHourCell>(
     `SELECT
        EXTRACT(DOW FROM ts)::int + 1 AS dow,
        EXTRACT(HOUR FROM ts)::int AS hour,
@@ -588,32 +587,31 @@ export async function getMonthlyHighlights(userId: string, yearMonth: string): P
   const pe = endOfMonth(prev)
 
   const [currRows, prevRows, bestDayRows, bestMonthRows, bestLineDayRows, trendRows, streakRows] = await Promise.all([
-    query<Array<Record<string, number>>>(
+    query<Record<string, number>>(
       `SELECT SUM(commits_count) AS c, SUM(lines_inserted) AS li, SUM(lines_deleted) AS ld,
               SUM(tasks_done) AS t, SUM(reviews_done) AS r, SUM(has_daily_report::int) AS d, COUNT(*) AS wd
        FROM user_daily_snapshots WHERE user_id = ? AND snapshot_date::date BETWEEN ?::date AND ?::date`,
       [userId, s, e]
     ),
-    query<Array<Record<string, number>>>(
+    query<Record<string, number>>(
       `SELECT SUM(commits_count) AS c, SUM(tasks_done) AS t, SUM(reviews_done) AS r, SUM(has_daily_report::int) AS d
        FROM user_daily_snapshots WHERE user_id = ? AND snapshot_date::date BETWEEN ?::date AND ?::date`,
       [userId, ps, pe]
     ),
-    query<Array<{ commits_count: number; snapshot_date: string }>>(
-      `SELECT commits_count, snapshot_date FROM user_daily_snapshots WHERE user_id = ? ORDER BY commits_count DESC LIMIT 1`,
-      [userId]
-    ),
-    query<Array<{ total: number; month: string }>>(
+    query<{ commits_count: number; snapshot_date: string }>(`SELECT commits_count, snapshot_date FROM user_daily_snapshots WHERE user_id = ? ORDER BY commits_count DESC LIMIT 1`, [
+      userId,
+    ]),
+    query<{ total: number; month: string }>(
       `SELECT SUM(tasks_done) AS total, to_char(snapshot_date::date, 'YYYY-MM') AS month
        FROM user_daily_snapshots WHERE user_id = ?
        GROUP BY month ORDER BY total DESC LIMIT 1`,
       [userId]
     ),
-    query<Array<{ lines_inserted: number; snapshot_date: string }>>(
+    query<{ lines_inserted: number; snapshot_date: string }>(
       `SELECT lines_inserted, snapshot_date FROM user_daily_snapshots WHERE user_id = ? ORDER BY lines_inserted DESC LIMIT 1`,
       [userId]
     ),
-    query<Array<{ month: string; commits: number; tasks: number }>>(
+    query<{ month: string; commits: number; tasks: number }>(
       `SELECT to_char(snapshot_date::date, 'YYYY-MM') AS month,
               SUM(commits_count) AS commits, SUM(tasks_done) AS tasks
        FROM user_daily_snapshots
@@ -621,7 +619,7 @@ export async function getMonthlyHighlights(userId: string, yearMonth: string): P
        GROUP BY 1 ORDER BY month`,
       [userId, s]
     ),
-    query<Array<{ snapshot_date: string; commits_count: number }>>(
+    query<{ snapshot_date: string; commits_count: number }>(
       `SELECT snapshot_date, commits_count FROM user_daily_snapshots
        WHERE user_id = ? ORDER BY snapshot_date ASC`,
       [userId]
@@ -764,7 +762,7 @@ export async function upsertDailySnapshot(input: SnapshotInput): Promise<void> {
 
 export async function getSnapshotDatesForUser(userId: string): Promise<string[]> {
   if (!hasDbConfig()) return []
-  const rows = await query<Array<{ snapshot_date: string }>>(`SELECT snapshot_date FROM user_daily_snapshots WHERE user_id = ? ORDER BY snapshot_date DESC`, [userId])
+  const rows = await query<{ snapshot_date: string }>(`SELECT snapshot_date FROM user_daily_snapshots WHERE user_id = ? ORDER BY snapshot_date DESC`, [userId])
   return Array.isArray(rows) ? rows.map(r => String(r.snapshot_date)) : []
 }
 
@@ -774,7 +772,7 @@ const MAX_TEAM_SUMMARY_USERS = 80
 /** User có role dev/pl/pm trên project (không gồm global NULL project). */
 export async function getProjectMemberUserIds(projectId: string): Promise<string[]> {
   if (!hasDbConfig() || !projectId) return []
-  const rows = await query<Array<{ user_id: string }>>(
+  const rows = await query<{ user_id: string }>(
     `SELECT DISTINCT user_id FROM user_project_roles
      WHERE project_id = ? AND role IN ('dev', 'pl', 'pm')`,
     [projectId]
@@ -788,7 +786,7 @@ export async function getTeamOverviewUserProjectLabels(userIds: string[]): Promi
   const ids = [...new Set(userIds)].filter(Boolean).slice(0, MAX_TEAM_SUMMARY_USERS)
   if (ids.length === 0) return {}
   const ph = ids.map(() => '?').join(',')
-  const rows = await query<Array<{ user_id: string; project_names: string | null }>>(
+  const rows = await query<{ user_id: string; project_names: string | null }>(
     `SELECT upr.user_id,
        STRING_AGG(DISTINCT p.name, ', ' ORDER BY p.name) AS project_names
      FROM user_project_roles upr
@@ -914,7 +912,7 @@ export async function getTeamProgressSummaries(userIds: string[], from: string, 
 
       const commitAggParams: unknown[] = [...ids, projectId, from, to]
 
-      const teamCommitAgg = await query<Array<RuleSpotCommitAgg>>(
+      const teamCommitAgg = await query<RuleSpotCommitAgg>(
         `SELECT
          COUNT(*) AS total,
          SUM(CASE WHEN q.has_check_coding_rule THEN 1 ELSE 0 END) AS rule_checked,
@@ -926,7 +924,7 @@ export async function getTeamProgressSummaries(userIds: string[], from: string, 
       teamRule = safeRate(Number(ta.rule_checked ?? 0), Number(ta.total ?? 0))
       teamSpot = safeRate(Number(ta.spotbugs_checked ?? 0), Number(ta.total ?? 0))
 
-      const perUserCommit = await query<Array<{ user_id: string } & RuleSpotCommitAgg>>(
+      const perUserCommit = await query<{ user_id: string } & RuleSpotCommitAgg>(
         `SELECT
          u.id AS user_id,
          COUNT(*) AS total,
@@ -1003,7 +1001,7 @@ export async function getTeamProgressSummaries(userIds: string[], from: string, 
     const commitAggDateOnlyParams: unknown[] = [from, to]
 
     const [teamCommitAggAll, mappedRows, unmappedRows, teamPerProjRows] = await Promise.all([
-      query<Array<RuleSpotCommitAgg>>(
+      query<RuleSpotCommitAgg>(
         `SELECT
            COUNT(*) AS total,
            SUM(CASE WHEN q.has_check_coding_rule THEN 1 ELSE 0 END) AS rule_checked,
@@ -1011,9 +1009,9 @@ export async function getTeamProgressSummaries(userIds: string[], from: string, 
          ${commitAggFromAllDatesOnly}`,
         commitAggDateOnlyParams
       ),
-      query<Array<{ user_id: string; project_id: string } & RuleSpotCommitAgg>>(mappedSql, commitAggParamsAll),
-      query<Array<{ user_id: string } & RuleSpotCommitAgg>>(unmappedSql, commitAggParamsAll),
-      query<Array<{ project_id: string } & RuleSpotCommitAgg>>(teamPerProjectSqlFullTeam, commitAggDateOnlyParams),
+      query<{ user_id: string; project_id: string } & RuleSpotCommitAgg>(mappedSql, commitAggParamsAll),
+      query<{ user_id: string } & RuleSpotCommitAgg>(unmappedSql, commitAggParamsAll),
+      query<{ project_id: string } & RuleSpotCommitAgg>(teamPerProjectSqlFullTeam, commitAggDateOnlyParams),
     ])
 
     const tAll = Array.isArray(teamCommitAggAll) && teamCommitAggAll.length > 0 ? teamCommitAggAll[0] : { rule_checked: 0, spotbugs_checked: 0, total: 0 }
@@ -1028,8 +1026,12 @@ export async function getTeamProgressSummaries(userIds: string[], from: string, 
       for (const r of mappedRows) {
         const uid = String(r.user_id)
         const pid = String(r.project_id)
-        if (!mappedByUser.has(uid)) mappedByUser.set(uid, new Map())
-        mappedByUser.get(uid)!.set(pid, {
+        let byProj = mappedByUser.get(uid)
+        if (!byProj) {
+          byProj = new Map()
+          mappedByUser.set(uid, byProj)
+        }
+        byProj.set(pid, {
           rule_checked: Number(r.rule_checked ?? 0),
           spotbugs_checked: Number(r.spotbugs_checked ?? 0),
           total: Number(r.total ?? 0),
@@ -1067,7 +1069,7 @@ export async function getTeamProgressSummaries(userIds: string[], from: string, 
 
   const peakPromise =
     ids.length <= MAX_TEAM_SUMMARY_USERS
-      ? query<Array<{ user_id: string; dow: number; hour: number; cnt: number }>>(
+      ? query<{ user_id: string; dow: number; hour: number; cnt: number }>(
           `SELECT u.id AS user_id, EXTRACT(DOW FROM q.ts)::int + 1 AS dow, EXTRACT(HOUR FROM q.ts)::int AS hour, COUNT(*) AS cnt
        FROM (
          SELECT commit_user, ${COMMIT_TS_SQL} AS ts
@@ -1085,7 +1087,7 @@ export async function getTeamProgressSummaries(userIds: string[], from: string, 
         )
       : Promise.resolve([] as Array<{ user_id: string; dow: number; hour: number; cnt: number }>)
 
-  const userIdsWithProjectRolePromise = query<Array<{ user_id: string }>>(
+  const userIdsWithProjectRolePromise = query<{ user_id: string }>(
     `SELECT DISTINCT user_id FROM user_project_roles
      WHERE user_id IN (${ph}) AND project_id IS NOT NULL AND role IN ('dev', 'pl', 'pm')`,
     [...ids]
@@ -1093,16 +1095,14 @@ export async function getTeamProgressSummaries(userIds: string[], from: string, 
 
   const [, snapRows, taskRows, peakRows, roleMembershipRows] = await Promise.all([
     loadCommitQuality(),
-    query<
-      Array<{
-        user_id: string
-        report_days: number
-        working_days: number
-        rule_checked: number
-        spotbugs_checked: number
-        total: number
-      }>
-    >(
+    query<{
+      user_id: string
+      report_days: number
+      working_days: number
+      rule_checked: number
+      spotbugs_checked: number
+      total: number
+    }>(
       `SELECT user_id,
        SUM(has_daily_report::int) AS report_days,
        COUNT(*) AS working_days,
@@ -1114,15 +1114,13 @@ export async function getTeamProgressSummaries(userIds: string[], from: string, 
      GROUP BY user_id`,
       [...ids, from, to]
     ),
-    query<
-      Array<{
-        assignee_user_id: string
-        total_done: number
-        on_time: number
-        avg_delay_days: number | null
-        avg_cycle_days: number | null
-      }>
-    >(
+    query<{
+      assignee_user_id: string
+      total_done: number
+      on_time: number
+      avg_delay_days: number | null
+      avg_cycle_days: number | null
+    }>(
       `SELECT assignee_user_id,
        COUNT(*) AS total_done,
        SUM(CASE WHEN plan_end_date IS NOT NULL AND actual_end_date <= plan_end_date THEN 1 ELSE 0 END) AS on_time,
@@ -1227,20 +1225,20 @@ export async function getTeamProgressSummaries(userIds: string[], from: string, 
 
 export async function getAllUsersWithEmail(): Promise<UserBasicInfo[]> {
   if (!hasDbConfig()) return []
-  const rows = await query<UserBasicInfo[]>(`SELECT id, name, email, user_code FROM users WHERE email IS NOT NULL AND email != ''`)
+  const rows = await query<UserBasicInfo>(`SELECT id, name, email, user_code FROM users WHERE email IS NOT NULL AND email != ''`)
   return Array.isArray(rows) ? rows : []
 }
 
 export async function getAllUsers(): Promise<UserBasicInfo[]> {
   if (!hasDbConfig()) return []
-  const rows = await query<UserBasicInfo[]>(`SELECT id, name, email, user_code FROM users ORDER BY name`)
+  const rows = await query<UserBasicInfo>(`SELECT id, name, email, user_code FROM users ORDER BY name`)
   return Array.isArray(rows) ? rows : []
 }
 
 /** Users thuộc các project mà userId có role pm hoặc pl (per-project); luôn gồm chính userId. */
 export async function getUsersInManagedProjects(userId: string): Promise<UserBasicInfo[]> {
   if (!hasDbConfig()) return []
-  const rows = await query<UserBasicInfo[]>(
+  const rows = await query<UserBasicInfo>(
     `(
       SELECT DISTINCT u.id, u.name, u.email, u.user_code
       FROM users u
@@ -1260,7 +1258,7 @@ export async function getUsersInManagedProjects(userId: string): Promise<UserBas
 
 export async function getUserBasicInfo(userId: string): Promise<UserBasicInfo | null> {
   if (!hasDbConfig()) return null
-  const rows = await query<UserBasicInfo[]>(`SELECT id, name, email, user_code FROM users WHERE id = ?`, [userId])
+  const rows = await query<UserBasicInfo>(`SELECT id, name, email, user_code FROM users WHERE id = ?`, [userId])
   return Array.isArray(rows) && rows.length > 0 ? rows[0] : null
 }
 
@@ -1286,7 +1284,16 @@ export async function getGitCommitQueueForUserAndDate(
   const nm = userName?.trim() || null
   const cd = userCode?.trim() || null
   if (!em && !nm && !cd) return []
-  const rows = await query(
+  const rows = await query<{
+    insertions: number
+    deletions: number
+    changes: number
+    has_check_coding_rule: boolean
+    has_check_spotbugs: boolean
+    added_files: unknown
+    modified_files: unknown
+    deleted_files: unknown
+  }>(
     `SELECT insertions, deletions, changes, has_check_coding_rule, has_check_spotbugs,
             added_files, modified_files, deleted_files
      FROM git_commit_queue
@@ -1303,7 +1310,7 @@ export async function getGitCommitQueueForUserAndDate(
 
 export async function getTasksDoneForUserAndDate(userId: string, date: string): Promise<Array<{ plan_end_date: string | null; actual_end_date: string }>> {
   if (!hasDbConfig()) return []
-  const rows = await query(
+  const rows = await query<{ plan_end_date: string | null; actual_end_date: string }>(
     `SELECT plan_end_date, actual_end_date FROM tasks
      WHERE assignee_user_id = ? AND status = 'done'
        AND (
@@ -1317,7 +1324,7 @@ export async function getTasksDoneForUserAndDate(userId: string, date: string): 
 
 export async function getTasksOverdueForDate(userId: string, date: string): Promise<number> {
   if (!hasDbConfig()) return 0
-  const rows = await query<Array<{ cnt: number }>>(
+  const rows = await query<{ cnt: number }>(
     `SELECT COUNT(*) AS cnt FROM tasks
      WHERE assignee_user_id = ? AND status != 'done'
        AND plan_end_date IS NOT NULL AND plan_end_date::date < ?::date`,
@@ -1328,7 +1335,7 @@ export async function getTasksOverdueForDate(userId: string, date: string): Prom
 
 export async function getReviewsDoneForUserAndDate(userId: string, date: string): Promise<number> {
   if (!hasDbConfig()) return 0
-  const rows = await query<Array<{ cnt: number }>>(
+  const rows = await query<{ cnt: number }>(
     `SELECT COUNT(*) AS cnt FROM commit_reviews
      WHERE reviewer_user_id = ? AND reviewed_at::date = ?::date`,
     [userId, date]
@@ -1338,14 +1345,14 @@ export async function getReviewsDoneForUserAndDate(userId: string, date: string)
 
 export async function hasDailyReportForDate(userId: string, date: string): Promise<boolean> {
   if (!hasDbConfig()) return false
-  const rows = await query<Array<{ cnt: number }>>(`SELECT COUNT(*) AS cnt FROM daily_reports WHERE user_id = ? AND report_date = ?`, [userId, date])
+  const rows = await query<{ cnt: number }>(`SELECT COUNT(*) AS cnt FROM daily_reports WHERE user_id = ? AND report_date = ?`, [userId, date])
   return Array.isArray(rows) && rows.length > 0 ? Number(rows[0].cnt) > 0 : false
 }
 
 export async function getEvmHoursForUserAndDate(userId: string, date: string): Promise<number> {
   if (!hasDbConfig()) return 0
   // evm_ac.assignee: thường là users.id (WBS / đồng bộ tab AC); fallback user_code nếu nhập tay
-  const rows = await query<Array<{ total: number }>>(
+  const rows = await query<{ total: number }>(
     `SELECT SUM(a.working_hours) AS total
      FROM evm_ac a
      WHERE (a.assignee = ?

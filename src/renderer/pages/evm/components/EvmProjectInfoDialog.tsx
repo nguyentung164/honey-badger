@@ -7,8 +7,8 @@ import { useTranslation } from 'react-i18next'
 import type { EVMProject, EvmProjectRoleUser } from 'shared/types/evm'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Calendar } from '@/components/ui/calendar'
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { Field, FieldLabel } from '@/components/ui/field'
 import { Input } from '@/components/ui/input'
@@ -158,8 +158,7 @@ export function EvmProjectInfoDialog({
     return req.some(s => !s)
   }, [projectNo, projectName, endUser, startDate, endDate])
 
-  const requiredCn = (empty: boolean) =>
-    cn(empty && 'border-rose-400/80 bg-rose-50/70 dark:border-rose-600/70 dark:bg-rose-950/35')
+  const requiredCn = (empty: boolean) => cn(empty && 'border-rose-400/80 bg-rose-50/70 dark:border-rose-600/70 dark:bg-rose-950/35')
 
   const persistReminder = useCallback(
     async (projectId: string) => {
@@ -272,18 +271,11 @@ export function EvmProjectInfoDialog({
         }}
       >
         <DialogHeader className="space-y-1 border-b px-4 py-3">
-          <DialogTitle className="text-base">
-            {isCreate ? t('evm.newProjectDialogTitle') : t('evm.dashboardProjectInfo')}
-          </DialogTitle>
+          <DialogTitle className="text-base">{isCreate ? t('evm.newProjectDialogTitle') : t('evm.dashboardProjectInfo')}</DialogTitle>
         </DialogHeader>
         <div className="space-y-3 px-4 py-3">
           <div className="grid gap-2 sm:grid-cols-2">
-            <div
-              className={cn(
-                'space-y-1',
-                !(!isCreate && project.id && canEditReminder) && 'sm:col-span-2'
-              )}
-            >
+            <div className={cn('space-y-1', !(!isCreate && project.id && canEditReminder) && 'sm:col-span-2')}>
               <Label className="text-xs text-muted-foreground">{t('evm.dashboardProjectCode')}</Label>
               <Input
                 className={cn('h-8 text-sm', requiredCn(!projectNo?.trim()))}
@@ -324,13 +316,7 @@ export function EvmProjectInfoDialog({
                 <Label className="text-xs text-muted-foreground">{t('evm.dashboardEndUser')}</Label>
                 <Tooltip>
                   <TooltipTrigger asChild>
-                    <Button
-                      type="button"
-                      variant="ghost"
-                      size="icon-xs"
-                      className="text-muted-foreground hover:text-foreground"
-                      aria-label={t('evm.dashboardEndUser')}
-                    >
+                    <Button type="button" variant="ghost" size="icon-xs" className="text-muted-foreground hover:text-foreground" aria-label={t('evm.dashboardEndUser')}>
                       <HelpCircle className="h-3.5 w-3.5" />
                     </Button>
                   </TooltipTrigger>
@@ -339,12 +325,7 @@ export function EvmProjectInfoDialog({
                   </TooltipContent>
                 </Tooltip>
               </div>
-              <Input
-                className={cn('h-8 text-sm', requiredCn(!endUser?.trim()))}
-                value={endUser}
-                onChange={e => setEndUser(e.target.value)}
-                disabled={!isCreate && !project.id}
-              />
+              <Input className={cn('h-8 text-sm', requiredCn(!endUser?.trim()))} value={endUser} onChange={e => setEndUser(e.target.value)} disabled={!isCreate && !project.id} />
             </div>
             <Field>
               <FieldLabel htmlFor={startDateFieldId}>{t('evm.dashboardProjectStart')}</FieldLabel>
@@ -362,9 +343,7 @@ export function EvmProjectInfoDialog({
                       !startDate?.trim() && 'text-muted-foreground'
                     )}
                   >
-                    {startDate?.trim()
-                      ? format(parseLocalDate(startDate) ?? new Date(startDate), dateDisplayPattern, { locale: dateFnsLocale })
-                      : t('taskManagement.selectDate')}
+                    {startDate?.trim() ? format(parseLocalDate(startDate) ?? new Date(startDate), dateDisplayPattern, { locale: dateFnsLocale }) : t('taskManagement.selectDate')}
                   </Button>
                 </PopoverTrigger>
                 <PopoverContent className="w-auto overflow-hidden p-0" align="start">
@@ -402,9 +381,7 @@ export function EvmProjectInfoDialog({
                       !endDate?.trim() && 'text-muted-foreground'
                     )}
                   >
-                    {endDate?.trim()
-                      ? format(parseLocalDate(endDate) ?? new Date(endDate), dateDisplayPattern, { locale: dateFnsLocale })
-                      : t('taskManagement.selectDate')}
+                    {endDate?.trim() ? format(parseLocalDate(endDate) ?? new Date(endDate), dateDisplayPattern, { locale: dateFnsLocale }) : t('taskManagement.selectDate')}
                   </Button>
                 </PopoverTrigger>
                 <PopoverContent className="w-auto overflow-hidden p-0" align="start">
@@ -431,9 +408,7 @@ export function EvmProjectInfoDialog({
           {!isCreate ? (
             <Card className="gap-0 rounded-md border border-border/50 bg-muted/20 py-2 shadow-none">
               <CardHeader className="space-y-0 border-0 p-0 px-2.5 pb-1.5">
-                <CardTitle className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
-                  {t('evm.projectInfoRolesSection')}
-                </CardTitle>
+                <CardTitle className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">{t('evm.projectInfoRolesSection')}</CardTitle>
               </CardHeader>
               <CardContent className="space-y-1.5 px-2.5 pt-0 pb-0">
                 <div className="flex flex-wrap items-center gap-1.5">

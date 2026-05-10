@@ -358,67 +358,60 @@ const DailyHeader: FC = () => {
   const colW = 'var(--gantt-column-width)'
 
   return gantt.timelineData.map(year =>
-    year.quarters.flatMap(quarter => quarter.months).map((month, monthIndex) => {
-      const monthStart = new Date(year.year, monthIndex, 1)
-      const bands = groupMonthDayIndicesByWeek(month.days, year.year, monthIndex)
-      return (
-        <div className="relative flex flex-col" key={`${year.year}-${monthIndex}`}>
-          <div className="sticky top-0 z-20 shrink-0 border-border/50 border-b bg-muted/85 backdrop-blur-sm">
-            <div className="px-2 py-1 font-medium text-[10px] text-muted-foreground">{format(monthStart, 'MMMM yyyy')}</div>
-            <div className="grid w-full border-border/40 border-b" style={{ gridTemplateColumns: `repeat(${month.days}, ${colW})` }}>
-              {bands.map((b, bi) => {
-                const first = new Date(year.year, monthIndex, b.start + 1)
-                const last = new Date(year.year, monthIndex, b.start + b.len)
-                return (
-                  <div
-                    key={bi}
-                    className="border-border/40 border-r px-0 py-0.5 text-center font-medium text-[9px] leading-tight"
-                    style={{ gridColumn: `${b.start + 1} / span ${b.len}` }}
-                  >
-                    {format(first, 'M/d')} – {format(last, 'M/d')}
+    year.quarters
+      .flatMap(quarter => quarter.months)
+      .map((month, monthIndex) => {
+        const monthStart = new Date(year.year, monthIndex, 1)
+        const bands = groupMonthDayIndicesByWeek(month.days, year.year, monthIndex)
+        return (
+          <div className="relative flex flex-col" key={`${year.year}-${monthIndex}`}>
+            <div className="sticky top-0 z-20 shrink-0 border-border/50 border-b bg-muted/85 backdrop-blur-sm">
+              <div className="px-2 py-1 font-medium text-[10px] text-muted-foreground">{format(monthStart, 'MMMM yyyy')}</div>
+              <div className="grid w-full border-border/40 border-b" style={{ gridTemplateColumns: `repeat(${month.days}, ${colW})` }}>
+                {bands.map((b, bi) => {
+                  const first = new Date(year.year, monthIndex, b.start + 1)
+                  const last = new Date(year.year, monthIndex, b.start + b.len)
+                  return (
+                    <div
+                      key={bi}
+                      className="border-border/40 border-r px-0 py-0.5 text-center font-medium text-[9px] leading-tight"
+                      style={{ gridColumn: `${b.start + 1} / span ${b.len}` }}
+                    >
+                      {format(first, 'M/d')} – {format(last, 'M/d')}
+                    </div>
+                  )
+                })}
+              </div>
+              <div className="grid w-full border-border/40 border-b" style={{ gridTemplateColumns: `repeat(${month.days}, ${colW})` }}>
+                {Array.from({ length: month.days }).map((_, item) => (
+                  <div key={item} className="border-border/30 border-r py-0.5 text-center font-medium text-[10px] tabular-nums">
+                    {getDate(addDays(monthStart, item))}
                   </div>
-                )
-              })}
+                ))}
+              </div>
+              <div className="grid w-full" style={{ gridTemplateColumns: `repeat(${month.days}, ${colW})` }}>
+                {Array.from({ length: month.days }).map((_, item) => {
+                  const d = addDays(monthStart, item)
+                  const dow = d.getDay()
+                  const isWeekend = dow === 0 || dow === 6
+                  return (
+                    <div key={item} className={cn('border-border/30 border-r py-0.5 text-center font-semibold text-[9px]', isWeekend && 'bg-zinc-400/25 dark:bg-zinc-600/35')}>
+                      {WEEK_LETTERS_GANTT[dow]}
+                    </div>
+                  )
+                })}
+              </div>
             </div>
-            <div className="grid w-full border-border/40 border-b" style={{ gridTemplateColumns: `repeat(${month.days}, ${colW})` }}>
-              {Array.from({ length: month.days }).map((_, item) => (
-                <div
-                  key={item}
-                  className="border-border/30 border-r py-0.5 text-center font-medium text-[10px] tabular-nums"
-                >
-                  {getDate(addDays(monthStart, item))}
-                </div>
-              ))}
-            </div>
-            <div className="grid w-full" style={{ gridTemplateColumns: `repeat(${month.days}, ${colW})` }}>
-              {Array.from({ length: month.days }).map((_, item) => {
+            <GanttColumns
+              columns={month.days}
+              isColumnSecondary={(item: number) => {
                 const d = addDays(monthStart, item)
-                const dow = d.getDay()
-                const isWeekend = dow === 0 || dow === 6
-                return (
-                  <div
-                    key={item}
-                    className={cn(
-                      'border-border/30 border-r py-0.5 text-center font-semibold text-[9px]',
-                      isWeekend && 'bg-zinc-400/25 dark:bg-zinc-600/35'
-                    )}
-                  >
-                    {WEEK_LETTERS_GANTT[dow]}
-                  </div>
-                )
-              })}
-            </div>
+                return d.getDay() === 0 || d.getDay() === 6
+              }}
+            />
           </div>
-          <GanttColumns
-            columns={month.days}
-            isColumnSecondary={(item: number) => {
-              const d = addDays(monthStart, item)
-              return d.getDay() === 0 || d.getDay() === 6
-            }}
-          />
-        </div>
-      )
-    })
+        )
+      })
   )
 }
 
@@ -615,10 +608,7 @@ export const GanttColumn: FC<GanttColumnProps> = ({ index, isColumnSecondary }) 
   return (
     // biome-ignore lint: column hover zone for add-feature helper
     <div
-      className={cn(
-        'group relative h-full overflow-hidden',
-        isColumnSecondary?.(index) ? 'bg-zinc-400/20 dark:bg-zinc-600/28' : ''
-      )}
+      className={cn('group relative h-full overflow-hidden', isColumnSecondary?.(index) ? 'bg-zinc-400/20 dark:bg-zinc-600/28' : '')}
       onMouseEnter={handleMouseEnter}
       onMouseLeave={handleMouseLeave}
       ref={mouseRef}
@@ -995,15 +985,7 @@ export type GanttProviderProps = {
   initialYearRange?: { min: number; max: number } | null
 }
 
-export const GanttProvider: FC<GanttProviderProps> = ({
-  zoom = 100,
-  range = 'monthly',
-  onAddItem,
-  children,
-  className,
-  labels: labelsProp,
-  initialYearRange = null,
-}) => {
+export const GanttProvider: FC<GanttProviderProps> = ({ zoom = 100, range = 'monthly', onAddItem, children, className, labels: labelsProp, initialYearRange = null }) => {
   const labels = useMemo(() => ({ ...defaultGanttLabels, ...labelsProp }), [labelsProp])
   const scrollRef = useRef<HTMLDivElement>(null)
   const [timelineData, setTimelineData] = useState<TimelineData>(() => {

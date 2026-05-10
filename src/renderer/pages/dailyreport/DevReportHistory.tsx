@@ -13,9 +13,9 @@ import { ScrollArea } from '@/components/ui/scroll-area'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import { STATUS_ICON } from '@/components/ui-elements/StatusIcon'
 import toast from '@/components/ui-elements/Toast'
-import { cn } from '@/lib/utils'
-import i18n from '@/lib/i18n'
 import { formatDateDisplay, getDateFnsLocale, getDateOnlyPattern, getDateTimeWithSecondsDisplayPattern, parseLocalDate } from '@/lib/dateUtils'
+import i18n from '@/lib/i18n'
+import { cn } from '@/lib/utils'
 
 interface HistoryItem {
   id: string
@@ -159,7 +159,7 @@ function CommitDetailDialog({ commit, vcsType, onClose }: { commit: SelectedComm
       <div className="bg-background border rounded-lg shadow-lg max-w-xl w-full max-h-[80vh] flex flex-col overflow-hidden">
         <div className="flex items-center justify-between px-4 py-3 border-b shrink-0">
           <h3 className="text-base font-semibold font-mono truncate" title={commit.revision}>
-            {commit.revision.length > 12 ? commit.revision.substring(0, 12) + '...' : commit.revision}
+            {commit.revision.length > 12 ? `${commit.revision.substring(0, 12)}...` : commit.revision}
           </h3>
           <Button variant="ghost" size="icon" className="h-8 w-8 shrink-0" onClick={onClose}>
             <X className="h-4 w-4" />
@@ -270,9 +270,7 @@ export function DevReportHistory({ refreshKey, onOpenEditReport, targetUserId, i
     setIsLoadingDetail(true)
     setFullDetail(null)
     setDetailFolderList([])
-    const detailPromise = isViewingOtherUser && targetUserId
-      ? window.api.dailyReport.getDetail(targetUserId, reportDate)
-      : window.api.dailyReport.getMine(reportDate)
+    const detailPromise = isViewingOtherUser && targetUserId ? window.api.dailyReport.getDetail(targetUserId, reportDate) : window.api.dailyReport.getMine(reportDate)
     detailPromise
       .then(res => {
         if (cancelled) return
@@ -293,7 +291,7 @@ export function DevReportHistory({ refreshKey, onOpenEditReport, targetUserId, i
     let cancelled = false
     const load = async () => {
       try {
-        const ids = fullDetail.projectIds && fullDetail.projectIds.length > 0 ? fullDetail.projectIds : (fullDetail.projectId ? [fullDetail.projectId] : [])
+        const ids = fullDetail.projectIds && fullDetail.projectIds.length > 0 ? fullDetail.projectIds : fullDetail.projectId ? [fullDetail.projectId] : []
         if (ids.length > 0) {
           const res = await window.api.task.getSourceFoldersByProjects(ids)
           if (cancelled) return
@@ -309,15 +307,20 @@ export function DevReportHistory({ refreshKey, onOpenEditReport, targetUserId, i
       }
     }
     load()
-    return () => { cancelled = true }
+    return () => {
+      cancelled = true
+    }
   }, [fullDetail?.id, fullDetail?.projectId, fullDetail?.projectIds])
 
-  const getFolderName = useCallback((path: string) => {
-    const byList = detailFolderList.find(f => f.path === path)?.name
-    if (byList) return byList
-    const segment = path.split(/[/\\]/).filter(Boolean).pop()
-    return segment || path
-  }, [detailFolderList])
+  const getFolderName = useCallback(
+    (path: string) => {
+      const byList = detailFolderList.find(f => f.path === path)?.name
+      if (byList) return byList
+      const segment = path.split(/[/\\]/).filter(Boolean).pop()
+      return segment || path
+    },
+    [detailFolderList]
+  )
 
   const reportDatesForCalendar = useMemo(() => {
     return history.map(h => toReportDate(h.reportDate as string | Date)).filter((d): d is Date => d != null)
@@ -359,40 +362,37 @@ export function DevReportHistory({ refreshKey, onOpenEditReport, targetUserId, i
               ? t('dailyReport.reportDetailWithDate', {
                   date: (() => {
                     const ymd = toReportDateStr(detailItem.reportDate as string | Date)
-                    const d =
-                      ymd.length >= 10 ? parseLocalDate(ymd.slice(0, 10)) : undefined
+                    const d = ymd.length >= 10 ? parseLocalDate(ymd.slice(0, 10)) : undefined
                     return formatDateDisplay(d ?? new Date(detailItem.reportDate as string | Date), i18n.language)
                   })(),
                 })
               : t('dailyReport.reportDetail')}
           </span>
         </div>
-        {detailItem && !isViewingOtherUser && (() => {
-          const canEdit = canEditReportDate(detailItem.reportDate as string | Date)
-          const disabled = !onOpenEditReport || !canEdit
-          return (
-            <Button
-              type="button"
-              variant="outline"
-              size="icon"
-              className="h-6 w-6 shrink-0 flex-shrink-0 relative z-10 cursor-pointer"
-              title={
-                canEdit
-                  ? t('dailyReport.editReport')
-                  : t('dailyReport.cannotEditPastReport')
-              }
-              disabled={disabled}
-              onClick={() => {
-                if (!disabled) {
-                  const ids = detailItem.projectIds && detailItem.projectIds.length > 0 ? detailItem.projectIds : (detailItem.projectId ? [detailItem.projectId] : [])
-                  onOpenEditReport(toReportDateStr(detailItem.reportDate as string | Date), detailItem.projectId, ids)
-                }
-              }}
-            >
-              <Pencil className="h-4 w-4" />
-            </Button>
-          )
-        })()}
+        {detailItem &&
+          !isViewingOtherUser &&
+          (() => {
+            const canEdit = canEditReportDate(detailItem.reportDate as string | Date)
+            const disabled = !onOpenEditReport || !canEdit
+            return (
+              <Button
+                type="button"
+                variant="outline"
+                size="icon"
+                className="h-6 w-6 shrink-0 flex-shrink-0 relative z-10 cursor-pointer"
+                title={canEdit ? t('dailyReport.editReport') : t('dailyReport.cannotEditPastReport')}
+                disabled={disabled}
+                onClick={() => {
+                  if (!disabled) {
+                    const ids = detailItem.projectIds && detailItem.projectIds.length > 0 ? detailItem.projectIds : detailItem.projectId ? [detailItem.projectId] : []
+                    onOpenEditReport(toReportDateStr(detailItem.reportDate as string | Date), detailItem.projectId, ids)
+                  }
+                }}
+              >
+                <Pencil className="h-4 w-4" />
+              </Button>
+            )
+          })()}
       </div>
       <div className="relative flex-1 min-h-0 overflow-hidden flex flex-col min-h-[120px] bg-background/60">
         {!detailItem ? (
@@ -418,20 +418,16 @@ export function DevReportHistory({ refreshKey, onOpenEditReport, targetUserId, i
                 fullDetail.selectedSourceFolders && fullDetail.selectedSourceFolders.length > 0
                   ? fullDetail.selectedSourceFolders.map(f => ({ key: f.id, title: f.path, label: f.name || getFolderName(f.path) }))
                   : (fullDetail.selectedSourceFolderPaths ?? []).map(p => ({
-                    key: p,
-                    title: p,
-                    label: getFolderName(p),
-                  }))
+                      key: p,
+                      title: p,
+                      label: getFolderName(p),
+                    }))
               return tags.length > 0 ? (
                 <div className="shrink-0 mt-4">
                   <h4 className="text-sm font-medium text-muted-foreground mb-1.5">{t('dailyReport.sourceFolderLabel')}</h4>
                   <div className="flex flex-wrap gap-1.5">
                     {tags.map(tg => (
-                      <span
-                        key={tg.key}
-                        className="inline-flex items-center rounded-md bg-muted px-2.5 py-1 text-xs font-medium text-foreground"
-                        title={tg.title}
-                      >
+                      <span key={tg.key} className="inline-flex items-center rounded-md bg-muted px-2.5 py-1 text-xs font-medium text-foreground" title={tg.title}>
                         {tg.label}
                       </span>
                     ))}
@@ -460,9 +456,16 @@ export function DevReportHistory({ refreshKey, onOpenEditReport, targetUserId, i
                         <div className="flex items-center justify-between gap-2 text-sm">
                           <div className="flex items-center gap-2 min-w-0 flex-1">
                             {getSourceBadgeLabel(c, getFolderName) ? (
-                              <span className="inline-flex items-center rounded-md bg-primary/10 px-2.5 py-1 text-xs font-medium text-primary shrink-0" title={getSourceBadgeLabel(c, getFolderName)}>{getSourceBadgeLabel(c, getFolderName)}</span>
+                              <span
+                                className="inline-flex items-center rounded-md bg-primary/10 px-2.5 py-1 text-xs font-medium text-primary shrink-0"
+                                title={getSourceBadgeLabel(c, getFolderName)}
+                              >
+                                {getSourceBadgeLabel(c, getFolderName)}
+                              </span>
                             ) : (
-                              <span className="font-mono text-primary text-xs shrink-0" title={c.revision}>{c.revision.length > 8 ? c.revision.substring(0, 8) : c.revision}</span>
+                              <span className="font-mono text-primary text-xs shrink-0" title={c.revision}>
+                                {c.revision.length > 8 ? c.revision.substring(0, 8) : c.revision}
+                              </span>
                             )}
                             {c.files && c.files.length > 0 && <StatusIconsWithCount files={c.files} vcsType={c.vcsType ?? fullDetail.vcsType} className="shrink-0" />}
                           </div>
@@ -502,11 +505,7 @@ export function DevReportHistory({ refreshKey, onOpenEditReport, targetUserId, i
                   <CalendarDayButton
                     {...props}
                     modifiers={modifiers}
-                    className={cn(
-                      className,
-                      modifiers.hasReport && '!text-blue-600 dark:!text-blue-400 font-medium',
-                      modifiers.overdueNoReport && '!text-orange-500 font-medium'
-                    )}
+                    className={cn(className, modifiers.hasReport && '!text-blue-600 dark:!text-blue-400 font-medium', modifiers.overdueNoReport && '!text-orange-500 font-medium')}
                   />
                 ),
               }}
@@ -535,7 +534,9 @@ export function DevReportHistory({ refreshKey, onOpenEditReport, targetUserId, i
           {detailPanel}
         </ResizablePanel>
       </ResizablePanelGroup>
-      {selectedCommit && fullDetail && <CommitDetailDialog commit={selectedCommit} vcsType={selectedCommit.vcsType ?? fullDetail.vcsType} onClose={() => setSelectedCommit(null)} />}
+      {selectedCommit && fullDetail && (
+        <CommitDetailDialog commit={selectedCommit} vcsType={selectedCommit.vcsType ?? fullDetail.vcsType} onClose={() => setSelectedCommit(null)} />
+      )}
     </div>
   )
 }

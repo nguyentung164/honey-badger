@@ -1,7 +1,7 @@
 import l from 'electron-log'
 import { randomUuidV7 } from 'shared/randomUuidV7'
 import type { ApiProvider } from '../store/ConfigurationStore'
-import { hasDbConfig, query } from './db'
+import { hasDbConfig, query } from './schema/db'
 
 export type AiUsageEvent = {
   id: string
@@ -51,26 +51,13 @@ export async function appendAiUsageEvent(event: Omit<AiUsageEvent, 'id' | 'ts'>)
     await query(
       `INSERT INTO ai_usage_events (id, feature, provider, model, input_tokens, output_tokens, cached_input_tokens, cost_usd, pricing_known)
        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-      [
-        randomUuidV7(),
-        event.feature,
-        event.provider,
-        event.model,
-        event.inputTokens,
-        event.outputTokens,
-        event.cachedInputTokens,
-        event.costUsd,
-        event.pricingKnown,
-      ]
+      [randomUuidV7(), event.feature, event.provider, event.model, event.inputTokens, event.outputTokens, event.cachedInputTokens, event.costUsd, event.pricingKnown]
     )
-    const cntRows = await query<{ c: number }[]>('SELECT COUNT(*) AS c FROM ai_usage_events')
+    const cntRows = await query<{ c: number }>('SELECT COUNT(*) AS c FROM ai_usage_events')
     const c = Number(cntRows?.[0]?.c) || 0
     if (c > MAX_EVENTS) {
       const excess = c - MAX_EVENTS
-      await query(
-        `DELETE FROM ai_usage_events WHERE id IN (SELECT id FROM ai_usage_events ORDER BY created_at ASC LIMIT ?)`,
-        [excess],
-      )
+      await query(`DELETE FROM ai_usage_events WHERE id IN (SELECT id FROM ai_usage_events ORDER BY created_at ASC LIMIT ?)`, [excess])
     }
     return true
   } catch (e) {
@@ -82,7 +69,7 @@ export async function appendAiUsageEvent(event: Omit<AiUsageEvent, 'id' | 'ts'>)
 export async function getAiUsageEvents(): Promise<AiUsageEvent[]> {
   if (!hasDbConfig()) return []
   try {
-    const rows = await query<Record<string, unknown>[]>('SELECT * FROM ai_usage_events ORDER BY created_at ASC')
+    const rows = await query<Record<string, unknown>>('SELECT * FROM ai_usage_events ORDER BY created_at ASC')
     if (!Array.isArray(rows)) return []
     return rows.map(mapRow)
   } catch (e) {
@@ -105,7 +92,7 @@ export async function clearAiUsageEvents(): Promise<boolean> {
 export async function getDisplayCurrency(): Promise<AiDisplayCurrency> {
   if (!hasDbConfig()) return 'USD'
   try {
-    const rows = await query<{ display_currency: unknown }[]>('SELECT display_currency FROM ai_usage_settings WHERE id = 1')
+    const rows = await query<{ display_currency: unknown }>('SELECT display_currency FROM ai_usage_settings WHERE id = 1')
     const v = rows?.[0]?.display_currency
     return normalizeAiDisplayCurrency(v)
   } catch {
@@ -138,9 +125,9 @@ export async function getFxState(): Promise<{
     return { usdToVnd: null, usdToJpy: null, updatedAt: null }
   }
   try {
-    const rows = await query<
-      { fx_usd_to_vnd: unknown; fx_usd_to_jpy: unknown; fx_updated_at: unknown }[]
-    >('SELECT fx_usd_to_vnd, fx_usd_to_jpy, fx_updated_at FROM ai_usage_settings WHERE id = 1')
+    const rows = await query<{ fx_usd_to_vnd: unknown; fx_usd_to_jpy: unknown; fx_updated_at: unknown }>(
+      'SELECT fx_usd_to_vnd, fx_usd_to_jpy, fx_updated_at FROM ai_usage_settings WHERE id = 1'
+    )
     const r = rows?.[0]
     if (!r) return { usdToVnd: null, usdToJpy: null, updatedAt: null }
     return {
@@ -157,11 +144,7 @@ export async function setFxRates(usdToVnd: number, usdToJpy: number): Promise<bo
   if (!hasDbConfig()) return false
   const now = Date.now()
   try {
-    await query('UPDATE ai_usage_settings SET fx_usd_to_vnd = ?, fx_usd_to_jpy = ?, fx_updated_at = ? WHERE id = 1', [
-      usdToVnd,
-      usdToJpy,
-      now,
-    ])
+    await query('UPDATE ai_usage_settings SET fx_usd_to_vnd = ?, fx_usd_to_jpy = ?, fx_updated_at = ? WHERE id = 1', [usdToVnd, usdToJpy, now])
     return true
   } catch (e) {
     l.warn('aiUsageDb: setFxRates failed:', e)

@@ -24,12 +24,7 @@ function renderActionCluster(actions: ToastActionItem[] | undefined, errorMessag
   return (
     <div className="flex flex-wrap items-center gap-1">
       {actions?.map((a, i) => (
-        <button
-          key={i}
-          type="button"
-          onClick={a.onClick}
-          className="rounded border border-border bg-background px-2 py-1 text-xs font-medium text-foreground hover:bg-muted"
-        >
+        <button key={i} type="button" onClick={a.onClick} className="rounded border border-border bg-background px-2 py-1 text-xs font-medium text-foreground hover:bg-muted">
           {a.label}
         </button>
       ))}

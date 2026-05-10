@@ -3,7 +3,7 @@
 import { format } from 'date-fns'
 import type { enUS, ja, vi } from 'date-fns/locale'
 import { Copy, MoreVertical, Pencil, Star, Trash2 } from 'lucide-react'
-import type { TaskType } from 'main/task/pgTaskStore'
+import type { TaskType } from 'main/task/stores/pgTaskStore'
 import { memo } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Button } from '@/components/ui/button'
@@ -163,7 +163,20 @@ function TaskTableRowComponent({
   onCopy,
   onToggleFavorite,
   isFavorite,
-  visibleColumnIds = ['type', 'ticketId', 'project', 'title', 'assigneeUserId', 'status', 'priority', 'progress', 'planStartDate', 'planEndDate', 'actualStartDate', 'actualEndDate'],
+  visibleColumnIds = [
+    'type',
+    'ticketId',
+    'project',
+    'title',
+    'assigneeUserId',
+    'status',
+    'priority',
+    'progress',
+    'planStartDate',
+    'planEndDate',
+    'actualStartDate',
+    'actualEndDate',
+  ],
   bulkSelect,
   bulkSelectSpacer = false,
 }: TaskTableRowProps) {
@@ -178,15 +191,28 @@ function TaskTableRowComponent({
   const isOverdue = Boolean(planEndDateObj && planEndDateObj < todayStart)
   const isOverdueInProgress = isOverdue && !isDone
   const isOverdueDone = isOverdue && isDone
-  const daysOverdue =
-    planEndDateObj && todayStart > planEndDateObj
-      ? Math.floor((todayStart.getTime() - planEndDateObj.getTime()) / (24 * 60 * 60 * 1000))
-      : 0
+  const daysOverdue = planEndDateObj && todayStart > planEndDateObj ? Math.floor((todayStart.getTime() - planEndDateObj.getTime()) / (24 * 60 * 60 * 1000)) : 0
   const overdueTier = daysOverdue <= 3 ? 0 : daysOverdue <= 6 ? 1 : daysOverdue <= 9 ? 2 : daysOverdue <= 14 ? 3 : 4
   const overdueBgClass = isOverdueInProgress
-    ? (['bg-rose-50/50 dark:bg-rose-950/25', 'bg-rose-100/55 dark:bg-rose-900/30', 'bg-rose-200/55 dark:bg-rose-800/38', 'bg-rose-300/50 dark:bg-rose-700/42', 'bg-rose-400/55 dark:bg-rose-600/48'] as const)[overdueTier]
+    ? (
+        [
+          'bg-rose-50/50 dark:bg-rose-950/25',
+          'bg-rose-100/55 dark:bg-rose-900/30',
+          'bg-rose-200/55 dark:bg-rose-800/38',
+          'bg-rose-300/50 dark:bg-rose-700/42',
+          'bg-rose-400/55 dark:bg-rose-600/48',
+        ] as const
+      )[overdueTier]
     : isOverdueDone
-      ? (['bg-rose-50/30 dark:bg-rose-950/20', 'bg-rose-50/35 dark:bg-rose-950/25', 'bg-rose-100/40 dark:bg-rose-900/28', 'bg-rose-200/45 dark:bg-rose-800/35', 'bg-rose-300/50 dark:bg-rose-700/40'] as const)[overdueTier]
+      ? (
+          [
+            'bg-rose-50/30 dark:bg-rose-950/20',
+            'bg-rose-50/35 dark:bg-rose-950/25',
+            'bg-rose-100/40 dark:bg-rose-900/28',
+            'bg-rose-200/45 dark:bg-rose-800/35',
+            'bg-rose-300/50 dark:bg-rose-700/40',
+          ] as const
+        )[overdueTier]
       : ''
 
   const taskTooltipContent = (
@@ -277,9 +303,7 @@ function TaskTableRowComponent({
           <Tooltip delayDuration={300}>
             <TooltipTrigger asChild>
               <div className="w-full min-h-full min-w-0 overflow-hidden cursor-default flex items-center gap-2">
-                {isFavorite && (
-                  <Star className="h-4 w-4 shrink-0 fill-amber-400 text-amber-500" aria-label={t('taskManagement.favorite')} />
-                )}
+                {isFavorite && <Star className="h-4 w-4 shrink-0 fill-amber-400 text-amber-500" aria-label={t('taskManagement.favorite')} />}
                 <span className="truncate block flex-1 min-w-0">{task.title}</span>
               </div>
             </TooltipTrigger>
@@ -296,7 +320,10 @@ function TaskTableRowComponent({
         <TableCell className="text-center min-w-[120px] w-[120px]">
           <div className="w-full flex justify-center items-center">
             <span
-              className={cn('inline-flex items-center gap-1.5 px-2 py-1 rounded-md text-xs font-medium w-full justify-center', !statusColorMap[displayStatus] && getStatusBadgeClass(displayStatus))}
+              className={cn(
+                'inline-flex items-center gap-1.5 px-2 py-1 rounded-md text-xs font-medium w-full justify-center',
+                !statusColorMap[displayStatus] && getStatusBadgeClass(displayStatus)
+              )}
               style={getBadgeStyle?.(displayStatus, statusColorMap)}
             >
               {getStatusIcon(displayStatus)}
@@ -345,10 +372,7 @@ function TaskTableRowComponent({
                   </div>
                 </div>
                 <div className="relative mt-3 h-2 overflow-hidden rounded-full bg-primary/15 ring-1 ring-border/50">
-                  <div
-                    className="h-full rounded-full transition-[width] duration-300 ease-out"
-                    style={{ width: `${progressPct}%`, backgroundColor: progressBarColor }}
-                  />
+                  <div className="h-full rounded-full transition-[width] duration-300 ease-out" style={{ width: `${progressPct}%`, backgroundColor: progressBarColor }} />
                 </div>
                 <dl className="relative mt-3 grid grid-cols-[minmax(0,auto)_minmax(0,1fr)] gap-x-3 gap-y-2 text-[11px] leading-tight">
                   <dt className="text-muted-foreground">{t('taskManagement.status')}</dt>
@@ -367,7 +391,9 @@ function TaskTableRowComponent({
         </TableCell>
       )}
       {show('planEndDate') && (
-        <TableCell className="text-center w-[90px]">{task.planEndDate ? format(parseLocalDate(task.planEndDate) ?? new Date(task.planEndDate), dateDisplayPattern, { locale }) : '-'}</TableCell>
+        <TableCell className="text-center w-[90px]">
+          {task.planEndDate ? format(parseLocalDate(task.planEndDate) ?? new Date(task.planEndDate), dateDisplayPattern, { locale }) : '-'}
+        </TableCell>
       )}
       {show('actualStartDate') && (
         <TableCell className="text-center w-[90px]">
@@ -403,11 +429,11 @@ function TaskTableRowComponent({
               {String(task.source || 'in_app')
                 .toLowerCase()
                 .replace(/\s+/g, '_') !== 'redmine' && (
-                  <DropdownMenuItem onClick={() => onCopy(task)}>
-                    <Copy className="h-4 w-4" />
-                    {t('taskManagement.makeCopy')}
-                  </DropdownMenuItem>
-                )}
+                <DropdownMenuItem onClick={() => onCopy(task)}>
+                  <Copy className="h-4 w-4" />
+                  {t('taskManagement.makeCopy')}
+                </DropdownMenuItem>
+              )}
               <DropdownMenuItem onClick={() => onToggleFavorite(task.id)}>
                 <Star className={cn('h-4 w-4', isFavorite && 'fill-amber-400 text-amber-500')} />
                 {isFavorite ? t('taskManagement.unfavorite') : t('taskManagement.favorite')}

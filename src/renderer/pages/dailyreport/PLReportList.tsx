@@ -6,8 +6,8 @@ import { lazy, Suspense, useCallback, useEffect, useMemo, useState } from 'react
 import type { DateRange } from 'react-day-picker'
 import { useTranslation } from 'react-i18next'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
-import { TablePaginationBar } from '@/components/ui/table-pagination-bar'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
+import { TablePaginationBar } from '@/components/ui/table-pagination-bar'
 import toast from '@/components/ui-elements/Toast'
 import { formatDateDisplay, parseLocalDate } from '@/lib/dateUtils'
 import i18n from '@/lib/i18n'
@@ -194,10 +194,7 @@ export function PLReportList({ activeTab, dateRange, projectId, projects, refres
                             {(() => {
                               if (!r.reportDate) return '-'
                               const reportDateVal = r.reportDate as unknown
-                              const d =
-                                reportDateVal instanceof Date
-                                  ? reportDateVal
-                                  : parseLocalDate(String(r.reportDate).slice(0, 10)) ?? parseISO(String(r.reportDate))
+                              const d = reportDateVal instanceof Date ? reportDateVal : (parseLocalDate(String(r.reportDate).slice(0, 10)) ?? parseISO(String(r.reportDate)))
                               return !Number.isNaN(d.getTime()) ? formatDateDisplay(d, i18n.language) : '-'
                             })()}
                           </TableCell>

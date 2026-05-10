@@ -5,10 +5,12 @@ import l from 'electron-log'
 import { IPC } from 'main/constants'
 import { sendTaskNotification } from '../notification/taskNotification'
 import configurationStore from '../store/ConfigurationStore'
-import { onCodingRuleCreated, onCommitReview, onTaskCreated, onTaskDone } from '../task/achievementService'
+import { onCodingRuleCreated, onCommitReview, onTaskCreated, onTaskDone } from '../task/achievement/achievementService'
 import { getTokenFromStore, type SessionData, verifyToken } from '../task/auth'
-import { checkTaskSchemaAppliedOverConnection, isTaskSchemaApplied, resetPoolAndWait, testConnection } from '../task/db'
-import type { CreateTaskInput, ListTasksForPickerParams, TaskStatus, UpdateTaskInput } from '../task/pgTaskStore'
+import { checkTaskSchemaAppliedOverConnection, isTaskSchemaApplied, resetPoolAndWait, testConnection } from '../task/schema/db'
+import { initTaskSchema } from '../task/schema/schemaInit'
+import { runSeedMockWithElectronDb } from '../task/seed/seedMockData'
+import type { CreateTaskInput, ListTasksForPickerParams, TaskStatus, UpdateTaskInput } from '../task/stores/pgTaskStore'
 import {
   addTaskFavorite,
   assignTask,
@@ -79,12 +81,10 @@ import {
   updateTaskProgress,
   updateTaskStatus,
   upsertUserProjectSourceFolder,
-} from '../task/pgTaskStore'
-import { deleteWorkloadOverride, getWorkload, upsertWorkloadOverride, type WorkloadOverrideInput } from '../task/pgWorkloadStore'
-import { runSeedMockWithElectronDb } from '../task/seedMockData'
-import { initTaskSchema } from '../task/schemaInit'
-import type { TaskNotificationType } from '../task/taskNotificationStore'
-import { insertTaskNotification, markAsRead } from '../task/taskNotificationStore'
+} from '../task/stores/pgTaskStore'
+import { deleteWorkloadOverride, getWorkload, upsertWorkloadOverride, type WorkloadOverrideInput } from '../task/stores/pgWorkloadStore'
+import type { TaskNotificationType } from '../task/stores/taskNotificationStore'
+import { insertTaskNotification, markAsRead } from '../task/stores/taskNotificationStore'
 
 /** Insert vào DB (cross-machine) rồi gửi thông báo local. Khi currentUserId === targetUserId: gửi ngay và markAsRead để tránh poller gửi trùng. */
 async function persistAndSendTaskNotification(
@@ -412,7 +412,7 @@ export function registerTaskIpcHandlers() {
       try {
         const params = parseTaskManagementListBody(body)
         const b = body && typeof body === 'object' ? (body as Record<string, unknown>) : {}
-        const includeFacets = b.includeFacets === false ? false : true
+        const includeFacets = b.includeFacets !== false
         const data = await listTasksForManagementWithFacets(session.userId, session.role, params, { includeFacets })
         return { status: 'success' as const, data }
       } catch (error: any) {

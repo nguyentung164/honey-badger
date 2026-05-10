@@ -2,10 +2,10 @@
 
 import { useMemo } from 'react'
 import { useTranslation } from 'react-i18next'
+import type { ACRow, EVMProject } from 'shared/types/evm'
 import { ScrollArea, ScrollBar } from '@/components/ui/scroll-area'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 import { acMatrixRowLabel, aggregateAcWorkingHoursByLineAndDate, isEvmCalendarWorkdayYmd } from '@/lib/evmCalculations'
-import type { ACRow, EVMProject } from 'shared/types/evm'
 import { cn } from '@/lib/utils'
 import { useEVMStore } from '@/stores/useEVMStore'
 
@@ -88,17 +88,12 @@ export function AcHoursMatrixPanel({ project, ac, className }: Props) {
         <Table className="w-max min-w-full text-xs">
           <TableHeader>
             <TableRow className="hover:bg-transparent">
-              <TableHead className="sticky left-0 z-20 min-w-[180px] bg-background shadow-[1px_0_0_hsl(var(--border))]">
-                {t('evm.acMatrixTaskCol')}
-              </TableHead>
+              <TableHead className="sticky left-0 z-20 min-w-[180px] bg-background shadow-[1px_0_0_hsl(var(--border))]">{t('evm.acMatrixTaskCol')}</TableHead>
               <TableHead className="whitespace-nowrap text-right tabular-nums">{t('evm.acMatrixTotalH')}</TableHead>
               {dates.map(d => (
                 <TableHead
                   key={d}
-                  className={cn(
-                    'whitespace-nowrap px-1.5 text-center font-mono tabular-nums text-[10px]',
-                    !dateIsWorkday(d) && 'bg-muted/50 text-muted-foreground',
-                  )}
+                  className={cn('whitespace-nowrap px-1.5 text-center font-mono tabular-nums text-[10px]', !dateIsWorkday(d) && 'bg-muted/50 text-muted-foreground')}
                 >
                   {d.slice(5)}
                 </TableHead>
@@ -119,13 +114,7 @@ export function AcHoursMatrixPanel({ project, ac, className }: Props) {
                     const d = dates[i] ?? ''
                     const work = dateIsWorkday(d)
                     return (
-                      <TableCell
-                        key={d}
-                        className={cn(
-                          'px-1.5 text-center font-mono tabular-nums text-[10px]',
-                          !work && 'bg-muted/40 text-muted-foreground',
-                        )}
-                      >
+                      <TableCell key={d} className={cn('px-1.5 text-center font-mono tabular-nums text-[10px]', !work && 'bg-muted/40 text-muted-foreground')}>
                         {work && h > 0 ? h.toFixed(1) : ''}
                       </TableCell>
                     )

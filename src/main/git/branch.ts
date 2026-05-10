@@ -84,10 +84,10 @@ export async function createBranch(branchName: string, sourceBranch?: string, cw
       return { status: 'error', message: 'Not a git repository or error initializing git' }
     }
 
-    l.info(`Đang tạo nhánh mới: ${branchName}` + (sourceBranch ? ` từ ${sourceBranch}` : '') + (cwd ? ` (cwd: ${cwd})` : ''))
+    l.info(`Đang tạo nhánh mới: ${branchName}${sourceBranch ? ` từ ${sourceBranch}` : ''}${cwd ? ` (cwd: ${cwd})` : ''}`)
 
     // Use checkout -b to create and switch to new branch (from sourceBranch or current HEAD)
-    if (sourceBranch && sourceBranch.trim()) {
+    if (sourceBranch?.trim()) {
       await git.checkout(['-b', branchName, sourceBranch.trim()])
     } else {
       await git.checkout(['-b', branchName])
@@ -116,11 +116,7 @@ export async function createBranch(branchName: string, sourceBranch?: string, cw
  *   or untracked files that exist in the target branch).
  * See: https://git-scm.com/docs/git-checkout, https://git-scm.com/docs/git-switch
  */
-export async function checkoutBranch(
-  branchName: string,
-  options?: { force?: boolean; stash?: boolean },
-  cwd?: string
-): Promise<GitBranchResponse> {
+export async function checkoutBranch(branchName: string, options?: { force?: boolean; stash?: boolean }, cwd?: string): Promise<GitBranchResponse> {
   try {
     const git = await getGitInstance(cwd)
     if (!git) {
