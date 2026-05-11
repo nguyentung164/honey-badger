@@ -5,8 +5,8 @@ import type { Locale } from 'date-fns'
 import { addDays, addMonths, differenceInCalendarDays, format, getDay, getISOWeek, startOfDay, startOfMonth } from 'date-fns'
 import { enUS } from 'date-fns/locale'
 import type { TFunction } from 'i18next'
-import { Briefcase, ChevronDown, ChevronRight, ChevronsRight, Layers, Loader2, Users } from 'lucide-react'
-import type { DragEvent, ReactNode, RefObject } from 'react'
+import { Briefcase, ChevronDown, ChevronRight, ChevronsRight, FoldVertical, Layers, Loader2, UnfoldVertical, Users } from 'lucide-react'
+import type { CSSProperties, DragEvent, ReactNode, RefObject, UIEvent } from 'react'
 import { Activity, lazy, memo, Suspense, startTransition, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, useTransition } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Button } from '@/components/ui/button'
@@ -24,8 +24,8 @@ import { GanttTimelineGridOverlay } from './GanttTimelineGridOverlay'
 import { GANTT_LEADING_FIXED_W, GANTT_LEFT_META_FIXED_W, HB_GANTT_GRID_V_VAR, HB_GANTT_NAME_W_VAR, HB_GANTT_TODAY_LINE_MARK, hbGantt, hbGanttRootStyle } from './ganttLayoutCssVars'
 import { PLAN_UNSCHED_TASK_DRAG_MIME } from './planUnschedTaskDragMime'
 import type { WorkloadBoardSegment, WorkloadDisplayMode, WorkloadOverrideUpsertInput } from './TaskGanttWorkload'
-import { WorkloadMetaRailFloatingToggle } from './TaskGanttWorkload'
-import { isTaskBulkSelectable, type TaskTableRowTask } from './TaskTableRow'
+import { WORKLOAD_EXPANDED_MINI_MAX_SCROLL_PX, WorkloadGanttPaneRailControlStack } from './TaskGanttWorkload'
+import { isTaskBulkSelectable, taskDisplayLabel, type TaskTableRowTask } from './TaskTableRow'
 import {
   bucketTasksByGroup,
   loadTaskBoardRowGrouping,
@@ -34,6 +34,7 @@ import {
   saveUnschedCollapsedSegments,
   type TaskBoardRowGrouping,
 } from './taskBoardGroupBuckets'
+import { Z_GANTT_META_RAIL_FLOATING_TOGGLE, Z_GANTT_STICKY_TOP_HEADER } from './taskGanttZIndex'
 import { taskStatusBarParentFillStyle, taskStatusBarStyle } from './taskStatusVisual'
 
 const TaskGanttWorkloadLazy = lazy(async () => {
@@ -168,7 +169,6 @@ const GANTT_META_COL_DIVIDER = 'border-r border-border/50'
  */
 
 /** Dải cột meta (TASK TITLE, …) phải trên thanh meta body (45) khi scroll dọc, nhưng dưới `Popover`/`z-50` (DateRange, filter) — tránh lịch/tooltip bị chìm. */
-const Z_GANTT_STICKY_TOP_HEADER = 36
 const Z_GANTT_STICKY_BODY_LEFT_RAIL = 35
 const Z_GANTT_STICKY_ROW_META_FULL = 30
 /**
@@ -184,10 +184,8 @@ const Z_GANTT_BODY_DEPENDENCIES = 3
 /** Đường Today trên chart — giữ trên hàng để dễ nhìn trên bar rỗng. */
 const Z_GANTT_BODY_TODAY = 5
 
-/** Nút đóng/mở rail meta — trên sticky (≤36); phải thấp hơn `Z_GANTT_BOARD_LOADING_OVERLAY` để overlay loading che nút. */
-export const Z_GANTT_META_RAIL_FLOATING_TOGGLE = Z_GANTT_STICKY_TOP_HEADER + 1
-/** Overlay loading toàn board (`TaskManagement`) — trên nút meta rail và sticky, dưới Popover/DatePicker (`z-50`). */
-export const Z_GANTT_BOARD_LOADING_OVERLAY = Z_GANTT_META_RAIL_FLOATING_TOGGLE + 1
+/** Stable empty array — tránh `Array.from()` mỗi render trong renderGanttVirtualRowSlice, ngăn phá memo GanttTaskRow. */
+const EMPTY_NON_WORKING: string[] = []
 
 type GanttRowGrouping = TaskBoardRowGrouping
 
@@ -639,16 +637,16 @@ function isTaskScheduledForGantt(t: TaskTableRowTask): boolean {
 export type GanttVirtualFlatRow =
   | { kind: 'groupHeader'; key: string; segmentKey: string; title: string; groupBodyVisible: boolean }
   | {
-      kind: 'dataRow'
-      key: string
-      task: TaskTableRowTask
-      indentLevel: number
-      hasChildren: boolean
-      isExpanded: boolean
-      subtaskNoPlanHint: string
-      /** `null`: milestone (không đánh số) hoặc sub-task khi parent không có No. */
-      displayNo: string | null
-    }
+    kind: 'dataRow'
+    key: string
+    task: TaskTableRowTask
+    indentLevel: number
+    hasChildren: boolean
+    isExpanded: boolean
+    subtaskNoPlanHint: string
+    /** `null`: milestone (không đánh số) hoặc sub-task khi parent không có No. */
+    displayNo: string | null
+  }
 
 function buildGanttVirtualFlatRows(
   groupTrees: {
@@ -730,7 +728,7 @@ export type GanttVirtualSliceStableCtx = {
   /** Ngày nghỉ theo project (khớp workload / NETWORKDAYS) — key = `projectId`. */
   planNonWorkingByProjectId: ReadonlyMap<string, readonly string[]>
   statusColorMap?: Record<string, string>
-  selectedTaskIds?: Set<string>
+  /** `selectedTaskIds` đã tách ra khỏi sliceStable — truyền trực tiếp qua GanttVirtualRowsPane → isSelected boolean per row. */
   onToggleTaskSelect?: (taskId: string) => void
   onOpenTaskById: (taskId: string) => void
   onUpdatePlanDates?: (taskId: string, planStartDate: string, planEndDate: string, version?: number) => Promise<boolean>
@@ -741,6 +739,9 @@ export type GanttVirtualSliceStableCtx = {
   getPriorityIcon: (priority: string) => ReactNode
   getStatusToneClass: (code: string) => string
   getPriorityToneClass: (code: string) => string
+  /** Màu chip priority (master data) — khớp TaskManagement / bảng task. */
+  priorityColorMap?: Record<string, string>
+  getBadgeStyle?: (code: string, colorMap: Record<string, string>) => CSSProperties | undefined
   locale: Locale
   milestoneLabel?: string
   toggleGroupSegmentCollapsed: (segmentKey: string) => void
@@ -777,12 +778,19 @@ export type GanttVirtualRowActualChrome = {
 }
 
 /** Ref mini workload: actual + viền hàng explicit (không có ancestor `group/ganttGridShell`). */
-export type GanttVirtualRowChromePrefs = GanttVirtualRowActualChrome & { showGridBorders: boolean }
+export type GanttVirtualRowChromePrefs = GanttVirtualRowActualChrome & {
+  showGridBorders: boolean
+  scale: TaskGanttScale
+  verticalGridLineLeftPx: number[]
+  /** Khớp workload Hours/Tasks: lưới dọc timeline mini-Gantt chỉ khi Hours. */
+  workloadDisplayMode: WorkloadDisplayMode
+}
 
 function renderGanttVirtualRowSlice(
   flatRow: GanttVirtualFlatRow,
   stable: GanttVirtualSliceStableCtx,
-  actualChrome: GanttVirtualRowActualChrome
+  actualChrome: GanttVirtualRowActualChrome,
+  isSelected: boolean
 ): { meta: ReactNode; chart: ReactNode } {
   if (flatRow.kind === 'groupHeader') {
     const expanded = flatRow.groupBodyVisible
@@ -826,7 +834,7 @@ function renderGanttVirtualRowSlice(
     chartWidth: stable.chartWidth,
     weekendColumnRects: stable.weekendColumnRects,
     statusColorMap: stable.statusColorMap,
-    selectedTaskIds: stable.selectedTaskIds,
+    isSelected,
     onToggleTaskSelect: stable.onToggleTaskSelect,
     onOpenTaskById: stable.onOpenTaskById,
     getAssigneeDisplay: stable.getAssigneeDisplay,
@@ -836,7 +844,9 @@ function renderGanttVirtualRowSlice(
     getPriorityIcon: stable.getPriorityIcon,
     getStatusToneClass: stable.getStatusToneClass,
     getPriorityToneClass: stable.getPriorityToneClass,
-    planNonWorkingDatesForTask: Array.from(stable.planNonWorkingByProjectId.get((flatRow.task.projectId ?? '').trim()) ?? []),
+    priorityColorMap: stable.priorityColorMap,
+    getBadgeStyle: stable.getBadgeStyle,
+    planNonWorkingDatesForTask: (stable.planNonWorkingByProjectId.get((flatRow.task.projectId ?? '').trim()) as string[] | undefined) ?? EMPTY_NON_WORKING,
     showActualBars: actualChrome.showActualBars,
     locale: stable.locale,
     actualBarRangeTitle: actualChrome.actualBarRangeTitle,
@@ -857,7 +867,7 @@ function renderGanttVirtualRowSlice(
       metaRailExpanded: stable.metaRailExpanded,
       task: flatRow.task,
       chartWidth: stable.chartWidth,
-      selectedTaskIds: stable.selectedTaskIds,
+      isSelected,
       onToggleTaskSelect: stable.onToggleTaskSelect,
       onOpenTaskById: stable.onOpenTaskById,
       getAssigneeDisplay: stable.getAssigneeDisplay,
@@ -867,6 +877,7 @@ function renderGanttVirtualRowSlice(
       getPriorityIcon: stable.getPriorityIcon,
       getStatusToneClass: stable.getStatusToneClass,
       getPriorityToneClass: stable.getPriorityToneClass,
+      priorityColorMap: stable.priorityColorMap,
       noPlanHint: flatRow.subtaskNoPlanHint,
       indentLevel: flatRow.indentLevel,
       displayNo,
@@ -886,7 +897,7 @@ function renderGanttVirtualRowSlice(
           pixelPerDay={stable.pixelPerDay}
           chartWidth={stable.chartWidth}
           weekendColumnRects={stable.weekendColumnRects}
-          selectedTaskIds={stable.selectedTaskIds}
+          isSelected={isSelected}
           onOpenTaskById={stable.onOpenTaskById}
           milestoneLabel={stable.milestoneLabel}
           indentLevel={flatRow.indentLevel}
@@ -903,7 +914,7 @@ function renderGanttVirtualRowSlice(
           pixelPerDay={stable.pixelPerDay}
           chartWidth={stable.chartWidth}
           weekendColumnRects={stable.weekendColumnRects}
-          selectedTaskIds={stable.selectedTaskIds}
+          isSelected={isSelected}
           onOpenTaskById={stable.onOpenTaskById}
           milestoneLabel={stable.milestoneLabel}
           indentLevel={flatRow.indentLevel}
@@ -1038,9 +1049,60 @@ type GanttVirtualRowsPaneProps = {
   chartWidth: number
   /** Đổi khi mode layout board đổi — đo lại viewport scroll thay vì remount + `setState` ở parent. */
   virtualMeasureEpoch: TaskGanttLayoutMode
+  /** Truyền trực tiếp — không đi qua sliceStable để tránh invalidate toàn bộ visible rows khi selection thay đổi. */
+  selectedTaskIds?: Set<string>
 }
 
-const GanttVirtualRowsPane = memo(function GanttVirtualRowsPane({ scrollRef, flatRows, sliceStable, rowActualChrome, chartWidth, virtualMeasureEpoch }: GanttVirtualRowsPaneProps) {
+/** Mỗi virtual row là một memo component riêng — khi `selectedTaskIds` đổi chỉ 1-2 row có `isSelected` thay đổi re-render. */
+type GanttVirtualRowSliceItemProps = {
+  flatRow: GanttVirtualFlatRow
+  sliceStable: GanttVirtualSliceStableCtx
+  rowActualChrome: GanttVirtualRowActualChrome
+  chartWidth: number
+  isSelected: boolean
+  vRowStart: number
+  vRowSize: number
+}
+
+const GanttVirtualRowSliceItem = memo(function GanttVirtualRowSliceItem({
+  flatRow,
+  sliceStable,
+  rowActualChrome,
+  chartWidth,
+  isSelected,
+  vRowStart,
+  vRowSize,
+}: GanttVirtualRowSliceItemProps) {
+  const { meta, chart } = renderGanttVirtualRowSlice(flatRow, sliceStable, rowActualChrome, isSelected)
+  return (
+    <div
+      className="absolute left-0 flex flex-row items-stretch transform-gpu"
+      style={{
+        top: vRowStart,
+        height: vRowSize,
+        zIndex: Z_GANTT_BODY_ROWS,
+        ...hbGantt.sheet(chartWidth),
+      }}
+    >
+      <div className="sticky left-0 isolate shrink-0 transform-gpu border-r border-border/50 bg-background" style={{ ...hbGantt.leftBlock, zIndex: Z_GANTT_STICKY_BODY_LEFT_RAIL }}>
+        {meta}
+      </div>
+      <div className="relative shrink-0 overflow-hidden" style={{ width: chartWidth, height: vRowSize }}>
+        {chart}
+      </div>
+    </div>
+  )
+})
+
+const GanttVirtualRowsPane = memo(function GanttVirtualRowsPane({
+  scrollRef,
+  flatRows,
+  sliceStable,
+  rowActualChrome,
+  chartWidth,
+  virtualMeasureEpoch,
+  selectedTaskIds,
+}: GanttVirtualRowsPaneProps) {
   const virtualizer = useVirtualizer({
     count: flatRows.length,
     getScrollElement: () => scrollRef.current,
@@ -1059,28 +1121,18 @@ const GanttVirtualRowsPane = memo(function GanttVirtualRowsPane({ scrollRef, fla
       {virtualizer.getVirtualItems().map(vRow => {
         const flatRow = flatRows[vRow.index]
         if (!flatRow) return null
-        const { meta, chart } = renderGanttVirtualRowSlice(flatRow, sliceStable, rowActualChrome)
+        const isSelected = flatRow.kind === 'dataRow' ? (selectedTaskIds?.has(flatRow.task.id) ?? false) : false
         return (
-          <div
+          <GanttVirtualRowSliceItem
             key={vRow.key}
-            className="absolute left-0 flex flex-row items-stretch transform-gpu"
-            style={{
-              top: vRow.start,
-              height: vRow.size,
-              zIndex: Z_GANTT_BODY_ROWS,
-              ...hbGantt.sheet(chartWidth),
-            }}
-          >
-            <div
-              className="sticky left-0 isolate shrink-0 transform-gpu border-r border-border/50 bg-background"
-              style={{ ...hbGantt.leftBlock, zIndex: Z_GANTT_STICKY_BODY_LEFT_RAIL }}
-            >
-              {meta}
-            </div>
-            <div className="relative shrink-0 overflow-hidden" style={{ width: chartWidth, height: vRow.size }}>
-              {chart}
-            </div>
-          </div>
+            flatRow={flatRow}
+            sliceStable={sliceStable}
+            rowActualChrome={rowActualChrome}
+            chartWidth={chartWidth}
+            isSelected={isSelected}
+            vRowStart={vRow.start}
+            vRowSize={vRow.size}
+          />
         )
       })}
     </>
@@ -1135,6 +1187,8 @@ export function TaskGanttView({
   getPriorityIcon,
   getStatusToneClass,
   getPriorityToneClass,
+  priorityColorMap,
+  getBadgeStyle,
   disableRowGrouping = false,
   workloadSegments = [],
   workloadCapTruncated = null,
@@ -1165,6 +1219,8 @@ export function TaskGanttView({
   /** Màu chữ + icon (vd. filter status trong TaskManagement — không badge nền). */
   getStatusToneClass: (code: string) => string
   getPriorityToneClass: (code: string) => string
+  priorityColorMap?: Record<string, string>
+  getBadgeStyle?: (code: string, colorMap: Record<string, string>) => CSSProperties | undefined
   /** Admin / PL / PM — khi false: luôn flat, ẩn nhóm hàng */
   disableRowGrouping?: boolean
   /** Workload theo từng project (mỗi segment một `getWorkload`). */
@@ -1301,12 +1357,18 @@ export function TaskGanttView({
   const miniGanttDisplayPrefsRef = useRef<GanttVirtualRowChromePrefs>({
     showGridBorders: true,
     showActualBars: true,
+    scale: 'week',
+    verticalGridLineLeftPx: [],
+    workloadDisplayMode: 'hours',
   })
   const renderMiniGanttForUserRef = useRef<(userId: string, projectId: string | null) => ReactNode>(null)
   const chromeFlashTimeoutRef = useRef(0)
   const [timelineChromeFlash, setTimelineChromeFlash] = useState(false)
   /** Đồng bộ Hours/Tasks giữa header và body khi tách hai mount. */
   const [workloadDisplayMode, setWorkloadDisplayMode] = useState<WorkloadDisplayMode>('hours')
+  /** Thu project + mở mini-Gantt — một nguồn cho cả header workload và body khi split mount. */
+  const [workloadCollapsedProjectIds, setWorkloadCollapsedProjectIds] = useState<Set<string>>(() => new Set())
+  const [workloadExpandedRowKeys, setWorkloadExpandedRowKeys] = useState<Set<string>>(() => new Set())
 
   const onLabelResizePointerDown = useCallback(
     (e: React.PointerEvent<HTMLButtonElement>) => {
@@ -1373,6 +1435,12 @@ export function TaskGanttView({
 
   const unscheduledGroups = useMemo(() => bucketTasksByGroup(unscheduled, groupingEffective, getAssigneeDisplay, 'title'), [unscheduled, groupingEffective, getAssigneeDisplay])
 
+  const unschedGroupedSegmentKeys = useMemo(
+    () =>
+      groupingEffective !== 'flat' ? unscheduledGroups.filter(g => Boolean(g.title)).map(g => g.segmentKey) : [],
+    [groupingEffective, unscheduledGroups]
+  )
+
   const scheduledGroups = useMemo(() => bucketGanttScheduled(scheduled, groupingEffective, getAssigneeDisplay), [scheduled, groupingEffective, getAssigneeDisplay])
 
   /** Con của mỗi task — từ toàn bộ board `tasks`, lọc theo segment khi nhóm hàng. */
@@ -1407,6 +1475,56 @@ export function TaskGanttView({
       return { ...g, tree: { roots, childrenMap } }
     })
   }, [scheduledGroups, childrenByParentFull, groupingEffective, taskLinks])
+
+  const scheduledGroupSegmentKeys = useMemo(
+    () => groupTrees.filter(g => Boolean(g.title)).map(g => g.segmentKey),
+    [groupTrees]
+  )
+
+  const toggleAllScheduledGroupSegmentsCollapsed = useCallback(() => {
+    const keys = groupTrees.filter(g => Boolean(g.title)).map(g => g.segmentKey)
+    if (!keys.length) return
+    setCollapsedGroupSegmentKeys(prev => {
+      const allCollapsed = keys.every(k => prev.has(k))
+      const next = new Set(prev)
+      if (allCollapsed) {
+        for (const k of keys) next.delete(k)
+      } else {
+        for (const k of keys) next.add(k)
+      }
+      saveCollapsedGroupSegments(next)
+      return next
+    })
+  }, [groupTrees])
+
+  const toggleAllUnschedGroupSegmentsCollapsed = useCallback(() => {
+    if (groupingEffective === 'flat') return
+    const keys = unscheduledGroups.filter(g => Boolean(g.title)).map(g => g.segmentKey)
+    if (!keys.length) return
+    setCollapsedUnschedGroupSegmentKeys(prev => {
+      const allCollapsed = keys.every(k => prev.has(k))
+      const next = new Set(prev)
+      if (allCollapsed) {
+        for (const k of keys) next.delete(k)
+      } else {
+        for (const k of keys) next.add(k)
+      }
+      saveUnschedCollapsedSegments(next)
+      return next
+    })
+  }, [groupingEffective, unscheduledGroups])
+
+  const allScheduledGroupsCollapsed = useMemo(
+    () =>
+      scheduledGroupSegmentKeys.length > 0 && scheduledGroupSegmentKeys.every(k => collapsedGroupSegmentKeys.has(k)),
+    [collapsedGroupSegmentKeys, scheduledGroupSegmentKeys]
+  )
+
+  const allUnschedGroupsCollapsed = useMemo(
+    () =>
+      unschedGroupedSegmentKeys.length > 0 && unschedGroupedSegmentKeys.every(k => collapsedUnschedGroupSegmentKeys.has(k)),
+    [collapsedUnschedGroupSegmentKeys, unschedGroupedSegmentKeys]
+  )
 
   const { start, totalDays } = useMemo(() => {
     let minD: Date | null = null
@@ -1794,7 +1912,7 @@ export function TaskGanttView({
     if (wh && wh.style.transform !== tx) wh.style.transform = tx
   }, [])
 
-  const syncHorizontalScrollFromRef = useRef<(source: 'ganttBody' | 'workloadBody') => void>(() => {})
+  const syncHorizontalScrollFromRef = useRef<(source: 'ganttBody' | 'workloadBody') => void>(() => { })
 
   const syncHorizontalScrollFrom = useCallback(
     (source: 'ganttBody' | 'workloadBody') => {
@@ -1921,8 +2039,19 @@ export function TaskGanttView({
       workloadRowGrouping: groupingEffective,
       showTimelineDayStrip: !showCombineSplit,
       timelineTicks: tickMarks,
+      bodyScrollRef: workloadScrollRef,
+      leftBlockWidthPx: leftBlockWidth,
+      collapsedProjectIdsShared: workloadCollapsedProjectIds,
+      setCollapsedProjectIdsShared: setWorkloadCollapsedProjectIds,
+      expandedRowKeysShared: workloadExpandedRowKeys,
+      setExpandedRowKeysShared: setWorkloadExpandedRowKeys,
+      displayMode: workloadDisplayMode,
+      onDisplayModeChange: setWorkloadDisplayMode,
     }),
     [
+      workloadCollapsedProjectIds,
+      workloadExpandedRowKeys,
+      workloadDisplayMode,
       workloadSegments,
       workloadCapTruncated,
       scale,
@@ -1944,6 +2073,8 @@ export function TaskGanttView({
       groupingEffective,
       showCombineSplit,
       tickMarks,
+      workloadScrollRef,
+      leftBlockWidth,
     ]
   )
 
@@ -1959,18 +2090,12 @@ export function TaskGanttView({
         {workloadSplitScroll ? (
           <>
             <div className="min-w-0 shrink-0 overflow-x-hidden bg-background/30">
-              <TaskGanttWorkloadLazy
-                {...workloadSharedProps}
-                segment="header"
-                displayMode={workloadDisplayMode}
-                onDisplayModeChange={setWorkloadDisplayMode}
-                headerTimelineTrackRef={workloadHeaderTimelineRef}
-              />
+              <TaskGanttWorkloadLazy {...workloadSharedProps} segment="header" headerTimelineTrackRef={workloadHeaderTimelineRef} />
             </div>
             <div ref={workloadScrollRef} className="flex min-h-0 flex-1 flex-col overflow-y-auto overflow-x-auto [overflow-anchor:none] [scrollbar-gutter:stable]">
               {/* flex-1 fills scrollport when content is short; % min-height is unreliable inside overflow:auto */}
               <div className="relative flex min-h-0 w-full flex-1 flex-col min-w-0 bg-background/30" style={hbGantt.sheet(chartWidth)}>
-                <TaskGanttWorkloadLazy {...workloadSharedProps} segment="body" displayMode={workloadDisplayMode} onDisplayModeChange={setWorkloadDisplayMode} />
+                <TaskGanttWorkloadLazy {...workloadSharedProps} segment="body" />
               </div>
             </div>
           </>
@@ -1981,7 +2106,18 @@ export function TaskGanttView({
             </div>
           </div>
         )}
-        <WorkloadMetaRailFloatingToggle expanded={metaRailExpanded} onToggle={toggleMetaRail} />
+        <WorkloadGanttPaneRailControlStack
+          metaRailExpanded={metaRailExpanded}
+          onMetaRailToggle={toggleMetaRail}
+          segments={workloadSegments}
+          workloadRowGrouping={groupingEffective}
+          showActualBars={showActualBars}
+          collapsedProjectIds={workloadCollapsedProjectIds}
+          setCollapsedProjectIds={setWorkloadCollapsedProjectIds}
+          expandedRowKeys={workloadExpandedRowKeys}
+          setExpandedRowKeys={setWorkloadExpandedRowKeys}
+          includeMetaRail={!showCombineSplit}
+        />
       </div>
     </Suspense>
   )
@@ -2179,7 +2315,7 @@ export function TaskGanttView({
       weekendColumnRects,
       planNonWorkingByProjectId,
       statusColorMap,
-      selectedTaskIds,
+      // selectedTaskIds đã được tách ra — truyền trực tiếp qua prop GanttVirtualRowsPane
       onToggleTaskSelect,
       onOpenTaskById: openTaskById,
       onUpdatePlanDates,
@@ -2190,6 +2326,8 @@ export function TaskGanttView({
       getPriorityIcon,
       getStatusToneClass,
       getPriorityToneClass,
+      priorityColorMap,
+      getBadgeStyle,
       locale,
       milestoneLabel: labels.milestoneLabel,
       toggleGroupSegmentCollapsed,
@@ -2204,7 +2342,6 @@ export function TaskGanttView({
       weekendColumnRects,
       planNonWorkingByProjectId,
       statusColorMap,
-      selectedTaskIds,
       onToggleTaskSelect,
       openTaskById,
       onUpdatePlanDates,
@@ -2215,6 +2352,8 @@ export function TaskGanttView({
       getPriorityIcon,
       getStatusToneClass,
       getPriorityToneClass,
+      priorityColorMap,
+      getBadgeStyle,
       locale,
       labels.milestoneLabel,
       toggleGroupSegmentCollapsed,
@@ -2244,7 +2383,13 @@ export function TaskGanttView({
     ]
   )
 
-  miniGanttDisplayPrefsRef.current = { ...ganttRowActualChrome, showGridBorders }
+  miniGanttDisplayPrefsRef.current = {
+    ...ganttRowActualChrome,
+    showGridBorders,
+    scale,
+    verticalGridLineLeftPx,
+    workloadDisplayMode,
+  }
 
   const renderMiniGanttForUser = useCallback(
     (userId: string, projectId: string | null) => {
@@ -2265,52 +2410,46 @@ export function TaskGanttView({
 
       if (userTasks.length === 0) {
         return (
-          <div
-            className="sticky left-0 z-[2] border-b border-b-border/35 bg-background px-3 py-2 text-[10px] italic text-muted-foreground"
-            style={hbGantt.leftPlusChartMin(chartWidth, 720)}
-          >
-            {labels.emptyScheduled}
+          <div className="relative flex w-full min-w-0 shrink-0 flex-row items-stretch bg-background">
+            <div
+              className="sticky left-0 isolate shrink-0 border-r border-border/50 bg-background transform-gpu"
+              style={{ ...hbGantt.leftBlock, zIndex: Z_GANTT_STICKY_ROW_META_FULL }}
+              aria-hidden
+            />
+            <div className="relative flex min-h-[36px] min-w-0 shrink-0 items-center px-3 text-[10px] italic leading-snug text-muted-foreground" style={{ width: chartWidth }}>
+              {labels.emptyScheduled}
+            </div>
           </div>
         )
       }
 
-      return userTasks.map((task, index) => (
-        <GanttTaskRow
-          key={`workload-mini-${task.id}`}
-          task={task}
-          start={start}
-          pixelPerDay={pixelPerDay}
-          chartWidth={chartWidth}
-          weekendColumnRects={weekendColumnRects}
-          statusColorMap={statusColorMap}
-          selectedTaskIds={selectedTaskIds}
-          onToggleTaskSelect={onToggleTaskSelect}
-          onOpenTaskById={openTaskById}
-          onUpdatePlanDates={onUpdatePlanDates}
-          getAssigneeDisplay={getAssigneeDisplay}
-          getStatusLabel={getStatusLabel}
-          getPriorityLabel={getPriorityLabel}
-          getStatusIcon={getStatusIcon}
-          getPriorityIcon={getPriorityIcon}
-          getStatusToneClass={getStatusToneClass}
-          getPriorityToneClass={getPriorityToneClass}
-          metaRailExpanded={metaRailExpanded}
-          showGridBorders={wg.showGridBorders}
-          showActualBars={wg.showActualBars}
-          locale={locale}
-          actualBarRangeTitle={wg.actualBarRangeTitle}
-          actualBarHintLateStart={wg.actualBarHintLateStart}
-          actualBarHintLateFinish={wg.actualBarHintLateFinish}
-          actualBarHintLateBoth={wg.actualBarHintLateBoth}
-          actualBarHintEarly={wg.actualBarHintEarly}
-          actualBarHintOntime={wg.actualBarHintOntime}
-          planNonWorkingDatesForTask={Array.from(planNonWorkingByProjectId.get((task.projectId ?? '').trim()) ?? [])}
-          hasChildren={false}
-          indentLevel={0}
-          isExpanded={false}
-          displayNo={String(index + 1)}
-        />
-      ))
+      const miniPanelProps = {
+        userTasks,
+        chartWidth,
+        start,
+        pixelPerDay,
+        weekendColumnRects,
+        statusColorMap,
+        selectedTaskIds,
+        onToggleTaskSelect,
+        onOpenTaskById: openTaskById,
+        onUpdatePlanDates,
+        getAssigneeDisplay,
+        getStatusLabel,
+        getPriorityLabel,
+        getStatusIcon,
+        getPriorityIcon,
+        getStatusToneClass,
+        getPriorityToneClass,
+        priorityColorMap,
+        getBadgeStyle,
+        metaRailExpanded,
+        wg,
+        locale,
+        planNonWorkingByProjectId,
+      } as const
+
+      return <WorkloadMiniGanttSplitPanel {...miniPanelProps} />
     },
     [
       scheduled,
@@ -2331,6 +2470,8 @@ export function TaskGanttView({
       getPriorityIcon,
       getStatusToneClass,
       getPriorityToneClass,
+      priorityColorMap,
+      getBadgeStyle,
       locale,
       metaRailExpanded,
       planNonWorkingByProjectId,
@@ -2479,42 +2620,78 @@ export function TaskGanttView({
               rowActualChrome={ganttRowActualChrome}
               chartWidth={chartWidth}
               virtualMeasureEpoch={layoutModeEffective}
+              selectedTaskIds={selectedTaskIds}
             />
           </div>
         </div>
         {scheduled.length > 0 ? (
-          <button
-            type="button"
-            className={cn(
-              'pointer-events-auto absolute flex h-7 w-5 items-center justify-center',
-              'rounded-r-md border border-border/80 border-l-0 bg-background/95 shadow-sm',
-              'text-muted-foreground transition-[background-color,box-shadow] duration-200 ease-out',
-              'hover:bg-muted hover:text-foreground',
-              'motion-safe:active:scale-[0.97] motion-reduce:active:scale-100',
-              'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/50'
-            )}
+          <div
+            className="pointer-events-auto absolute flex flex-col overflow-hidden rounded-r-md border border-border/80 border-l-0 bg-background/95 shadow-sm"
             style={{
               ...hbGantt.metaRailToggleLeft,
-              top: 'calc(50% + 20px)',
+              top: `calc(${HEADER_H}px + (100% - ${HEADER_H}px) / 2)`,
               transform: 'translate(-1px, -50%)',
               zIndex: Z_GANTT_META_RAIL_FLOATING_TOGGLE,
             }}
-            onClick={e => {
-              e.stopPropagation()
-              toggleMetaRail()
-            }}
-            aria-expanded={metaRailExpanded}
-            aria-label={metaRailExpanded ? t('taskManagement.ganttMetaRailCollapse') : t('taskManagement.ganttMetaRailExpand')}
-            title={metaRailExpanded ? t('taskManagement.ganttMetaRailCollapse') : t('taskManagement.ganttMetaRailExpand')}
           >
-            <ChevronsRight
+            <button
+              type="button"
               className={cn(
-                'h-4 w-4 motion-safe:transition-transform motion-safe:duration-200 motion-safe:ease-out motion-reduce:transition-none',
-                metaRailExpanded && 'rotate-180'
+                'flex h-7 w-5 shrink-0 items-center justify-center',
+                'text-muted-foreground transition-[background-color,box-shadow] duration-200 ease-out',
+                'hover:bg-muted hover:text-foreground',
+                'motion-safe:active:scale-[0.97] motion-reduce:active:scale-100',
+                'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/50 focus-visible:ring-inset'
               )}
-              aria-hidden
-            />
-          </button>
+              onClick={e => {
+                e.stopPropagation()
+                toggleMetaRail()
+              }}
+              aria-expanded={metaRailExpanded}
+              aria-label={metaRailExpanded ? t('taskManagement.ganttMetaRailCollapse') : t('taskManagement.ganttMetaRailExpand')}
+              title={metaRailExpanded ? t('taskManagement.ganttMetaRailCollapse') : t('taskManagement.ganttMetaRailExpand')}
+            >
+              <ChevronsRight
+                className={cn(
+                  'h-4 w-4 motion-safe:transition-transform motion-safe:duration-200 motion-safe:ease-out motion-reduce:transition-none',
+                  metaRailExpanded && 'rotate-180'
+                )}
+                aria-hidden
+              />
+            </button>
+            {(groupingEffective === 'assignee' || groupingEffective === 'project') && scheduledGroupSegmentKeys.length > 0 ? (
+              <button
+                type="button"
+                className={cn(
+                  'flex h-7 w-5 shrink-0 items-center justify-center border-t border-border/60',
+                  'text-muted-foreground transition-[background-color,color] duration-200 ease-out',
+                  'hover:bg-muted hover:text-foreground',
+                  'motion-safe:active:scale-[0.97] motion-reduce:active:scale-100',
+                  'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/50 focus-visible:ring-inset'
+                )}
+                aria-label={
+                  allScheduledGroupsCollapsed
+                    ? t('taskManagement.ganttBulkUnfoldAllTimelineGroupsAria')
+                    : t('taskManagement.ganttBulkFoldAllTimelineGroupsAria')
+                }
+                title={
+                  allScheduledGroupsCollapsed
+                    ? t('taskManagement.ganttBulkUnfoldAllTimelineGroupsAria')
+                    : t('taskManagement.ganttBulkFoldAllTimelineGroupsAria')
+                }
+                onClick={e => {
+                  e.stopPropagation()
+                  toggleAllScheduledGroupSegmentsCollapsed()
+                }}
+              >
+                {allScheduledGroupsCollapsed ? (
+                  <UnfoldVertical className="h-3.5 w-3.5" aria-hidden />
+                ) : (
+                  <FoldVertical className="h-3.5 w-3.5" aria-hidden />
+                )}
+              </button>
+            ) : null}
+          </div>
         ) : null}
       </div>
     )
@@ -2754,6 +2931,32 @@ export function TaskGanttView({
                   <div className="min-w-0 truncate text-[10px] font-semibold uppercase tracking-wide text-muted-foreground sm:text-[11px]">
                     {labels.unscheduled} <span className="tabular-nums">({unscheduled.length})</span>
                   </div>
+                  {(groupingEffective === 'assignee' || groupingEffective === 'project') && unschedGroupedSegmentKeys.length > 0 ? (
+                    <button
+                      type="button"
+                      className="flex h-8 w-8 shrink-0 items-center justify-center rounded border border-border/60 bg-background/70 text-muted-foreground hover:text-foreground"
+                      aria-label={
+                        allUnschedGroupsCollapsed
+                          ? t('taskManagement.ganttBulkUnfoldUnscheduledGroupsAria')
+                          : t('taskManagement.ganttBulkFoldUnscheduledGroupsAria')
+                      }
+                      title={
+                        allUnschedGroupsCollapsed
+                          ? t('taskManagement.ganttBulkUnfoldUnscheduledGroupsAria')
+                          : t('taskManagement.ganttBulkFoldUnscheduledGroupsAria')
+                      }
+                      onClick={e => {
+                        e.stopPropagation()
+                        toggleAllUnschedGroupSegmentsCollapsed()
+                      }}
+                    >
+                      {allUnschedGroupsCollapsed ? (
+                        <UnfoldVertical className="h-3.5 w-3.5" />
+                      ) : (
+                        <FoldVertical className="h-3.5 w-3.5" />
+                      )}
+                    </button>
+                  ) : null}
                 </div>
               </div>
             </div>
@@ -2793,7 +2996,7 @@ export function TaskGanttView({
                         <ul className="p-1.5 grid grid-cols-1 gap-1 min-[420px]:grid-cols-2 min-[420px]:gap-1.5 min-[640px]:grid-cols-3 min-[880px]:grid-cols-4 min-[1120px]:grid-cols-5 min-[1440px]:grid-cols-6">
                           {group.tasks.map(uTask => {
                             const sh = statusColorMap?.[uTask.status]?.trim()
-                            const bulkTitle = uTask.title?.trim() ? uTask.title : t('taskManagement.ganttNoTitle')
+                            const bulkTitle = taskDisplayLabel(uTask, t('taskManagement.ganttNoTitle'))
                             return (
                               <li
                                 key={uTask.id}
@@ -2801,10 +3004,10 @@ export function TaskGanttView({
                                 onDragStart={
                                   onUpdatePlanDates && showGanttMain
                                     ? e => {
-                                        e.dataTransfer.setData(PLAN_UNSCHED_TASK_DRAG_MIME, uTask.id)
-                                        e.dataTransfer.setData('text/plain', uTask.id)
-                                        e.dataTransfer.effectAllowed = 'copyMove'
-                                      }
+                                      e.dataTransfer.setData(PLAN_UNSCHED_TASK_DRAG_MIME, uTask.id)
+                                      e.dataTransfer.setData('text/plain', uTask.id)
+                                      e.dataTransfer.effectAllowed = 'copyMove'
+                                    }
                                     : undefined
                                 }
                                 className={cn(
@@ -2831,7 +3034,7 @@ export function TaskGanttView({
                                   className="min-w-0 flex-1 truncate text-left text-[10px] leading-tight hover:bg-muted/50 sm:text-[11px]"
                                   onClick={() => onSelectTask(uTask)}
                                 >
-                                  {uTask.title || t('taskManagement.ganttNoTitle')}
+                                  {taskDisplayLabel(uTask, t('taskManagement.ganttNoTitle'))}
                                 </button>
                               </li>
                             )
@@ -2850,6 +3053,22 @@ export function TaskGanttView({
   )
 }
 
+/** Màu nền/chữ chip priority trên plan bar — khớp `TaskBoardCard` khi không có hex master; khi có thì `getBadgeStyle` ghi đè qua inline style. */
+function planBarPriorityChipFallbackClass(priority: string) {
+  switch (priority) {
+    case 'critical':
+      return 'bg-red-500/25 text-red-700 dark:text-red-400'
+    case 'high':
+      return 'bg-orange-500/25 text-orange-700 dark:text-orange-400'
+    case 'medium':
+      return 'bg-sky-500/20 text-sky-700 dark:text-sky-400'
+    case 'low':
+      return 'bg-emerald-500/25 text-emerald-700 dark:text-emerald-400'
+    default:
+      return ''
+  }
+}
+
 const GanttTaskRow = memo(function GanttTaskRow({
   task,
   start,
@@ -2857,7 +3076,7 @@ const GanttTaskRow = memo(function GanttTaskRow({
   chartWidth,
   weekendColumnRects: weekendColumnRectsProp,
   statusColorMap,
-  selectedTaskIds,
+  isSelected,
   onToggleTaskSelect,
   onOpenTaskById,
   onUpdatePlanDates,
@@ -2885,6 +3104,8 @@ const GanttTaskRow = memo(function GanttTaskRow({
   rowSegment = 'full',
   displayNo,
   metaRailExpanded = true,
+  priorityColorMap,
+  getBadgeStyle,
 }: {
   task: TaskTableRowTask
   start: Date
@@ -2892,7 +3113,8 @@ const GanttTaskRow = memo(function GanttTaskRow({
   chartWidth: number
   weekendColumnRects?: { left: number; width: number }[]
   statusColorMap?: Record<string, string>
-  selectedTaskIds?: Set<string>
+  /** Boolean per-row — tách khỏi selectedTaskIds Set để memo() so sánh primitive thay vì Set reference. */
+  isSelected?: boolean
   onToggleTaskSelect?: (taskId: string) => void
   onOpenTaskById: (taskId: string) => void
   onUpdatePlanDates?: (taskId: string, planStartDate: string, planEndDate: string, version?: number) => Promise<boolean>
@@ -2903,6 +3125,8 @@ const GanttTaskRow = memo(function GanttTaskRow({
   getPriorityIcon: (priority: string) => ReactNode
   getStatusToneClass: (code: string) => string
   getPriorityToneClass: (code: string) => string
+  priorityColorMap?: Record<string, string>
+  getBadgeStyle?: (code: string, colorMap: Record<string, string>) => CSSProperties | undefined
   /** `undefined` = theo `data-gantt-grid` + `group/ganttGridShell` trên sheet Gantt. */
   showGridBorders?: boolean
   showActualBars?: boolean
@@ -3113,7 +3337,7 @@ const GanttTaskRow = memo(function GanttTaskRow({
   const barChartSurfaceStyle = hasChildren ? { ...(barTint ?? {}), backgroundColor: undefined, ...taskStatusBarParentFillStyle(statusHex) } : (barTint ?? {})
 
   const canDrag = Boolean(onUpdatePlanDates)
-  const rowSelected = Boolean(selectedTaskIds?.has(task.id))
+  const rowSelected = Boolean(isSelected)
   const assigneeText = getAssigneeDisplay?.(task.assigneeUserId) ?? (task.assigneeUserId?.trim() ? task.assigneeUserId : '—')
   const displayStatus = task.status
   const priority = (task.priority ?? 'medium') as string
@@ -3123,8 +3347,13 @@ const GanttTaskRow = memo(function GanttTaskRow({
   const planRangeLine = `${format(show.start, 'P', { locale: dateLocale })} – ${format(show.end, 'P', { locale: dateLocale })}`
   const planWorkdaySpan = workingDaysBetweenInclusive(show.start, show.end, planNw)
   const planDurationCompact = t('taskManagement.ganttPlanBarDurationCompact', { count: planWorkdaySpan })
-  const planBarTitleShort = task.title?.trim() ? task.title : t('taskManagement.ganttNoTitle')
+  const ganttNoTitle = t('taskManagement.ganttNoTitle')
+  const planBarTitleShort = taskDisplayLabel(task, ganttNoTitle)
+  const ticketBarText = task.ticketId?.trim() ?? ''
   const planBarAriaLabel = `${planBarTitleShort}. ${t('taskManagement.planStartDate')} / ${t('taskManagement.deadline')}: ${planRangeLine}. ${t('taskManagement.ganttPlanDurationAria', { count: planWorkdaySpan })}. ${statusLabel}. ${priorityLabel}. ${assigneeText}. ${t('taskManagement.progress')} ${ganttProgressPercentDisplay(task.progress)}.`
+  const priorityBadgeStyle = getBadgeStyle?.(priority, priorityColorMap ?? {})
+  const priorityHex = priorityColorMap?.[priority]?.trim()
+  const priorityMetaTextStyle: CSSProperties | undefined = priorityHex ? { color: priorityHex } : undefined
   const planProgressPct = ganttProgressClamped(task.progress)
   const planProgressColor = getProgressColor(planProgressPct / 100)
 
@@ -3162,11 +3391,11 @@ const GanttTaskRow = memo(function GanttTaskRow({
       <div className={cn('flex min-w-0 shrink-0 items-center justify-center py-1', metaCellBg, GANTT_META_COL_DIVIDER)} style={hbGantt.colCheckbox}>
         {onToggleTaskSelect && isTaskBulkSelectable(task) ? (
           <Checkbox
-            checked={selectedTaskIds?.has(task.id) ?? false}
+            checked={isSelected ?? false}
             onCheckedChange={handleToggleSelect}
             className="h-4 w-4 shrink-0"
             aria-label={t('taskManagement.ganttBulkSelectTaskAria', {
-              title: task.title?.trim() ? task.title : t('taskManagement.ganttNoTitle'),
+              title: taskDisplayLabel(task, ganttNoTitle),
             })}
           />
         ) : (
@@ -3197,10 +3426,10 @@ const GanttTaskRow = memo(function GanttTaskRow({
             'min-w-0 flex-1 truncate text-left text-xs font-medium leading-tight text-foreground underline-offset-2 hover:underline',
             indentLevel > 0 && 'text-muted-foreground'
           )}
-          title={task.title}
+          title={taskDisplayLabel(task, ganttNoTitle)}
           onClick={handleOpenTask}
         >
-          {task.title?.trim() ? task.title : t('taskManagement.ganttNoTitle')}
+          {taskDisplayLabel(task, ganttNoTitle)}
         </button>
       </div>
       <div className={cn('flex min-w-0 shrink items-center py-1', metaCellBg, metaRailExpanded && GANTT_META_COL_DIVIDER)} style={hbGantt.colAssignee} title={assigneeText}>
@@ -3215,7 +3444,13 @@ const GanttTaskRow = memo(function GanttTaskRow({
         </span>
       </div>
       <div className={cn('flex min-w-0 shrink items-center py-1', metaCellBg, metaRailExpanded && GANTT_META_COL_DIVIDER)} style={hbGantt.colPriority} title={priorityLabel}>
-        <span className={cn('flex min-w-0 max-w-full items-center gap-1.5 text-xs leading-tight [&_svg]:shrink-0', getPriorityToneClass(priority))}>
+        <span
+          className={cn(
+            'flex min-w-0 max-w-full items-center gap-1.5 text-xs leading-tight [&_svg]:h-3.5 [&_svg]:w-3.5 [&_svg]:shrink-0',
+            !priorityHex && getPriorityToneClass(priority)
+          )}
+          style={priorityMetaTextStyle}
+        >
           <span className="[&_svg]:h-3.5 [&_svg]:w-3.5" aria-hidden>
             {getPriorityIcon(priority)}
           </span>
@@ -3271,7 +3506,7 @@ const GanttTaskRow = memo(function GanttTaskRow({
                 <div className="pointer-events-none absolute inset-0 bg-gradient-to-br from-primary/[0.07] via-transparent to-transparent" aria-hidden />
                 <p className="relative text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">{actualStrip.sectionTitle}</p>
                 <p className="relative mt-1 line-clamp-2 text-left text-xs font-medium leading-snug text-foreground">
-                  {task.title?.trim() ? task.title : t('taskManagement.ganttNoTitle')}
+                  {taskDisplayLabel(task, ganttNoTitle)}
                 </p>
                 <p className="relative mt-2 text-sm font-semibold tabular-nums leading-snug text-foreground">{actualStrip.rangeLine}</p>
                 <div className="relative mt-2 flex flex-wrap items-baseline gap-x-2 gap-y-1 border-t border-border/60 pt-2 text-[11px] leading-snug text-muted-foreground">
@@ -3338,12 +3573,34 @@ const GanttTaskRow = memo(function GanttTaskRow({
               {/* biome-ignore lint/a11y/noStaticElementInteractions: Gantt timeline drag */}
               <div
                 role="presentation"
-                className={cn('min-w-0 flex-1 cursor-default truncate px-1', canDrag && 'cursor-grab active:cursor-grabbing')}
-                style={{ lineHeight: `${planBarHeightPx}px` }}
+                className={cn(
+                  'flex min-h-0 min-w-0 flex-1 cursor-default items-center gap-1 overflow-hidden px-0.5',
+                  canDrag && 'cursor-grab active:cursor-grabbing'
+                )}
+                style={{ minHeight: planBarHeightPx }}
                 onPointerDown={e => canDrag && beginDrag('move', e)}
                 onDoubleClick={handleOpenTask}
               >
-                <span className="pointer-events-none block truncate text-center text-[10px] font-semibold tabular-nums text-foreground/90">{planDurationCompact}</span>
+                <div className="flex min-w-0 flex-1 items-center justify-start gap-1 overflow-hidden">
+                  <span
+                    className={cn(
+                      'inline-flex max-h-[16px] shrink-0 items-center gap-0.5 rounded px-1 py-px text-[9px] font-semibold leading-none [&_svg]:h-2.5 [&_svg]:w-2.5 [&_svg]:shrink-0',
+                      planBarPriorityChipFallbackClass(priority)
+                    )}
+                    style={priorityBadgeStyle}
+                    title={priorityLabel}
+                  >
+                    {getPriorityIcon(priority)}
+                    <span className="max-w-[4rem] truncate">{priorityLabel}</span>
+                  </span>
+                  <span
+                    className="min-w-0 flex-1 truncate text-left text-[9px] font-semibold tabular-nums text-foreground/90"
+                    title={planBarTitleShort}
+                  >
+                    {planBarTitleShort}
+                  </span>
+                </div>
+                <span className="pointer-events-none shrink-0 text-[10px] font-semibold tabular-nums text-foreground/90">{planDurationCompact}</span>
               </div>
               {canDrag ? (
                 <button
@@ -3379,6 +3636,12 @@ const GanttTaskRow = memo(function GanttTaskRow({
                 <dd className="min-w-0 text-right font-medium text-foreground">{statusLabel}</dd>
                 <dt className="text-muted-foreground">{t('taskManagement.priority')}</dt>
                 <dd className="min-w-0 text-right font-medium text-foreground">{priorityLabel}</dd>
+                {ticketBarText ? (
+                  <>
+                    <dt className="text-muted-foreground">{t('taskManagement.ticketId')}</dt>
+                    <dd className="min-w-0 truncate text-right font-medium text-foreground">{ticketBarText}</dd>
+                  </>
+                ) : null}
                 <dt className="text-muted-foreground">{t('taskManagement.assignee')}</dt>
                 <dd className="min-w-0 truncate text-right text-foreground">{assigneeText}</dd>
                 <dt className="text-muted-foreground">{t('taskManagement.progress')}</dt>
@@ -3416,13 +3679,189 @@ const GanttTaskRow = memo(function GanttTaskRow({
   )
 })
 
+/** Mini-Gantt trong workload expand: meta và chart tách cột; cuộn dọc chỉ trong con để `sticky left` của khối meta bám đúng scrollport ngang của workload (không bọc cả hai trong một `overflow-y-auto`). */
+const WorkloadMiniGanttSplitPanel = memo(function WorkloadMiniGanttSplitPanel({
+  userTasks,
+  chartWidth,
+  start,
+  pixelPerDay,
+  weekendColumnRects,
+  statusColorMap,
+  selectedTaskIds,
+  onToggleTaskSelect,
+  onOpenTaskById,
+  onUpdatePlanDates,
+  getAssigneeDisplay,
+  getStatusLabel,
+  getPriorityLabel,
+  getStatusIcon,
+  getPriorityIcon,
+  getStatusToneClass,
+  getPriorityToneClass,
+  priorityColorMap,
+  getBadgeStyle,
+  metaRailExpanded,
+  wg,
+  locale,
+  planNonWorkingByProjectId,
+}: {
+  userTasks: TaskTableRowTask[]
+  chartWidth: number
+  start: Date
+  pixelPerDay: number
+  weekendColumnRects: { left: number; width: number }[]
+  statusColorMap?: Record<string, string>
+  selectedTaskIds?: Set<string>
+  onToggleTaskSelect?: (taskId: string) => void
+  onOpenTaskById: (taskId: string) => void
+  onUpdatePlanDates?: (taskId: string, planStartDate: string, planEndDate: string, version?: number) => Promise<boolean>
+  getAssigneeDisplay?: (assigneeUserId: string | null) => string
+  getStatusLabel: (status: string) => string
+  getPriorityLabel: (priority: string) => string
+  getStatusIcon: (status: string) => ReactNode
+  getPriorityIcon: (priority: string) => ReactNode
+  getStatusToneClass: (code: string) => string
+  getPriorityToneClass: (code: string) => string
+  priorityColorMap?: Record<string, string>
+  getBadgeStyle?: (code: string, colorMap: Record<string, string>) => CSSProperties | undefined
+  metaRailExpanded: boolean
+  wg: GanttVirtualRowChromePrefs
+  locale: Locale
+  planNonWorkingByProjectId: ReadonlyMap<string, readonly string[]>
+}) {
+  const metaScrollRef = useRef<HTMLDivElement>(null)
+  const chartScrollRef = useRef<HTMLDivElement>(null)
+  const syncingRef = useRef(false)
+
+  const syncFromMeta = useCallback((e: UIEvent<HTMLDivElement>) => {
+    if (syncingRef.current) return
+    syncingRef.current = true
+    const top = e.currentTarget.scrollTop
+    const other = chartScrollRef.current
+    if (other) other.scrollTop = top
+    syncingRef.current = false
+  }, [])
+
+  const syncFromChart = useCallback((e: UIEvent<HTMLDivElement>) => {
+    if (syncingRef.current) return
+    syncingRef.current = true
+    const top = e.currentTarget.scrollTop
+    const other = metaScrollRef.current
+    if (other) other.scrollTop = top
+    syncingRef.current = false
+  }, [])
+
+  const paneHeight = Math.min(userTasks.length * GANTT_ROW_H, WORKLOAD_EXPANDED_MINI_MAX_SCROLL_PX)
+
+  return (
+    <div className="relative flex min-w-0 flex-row items-stretch bg-background" style={{ height: paneHeight }}>
+      <div
+        className="sticky left-0 isolate flex h-full min-h-0 shrink-0 flex-col border-r border-border/50 bg-background transform-gpu"
+        style={{ ...hbGantt.leftBlock, zIndex: Z_GANTT_STICKY_ROW_META_FULL }}
+      >
+        <div ref={metaScrollRef} className="min-h-0 flex-1 overflow-y-auto overflow-x-hidden" onScroll={syncFromMeta}>
+          {userTasks.map((task, index) => (
+            <GanttTaskRow
+              key={`workload-mini-m-${task.id}`}
+              task={task}
+              start={start}
+              pixelPerDay={pixelPerDay}
+              chartWidth={chartWidth}
+              weekendColumnRects={weekendColumnRects}
+              statusColorMap={statusColorMap}
+              isSelected={selectedTaskIds?.has(task.id) ?? false}
+              onToggleTaskSelect={onToggleTaskSelect}
+              onOpenTaskById={onOpenTaskById}
+              onUpdatePlanDates={onUpdatePlanDates}
+              getAssigneeDisplay={getAssigneeDisplay}
+              getStatusLabel={getStatusLabel}
+              getPriorityLabel={getPriorityLabel}
+              getStatusIcon={getStatusIcon}
+              getPriorityIcon={getPriorityIcon}
+              getStatusToneClass={getStatusToneClass}
+              getPriorityToneClass={getPriorityToneClass}
+              priorityColorMap={priorityColorMap}
+              getBadgeStyle={getBadgeStyle}
+              metaRailExpanded={metaRailExpanded}
+              showGridBorders={wg.showGridBorders}
+              showActualBars={wg.showActualBars}
+              locale={locale}
+              actualBarRangeTitle={wg.actualBarRangeTitle}
+              actualBarHintLateStart={wg.actualBarHintLateStart}
+              actualBarHintLateFinish={wg.actualBarHintLateFinish}
+              actualBarHintLateBoth={wg.actualBarHintLateBoth}
+              actualBarHintEarly={wg.actualBarHintEarly}
+              actualBarHintOntime={wg.actualBarHintOntime}
+              planNonWorkingDatesForTask={(planNonWorkingByProjectId.get((task.projectId ?? '').trim()) as string[] | undefined) ?? EMPTY_NON_WORKING}
+              hasChildren={false}
+              indentLevel={0}
+              isExpanded={false}
+              rowSegment="meta"
+              displayNo={String(index + 1)}
+            />
+          ))}
+        </div>
+      </div>
+      <div className="relative flex h-full min-h-0 shrink-0 flex-col overflow-x-clip" style={{ width: chartWidth }}>
+        {wg.showGridBorders && wg.workloadDisplayMode === 'hours' ? (
+          <div aria-hidden className="pointer-events-none absolute inset-y-0 left-0 z-[1] overflow-hidden" style={{ width: chartWidth }}>
+            <GanttTimelineGridOverlay scale={wg.scale} pixelPerDay={pixelPerDay} chartWidth={chartWidth} verticalGridLineLeftPx={wg.verticalGridLineLeftPx} />
+          </div>
+        ) : null}
+        <div ref={chartScrollRef} className="relative z-[2] min-h-0 flex-1 overflow-y-auto overflow-x-clip" onScroll={syncFromChart}>
+          {userTasks.map((task, index) => (
+            <GanttTaskRow
+              key={`workload-mini-c-${task.id}`}
+              task={task}
+              start={start}
+              pixelPerDay={pixelPerDay}
+              chartWidth={chartWidth}
+              weekendColumnRects={weekendColumnRects}
+              statusColorMap={statusColorMap}
+              isSelected={selectedTaskIds?.has(task.id) ?? false}
+              onToggleTaskSelect={onToggleTaskSelect}
+              onOpenTaskById={onOpenTaskById}
+              onUpdatePlanDates={onUpdatePlanDates}
+              getAssigneeDisplay={getAssigneeDisplay}
+              getStatusLabel={getStatusLabel}
+              getPriorityLabel={getPriorityLabel}
+              getStatusIcon={getStatusIcon}
+              getPriorityIcon={getPriorityIcon}
+              getStatusToneClass={getStatusToneClass}
+              getPriorityToneClass={getPriorityToneClass}
+              priorityColorMap={priorityColorMap}
+              getBadgeStyle={getBadgeStyle}
+              metaRailExpanded={metaRailExpanded}
+              showGridBorders={wg.showGridBorders}
+              showActualBars={wg.showActualBars}
+              locale={locale}
+              actualBarRangeTitle={wg.actualBarRangeTitle}
+              actualBarHintLateStart={wg.actualBarHintLateStart}
+              actualBarHintLateFinish={wg.actualBarHintLateFinish}
+              actualBarHintLateBoth={wg.actualBarHintLateBoth}
+              actualBarHintEarly={wg.actualBarHintEarly}
+              actualBarHintOntime={wg.actualBarHintOntime}
+              planNonWorkingDatesForTask={(planNonWorkingByProjectId.get((task.projectId ?? '').trim()) as string[] | undefined) ?? EMPTY_NON_WORKING}
+              hasChildren={false}
+              indentLevel={0}
+              isExpanded={false}
+              rowSegment="chart"
+              displayNo={String(index + 1)}
+            />
+          ))}
+        </div>
+      </div>
+    </div>
+  )
+})
+
 const GanttMilestoneRow = memo(function GanttMilestoneRow({
   task,
   start,
   pixelPerDay,
   chartWidth,
   weekendColumnRects: weekendColumnRectsProp,
-  selectedTaskIds,
+  isSelected,
   onOpenTaskById,
   showGridBorders: showGridBordersProp,
   milestoneLabel,
@@ -3437,7 +3876,7 @@ const GanttMilestoneRow = memo(function GanttMilestoneRow({
   pixelPerDay: number
   chartWidth: number
   weekendColumnRects?: { left: number; width: number }[]
-  selectedTaskIds?: Set<string>
+  isSelected?: boolean
   onOpenTaskById: (taskId: string) => void
   /** `undefined` = theo `data-gantt-grid` trên sheet Gantt. */
   showGridBorders?: boolean
@@ -3464,9 +3903,9 @@ const GanttMilestoneRow = memo(function GanttMilestoneRow({
   const dayIndex = differenceInCalendarDays(milestoneDate, start)
   const centerPx = dayIndex * pixelPerDay + pixelPerDay / 2
 
-  const rowSelected = Boolean(selectedTaskIds?.has(task.id))
+  const rowSelected = Boolean(isSelected)
   const indentPx = indentLevel * 16
-  const titleShown = task.title?.trim() ? task.title : t('taskManagement.ganttNoTitle')
+  const titleShown = taskDisplayLabel(task, t('taskManagement.ganttNoTitle'))
   const typeShown = (milestoneLabel ?? '').trim() || t('taskManagement.ganttMilestoneLabel')
   const tooltipText = t('taskManagement.ganttMilestoneMarkerAria', { type: typeShown, title: titleShown })
   const seg = rowSegment
@@ -3562,14 +4001,14 @@ const GanttMilestoneRow = memo(function GanttMilestoneRow({
               style={
                 hasChildren && !rowSelected
                   ? {
-                      backgroundImage:
-                        'linear-gradient(to bottom, rgba(217, 119, 6, 0.95) 0%, rgba(217, 119, 6, 0.95) 50%, rgba(251, 191, 36, 0.72) 50%, rgba(251, 191, 36, 0.72) 100%)',
-                    }
+                    backgroundImage:
+                      'linear-gradient(to bottom, rgba(217, 119, 6, 0.95) 0%, rgba(217, 119, 6, 0.95) 50%, rgba(251, 191, 36, 0.72) 50%, rgba(251, 191, 36, 0.72) 100%)',
+                  }
                   : hasChildren && rowSelected
                     ? {
-                        backgroundImage:
-                          'linear-gradient(to bottom, hsl(var(--primary) / 0.88) 0%, hsl(var(--primary) / 0.88) 50%, hsl(var(--primary) / 0.58) 50%, hsl(var(--primary) / 0.58) 100%)',
-                      }
+                      backgroundImage:
+                        'linear-gradient(to bottom, hsl(var(--primary) / 0.88) 0%, hsl(var(--primary) / 0.88) 50%, hsl(var(--primary) / 0.58) 50%, hsl(var(--primary) / 0.58) 100%)',
+                    }
                     : undefined
               }
             />
@@ -3606,7 +4045,7 @@ const GanttUnscheduledSubtaskRow = memo(function GanttUnscheduledSubtaskRow({
   task,
   chartWidth,
   weekendColumnRects: weekendColumnRectsProp,
-  selectedTaskIds,
+  isSelected,
   onToggleTaskSelect,
   onOpenTaskById,
   getAssigneeDisplay,
@@ -3616,6 +4055,7 @@ const GanttUnscheduledSubtaskRow = memo(function GanttUnscheduledSubtaskRow({
   getPriorityIcon,
   getStatusToneClass,
   getPriorityToneClass,
+  priorityColorMap,
   showGridBorders: showGridBordersProp,
   noPlanHint,
   indentLevel = 1,
@@ -3626,7 +4066,7 @@ const GanttUnscheduledSubtaskRow = memo(function GanttUnscheduledSubtaskRow({
   task: TaskTableRowTask
   chartWidth: number
   weekendColumnRects?: { left: number; width: number }[]
-  selectedTaskIds?: Set<string>
+  isSelected?: boolean
   onToggleTaskSelect?: (taskId: string) => void
   onOpenTaskById: (taskId: string) => void
   getAssigneeDisplay?: (assigneeUserId: string | null) => string
@@ -3636,6 +4076,7 @@ const GanttUnscheduledSubtaskRow = memo(function GanttUnscheduledSubtaskRow({
   getPriorityIcon: (priority: string) => ReactNode
   getStatusToneClass: (code: string) => string
   getPriorityToneClass: (code: string) => string
+  priorityColorMap?: Record<string, string>
   /** `undefined` = theo `data-gantt-grid` trên sheet Gantt. */
   showGridBorders?: boolean
   noPlanHint: string
@@ -3653,15 +4094,18 @@ const GanttUnscheduledSubtaskRow = memo(function GanttUnscheduledSubtaskRow({
     onToggleTaskSelect?.(task.id)
   }, [onToggleTaskSelect, task.id])
 
-  const rowSelected = Boolean(selectedTaskIds?.has(task.id))
+  const rowSelected = Boolean(isSelected)
   const assigneeText = getAssigneeDisplay?.(task.assigneeUserId) ?? (task.assigneeUserId?.trim() ? task.assigneeUserId : '—')
   const displayStatus = task.status
   const priority = (task.priority ?? 'medium') as string
   const statusLabel = getStatusLabel(displayStatus)
   const priorityLabel = getPriorityLabel(priority)
+  const priorityHex = priorityColorMap?.[priority]?.trim()
+  const priorityMetaTextStyle: CSSProperties | undefined = priorityHex ? { color: priorityHex } : undefined
   const indentPx = indentLevel * 16
   const seg = rowSegment
   const isMilestoneUnsched = task.type === 'milestone'
+  const ganttNoTitle = t('taskManagement.ganttNoTitle')
 
   const rowChromeFull = cn(
     'relative flex w-full shrink-0 items-stretch hover:bg-muted/25',
@@ -3699,10 +4143,10 @@ const GanttUnscheduledSubtaskRow = memo(function GanttUnscheduledSubtaskRow({
         <button
           type="button"
           className="min-w-0 max-w-full truncate text-center text-sm font-semibold uppercase tracking-wide leading-tight text-amber-600 dark:text-amber-400 underline-offset-2 hover:underline"
-          title={task.title}
+          title={taskDisplayLabel(task, ganttNoTitle)}
           onClick={handleOpenTask}
         >
-          {task.title?.trim() ? task.title : t('taskManagement.ganttNoTitle')}
+          {taskDisplayLabel(task, ganttNoTitle)}
         </button>
       </div>
     </div>
@@ -3724,11 +4168,11 @@ const GanttUnscheduledSubtaskRow = memo(function GanttUnscheduledSubtaskRow({
       <div className={cn('flex min-w-0 shrink-0 items-center justify-center py-1', metaCellBg, GANTT_META_COL_DIVIDER)} style={hbGantt.colCheckbox}>
         {onToggleTaskSelect && isTaskBulkSelectable(task) ? (
           <Checkbox
-            checked={selectedTaskIds?.has(task.id) ?? false}
+            checked={isSelected ?? false}
             onCheckedChange={handleToggleSelect}
             className="h-4 w-4 shrink-0"
             aria-label={t('taskManagement.ganttBulkSelectTaskAria', {
-              title: task.title?.trim() ? task.title : t('taskManagement.ganttNoTitle'),
+              title: taskDisplayLabel(task, ganttNoTitle),
             })}
           />
         ) : (
@@ -3741,10 +4185,10 @@ const GanttUnscheduledSubtaskRow = memo(function GanttUnscheduledSubtaskRow({
         <button
           type="button"
           className="min-w-0 flex-1 truncate text-left text-xs font-medium leading-tight text-muted-foreground underline-offset-2 hover:underline"
-          title={task.title}
+          title={taskDisplayLabel(task, ganttNoTitle)}
           onClick={handleOpenTask}
         >
-          {task.title?.trim() ? task.title : t('taskManagement.ganttNoTitle')}
+          {taskDisplayLabel(task, ganttNoTitle)}
         </button>
       </div>
       <div className={cn('flex min-w-0 shrink items-center py-1', metaCellBg, metaRailExpanded && GANTT_META_COL_DIVIDER)} style={hbGantt.colAssignee} title={assigneeText}>
@@ -3759,7 +4203,13 @@ const GanttUnscheduledSubtaskRow = memo(function GanttUnscheduledSubtaskRow({
         </span>
       </div>
       <div className={cn('flex min-w-0 shrink items-center py-1', metaCellBg, metaRailExpanded && GANTT_META_COL_DIVIDER)} style={hbGantt.colPriority} title={priorityLabel}>
-        <span className={cn('flex min-w-0 max-w-full items-center gap-1.5 text-xs leading-tight [&_svg]:shrink-0', getPriorityToneClass(priority))}>
+        <span
+          className={cn(
+            'flex min-w-0 max-w-full items-center gap-1.5 text-xs leading-tight [&_svg]:h-3.5 [&_svg]:w-3.5 [&_svg]:shrink-0',
+            !priorityHex && getPriorityToneClass(priority)
+          )}
+          style={priorityMetaTextStyle}
+        >
           <span className="[&_svg]:h-3.5 [&_svg]:w-3.5" aria-hidden>
             {getPriorityIcon(priority)}
           </span>

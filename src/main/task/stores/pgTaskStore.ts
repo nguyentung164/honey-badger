@@ -38,6 +38,8 @@ export interface Task {
   actualEndDate: string
   createdAt: string
   updatedAt: string
+  /** ISO — lúc task vào đúng status hiện tại (Kanban aging). */
+  statusEnteredAt: string
   createdBy: string
   updatedBy: string
   createdByName: string
@@ -172,6 +174,13 @@ function mapTask(row: any): Task {
     actualEndDate: row.actual_end_date ? dbValueToCalendarYmd(row.actual_end_date as Date | string) : '',
     createdAt: row.created_at ? new Date(row.created_at).toISOString() : '',
     updatedAt: row.updated_at ? new Date(row.updated_at).toISOString() : '',
+    statusEnteredAt: row.status_entered_at
+      ? new Date(row.status_entered_at).toISOString()
+      : row.updated_at
+        ? new Date(row.updated_at).toISOString()
+        : row.created_at
+          ? new Date(row.created_at).toISOString()
+          : '',
     createdBy,
     updatedBy,
     createdByName: createdByDisplay,
@@ -1110,8 +1119,8 @@ export async function createTask(input: CreateTaskInput): Promise<Task> {
   const id = randomUuidV7()
   const creator = (input.createdBy || '').trim() || null
   await query(
-    `INSERT INTO tasks (id, project_id, title, description, assignee_user_id, status, progress, priority, type, source, ticket_id, plan_start_date, plan_end_date, actual_start_date, actual_end_date, created_by, updated_by, parent_id, version)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1)`,
+    `INSERT INTO tasks (id, project_id, title, description, assignee_user_id, status, progress, priority, type, source, ticket_id, plan_start_date, plan_end_date, actual_start_date, actual_end_date, created_by, updated_by, parent_id, version, status_entered_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, NOW())`,
     [
       id,
       projectId,
@@ -1209,8 +1218,8 @@ export async function updateTaskStatus(id: string, status: TaskStatus, version?:
   const auditSql = up ? ', updated_by = ?' : ''
   const sql =
     version !== undefined
-      ? `UPDATE tasks SET status = ?, updated_at = NOW(), version = version + 1${doneDates}${auditSql} WHERE id = ? AND version = ?`
-      : `UPDATE tasks SET status = ?, updated_at = NOW(), version = version + 1${doneDates}${auditSql} WHERE id = ?`
+      ? `UPDATE tasks SET status = ?, updated_at = NOW(), version = version + 1, status_entered_at = NOW()${doneDates}${auditSql} WHERE id = ? AND version = ?`
+      : `UPDATE tasks SET status = ?, updated_at = NOW(), version = version + 1, status_entered_at = NOW()${doneDates}${auditSql} WHERE id = ?`
   const params = version !== undefined ? (up ? [status, up, id, version] : [status, id, version]) : up ? [status, up, id] : [status, id]
   const result = await exec(sql, params)
   if (result.affectedRows === 0) throwVersionConflict()
@@ -1387,6 +1396,9 @@ export async function updateTask(id: string, input: UpdateTaskInput, updatedByUs
     updates.push('ticket_id = ?')
     params.push(null)
   }
+  if (updates.some(u => /^status = \?/.test(u))) {
+    updates.push('status_entered_at = NOW()')
+  }
   if (updates.length === 0) return
   const actor = updatedByUserId?.trim()
   if (actor) {
@@ -1472,6 +1484,7 @@ export async function bulkUpdateTasksWithPatch(
       if (patch.status !== undefined) {
         setParts.push('status = ?')
         params.push(patch.status)
+        setParts.push('status_entered_at = NOW()')
         if (patch.status === 'done') {
           setParts.push('actual_end_date = COALESCE(actual_end_date, CURRENT_DATE)')
         }
@@ -1582,8 +1595,8 @@ export async function createTaskChild(taskId: string, input: CreateTaskInput): P
   const id = randomUuidV7()
   const creator = (input.createdBy || '').trim() || null
   await query(
-    `INSERT INTO tasks (id, project_id, title, description, assignee_user_id, status, progress, priority, type, source, ticket_id, plan_start_date, plan_end_date, actual_start_date, actual_end_date, created_by, updated_by, parent_id, version)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1)`,
+    `INSERT INTO tasks (id, project_id, title, description, assignee_user_id, status, progress, priority, type, source, ticket_id, plan_start_date, plan_end_date, actual_start_date, actual_end_date, created_by, updated_by, parent_id, version, status_entered_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, NOW())`,
     [
       id,
       projectId,

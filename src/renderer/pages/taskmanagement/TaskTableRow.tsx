@@ -41,9 +41,19 @@ export interface TaskTableRowTask {
   actualEndDate: string
   createdAt: string
   updatedAt: string
+  /** ISO — thời điểm vào status hiện tại (Kanban aging). */
+  statusEnteredAt?: string
   createdBy: string
   parentId?: string | null
   version?: number
+}
+
+/** Một dòng hiển thị: `ticketId · title` khi có ticket; dùng Kanban / Gantt / Calendar. */
+export function taskDisplayLabel(task: Pick<TaskTableRowTask, 'title' | 'ticketId'>, emptyTitle: string): string {
+  const titlePart = task.title?.trim() ? task.title : emptyTitle
+  const tid = task.ticketId?.trim()
+  if (!tid) return titlePart
+  return `${tid} · ${titlePart}`
 }
 
 export interface TaskTableRowUser {

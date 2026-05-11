@@ -499,7 +499,7 @@ export function DevReportForm({ initialReportDate, initialProjectId, initialProj
               const vcsType = result.status === 'success' && result.data?.isValid ? (result.data.type as 'git' | 'svn') : 'git'
               setFolderVcsTypes(prev => ({ ...prev, [f.path]: vcsType }))
             })
-            .catch(() => {})
+            .catch(() => { })
         }
       })
     }
@@ -875,8 +875,8 @@ export function DevReportForm({ initialReportDate, initialProjectId, initialProj
                       ? t('dailyReport.selectSourceFolderFirst')
                       : commits.length === 0
                         ? t('dailyReport.noCommitsInDate', {
-                            date: reportDate ? format(parseLocalDate(reportDate) ?? parseISO(reportDate), dateDisplayPattern) : '',
-                          })
+                          date: reportDate ? format(parseLocalDate(reportDate) ?? parseISO(reportDate), dateDisplayPattern) : '',
+                        })
                         : t('dailyReport.noAdditionalCommits')
                   return <div className="py-8 text-muted-foreground text-sm text-center border-t">{emptyMsg}</div>
                 }

@@ -702,8 +702,8 @@ export async function listCheckpointKeysForRepoPr(owner: string, repo: string, p
 
 /** T\u1ea5t c\u1ea3 checkpoint \u0111ang m\u1edf (is_done=false v\u00e0 c\u00f3 pr_number) \u2014 d\u00f9ng cho scheduler sync. */
 export async function listPendingCheckpoints(): Promise<Array<PrBranchCheckpoint & { repoId: string; owner: string; repo: string; branchName: string; projectId: string }>> {
-  const isDoneBoolean = await isBooleanColumn('pr_branch_checkpoints', 'is_done')
-  const pendingWhere = isDoneBoolean ? 'bc.is_done = FALSE' : 'COALESCE(bc.is_done, 0) = 0'
+  /** Dùng ::integer để tránh COALESCE(boolean, 0) khi metadata báo sai kiểu cột (boolean vs smallint). */
+  const pendingWhere = '(COALESCE(bc.is_done::integer, 0) = 0)'
   const rows = await query<any>(
     `SELECT bc.*, b.repo_id, b.branch_name, b.project_id, r.owner, r.repo
      FROM pr_branch_checkpoints bc
@@ -731,8 +731,7 @@ export async function listAutomations(userId: string, repoId?: string): Promise<
 }
 
 export async function listAutomationsForTrigger(repoId: string, triggerEvent: string): Promise<PrAutomation[]> {
-  const isActiveBoolean = await isBooleanColumn('pr_automations', 'is_active')
-  const activeWhere = isActiveBoolean ? 'is_active = TRUE' : 'COALESCE(is_active, 0) = 1'
+  const activeWhere = '(COALESCE(is_active::integer, 0) = 1)'
   const rows = await query<any>(`SELECT * FROM pr_automations WHERE repo_id = ? AND trigger_event = ? AND ${activeWhere}`, [repoId, triggerEvent])
   return (rows ?? []).map(mapAutomation)
 }

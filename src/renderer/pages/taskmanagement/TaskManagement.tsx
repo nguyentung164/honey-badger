@@ -80,12 +80,11 @@ import { useAppearanceStoreSelect } from '@/stores/useAppearanceStore'
 import { useTaskAuthStore } from '@/stores/useTaskAuthStore'
 import type { ChartTask } from './chartDataUtils'
 import { TaskBulkActionsBar } from './TaskBulkActionsBar'
-import { TaskCalendarView } from './TaskCalendarView'
-import { type GanttTaskLink, type TaskGanttLayoutMode, TaskGanttView, type TaskGanttViewLabels, Z_GANTT_BOARD_LOADING_OVERLAY } from './TaskGanttView'
+import type { GanttTaskLink, TaskGanttLayoutMode, TaskGanttViewLabels } from './TaskGanttView'
 import type { WorkloadBoardSegment, WorkloadData, WorkloadOverrideUpsertInput } from './TaskGanttWorkload'
-import { TaskKanbanBoard } from './TaskKanbanBoard'
 import { TaskSavedViewsPopover } from './TaskSavedViewsPopover'
 import { isTaskBulkSelectable, TaskTableRow, type TaskTableRowTask } from './TaskTableRow'
+import { Z_GANTT_BOARD_LOADING_OVERLAY } from './taskGanttZIndex'
 import {
   buildSavedViewSnapshot,
   coerceTaskManagementPageSize,
@@ -250,6 +249,9 @@ function TaskViewModeToggle({
 const AddOrEditTaskDialog = lazy(() => import('@/components/dialogs/task/AddOrEditTaskDialog').then(m => ({ default: m.AddOrEditTaskDialog })))
 const SettingsDialog = lazy(() => import('@/components/dialogs/app/SettingsDialog').then(m => ({ default: m.SettingsDialog })))
 const TaskCharts = lazy(() => import('./TaskCharts').then(m => ({ default: m.TaskCharts })))
+const TaskKanbanBoard = lazy(() => import('./TaskKanbanBoard').then(m => ({ default: m.TaskKanbanBoard })))
+const TaskGanttView = lazy(() => import('./TaskGanttView').then(m => ({ default: m.TaskGanttView })))
+const TaskCalendarView = lazy(() => import('./TaskCalendarView').then(m => ({ default: m.TaskCalendarView })))
 
 type TaskStatus = string
 type TaskType = string
@@ -282,6 +284,7 @@ interface Task {
   actualEndDate: string
   createdAt: string
   updatedAt: string
+  statusEnteredAt?: string
   createdBy: string
   updatedBy?: string
   createdByName?: string
@@ -481,14 +484,14 @@ function applyWorkloadOverrideToState(prev: WorkloadData | null, input: Workload
     idx >= 0
       ? { ...prev.days[idx], overrideHours: nextOverride }
       : {
-          userId: input.userId,
-          date,
-          derivedHours: 0,
-          actualWorkHours: null,
-          overrideHours: nextOverride,
-          taskCount: 0,
-          taskIds: [],
-        }
+        userId: input.userId,
+        date,
+        derivedHours: 0,
+        actualWorkHours: null,
+        overrideHours: nextOverride,
+        taskCount: 0,
+        taskIds: [],
+      }
 
   if (idx >= 0) {
     return { ...prev, days: prev.days.map((d, i) => (i === idx ? patched : d)) }
@@ -1064,7 +1067,7 @@ export function TaskManagement({ embedded = false }: { embedded?: boolean }) {
 
   useEffect(() => {
     if (user && typeof Notification !== 'undefined' && Notification.permission === 'default') {
-      Notification.requestPermission().catch(() => {})
+      Notification.requestPermission().catch(() => { })
     }
   }, [user])
 
@@ -1288,11 +1291,11 @@ export function TaskManagement({ embedded = false }: { embedded?: boolean }) {
   }
 
   const handleBoardMoveStatus = useCallback(
-    async (taskId: string, newStatus: string, version?: number) => {
+    async (taskId: string, newStatus: string, version?: number): Promise<boolean> => {
       const can = await window.api.task.canEditTask(taskId)
       if (can.status !== 'success' || !can.data?.canEdit) {
         toast.error(t('taskManagement.taskReadOnlyNoPermission'))
-        return
+        return false
       }
       let previousSnapshot: Task[] = []
       setBoardTasks(prev => {
@@ -1303,11 +1306,12 @@ export function TaskManagement({ embedded = false }: { embedded?: boolean }) {
       if (res.status === 'success') {
         skipBoardFullPageLoadingRef.current = true
         setListRevision(r => r + 1)
-        return
+        return true
       }
       setBoardTasks(previousSnapshot)
       if ((res as { code?: string }).code === 'VERSION_CONFLICT') toastVersionConflict()
       else toast.error(res.message || t('taskManagement.updateError'))
+      return false
     },
     [t, toastVersionConflict]
   )
@@ -1426,9 +1430,9 @@ export function TaskManagement({ embedded = false }: { embedded?: boolean }) {
       const dateRangeApi =
         dateRange?.from != null
           ? {
-              from: format(dateRange.from, 'yyyy-MM-dd'),
-              to: dateRange.to ? format(dateRange.to, 'yyyy-MM-dd') : format(dateRange.from, 'yyyy-MM-dd'),
-            }
+            from: format(dateRange.from, 'yyyy-MM-dd'),
+            to: dateRange.to ? format(dateRange.to, 'yyyy-MM-dd') : format(dateRange.from, 'yyyy-MM-dd'),
+          }
           : undefined
       return {
         ready: true as const,
@@ -1447,9 +1451,9 @@ export function TaskManagement({ embedded = false }: { embedded?: boolean }) {
     const dateRangeApi =
       appliedMgmtFilters.dateFromKey != null
         ? {
-            from: appliedMgmtFilters.dateFromKey,
-            to: appliedMgmtFilters.dateToKey ?? appliedMgmtFilters.dateFromKey,
-          }
+          from: appliedMgmtFilters.dateFromKey,
+          to: appliedMgmtFilters.dateToKey ?? appliedMgmtFilters.dateFromKey,
+        }
         : undefined
     return {
       ready: true as const,
@@ -2388,73 +2392,73 @@ export function TaskManagement({ embedded = false }: { embedded?: boolean }) {
 
       {embedded && taskToolbarPortalTarget
         ? createPortal(
-            <div className="flex items-center gap-2 min-w-0 h-full flex-wrap sm:flex-nowrap sm:justify-start" style={{ WebkitAppRegion: 'no-drag' } as CSSProperties}>
-              {showChartTab ? (
-                <TabsList className="h-6! p-0.5 rounded-md shrink-0">
-                  <TabsTrigger value="tasks" disabled={isImporting} className="h-5 px-2 text-xs data-[state=active]:shadow-none">
-                    {t('taskManagement.tabTasks')}
-                  </TabsTrigger>
-                  <TabsTrigger value="chart" disabled={isImporting} className="h-5 px-2 text-xs data-[state=active]:shadow-none">
-                    {t('taskManagement.tabChart')}
-                  </TabsTrigger>
-                </TabsList>
-              ) : null}
-              {activeTab === 'tasks' && <TaskViewModeToggle value={taskView} onValueChange={setTaskView} disabled={isImporting || taskApiOk !== true} t={t} />}
-              <div className="flex items-center gap-1 shrink-0">
-                <Tooltip>
-                  <TooltipTrigger asChild>
-                    <Button
-                      variant="link"
-                      size="sm"
-                      onClick={reloadTaskMgmtMastersAndList}
-                      disabled={isLoading || isImporting}
-                      className="shadow-none focus-visible:ring-0 focus-visible:ring-offset-0 hover:bg-muted rounded-sm h-[25px] w-[25px]"
-                    >
-                      <RefreshCw strokeWidth={1.25} absoluteStrokeWidth size={15} className={isLoading || isImporting ? 'animate-spin' : ''} />
-                    </Button>
-                  </TooltipTrigger>
-                  <TooltipContent>{t('common.refresh')}</TooltipContent>
-                </Tooltip>
-              </div>
-            </div>,
-            taskToolbarPortalTarget
-          )
+          <div className="flex items-center gap-2 min-w-0 h-full flex-wrap sm:flex-nowrap sm:justify-start" style={{ WebkitAppRegion: 'no-drag' } as CSSProperties}>
+            {showChartTab ? (
+              <TabsList className="h-6! p-0.5 rounded-md shrink-0">
+                <TabsTrigger value="tasks" disabled={isImporting} className="h-5 px-2 text-xs data-[state=active]:shadow-none">
+                  {t('taskManagement.tabTasks')}
+                </TabsTrigger>
+                <TabsTrigger value="chart" disabled={isImporting} className="h-5 px-2 text-xs data-[state=active]:shadow-none">
+                  {t('taskManagement.tabChart')}
+                </TabsTrigger>
+              </TabsList>
+            ) : null}
+            {activeTab === 'tasks' && <TaskViewModeToggle value={taskView} onValueChange={setTaskView} disabled={isImporting || taskApiOk !== true} t={t} />}
+            <div className="flex items-center gap-1 shrink-0">
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button
+                    variant="link"
+                    size="sm"
+                    onClick={reloadTaskMgmtMastersAndList}
+                    disabled={isLoading || isImporting}
+                    className="shadow-none focus-visible:ring-0 focus-visible:ring-offset-0 hover:bg-muted rounded-sm h-[25px] w-[25px]"
+                  >
+                    <RefreshCw strokeWidth={1.25} absoluteStrokeWidth size={15} className={isLoading || isImporting ? 'animate-spin' : ''} />
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent>{t('common.refresh')}</TooltipContent>
+              </Tooltip>
+            </div>
+          </div>,
+          taskToolbarPortalTarget
+        )
         : null}
       {embedded && taskToolbarActionsTarget
         ? createPortal(
-            activeTab === 'tasks' ? (
-              <div className="flex items-center gap-1 shrink-0 h-full" style={{ WebkitAppRegion: 'no-drag' } as CSSProperties}>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  className={cn(PR_MANAGER_ACCENT_OUTLINE_BTN_COMPACT, PR_MANAGER_ACCENT_TITLEBAR_SURFACE)}
-                  onClick={() => {
-                    if (projects.length === 0) {
-                      toast.error(t('taskManagement.createProjectFirst'))
-                      return
-                    }
-                    setEditingTaskInDialog(null)
-                    setShowTaskDialog(true)
-                  }}
-                  disabled={!taskApiOk || isLoading || isImporting}
-                >
-                  <Plus className="h-3 w-3 shrink-0" />
-                  {t('taskManagement.createTask')}
-                </Button>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  className={cn(PR_MANAGER_ACCENT_OUTLINE_BTN_COMPACT, PR_MANAGER_ACCENT_TITLEBAR_SURFACE)}
-                  onClick={handleImportCsv}
-                  disabled={!taskApiOk || isLoading || isImporting}
-                >
-                  <FileDown className="h-3 w-3 shrink-0" />
-                  {t('taskManagement.importFromCsv')}
-                </Button>
-              </div>
-            ) : null,
-            taskToolbarActionsTarget
-          )
+          activeTab === 'tasks' ? (
+            <div className="flex items-center gap-1 shrink-0 h-full" style={{ WebkitAppRegion: 'no-drag' } as CSSProperties}>
+              <Button
+                variant="outline"
+                size="sm"
+                className={cn(PR_MANAGER_ACCENT_OUTLINE_BTN_COMPACT, PR_MANAGER_ACCENT_TITLEBAR_SURFACE)}
+                onClick={() => {
+                  if (projects.length === 0) {
+                    toast.error(t('taskManagement.createProjectFirst'))
+                    return
+                  }
+                  setEditingTaskInDialog(null)
+                  setShowTaskDialog(true)
+                }}
+                disabled={!taskApiOk || isLoading || isImporting}
+              >
+                <Plus className="h-3 w-3 shrink-0" />
+                {t('taskManagement.createTask')}
+              </Button>
+              <Button
+                variant="outline"
+                size="sm"
+                className={cn(PR_MANAGER_ACCENT_OUTLINE_BTN_COMPACT, PR_MANAGER_ACCENT_TITLEBAR_SURFACE)}
+                onClick={handleImportCsv}
+                disabled={!taskApiOk || isLoading || isImporting}
+              >
+                <FileDown className="h-3 w-3 shrink-0" />
+                {t('taskManagement.importFromCsv')}
+              </Button>
+            </div>
+          ) : null,
+          taskToolbarActionsTarget
+        )
         : null}
 
       {/* Toolbar cửa sổ Task riêng (không embedded) */}
@@ -2859,14 +2863,14 @@ export function TaskManagement({ embedded = false }: { embedded?: boolean }) {
                                         statuses.length > 0
                                           ? statuses
                                           : [
-                                              { code: 'new', name: t('taskManagement.statusNew') },
-                                              { code: 'in_progress', name: t('taskManagement.statusInProgress') },
-                                              { code: 'in_review', name: t('taskManagement.statusInReview') },
-                                              { code: 'fixed', name: t('taskManagement.statusFixed') },
-                                              { code: 'feedback', name: t('taskManagement.statusFeedback') },
-                                              { code: 'cancelled', name: t('taskManagement.statusCancelled') },
-                                              { code: 'done', name: t('taskManagement.statusDone') },
-                                            ]
+                                            { code: 'new', name: t('taskManagement.statusNew') },
+                                            { code: 'in_progress', name: t('taskManagement.statusInProgress') },
+                                            { code: 'in_review', name: t('taskManagement.statusInReview') },
+                                            { code: 'fixed', name: t('taskManagement.statusFixed') },
+                                            { code: 'feedback', name: t('taskManagement.statusFeedback') },
+                                            { code: 'cancelled', name: t('taskManagement.statusCancelled') },
+                                            { code: 'done', name: t('taskManagement.statusDone') },
+                                          ]
                                       ).find(st => st.code === code)
                                       return s ? (
                                         <span
@@ -2900,14 +2904,14 @@ export function TaskManagement({ embedded = false }: { embedded?: boolean }) {
                                   {(statuses.length > 0
                                     ? statuses
                                     : [
-                                        { code: 'new', name: t('taskManagement.statusNew') },
-                                        { code: 'in_progress', name: t('taskManagement.statusInProgress') },
-                                        { code: 'in_review', name: t('taskManagement.statusInReview') },
-                                        { code: 'fixed', name: t('taskManagement.statusFixed') },
-                                        { code: 'feedback', name: t('taskManagement.statusFeedback') },
-                                        { code: 'cancelled', name: t('taskManagement.statusCancelled') },
-                                        { code: 'done', name: t('taskManagement.statusDone') },
-                                      ]
+                                      { code: 'new', name: t('taskManagement.statusNew') },
+                                      { code: 'in_progress', name: t('taskManagement.statusInProgress') },
+                                      { code: 'in_review', name: t('taskManagement.statusInReview') },
+                                      { code: 'fixed', name: t('taskManagement.statusFixed') },
+                                      { code: 'feedback', name: t('taskManagement.statusFeedback') },
+                                      { code: 'cancelled', name: t('taskManagement.statusCancelled') },
+                                      { code: 'done', name: t('taskManagement.statusDone') },
+                                    ]
                                   )
                                     .filter(s => !statusFilterSearch.trim() || s.name.toLowerCase().includes(statusFilterSearch.trim().toLowerCase()))
                                     .map(s => (
@@ -2950,11 +2954,11 @@ export function TaskManagement({ embedded = false }: { embedded?: boolean }) {
                                     (priorities.length > 0
                                       ? priorities
                                       : [
-                                          { code: 'critical', name: t('taskManagement.priorityCritical') },
-                                          { code: 'high', name: t('taskManagement.priorityHigh') },
-                                          { code: 'medium', name: t('taskManagement.priorityMedium') },
-                                          { code: 'low', name: t('taskManagement.priorityLow') },
-                                        ]
+                                        { code: 'critical', name: t('taskManagement.priorityCritical') },
+                                        { code: 'high', name: t('taskManagement.priorityHigh') },
+                                        { code: 'medium', name: t('taskManagement.priorityMedium') },
+                                        { code: 'low', name: t('taskManagement.priorityLow') },
+                                      ]
                                     )
                                       .filter(p => priorityFilter.includes(p.code))
                                       .map(p => (
@@ -2963,15 +2967,15 @@ export function TaskManagement({ embedded = false }: { embedded?: boolean }) {
                                           className={cn(
                                             'inline-flex items-center gap-1.5 px-2 py-1 rounded-md text-xs font-medium',
                                             !priorityColorMap[p.code] &&
-                                              (p.code === 'critical'
-                                                ? 'bg-red-500/25 text-red-700 dark:text-red-400'
-                                                : p.code === 'high'
-                                                  ? 'bg-orange-500/25 text-orange-700 dark:text-orange-400'
-                                                  : p.code === 'medium'
-                                                    ? 'bg-sky-500/20 text-sky-700 dark:text-sky-400'
-                                                    : p.code === 'low'
-                                                      ? 'bg-emerald-500/25 text-emerald-700 dark:text-emerald-400'
-                                                      : '')
+                                            (p.code === 'critical'
+                                              ? 'bg-red-500/25 text-red-700 dark:text-red-400'
+                                              : p.code === 'high'
+                                                ? 'bg-orange-500/25 text-orange-700 dark:text-orange-400'
+                                                : p.code === 'medium'
+                                                  ? 'bg-sky-500/20 text-sky-700 dark:text-sky-400'
+                                                  : p.code === 'low'
+                                                    ? 'bg-emerald-500/25 text-emerald-700 dark:text-emerald-400'
+                                                    : '')
                                           )}
                                           style={getBadgeStyle(p.code, priorityColorMap)}
                                         >
@@ -2997,11 +3001,11 @@ export function TaskManagement({ embedded = false }: { embedded?: boolean }) {
                                   {(priorities.length > 0
                                     ? priorities
                                     : [
-                                        { code: 'critical', name: t('taskManagement.priorityCritical') },
-                                        { code: 'high', name: t('taskManagement.priorityHigh') },
-                                        { code: 'medium', name: t('taskManagement.priorityMedium') },
-                                        { code: 'low', name: t('taskManagement.priorityLow') },
-                                      ]
+                                      { code: 'critical', name: t('taskManagement.priorityCritical') },
+                                      { code: 'high', name: t('taskManagement.priorityHigh') },
+                                      { code: 'medium', name: t('taskManagement.priorityMedium') },
+                                      { code: 'low', name: t('taskManagement.priorityLow') },
+                                    ]
                                   )
                                     .filter(p => !priorityFilterSearch.trim() || p.name.toLowerCase().includes(priorityFilterSearch.trim().toLowerCase()))
                                     .map(p => (
@@ -3197,66 +3201,76 @@ export function TaskManagement({ embedded = false }: { embedded?: boolean }) {
                         </div>
                       ) : null}
                       <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
-                        {taskView === 'board' && (
-                          <TaskKanbanBoard
-                            tasks={boardTasks as unknown as TaskTableRowTask[]}
-                            statuses={statuses}
-                            statusColorMap={statusColorMap}
-                            onMoveTask={handleBoardMoveStatus}
-                            onOpenTask={handleOpenTaskRow}
-                            getAssigneeDisplay={getAssigneeDisplay}
-                            selectedTaskIds={selectedTaskIds}
-                            onToggleTaskSelect={toggleBulkTaskSelection}
-                            currentUserId={user?.id ?? null}
-                            cardPropsBase={taskKanbanCardPropsBase}
-                            disableSwimlanes={!canManageTaskRowGrouping}
-                          />
-                        )}
-                        {taskView === 'gantt' && (
-                          <TaskGanttView
-                            tasks={boardTasks as unknown as TaskTableRowTask[]}
-                            locale={locale}
-                            language={i18n.language}
-                            filterRange={ganttFilterRange}
-                            statusColorMap={statusColorMap}
-                            getAssigneeDisplay={getAssigneeDisplay}
-                            getStatusLabel={getStatusLabel}
-                            getPriorityLabel={getPriorityLabel}
-                            getStatusIcon={getStatusIcon}
-                            getPriorityIcon={getPriorityIcon}
-                            getStatusToneClass={ganttStatusToneClass}
-                            getPriorityToneClass={ganttPriorityToneClass}
-                            onSelectTask={handleOpenTaskRow}
-                            selectedTaskIds={selectedTaskIds}
-                            onToggleTaskSelect={toggleBulkTaskSelection}
-                            onApplyBulkTaskSelection={applyBulkTaskIdsSelection}
-                            onUpdatePlanDates={handleUpdatePlanDates}
-                            disableRowGrouping={!canManageTaskRowGrouping}
-                            workloadSegments={workloadSegmentsForGanttBoard}
-                            workloadCapTruncated={workloadCapTruncated}
-                            workloadLoading={workloadLoading}
-                            onUpsertWorkloadOverride={handleUpsertWorkloadOverride}
-                            taskLinks={ganttTaskLinks}
-                            labels={taskGanttViewLabels}
-                            onBoardLayoutEffectiveChange={setGanttBoardLayoutEffective}
-                          />
-                        )}
-                        {taskView === 'calendar' && (
-                          <TaskCalendarView
-                            tasks={boardTasks as unknown as TaskTableRowTask[]}
-                            language={i18n.language}
-                            messages={calendarToolbarMessages}
-                            statusColorMap={statusColorMap}
-                            onSelectTask={handleOpenTaskRow}
-                            selectedTaskIds={selectedTaskIds}
-                            onToggleTaskSelect={toggleBulkTaskSelection}
-                            onApplyBulkTaskSelection={applyBulkTaskIdsSelection}
-                            unscheduledLabel={t('taskManagement.calendarNoPlanDates')}
-                            onUpdatePlanDates={handleUpdatePlanDates}
-                            getAssigneeDisplay={getAssigneeDisplay}
-                            disableUnschedGrouping={!canManageTaskRowGrouping}
-                          />
-                        )}
+                        <Suspense
+                          fallback={
+                            <div className="flex flex-1 min-h-[200px] items-center justify-center">
+                              <GlowLoader className="w-10 h-10" />
+                            </div>
+                          }
+                        >
+                          {taskView === 'board' && (
+                            <TaskKanbanBoard
+                              tasks={boardTasks as unknown as TaskTableRowTask[]}
+                              statuses={statuses}
+                              statusColorMap={statusColorMap}
+                              onMoveTask={handleBoardMoveStatus}
+                              onOpenTask={handleOpenTaskRow}
+                              getAssigneeDisplay={getAssigneeDisplay}
+                              selectedTaskIds={selectedTaskIds}
+                              onToggleTaskSelect={toggleBulkTaskSelection}
+                              currentUserId={user?.id ?? null}
+                              cardPropsBase={taskKanbanCardPropsBase}
+                              disableSwimlanes={!canManageTaskRowGrouping}
+                            />
+                          )}
+                          {taskView === 'gantt' && (
+                            <TaskGanttView
+                              tasks={boardTasks as unknown as TaskTableRowTask[]}
+                              locale={locale}
+                              language={i18n.language}
+                              filterRange={ganttFilterRange}
+                              statusColorMap={statusColorMap}
+                              getAssigneeDisplay={getAssigneeDisplay}
+                              getStatusLabel={getStatusLabel}
+                              getPriorityLabel={getPriorityLabel}
+                              getStatusIcon={getStatusIcon}
+                              getPriorityIcon={getPriorityIcon}
+                              getStatusToneClass={ganttStatusToneClass}
+                              getPriorityToneClass={ganttPriorityToneClass}
+                              priorityColorMap={priorityColorMap}
+                              getBadgeStyle={getBadgeStyle}
+                              onSelectTask={handleOpenTaskRow}
+                              selectedTaskIds={selectedTaskIds}
+                              onToggleTaskSelect={toggleBulkTaskSelection}
+                              onApplyBulkTaskSelection={applyBulkTaskIdsSelection}
+                              onUpdatePlanDates={handleUpdatePlanDates}
+                              disableRowGrouping={!canManageTaskRowGrouping}
+                              workloadSegments={workloadSegmentsForGanttBoard}
+                              workloadCapTruncated={workloadCapTruncated}
+                              workloadLoading={workloadLoading}
+                              onUpsertWorkloadOverride={handleUpsertWorkloadOverride}
+                              taskLinks={ganttTaskLinks}
+                              labels={taskGanttViewLabels}
+                              onBoardLayoutEffectiveChange={setGanttBoardLayoutEffective}
+                            />
+                          )}
+                          {taskView === 'calendar' && (
+                            <TaskCalendarView
+                              tasks={boardTasks as unknown as TaskTableRowTask[]}
+                              language={i18n.language}
+                              messages={calendarToolbarMessages}
+                              statusColorMap={statusColorMap}
+                              onSelectTask={handleOpenTaskRow}
+                              selectedTaskIds={selectedTaskIds}
+                              onToggleTaskSelect={toggleBulkTaskSelection}
+                              onApplyBulkTaskSelection={applyBulkTaskIdsSelection}
+                              unscheduledLabel={t('taskManagement.calendarNoPlanDates')}
+                              onUpdatePlanDates={handleUpdatePlanDates}
+                              getAssigneeDisplay={getAssigneeDisplay}
+                              disableUnschedGrouping={!canManageTaskRowGrouping}
+                            />
+                          )}
+                        </Suspense>
                       </div>
                     </div>
                   )}
@@ -3313,11 +3327,6 @@ export function TaskManagement({ embedded = false }: { embedded?: boolean }) {
                 </div>
               ) : (
                 <div className="flex-1 min-h-0 border rounded-md overflow-hidden shadow-sm flex flex-col">
-                  {listLoading ? (
-                    <div className="h-1 w-full shrink-0 bg-primary/20" aria-hidden="true" title={t('taskManagement.tableLoading')}>
-                      <div className="h-full w-1/3 origin-left animate-pulse rounded-r bg-primary/60 motion-reduce:animate-none" />
-                    </div>
-                  ) : null}
                   <div className="relative flex min-h-0 flex-1 flex-col">
                     {listLoading && tableTasks.length > 0 ? (
                       <div className="pointer-events-auto absolute inset-0 z-20 flex items-center justify-center bg-background/65" aria-busy="true" aria-live="polite">
@@ -3427,50 +3436,50 @@ export function TaskManagement({ embedded = false }: { embedded?: boolean }) {
                         <TableBody>
                           {listLoading && tableTasks.length === 0
                             ? Array.from({ length: 8 }).map((_, ri) => (
-                                <TableRow key={`tbl-sk-${ri}`} aria-hidden>
-                                  <TableCell colSpan={tableToolbarColSpan} className="py-3">
-                                    <Skeleton className="h-9 w-full max-w-4xl mx-auto rounded-md opacity-85" />
-                                  </TableCell>
-                                </TableRow>
-                              ))
+                              <TableRow key={`tbl-sk-${ri}`} aria-hidden>
+                                <TableCell colSpan={tableToolbarColSpan} className="py-3">
+                                  <Skeleton className="h-9 w-full max-w-4xl mx-auto rounded-md opacity-85" />
+                                </TableCell>
+                              </TableRow>
+                            ))
                             : tableTasks.map((task, idx) => (
-                                <TaskTableRow
-                                  key={task.id}
-                                  rowNumber={(taskPage - 1) * pageSize + idx + 1}
-                                  task={task}
-                                  getAssigneeDisplay={getAssigneeDisplay}
-                                  getStatusLabel={getStatusLabel}
-                                  getPriorityLabel={getPriorityLabel}
-                                  getTypeLabel={getTypeLabel}
-                                  getStatusIcon={getStatusIcon}
-                                  getPriorityIcon={getPriorityIcon}
-                                  getTypeIcon={getTypeIcon}
-                                  getTypeBadgeClass={getTypeBadgeClass}
-                                  getStatusBadgeClass={getStatusBadgeClass}
-                                  getPriorityRowClass={getPriorityRowClass}
-                                  statusColorMap={statusColorMap}
-                                  priorityColorMap={priorityColorMap}
-                                  typeColorMap={typeColorMap}
-                                  getBadgeStyle={getBadgeStyle}
-                                  getPriorityRowStyle={getPriorityRowStyle}
-                                  locale={locale}
-                                  onOpenDialog={handleOpenTaskRow}
-                                  onDelete={handleDeleteTaskRow}
-                                  onCopy={taskRow => handleCopyTask(taskRow as Task)}
-                                  onToggleFavorite={handleToggleFavorite}
-                                  isFavorite={favoriteTaskIds.has(task.id)}
-                                  visibleColumnIds={visibleColumnIds}
-                                  bulkSelect={
-                                    isTaskBulkSelectable(task)
-                                      ? {
-                                          checked: selectedTaskIds.has(task.id),
-                                          onToggle: () => toggleBulkTaskSelection(task.id),
-                                        }
-                                      : undefined
-                                  }
-                                  bulkSelectSpacer={!isTaskBulkSelectable(task)}
-                                />
-                              ))}
+                              <TaskTableRow
+                                key={task.id}
+                                rowNumber={(taskPage - 1) * pageSize + idx + 1}
+                                task={task}
+                                getAssigneeDisplay={getAssigneeDisplay}
+                                getStatusLabel={getStatusLabel}
+                                getPriorityLabel={getPriorityLabel}
+                                getTypeLabel={getTypeLabel}
+                                getStatusIcon={getStatusIcon}
+                                getPriorityIcon={getPriorityIcon}
+                                getTypeIcon={getTypeIcon}
+                                getTypeBadgeClass={getTypeBadgeClass}
+                                getStatusBadgeClass={getStatusBadgeClass}
+                                getPriorityRowClass={getPriorityRowClass}
+                                statusColorMap={statusColorMap}
+                                priorityColorMap={priorityColorMap}
+                                typeColorMap={typeColorMap}
+                                getBadgeStyle={getBadgeStyle}
+                                getPriorityRowStyle={getPriorityRowStyle}
+                                locale={locale}
+                                onOpenDialog={handleOpenTaskRow}
+                                onDelete={handleDeleteTaskRow}
+                                onCopy={taskRow => handleCopyTask(taskRow as Task)}
+                                onToggleFavorite={handleToggleFavorite}
+                                isFavorite={favoriteTaskIds.has(task.id)}
+                                visibleColumnIds={visibleColumnIds}
+                                bulkSelect={
+                                  isTaskBulkSelectable(task)
+                                    ? {
+                                      checked: selectedTaskIds.has(task.id),
+                                      onToggle: () => toggleBulkTaskSelection(task.id),
+                                    }
+                                    : undefined
+                                }
+                                bulkSelectSpacer={!isTaskBulkSelectable(task)}
+                              />
+                            ))}
                         </TableBody>
                       </Table>
                     </div>

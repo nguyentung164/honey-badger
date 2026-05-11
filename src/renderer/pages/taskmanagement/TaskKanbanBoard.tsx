@@ -1,9 +1,18 @@
 'use client'
 
 import { useVirtualizer } from '@tanstack/react-virtual'
-import { ArrowUpRight, Briefcase, ChevronDown, ChevronRight, Layers, PanelLeftClose, SlidersHorizontal, Users } from 'lucide-react'
+import { ArrowUpRight, Briefcase, ChevronDown, ChevronRight, FoldVertical, Layers, PanelLeftClose, SlidersHorizontal, UnfoldVertical, Users } from 'lucide-react'
 import { createContext, memo, type PointerEvent as ReactPointerEvent, type RefObject, useCallback, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
+import {
+  AlertDialog,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from '@/components/ui/alert-dialog'
 import { Button } from '@/components/ui/button'
 import { Checkbox } from '@/components/ui/checkbox'
 import { Input } from '@/components/ui/input'
@@ -11,9 +20,11 @@ import { Label } from '@/components/ui/label'
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
 import { Switch } from '@/components/ui/switch'
 import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group'
+import toast from '@/components/ui-elements/Toast'
 import { cn } from '@/lib/utils'
 import { TaskBoardCard, type TaskBoardCardProps } from './TaskBoardCard'
 import type { TaskTableRowTask } from './TaskTableRow'
+import { taskStatusIconEl } from './taskStatusIcons'
 import { taskStatusKanbanColumnBodyStyle, taskStatusKanbanHeaderStyle } from './taskStatusVisual'
 
 /** Kích hoạt kéo sau khi di chuyển (px) — tránh nhầm với click. */
@@ -24,10 +35,34 @@ const LS_WIP_KEY = 'honey_badger.taskKanban.wip.v1'
 const LS_SWIM_KEY = 'honey_badger.taskKanban.swimlane.v1'
 const LS_COLLAPSED_KEY = 'honey_badger.taskKanban.collapsedCols.v1'
 const LS_ONLY_MINE_KEY = 'honey_badger.taskKanban.onlyMine.v1'
+const LS_SWIM_FOLD_KEY = 'honey_badger.taskKanban.swimlaneFold.v1'
 
 /** Flat: virtual khi ≥ ngưỡng — không mount full list. */
 const KANBAN_VIRTUAL_MIN_TASKS = 36
 const KANBAN_VIRTUAL_ESTIMATE_PX = 120
+
+/** Cột kết thúc — không áp WIP (tích lũy, không giới hạn luồng). */
+const KANBAN_WIP_EXCLUDED_STATUS_CODES = new Set(['done', 'cancelled'])
+
+function countInColumnAfterStatusMove(destCode: string, sourceStatus: string, byCol: Record<string, TaskTableRowTask[]>): number {
+  const list = byCol[destCode] ?? []
+  if (sourceStatus === destCode) return list.length
+  return list.length + 1
+}
+
+function wipViolationForMove(
+  destCode: string,
+  sourceStatus: string,
+  byCol: Record<string, TaskTableRowTask[]>,
+  wipMap: Record<string, number>
+): { limit: number; countAfter: number } | null {
+  if (KANBAN_WIP_EXCLUDED_STATUS_CODES.has(destCode)) return null
+  const lim = wipMap[destCode]
+  if (lim === undefined) return null
+  const countAfter = countInColumnAfterStatusMove(destCode, sourceStatus, byCol)
+  if (countAfter <= lim) return null
+  return { limit: lim, countAfter }
+}
 
 export type KanbanMasterStatus = { code: string; name: string; is_active?: boolean; sort_order?: number }
 export type KanbanSwimlaneMode = 'flat' | 'assignee' | 'project'
@@ -48,6 +83,19 @@ function saveJsonLs(key: string, val: unknown) {
   } catch {
     /* ignore quota */
   }
+}
+
+function sanitizeKanbanWipMap(raw: Record<string, number>): Record<string, number> {
+  const next: Record<string, number> = { ...raw }
+  let changed = false
+  for (const k of Object.keys(next)) {
+    if (KANBAN_WIP_EXCLUDED_STATUS_CODES.has(k)) {
+      delete next[k]
+      changed = true
+    }
+  }
+  if (changed) saveJsonLs(LS_WIP_KEY, next)
+  return next
 }
 
 function arrayMoveIds(ids: string[], from: number, to: number): string[] {
@@ -301,11 +349,15 @@ const KanbanColumn = memo(function KanbanColumn(props: {
   wipExceededLabel: string
   wipDialogTitle: string
   wipDialogSave: string
+  wipSettingsEnabled?: boolean
   collapsed?: boolean
   onToggleCollapsed?: (columnCode: string) => void
   ariaCollapseColumn?: string
   ariaExpandColumn?: string
   columnDropActive?: boolean
+  swimlaneFoldedMap: Record<string, boolean>
+  onToggleSwimlaneFold: (laneFoldKey: string) => void
+  onBulkSwimlaneFold: (laneFoldKeys: string[], folded: boolean) => void
 }) {
   const {
     statusCode,
@@ -323,11 +375,15 @@ const KanbanColumn = memo(function KanbanColumn(props: {
     wipExceededLabel,
     wipDialogTitle,
     wipDialogSave,
+    wipSettingsEnabled = true,
     collapsed = false,
     onToggleCollapsed,
     ariaCollapseColumn,
     ariaExpandColumn,
     columnDropActive = false,
+    swimlaneFoldedMap,
+    onToggleSwimlaneFold,
+    onBulkSwimlaneFold,
   } = props
   const scrollRef = useRef<HTMLDivElement>(null)
   const headerTint = taskStatusKanbanHeaderStyle(statusColorHex)
@@ -350,13 +406,28 @@ const KanbanColumn = memo(function KanbanColumn(props: {
 
   const laneSegs = useMemo(() => segmentedBySwimlane(sortedTasks, swimlaneMode, getAssigneeDisplay), [sortedTasks, swimlaneMode, getAssigneeDisplay])
 
-  /** true = thu gọn (ẩn card) trong nhóm assignee/project — key duy nhất theo cột + lane. */
-  const [swimlaneGroupFolded, setSwimlaneGroupFolded] = useState<Record<string, boolean>>({})
-  const toggleSwimlaneGroupFold = useCallback((laneFoldKey: string) => {
-    setSwimlaneGroupFolded(prev => ({ ...prev, [laneFoldKey]: !prev[laneFoldKey] }))
-  }, [])
+  const swimLaneGroupKeys = useMemo(() => laneSegs.filter(s => Boolean(s.title)).map(s => `${statusCode}::${s.key}`), [laneSegs, statusCode])
+  const showBulkSwimlaneToggle = swimlaneMode !== 'flat' && swimLaneGroupKeys.length > 0
+  const allSwimlaneGroupsFolded = swimLaneGroupKeys.length > 0 && swimLaneGroupKeys.every(k => Boolean(swimlaneFoldedMap[k]))
+  const toggleAllSwimlaneGroups = useCallback(() => {
+    if (!swimLaneGroupKeys.length) return
+    const foldAll = !allSwimlaneGroupsFolded
+    onBulkSwimlaneFold(swimLaneGroupKeys, foldAll)
+  }, [swimLaneGroupKeys, allSwimlaneGroupsFolded, onBulkSwimlaneFold])
 
   const { t } = useTranslation()
+
+  const columnSummaryLine = useMemo(() => {
+    if (sortedTasks.length === 0) return ''
+    const sumProg = sortedTasks.reduce((a, x) => a + (typeof x.progress === 'number' ? x.progress : 0), 0)
+    const avg = Math.round(sumProg / sortedTasks.length)
+    const crit = sortedTasks.filter(x => x.priority === 'critical').length
+    const hi = sortedTasks.filter(x => x.priority === 'high').length
+    const parts: string[] = [t('taskManagement.kanbanColAvgProgress', { n: avg })]
+    if (crit > 0) parts.push(t('taskManagement.kanbanColCriticalCount', { n: crit }))
+    else if (hi > 0) parts.push(t('taskManagement.kanbanColHighCount', { n: hi }))
+    return parts.join(' · ')
+  }, [sortedTasks, t])
 
   const handleColumnCollapseToggle = useCallback(() => {
     onToggleCollapsed?.(statusCode)
@@ -369,26 +440,47 @@ const KanbanColumn = memo(function KanbanColumn(props: {
   }, [wipDraft, onCommitWip, statusCode])
 
   if (collapsed && onToggleCollapsed) {
+    const hasStatusTint = Boolean(statusColorHex?.trim())
     return (
-      <div data-kanban-column={statusCode} className="flex w-11 shrink-0 flex-1 flex-col self-stretch min-h-0 overflow-hidden rounded-lg bg-muted/45 dark:bg-muted/30">
-        <div className={cn('flex min-h-0 flex-1 flex-col items-center gap-2 px-1 py-2', columnDropActive && 'rounded-lg bg-primary/18 dark:bg-primary/22')}>
-          <button
-            type="button"
-            onClick={handleColumnCollapseToggle}
-            className="flex h-8 w-full shrink-0 items-center justify-center rounded text-muted-foreground hover:bg-muted hover:text-foreground"
-            aria-label={ariaExpandColumn ?? 'Expand column'}
-          >
-            <ChevronRight className="h-4 w-4" />
-          </button>
-          <span
-            className="line-clamp-[12] flex-1 select-none text-center text-[10px] font-semibold leading-tight text-foreground"
-            style={{ writingMode: 'vertical-rl', textOrientation: 'mixed' }}
-            title={`${label} (${sortedTasks.length})`}
-          >
-            {label}
+      <div
+        data-kanban-column={statusCode}
+        className={cn(
+          'box-border flex w-15 min-w-15 max-w-15 shrink-0 flex-none flex-col self-stretch min-h-0 overflow-hidden rounded-lg border border-border/40',
+          !hasStatusTint && 'bg-muted/45 dark:bg-muted/30'
+        )}
+        style={hasStatusTint ? columnBodyTint : undefined}
+      >
+        <button
+          type="button"
+          onClick={handleColumnCollapseToggle}
+          className={cn(
+            'flex min-h-0 w-full flex-1 cursor-pointer flex-col items-center gap-1.5 rounded-md px-0.5 py-4 text-foreground',
+            'hover:bg-background/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
+            columnDropActive && 'bg-primary/18 dark:bg-primary/22'
+          )}
+          aria-label={ariaExpandColumn ?? 'Expand column'}
+        >
+          <span className="flex shrink-0 items-center justify-center [&_svg]:opacity-90" aria-hidden>
+            {taskStatusIconEl(statusCode, 'h-4 w-4')}
           </span>
-          <span className="shrink-0 text-[11px] font-medium tabular-nums text-muted-foreground">{sortedTasks.length}</span>
-        </div>
+          <div className="flex min-h-0 w-full flex-1 flex-col items-center justify-center overflow-hidden py-0.5">
+            <span
+              className="flex select-none flex-col items-center justify-center gap-3 overflow-hidden text-center text-[15px] font-semibold uppercase leading-none"
+              title={`${label} (${sortedTasks.length})`}
+            >
+              {[...label.toLocaleUpperCase()].map((ch, i) =>
+                ch === ' ' ? (
+                  <span key={i} className="h-2.5 w-full shrink-0" aria-hidden />
+                ) : (
+                  <span key={`${i}-${ch}`} className="shrink-0 leading-none">
+                    {ch}
+                  </span>
+                )
+              )}
+            </span>
+          </div>
+          <span className="shrink-0 font-medium tabular-nums text-muted-foreground">{sortedTasks.length}</span>
+        </button>
       </div>
     )
   }
@@ -397,14 +489,41 @@ const KanbanColumn = memo(function KanbanColumn(props: {
     <div data-kanban-column={statusCode} className="flex min-h-0 min-w-[220px] flex-1 basis-0 flex-col self-stretch overflow-hidden rounded-lg bg-muted/45 dark:bg-muted/30">
       <div className="shrink-0 rounded-t-lg px-2 py-1.5 text-xs font-semibold text-foreground" style={headerTint}>
         <div className="flex items-center gap-1.5 justify-between">
-          <span className="min-w-0 truncate">
-            {label}
-            <span className={cn('ml-1.5 font-normal', wipBad ? 'text-amber-600 dark:text-amber-400' : 'text-muted-foreground')}>
-              ({sortedTasks.length}
-              {wipLimit !== undefined ? `/${wipLimit}` : ''}){wipBad ? ` • ${wipExceededLabel}` : ''}
+          <div className="flex min-w-0 flex-1 items-center gap-2">
+            <span className="inline-flex shrink-0 items-center justify-center text-foreground [&_svg]:shrink-0" aria-hidden>
+              {taskStatusIconEl(statusCode, 'h-3.5 w-3.5')}
             </span>
-          </span>
+            <span className="min-w-0 truncate">
+              {label}
+              <span className={cn('ml-1.5 font-normal', wipBad ? 'text-amber-600 dark:text-amber-400' : 'text-muted-foreground')}>
+                ({sortedTasks.length}
+                {wipLimit !== undefined ? `/${wipLimit}` : ''}){wipBad ? ` • ${wipExceededLabel}` : ''}
+              </span>
+            </span>
+          </div>
           <div className="flex shrink-0 items-center gap-0.5">
+            {showBulkSwimlaneToggle ? (
+              <button
+                type="button"
+                className="flex h-7 w-7 items-center justify-center rounded border border-border/60 bg-background/70 text-muted-foreground hover:text-foreground"
+                aria-label={
+                  allSwimlaneGroupsFolded
+                    ? t('taskManagement.kanbanSwimlaneBulkUnfoldAllAria', { column: label })
+                    : t('taskManagement.kanbanSwimlaneBulkFoldAllAria', { column: label })
+                }
+                title={
+                  allSwimlaneGroupsFolded
+                    ? t('taskManagement.kanbanSwimlaneBulkUnfoldAllAria', { column: label })
+                    : t('taskManagement.kanbanSwimlaneBulkFoldAllAria', { column: label })
+                }
+                onClick={e => {
+                  e.stopPropagation()
+                  toggleAllSwimlaneGroups()
+                }}
+              >
+                {allSwimlaneGroupsFolded ? <UnfoldVertical className="h-3.5 w-3.5" /> : <FoldVertical className="h-3.5 w-3.5" />}
+              </button>
+            ) : null}
             {onToggleCollapsed ? (
               <button
                 type="button"
@@ -415,26 +534,29 @@ const KanbanColumn = memo(function KanbanColumn(props: {
                 <PanelLeftClose className="h-3.5 w-3.5" />
               </button>
             ) : null}
-            <Popover>
-              <PopoverTrigger asChild>
-                <button
-                  type="button"
-                  className="flex h-7 w-7 shrink-0 items-center justify-center rounded border border-border/60 bg-background/70 text-muted-foreground hover:text-foreground"
-                  aria-label={wipDialogTitle}
-                >
-                  <SlidersHorizontal className="h-3.5 w-3.5" />
-                </button>
-              </PopoverTrigger>
-              <PopoverContent align="start" className="w-56 space-y-2 p-3">
-                <Label className="text-xs">{wipDialogTitle}</Label>
-                <Input value={wipDraft} onChange={e => setWipDraft(e.target.value)} placeholder="∞" className="h-8 text-sm" inputMode="numeric" />
-                <Button size="sm" className="w-full h-8" type="button" onClick={handleWipCommit}>
-                  {wipDialogSave}
-                </Button>
-              </PopoverContent>
-            </Popover>
+            {wipSettingsEnabled ? (
+              <Popover>
+                <PopoverTrigger asChild>
+                  <button
+                    type="button"
+                    className="flex h-7 w-7 shrink-0 items-center justify-center rounded border border-border/60 bg-background/70 text-muted-foreground hover:text-foreground"
+                    aria-label={wipDialogTitle}
+                  >
+                    <SlidersHorizontal className="h-3.5 w-3.5" />
+                  </button>
+                </PopoverTrigger>
+                <PopoverContent align="start" className="w-56 space-y-2 p-3">
+                  <Label className="text-xs">{wipDialogTitle}</Label>
+                  <Input value={wipDraft} onChange={e => setWipDraft(e.target.value)} placeholder="∞" className="h-8 text-sm" inputMode="numeric" />
+                  <Button size="sm" className="w-full h-8" type="button" onClick={handleWipCommit}>
+                    {wipDialogSave}
+                  </Button>
+                </PopoverContent>
+              </Popover>
+            ) : null}
           </div>
         </div>
+        {columnSummaryLine ? <div className="mt-0.5 text-[10px] font-normal text-muted-foreground">{columnSummaryLine}</div> : null}
       </div>
       <div ref={scrollRef} className="min-h-0 flex-1 basis-0 overflow-y-auto overflow-x-hidden" onWheel={e => e.stopPropagation()}>
         <div
@@ -444,23 +566,23 @@ const KanbanColumn = memo(function KanbanColumn(props: {
         >
           {laneSegs.map(seg => {
             const laneFoldKey = `${statusCode}::${seg.key}`
-            const isLaneFolded = Boolean(swimlaneGroupFolded[laneFoldKey])
+            const isLaneFolded = Boolean(swimlaneFoldedMap[laneFoldKey])
 
             return seg.title ? (
               <div key={`${statusCode}-lane-${seg.key}`} className="space-y-2.5">
                 <button
                   type="button"
-                  onClick={() => toggleSwimlaneGroupFold(laneFoldKey)}
+                  onClick={() => onToggleSwimlaneFold(laneFoldKey)}
                   className="flex w-full min-h-8 min-w-0 items-center gap-1 rounded-md px-1 py-1.5 text-left transition-colors hover:bg-muted/50"
                   aria-expanded={!isLaneFolded}
                   aria-label={
                     isLaneFolded
                       ? t('taskManagement.kanbanSwimlaneGroupExpand', {
-                          group: `${seg.title} (${seg.tasks.length})`,
-                        })
+                        group: `${seg.title} (${seg.tasks.length})`,
+                      })
                       : t('taskManagement.kanbanSwimlaneGroupCollapse', {
-                          group: `${seg.title} (${seg.tasks.length})`,
-                        })
+                        group: `${seg.title} (${seg.tasks.length})`,
+                      })
                   }
                 >
                   <span className="flex min-w-0 flex-1 items-baseline gap-1.5 overflow-hidden">
@@ -473,16 +595,16 @@ const KanbanColumn = memo(function KanbanColumn(props: {
                 </button>
                 {!isLaneFolded
                   ? seg.tasks.map(task => (
-                      <DraggableKanbanCard
-                        key={task.id}
-                        task={task}
-                        cardPropsBase={cardPropsBase}
-                        getAssigneeDisplay={getAssigneeDisplay}
-                        onOpenTask={onCardClick}
-                        selected={selectedTaskIds?.has(task.id)}
-                        onToggleSelect={onToggleTaskSelect}
-                      />
-                    ))
+                    <DraggableKanbanCard
+                      key={task.id}
+                      task={task}
+                      cardPropsBase={cardPropsBase}
+                      getAssigneeDisplay={getAssigneeDisplay}
+                      onOpenTask={onCardClick}
+                      selected={selectedTaskIds?.has(task.id)}
+                      onToggleSelect={onToggleTaskSelect}
+                    />
+                  ))
                   : null}
               </div>
             ) : swimlaneMode === 'flat' && seg.tasks.length >= KANBAN_VIRTUAL_MIN_TASKS ? (
@@ -535,7 +657,7 @@ export function TaskKanbanBoard({
   tasks: TaskTableRowTask[]
   statuses: KanbanMasterStatus[]
   statusColorMap?: Record<string, string>
-  onMoveTask: (taskId: string, newStatus: string, version?: number) => Promise<void>
+  onMoveTask: (taskId: string, newStatus: string, version?: number) => Promise<boolean>
   onOpenTask: (task: TaskTableRowTask) => void
   cardPropsBase: Omit<TaskBoardCardProps, 'task' | 'assigneeDisplay'>
   getAssigneeDisplay: (assigneeUserId: string | null) => string
@@ -546,12 +668,22 @@ export function TaskKanbanBoard({
 }) {
   const { t } = useTranslation()
   const [orderMap, setOrderMap] = useState<Record<string, string[]>>(() => loadJsonLs(LS_ORDER_KEY, {}))
-  const [wipMap, setWipMap] = useState<Record<string, number>>(() => loadJsonLs(LS_WIP_KEY, {}))
+  const [wipMap, setWipMap] = useState<Record<string, number>>(() => sanitizeKanbanWipMap(loadJsonLs(LS_WIP_KEY, {})))
   const [swimlaneMode, setSwimlaneMode] = useState<KanbanSwimlaneMode>(() => loadJsonLs(LS_SWIM_KEY, 'flat'))
   const [onlyMine, setOnlyMine] = useState(() => loadJsonLs<boolean>(LS_ONLY_MINE_KEY, false))
   const [collapsedCols, setCollapsedCols] = useState<string[]>(() => loadJsonLs(LS_COLLAPSED_KEY, []))
+  const [swimlaneFoldedMap, setSwimlaneFoldedMap] = useState<Record<string, boolean>>(() => loadJsonLs(LS_SWIM_FOLD_KEY, {}))
   const [draggingTaskId, setDraggingTaskId] = useState<string | null>(null)
   const [dropHighlightColumnCode, setDropHighlightColumnCode] = useState<string | null>(null)
+  const [wipConfirm, setWipConfirm] = useState<{
+    taskId: string
+    destStatus: string
+    version?: number
+    fromStatus: string
+    columnLabel: string
+    limit: number
+    countAfter: number
+  } | null>(null)
 
   const draggingTaskIdRef = useRef<string | null>(null)
 
@@ -577,7 +709,9 @@ export function TaskKanbanBoard({
   const visibleTasksRef = useRef<TaskTableRowTask[]>([])
   const sortedByColumnRef = useRef<Record<string, TaskTableRowTask[]>>({})
   const onMoveTaskRef = useRef(onMoveTask)
-  const persistOrderColRef = useRef<(code: string, ids: string[]) => void>(() => {})
+  const persistOrderColRef = useRef<(code: string, ids: string[]) => void>(() => { })
+  const wipMapRef = useRef(wipMap)
+  const statusesRef = useRef(statuses)
 
   useEffect(() => {
     saveJsonLs(LS_ONLY_MINE_KEY, onlyMine)
@@ -588,6 +722,10 @@ export function TaskKanbanBoard({
   }, [collapsedCols])
 
   useEffect(() => {
+    saveJsonLs(LS_SWIM_FOLD_KEY, swimlaneFoldedMap)
+  }, [swimlaneFoldedMap])
+
+  useEffect(() => {
     const uid = (currentUserId || '').trim()
     if (!uid && onlyMine) setOnlyMine(false)
   }, [currentUserId, onlyMine])
@@ -595,6 +733,14 @@ export function TaskKanbanBoard({
   useEffect(() => {
     onMoveTaskRef.current = onMoveTask
   }, [onMoveTask])
+
+  useEffect(() => {
+    wipMapRef.current = wipMap
+  }, [wipMap])
+
+  useEffect(() => {
+    statusesRef.current = statuses
+  }, [statuses])
 
   const collapsedSet = useMemo(() => new Set(collapsedCols), [collapsedCols])
   const swimlaneEffective = disableSwimlanes ? 'flat' : swimlaneMode
@@ -607,6 +753,18 @@ export function TaskKanbanBoard({
 
   const toggleColCollapsed = useCallback((code: string) => {
     setCollapsedCols(prev => (prev.includes(code) ? prev.filter(c => c !== code) : [...prev, code]))
+  }, [])
+
+  const toggleSwimlaneFold = useCallback((laneFoldKey: string) => {
+    setSwimlaneFoldedMap(prev => ({ ...prev, [laneFoldKey]: !prev[laneFoldKey] }))
+  }, [])
+
+  const bulkSwimlaneFold = useCallback((laneFoldKeys: string[], folded: boolean) => {
+    setSwimlaneFoldedMap(prev => {
+      const next = { ...prev }
+      for (const k of laneFoldKeys) next[k] = folded
+      return next
+    })
   }, [])
 
   useEffect(() => {
@@ -660,6 +818,7 @@ export function TaskKanbanBoard({
   }, [draggingTaskId, visibleTasks])
 
   const handleCommitColumnWip = useCallback((columnCode: string, limit: number | undefined) => {
+    if (KANBAN_WIP_EXCLUDED_STATUS_CODES.has(columnCode)) return
     setWipMap(prev => {
       const nx = { ...prev }
       if (limit === undefined || limit < 1) delete nx[columnCode]
@@ -668,6 +827,26 @@ export function TaskKanbanBoard({
       return nx
     })
   }, [])
+
+  const offerUndoToast = useCallback(
+    (taskId: string, fromStatus: string, versionAtMoveStart: number | undefined) => {
+      const undoV = typeof versionAtMoveStart === 'number' ? versionAtMoveStart + 1 : undefined
+      toast.success(t('taskManagement.kanbanMoveDoneToast'), {
+        actions: [
+          {
+            label: t('taskManagement.kanbanUndoMove'),
+            onClick: () => {
+              void (async () => {
+                const ok = await onMoveTaskRef.current(taskId, fromStatus, undoV)
+                if (ok) toast.success(t('taskManagement.kanbanUndoMoveToast'))
+              })()
+            },
+          },
+        ],
+      })
+    },
+    [t]
+  )
 
   const commitDrop = useCallback(async (taskId: string) => {
     const { columnCode, overTaskId } = pendingDropRef.current
@@ -686,12 +865,31 @@ export function TaskKanbanBoard({
 
     const moveTask = onMoveTaskRef.current
 
+    const tryCrossColumnMove = async (destStatus: string) => {
+      const w = wipViolationForMove(destStatus, activeRow.status, byCol, wipMapRef.current)
+      if (w) {
+        const label = statusesRef.current.find(s => s.code === destStatus)?.name ?? destStatus
+        setWipConfirm({
+          taskId: activeRow.id,
+          destStatus,
+          version: activeRow.version,
+          fromStatus: activeRow.status,
+          columnLabel: label,
+          limit: w.limit,
+          countAfter: w.countAfter,
+        })
+        return
+      }
+      const ok = await moveTask(taskId, destStatus, activeRow.version)
+      if (ok) offerUndoToast(taskId, activeRow.status, activeRow.version)
+    }
+
     if (overTaskId && overTaskId !== taskId) {
       const overRow = visible.find(x => x.id === overTaskId)
       if (!overRow) return
 
       if (activeRow.status !== overRow.status) {
-        await moveTask(taskId, overRow.status, activeRow.version)
+        await tryCrossColumnMove(overRow.status)
         return
       }
 
@@ -712,9 +910,9 @@ export function TaskKanbanBoard({
     }
 
     if (activeRow.status !== columnCode) {
-      await moveTask(taskId, columnCode, activeRow.version)
+      await tryCrossColumnMove(columnCode)
     }
-  }, [])
+  }, [offerUndoToast])
 
   const scheduleOverlayMove = useCallback((clientX: number, clientY: number) => {
     const el = overlayRef.current
@@ -897,7 +1095,8 @@ export function TaskKanbanBoard({
           {orderedCodes.map(code => {
             const sorted = sortedByColumn[code] ?? []
             const label = statuses.find(s => s.code === code)?.name ?? code
-            const wipVal = wipMap[code]
+            const wipAllowed = !KANBAN_WIP_EXCLUDED_STATUS_CODES.has(code)
+            const wipVal = wipAllowed ? wipMap[code] : undefined
             const columnDropActive = Boolean(draggingTaskId) && dropHighlightColumnCode === code
             return (
               <KanbanColumn
@@ -914,7 +1113,8 @@ export function TaskKanbanBoard({
                 statusColorHex={statusColorMap?.[code]}
                 wipLimit={wipVal}
                 onCommitWip={handleCommitColumnWip}
-                wipExceededLabel={t('taskManagement.kanbanWipExceeded', { limit: wipVal ?? sorted.length })}
+                wipSettingsEnabled={wipAllowed}
+                wipExceededLabel={t('taskManagement.kanbanWipExceeded')}
                 wipDialogTitle={t('taskManagement.kanbanWipDialogTitle')}
                 wipDialogSave={t('taskManagement.kanbanWipSave')}
                 collapsed={collapsedSet.has(code)}
@@ -922,6 +1122,9 @@ export function TaskKanbanBoard({
                 ariaCollapseColumn={t('taskManagement.kanbanCollapseColumnAria', { column: label })}
                 ariaExpandColumn={t('taskManagement.kanbanExpandColumnAria', { column: label })}
                 columnDropActive={columnDropActive}
+                swimlaneFoldedMap={swimlaneFoldedMap}
+                onToggleSwimlaneFold={toggleSwimlaneFold}
+                onBulkSwimlaneFold={bulkSwimlaneFold}
               />
             )
           })}
@@ -951,6 +1154,40 @@ export function TaskKanbanBoard({
             </div>
           ) : null}
         </div>
+
+        <AlertDialog open={Boolean(wipConfirm)} onOpenChange={open => { if (!open) setWipConfirm(null) }}>
+          <AlertDialogContent>
+            <AlertDialogHeader>
+              <AlertDialogTitle>{t('taskManagement.kanbanWipConfirmTitle')}</AlertDialogTitle>
+              <AlertDialogDescription>
+                {wipConfirm
+                  ? t('taskManagement.kanbanWipConfirmDescription', {
+                    column: wipConfirm.columnLabel,
+                    limit: wipConfirm.limit,
+                    count: wipConfirm.countAfter,
+                  })
+                  : null}
+              </AlertDialogDescription>
+            </AlertDialogHeader>
+            <AlertDialogFooter>
+              <AlertDialogCancel type="button">{t('common.cancel')}</AlertDialogCancel>
+              <Button
+                type="button"
+                onClick={() => {
+                  const p = wipConfirm
+                  if (!p) return
+                  setWipConfirm(null)
+                  void (async () => {
+                    const ok = await onMoveTaskRef.current(p.taskId, p.destStatus, p.version)
+                    if (ok) offerUndoToast(p.taskId, p.fromStatus, p.version)
+                  })()
+                }}
+              >
+                {t('taskManagement.kanbanWipConfirmContinue')}
+              </Button>
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        </AlertDialog>
       </div>
     </KanbanDragContext.Provider>
   )

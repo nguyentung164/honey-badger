@@ -3,7 +3,7 @@
 import { addDays, format, getDay, parse, startOfDay, startOfWeek } from 'date-fns'
 import { enUS, ja, vi } from 'date-fns/locale'
 import type { DragEvent } from 'react'
-import { type ComponentType, useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { type ComponentType, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { Calendar, dateFnsLocalizer, type EventProps, Navigate, type View as RbcView } from 'react-big-calendar'
 import withDragAndDrop from 'react-big-calendar/lib/addons/dragAndDrop'
 import { useTranslation } from 'react-i18next'
@@ -14,7 +14,7 @@ import { Checkbox } from '@/components/ui/checkbox'
 import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group'
 import { cn } from '@/lib/utils'
 import { PLAN_UNSCHED_TASK_DRAG_MIME } from './planUnschedTaskDragMime'
-import { isTaskBulkSelectable, type TaskTableRowTask } from './TaskTableRow'
+import { isTaskBulkSelectable, taskDisplayLabel, type TaskTableRowTask } from './TaskTableRow'
 import {
   bucketTasksByGroup,
   loadTaskBoardRowGrouping,
@@ -207,7 +207,7 @@ export function TaskCalendarView({
       const start = startOfDay(s <= e ? s : e)
       const endIncl = startOfDay(s <= e ? e : s)
       ev.push({
-        title: t.title || '—',
+        title: taskDisplayLabel(t, '—'),
         start,
         end: toExclusiveEnd(endIncl),
         resource: t,
@@ -223,11 +223,84 @@ export function TaskCalendarView({
   )
 
   const [view, setView] = useState<'month' | 'week' | 'day' | 'agenda'>('month')
+  const viewRef = useRef(view)
+  viewRef.current = view
+
   const [calendarDate, setCalendarDate] = useState(() => startOfDay(new Date()))
   /** Week/Day: thu gọn hàng all-day để nhìn rõ lưới giờ phía dưới */
   const [allDaySectionCollapsed, setAllDaySectionCollapsed] = useState(false)
-  const viewRef = useRef(view)
-  viewRef.current = view
+  const calendarShellRef = useRef<HTMLDivElement>(null)
+
+  /*
+   * RBC chỉ chừa scrollbar trên `.rbc-time-header` khi `.rbc-overflowing`; với overflow-y cố định (scroll)
+   * thì width cột trong `.rbc-time-content` phụ thuộc chỗ scrollbar thật (= offsetWidth − clientWidth).
+   * Đo động (Electron/Chromium/WebView) và gộp khớp `-1px` như TimeGridHeader (scrollbarSize − 1).
+   */
+  useLayoutEffect(() => {
+    const root = calendarShellRef.current
+    if (!root) return
+
+    const clearVar = () => {
+      root.style.removeProperty('--task-cal-measured-vscrollbar-px')
+    }
+
+    if (view !== 'week' && view !== 'day') {
+      clearVar()
+      return
+    }
+
+    let cancelled = false
+    let raf = 0
+    let observedContent: HTMLElement | null = null
+    let innerRo: ResizeObserver | null = null
+
+    let measure: () => void
+    const schedule: () => void = () => {
+      cancelAnimationFrame(raf)
+      raf = requestAnimationFrame(() => {
+        if (cancelled) return
+        measure()
+        raf = requestAnimationFrame(measure)
+      })
+    }
+
+    measure = () => {
+      const content = root.querySelector<HTMLElement>('.rbc-time-view .rbc-time-content')
+      if (!content) {
+        clearVar()
+        if (innerRo && observedContent) {
+          innerRo.disconnect()
+          innerRo = null
+          observedContent = null
+        }
+        return
+      }
+      if (content !== observedContent) {
+        if (innerRo) innerRo.disconnect()
+        observedContent = content
+        innerRo = new ResizeObserver(schedule)
+        innerRo.observe(content)
+      }
+      const v = Math.max(0, content.offsetWidth - content.clientWidth)
+      root.style.setProperty('--task-cal-measured-vscrollbar-px', `${v}px`)
+    }
+
+    schedule()
+    const outerRo = new ResizeObserver(schedule)
+    outerRo.observe(root)
+    window.addEventListener('resize', schedule)
+
+    return () => {
+      cancelled = true
+      cancelAnimationFrame(raf)
+      outerRo.disconnect()
+      innerRo?.disconnect()
+      window.removeEventListener('resize', schedule)
+      innerRo = null
+      observedContent = null
+      clearVar()
+    }
+  }, [view, allDaySectionCollapsed, calendarDate])
 
   const persistFromInteraction = useCallback(
     async (raw: CalEvent, start: Date, endExclusive: Date) => {
@@ -278,7 +351,7 @@ export function TaskCalendarView({
       const dropDay = startOfDay(new Date(args.start))
       const endExclusive = toExclusiveEnd(dropDay)
       const stub: CalEvent = {
-        title: task.title || '—',
+        title: taskDisplayLabel(task, '—'),
         start: dropDay,
         end: endExclusive,
         resource: task,
@@ -328,6 +401,11 @@ export function TaskCalendarView({
       event: (p: EventProps<CalEvent>) => {
         const ce = p.event
         const ms = (ce.resource.type ?? 'bug') === 'milestone'
+        const bulkSelectLabel = taskDisplayLabel(ce.resource, '—')
+        const bulkSelectAria =
+          ce.resource.title?.trim() || ce.resource.ticketId?.trim()
+            ? `Bulk select: ${bulkSelectLabel}`
+            : 'Bulk select'
         return (
           <div className="flex min-h-[1.35em] min-w-0 items-start gap-1 overflow-hidden py-0.5">
             {!ms && onToggleTaskSelect ? (
@@ -337,7 +415,7 @@ export function TaskCalendarView({
                 onCheckedChange={() => onToggleTaskSelect(ce.resource.id)}
                 onMouseDown={e => e.stopPropagation()}
                 onClick={e => e.stopPropagation()}
-                aria-label={ce.resource.title ? `Bulk select: ${ce.resource.title}` : 'Bulk select'}
+                aria-label={bulkSelectAria}
               />
             ) : null}
             <button
@@ -401,6 +479,7 @@ export function TaskCalendarView({
 
   return (
     <div
+      ref={calendarShellRef}
       className={`task-management-calendar flex min-h-0 min-w-0 w-full flex-1 flex-col gap-3${allDaySectionCollapsed ? ' task-cal-allday-collapsed' : ''}`}
       style={{ ['--task-cal-time-gutter-px' as string]: `${TIME_GUTTER_WIDTH_PX}px` }}
     >
@@ -617,10 +696,20 @@ export function TaskCalendarView({
         .task-management-calendar .rbc-time-view .rbc-allday-cell + .rbc-allday-cell {
           border-left: 1px solid var(--border);
         }
+        /* RBC .rbc-row-bg mặc right: 1px — nền cột All-day hẹp hơn header → chỉnh right: 0. */
+        .task-management-calendar .rbc-time-view .rbc-allday-cell .rbc-row-bg {
+          right: 0 !important;
+        }
+        .task-management-calendar .rbc-time-header.rbc-overflowing {
+          border-right: 1px solid var(--border);
+        }
         /*
-         * Vùng scroll giờ: RBC dùng overflow-y:auto + TimeGrid checkOverflow → margin header đổi theo scrollbar.
-         * scrollbar-gutter:stable + auto dễ gây “dật” khi chuyển Week/Day. Dùng scroll luôn + overflow-anchor để ổn định.
+         Vùng .rbc-time-content: scrollbar được đo vào --task-cal-measured-vscrollbar-px.
+         Khi không .rbc-overflowing, TimeGrid không gán margin inline → margin bù scrollbarSize − 1.
          */
+        .task-management-calendar .rbc-time-view > .rbc-time-header:not(.rbc-overflowing) {
+          margin-inline-end: max(0px, calc(var(--task-cal-measured-vscrollbar-px, 0px) - 1px));
+        }
         .task-management-calendar .rbc-time-content {
           overflow-y: scroll;
           overflow-anchor: none;
@@ -647,7 +736,7 @@ export function TaskCalendarView({
         .task-management-calendar .rbc-addons-dnd-resize-ns-icon { display: none; }
       `}</style>
 
-      <div className="min-h-0 min-w-0 flex-1 rounded-md bg-card p-2 overflow-auto">
+      <div className="min-h-0 min-w-0 flex-1 rounded-md bg-card p-2 overflow-x-hidden overflow-y-auto">
         <DragCalendar
           localizer={localizer}
           culture={culture}
@@ -676,7 +765,7 @@ export function TaskCalendarView({
           onEventResize={(x: unknown) => void handleEventResize(x as { event: object; start: Date; end: Date })}
           onDragOver={canEditPlans ? handleCalendarDragOver : undefined}
           onDropFromOutside={canEditPlans ? (x: unknown) => void handleDropFromOutside(x as { start: Date | string; end: Date | string; allDay: boolean }) : undefined}
-          tooltipAccessor={(calEvent: object) => (calEvent as CalEvent).resource.title ?? ''}
+          tooltipAccessor={(calEvent: object) => taskDisplayLabel((calEvent as CalEvent).resource, '')}
           components={calendarComponents}
           eventPropGetter={eventPropGetter}
         />
@@ -770,11 +859,11 @@ export function TaskCalendarView({
                               onDragStart={
                                 canEditPlans
                                   ? e => {
-                                      e.dataTransfer.setData(PLAN_UNSCHED_TASK_DRAG_MIME, task.id)
-                                      e.dataTransfer.setData('text/plain', task.id)
-                                      e.dataTransfer.effectAllowed = 'copyMove'
-                                      draggingUnschedTaskIdRef.current = task.id
-                                    }
+                                    e.dataTransfer.setData(PLAN_UNSCHED_TASK_DRAG_MIME, task.id)
+                                    e.dataTransfer.setData('text/plain', task.id)
+                                    e.dataTransfer.effectAllowed = 'copyMove'
+                                    draggingUnschedTaskIdRef.current = task.id
+                                  }
                                   : undefined
                               }
                               onDragEnd={canEditPlans ? () => (draggingUnschedTaskIdRef.current = null) : undefined}
@@ -794,7 +883,11 @@ export function TaskCalendarView({
                                   checked={selectedTaskIds?.has(task.id) ?? false}
                                   onCheckedChange={() => onToggleTaskSelect(task.id)}
                                   onClick={e => e.stopPropagation()}
-                                  aria-label={task.title ? `Bulk select: ${task.title}` : 'Bulk select'}
+                                  aria-label={
+                                    task.title?.trim() || task.ticketId?.trim()
+                                      ? `Bulk select: ${taskDisplayLabel(task, '—')}`
+                                      : 'Bulk select'
+                                  }
                                 />
                               ) : null}
                               <button
@@ -802,7 +895,7 @@ export function TaskCalendarView({
                                 className="min-w-0 flex-1 truncate text-left text-[10px] leading-tight hover:bg-muted/50 sm:text-[11px]"
                                 onClick={() => onSelectTask(task)}
                               >
-                                {task.title || '—'}
+                                {taskDisplayLabel(task, '—')}
                               </button>
                             </li>
                           )

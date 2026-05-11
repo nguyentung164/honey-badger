@@ -1,4 +1,4 @@
-import { Component, type ErrorInfo, type ReactNode } from 'react'
+import { Component, type ErrorInfo, type ReactNode, useEffect } from 'react'
 import ReactDom from 'react-dom/client'
 import './lib/i18n'
 import { setupElectronLogFormat } from './lib/electronLogSetup'
@@ -13,7 +13,6 @@ import { TooltipProvider } from '@/components/ui/tooltip'
 import { AppRoutes } from './routes/routes'
 import { useAppearanceStoreSelect } from './stores/useAppearanceStore'
 
-import './fonts.css'
 import './globals.css'
 
 class RootErrorBoundary extends Component<{ children: ReactNode }, { err: Error | null }> {
@@ -42,6 +41,9 @@ class RootErrorBoundary extends Component<{ children: ReactNode }, { err: Error 
 
 function App() {
   const themeMode = useAppearanceStoreSelect(s => s.themeMode)
+  useEffect(() => {
+    void import('./fonts.css')
+  }, [])
   return (
     <ThemeProvider attribute="class" forcedTheme={themeMode}>
       <TooltipProvider>

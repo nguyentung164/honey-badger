@@ -108,6 +108,7 @@ makeAppWithSingleInstanceLock(async () => {
           migrateUserDailySnapshotsUniqueConstraint,
           migrateTaskTypesAddMilestone,
           migrateTasksTicketIdNullable,
+          migrateTasksStatusEnteredAt,
           migrateUserProjectRolesProjectIdUkToGenerated,
         } = await import('./task/schema/taskDbPatches')
         await migrateUserProjectRolesProjectIdUkToGenerated().catch(() => {})
@@ -123,6 +124,7 @@ makeAppWithSingleInstanceLock(async () => {
         await migrateUserDailySnapshotsUniqueConstraint().catch(() => {})
         await migrateTaskTypesAddMilestone().catch(() => {})
         await migrateTasksTicketIdNullable().catch(() => {})
+        await migrateTasksStatusEnteredAt().catch(() => {})
         const { startPrStatusSync } = await import('./scheduler/prStatusSync')
         startPrStatusSync()
       })()

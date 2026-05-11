@@ -526,6 +526,27 @@ export async function migrateTasksTicketIdNullable(): Promise<void> {
   tasksTicketIdNullableMigrationDone = true
 }
 
+let tasksStatusEnteredAtMigrationDone = false
+
+/** Thời điểm vào trạng thái hiện tại (Kanban aging). Backfill từ updated_at / created_at. */
+export async function migrateTasksStatusEnteredAt(): Promise<void> {
+  if (tasksStatusEnteredAtMigrationDone || !hasDbConfig()) return
+  try {
+    const rows = await query<{ cnt: number }>(
+      `SELECT 1 AS cnt FROM information_schema.columns
+       WHERE table_schema = current_schema() AND table_name = 'tasks' AND column_name = 'status_entered_at' LIMIT 1`
+    )
+    if (!rows?.length) {
+      await query('ALTER TABLE tasks ADD COLUMN status_entered_at TIMESTAMPTZ NULL')
+    }
+    await query('UPDATE tasks SET status_entered_at = COALESCE(updated_at, created_at) WHERE status_entered_at IS NULL')
+  } catch (e) {
+    l.error('[db] migrateTasksStatusEnteredAt failed', e)
+    return
+  }
+  tasksStatusEnteredAtMigrationDone = true
+}
+
 let userProjectRolesProjectIdUkMigrationDone = false
 
 /**

@@ -101,9 +101,10 @@ function parseProjectIds(raw: unknown): string[] {
   return []
 }
 
-/** PostgreSQL JSONB: mảng project id chứa giá trị ? (text) — tương đương MySQL JSON_CONTAINS(COALESCE(..., []), QUOTE(?)). */
+/** PostgreSQL JSONB: mảng project id chứa giá trị ? (text) — tương đương MySQL JSON_CONTAINS(COALESCE(..., []), QUOTE(?)).
+ *  Ép cột ::jsonb trước COALESCE để cùng kiểu với '[]'::jsonb (cột legacy TEXT gây lỗi "COALESCE types text and jsonb cannot be matched"). */
 function sqlProjectIdsContains(columnExpr: string): string {
-  return `(COALESCE(${columnExpr}, '[]'::jsonb) @> to_jsonb(?::text))`
+  return `(COALESCE(${columnExpr}::jsonb, '[]'::jsonb) @> to_jsonb(?::text))`
 }
 
 /** Lấy vcsType từ commit đầu trong selected_commits (hoặc đoán từ revision cho dữ liệu cũ). */

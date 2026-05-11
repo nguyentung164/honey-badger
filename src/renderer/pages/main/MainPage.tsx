@@ -1463,7 +1463,7 @@ export function MainPage() {
                         }}
                       >
                         {isLoadingCommit ? <GlowLoader /> : <SendHorizontal className="h-4 w-4 shrink-0" />}
-                        {t('common.commit')}
+                        {autoPush ? t('common.commitAndPush') : t('common.commit')}
                       </Button>
                     </div>
                     <Tooltip>
