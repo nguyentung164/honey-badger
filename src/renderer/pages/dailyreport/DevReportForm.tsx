@@ -10,6 +10,7 @@ import { randomUuidV7 } from 'shared/randomUuidV7'
 import { GIT_STATUS_COLOR_CLASS_MAP, GIT_STATUS_TEXT, STATUS_COLOR_CLASS_MAP, STATUS_TEXT } from '@/components/shared/constants'
 import { Button } from '@/components/ui/button'
 import { DropdownMenu, DropdownMenuCheckboxItem, DropdownMenuContent, DropdownMenuTrigger } from '@/components/ui/dropdown-menu'
+import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { Textarea } from '@/components/ui/textarea'
@@ -99,7 +100,7 @@ function CommitDetailDialog({ commit, vcsType, onClose }: { commit: CommitItem; 
   return (
     <div className="fixed inset-0 z-[10000] flex items-center justify-center p-4">
       <button type="button" className="absolute inset-0 h-full w-full cursor-default border-0 bg-black/50 p-0" aria-label={t('common.close')} onClick={onClose} />
-      <div className="relative z-10 flex max-h-[80vh] w-full max-w-xl flex-col overflow-hidden rounded-lg border bg-background shadow-lg">
+      <div className="relative z-10 flex max-h-[80vh] w-full max-w-xl flex-col overflow-hidden rounded-lg bg-background shadow-lg">
         <div className="flex items-center justify-between px-4 py-3 border-b shrink-0">
           <h3 className="text-base font-semibold font-mono truncate" title={commit.revision}>
             {commit.revision.length > 12 ? `${commit.revision.substring(0, 12)}...` : commit.revision}
@@ -119,7 +120,7 @@ function CommitDetailDialog({ commit, vcsType, onClose }: { commit: CommitItem; 
                 <h4 className="text-sm font-medium text-muted-foreground mb-2 text-left">
                   {t('dailyReport.files')} ({commit.files.length})
                 </h4>
-                <div className="max-h-[250px] overflow-y-auto rounded-md border p-2 space-y-1.5 text-left">
+                <div className="max-h-[250px] overflow-y-auto rounded-md p-2 space-y-1.5 text-left">
                   {commit.files.map((f, j) => {
                     const Icon = (STATUS_ICON as Record<string, React.ElementType>)[f.status?.trim() || '?'] ?? File
                     const isGit = vcsType === 'git'
@@ -725,7 +726,7 @@ export function DevReportForm({ initialReportDate, initialProjectId, initialProj
       </div>
 
       {projectIds.length > 0 && (
-        <div className="rounded-xl border bg-muted/30 px-3 py-2 space-y-2 shrink-0">
+        <div className="rounded-xl bg-muted px-3 py-2 space-y-2 shrink-0">
           <Label className="text-xs font-semibold">{t('dailyReport.actualWorkHoursLabel', 'Giờ làm việc thực tế (theo project)')}</Label>
           <div className="flex flex-wrap gap-3">
             {projectIds.map(pid => {
@@ -757,7 +758,7 @@ export function DevReportForm({ initialReportDate, initialProjectId, initialProj
         {/* Column 1: Source folder + Work description */}
         <div className="space-y-4 min-w-0 flex flex-col">
           {/* Source Folder card - cùng chiều cao với Commit Today bên phải */}
-          <div className="flex flex-col min-w-0 flex-1 rounded-xl border bg-muted/40 shadow-sm overflow-hidden min-h-[265px]! max-h-[265px]!">
+          <div className="flex flex-col min-w-0 flex-1 rounded-xl bg-muted/40 shadow-sm overflow-hidden min-h-[265px]! max-h-[265px]!">
             <div className="px-4 py-2.5 border-b shrink-0 flex items-center justify-between gap-2 bg-muted/30">
               <Label className="font-semibold text-sm shrink-0">{t('dailyReport.sourceFolderLabel')}</Label>
               {displayFolderList.length > 0 && (
@@ -806,7 +807,7 @@ export function DevReportForm({ initialReportDate, initialProjectId, initialProj
           </div>
 
           {/* Today's Work Description card */}
-          <div className="flex flex-col min-w-0 flex-1 rounded-xl border bg-muted/40 shadow-sm overflow-hidden min-h-[265px]! max-h-[265px]!">
+          <div className="flex flex-col min-w-0 flex-1 rounded-xl bg-muted/40 shadow-sm overflow-hidden min-h-[265px]! max-h-[265px]!">
             <div className="px-4 py-2.5 border-b shrink-0 flex items-center justify-between bg-muted/30">
               <Label className="font-semibold text-sm">{t('dailyReport.workDescriptionLabel')}</Label>
               <Button variant="outline" size="sm" onClick={applyWorkDescriptionTemplate} disabled={isReadOnly}>
@@ -827,7 +828,7 @@ export function DevReportForm({ initialReportDate, initialProjectId, initialProj
 
         {/* Column 2: Available commits (top) + Saved commits (bottom, when edit) */}
         <div className="space-y-4 min-w-0 flex flex-col">
-          <div className="flex flex-col min-w-0 flex-1 rounded-xl border bg-muted/40 shadow-sm overflow-hidden min-h-[265px]! max-h-[265px]!">
+          <div className="flex flex-col min-w-0 flex-1 rounded-xl bg-muted/40 shadow-sm overflow-hidden min-h-[265px]! max-h-[265px]!">
             <div className="px-4 py-2.5 border-b shrink-0 flex items-center justify-between bg-muted/30">
               <Label className="font-semibold text-sm">{savedCommits.length > 0 ? t('dailyReport.availableCommits') : t('dailyReport.commitsToday')}</Label>
               <div className="flex items-center gap-1">
@@ -878,7 +879,7 @@ export function DevReportForm({ initialReportDate, initialProjectId, initialProj
                           date: reportDate ? format(parseLocalDate(reportDate) ?? parseISO(reportDate), dateDisplayPattern) : '',
                         })
                         : t('dailyReport.noAdditionalCommits')
-                  return <div className="py-8 text-muted-foreground text-sm text-center border-t">{emptyMsg}</div>
+                  return <div className="py-8 text-muted-foreground text-sm text-center">{emptyMsg}</div>
                 }
                 return (
                   <div className="overflow-y-auto rounded-b-xl">
@@ -887,7 +888,7 @@ export function DevReportForm({ initialReportDate, initialProjectId, initialProj
                         <div key={commitKey(c)} className="relative min-w-0">
                           <button
                             type="button"
-                            className="relative flex w-full min-w-0 cursor-pointer flex-col gap-1.5 rounded-md border border-transparent bg-transparent p-2.5 text-left font-inherit transition-colors hover:border-muted-foreground/20 hover:bg-muted/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                            className="relative flex w-full min-w-0 cursor-pointer flex-col gap-1.5 rounded-md border-transparent bg-transparent p-2.5 text-left font-inherit transition-colors hover:border-muted-foreground/20 hover:bg-muted/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                             onClick={() => setSelectedCommit(c)}
                           >
                             <div className="flex items-center justify-between gap-2 text-sm pr-9">
@@ -929,7 +930,7 @@ export function DevReportForm({ initialReportDate, initialProjectId, initialProj
             )}
           </div>
 
-          <div className="flex flex-col min-w-0 flex-1 rounded-xl border bg-muted/40 shadow-sm overflow-hidden min-h-[265px]! max-h-[265px]!">
+          <div className="flex flex-col min-w-0 flex-1 rounded-xl bg-muted/40 shadow-sm overflow-hidden min-h-[265px]! max-h-[265px]!">
             <div className="px-4 py-2.5 border-b shrink-0 flex items-center justify-between bg-muted/30">
               <Label className="font-semibold text-sm">
                 {t('dailyReport.savedCommits')} ({savedCommits.length})
@@ -951,7 +952,7 @@ export function DevReportForm({ initialReportDate, initialProjectId, initialProj
                       <div key={k} className="relative min-w-0">
                         <button
                           type="button"
-                          className="relative flex w-full min-w-0 cursor-pointer flex-col gap-1.5 rounded-md border border-transparent bg-background p-2.5 text-left font-inherit transition-colors hover:border-muted-foreground/20 hover:bg-muted/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                          className="relative flex w-full min-w-0 cursor-pointer flex-col gap-1.5 rounded-md border-transparent bg-background p-2.5 text-left font-inherit transition-colors hover:border-muted-foreground/20 hover:bg-muted/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                           onClick={() => setSelectedCommit(c)}
                         >
                           <div className="flex items-center justify-between gap-2 text-sm pr-9">
