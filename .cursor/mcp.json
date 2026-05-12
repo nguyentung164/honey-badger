@@ -3,6 +3,12 @@
     "shadcn": {
       "command": "npx",
       "args": ["shadcn@latest", "mcp"]
+    },
+    "lazyweb": {
+      "url": "https://www.lazyweb.com/mcp",
+      "headers": {
+        "Authorization": "Bearer cbde1011-3fdc-456b-8269-80d6046bb0f5"
+      }
     }
   }
 }

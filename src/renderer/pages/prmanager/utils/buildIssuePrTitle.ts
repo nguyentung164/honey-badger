@@ -1,25 +1,39 @@
 /** Tiêu đề mẫu: #123456-AME-XXX (2) (main) — mã + max (n) trong commit + tên base. */
 /** Cho phép dạng mở rộng: #128246-AME-561_AME-563 (1) (không chỉ 2 segment sau mã số). */
-const ISSUE_VERSION_RE = /(#(?:[0-9]+-[-A-Za-z0-9_]+))\s*\((\d+)\)/g
+/** `#` trước mã là tuỳ chọn (branch vẫn normalize có #). Có thể ticket một dòng, (n) dòng sau — flatten message để bắt. */
+const ISSUE_VERSION_CORE_RE = /#?([0-9]+-[-A-Za-z0-9_]+)\s*\((\d+)\)/gi
 const BRANCH_ISSUE_RE = /#?([0-9]+-[-A-Za-z0-9_]+)/i
 
 function stripIssueHash(key: string): string {
   return key.replace(/^#/, '').toLowerCase()
 }
 
-/** Mỗi mã #… gán max(n) từ mọi dòng message. */
+function normalizeIssueKey(slug: string): string {
+  const s = slug.trim()
+  return s.startsWith('#') ? s : `#${s}`
+}
+
+function scanLineForIssueVersions(line: string, map: Map<string, number>): void {
+  const re = new RegExp(ISSUE_VERSION_CORE_RE.source, 'gi')
+  for (const m of line.matchAll(re)) {
+    const key = normalizeIssueKey(m[1])
+    const n = parseInt(m[2], 10)
+    if (!Number.isNaN(n) && n >= 0) {
+      map.set(key, Math.max(map.get(key) ?? 0, n))
+    }
+  }
+}
+
+/** Mỗi mã #… gán max(n) từ mọi dòng message (và bản flatten để (n) không cùng dòng vẫn khớp). */
 export function maxIssueVersionByKey(messages: string[]): Map<string, number> {
   const map = new Map<string, number>()
   for (const msg of messages) {
+    if (!msg?.trim()) continue
     for (const line of msg.split(/\r?\n/)) {
-      for (const m of line.matchAll(new RegExp(ISSUE_VERSION_RE.source, 'g'))) {
-        const key = m[1]
-        const n = parseInt(m[2], 10)
-        if (!Number.isNaN(n) && n >= 0) {
-          map.set(key, Math.max(map.get(key) ?? 0, n))
-        }
-      }
+      if (line.trim()) scanLineForIssueVersions(line, map)
     }
+    const flat = msg.replace(/\r?\n+/g, ' ').trim()
+    if (flat) scanLineForIssueVersions(flat, map)
   }
   return map
 }
@@ -46,19 +60,28 @@ function versionForKeyOrPrefix(byKey: Map<string, number>, keyWithHash: string):
   return best > 0 ? best : 1
 }
 
-function firstMatchInNewestOnly(messages: string[], re: RegExp): { key: string; version: number } | null {
+function firstMatchInNewestOnly(messages: string[]): { key: string; version: number } | null {
   if (messages.length === 0) return null
-  const only = [messages[0]]
-  return pickFromMessagesOnly(only, re)
+  return pickFromMessagesOnly([messages[0]])
 }
 
-function pickFromMessagesOnly(messages: string[], re: RegExp): { key: string; version: number } | null {
+function pickFromMessagesOnly(messages: string[]): { key: string; version: number } | null {
   for (const msg of messages) {
+    if (!msg?.trim()) continue
     for (const line of msg.split(/\r?\n/)) {
-      re.lastIndex = 0
+      if (!line.trim()) continue
+      const re = new RegExp(ISSUE_VERSION_CORE_RE.source, 'gi')
       const m = re.exec(line)
       if (m) {
-        return { key: m[1], version: parseInt(m[2], 10) }
+        return { key: normalizeIssueKey(m[1]), version: parseInt(m[2], 10) }
+      }
+    }
+    const flat = msg.replace(/\r?\n+/g, ' ').trim()
+    if (flat) {
+      const re = new RegExp(ISSUE_VERSION_CORE_RE.source, 'gi')
+      const m = re.exec(flat)
+      if (m) {
+        return { key: normalizeIssueKey(m[1]), version: parseInt(m[2], 10) }
       }
     }
   }
@@ -92,7 +115,7 @@ export function pickIssueKeyAndVersion(messages: string[], headBranch: string): 
     }
   }
 
-  const fromTip = firstMatchInNewestOnly(messages, new RegExp(ISSUE_VERSION_RE.source, 'g'))
+  const fromTip = firstMatchInNewestOnly(messages)
   if (fromTip) return fromTip
 
   return null

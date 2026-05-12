@@ -28,6 +28,7 @@ import {
   setGithubToken,
   testGithubToken,
   updatePullRequestBranch,
+  updatePullRequestTitle,
 } from '../git-hosting'
 import type { PullRequestSummary } from '../git-hosting/types'
 import { applyPullRequestToCheckpoints, onPrMerged, syncPullRequestIntoTrackedCheckpoints } from '../pr-automation/engine'
@@ -38,6 +39,7 @@ import {
   deleteAutomation,
   deleteCheckpointTemplate,
   deletePrRepo,
+  dedupeTrackedBranchesByLowercase,
   deleteTrackedBranch,
   deleteTrackedBranchesByIds,
   getPrAiAssistChatLines,
@@ -422,6 +424,15 @@ export function registerPrIpcHandlers(): void {
         }
         const uid = typeof userId === 'string' ? userId.trim() : ''
         if (!uid) return { status: 'error', message: 'User ID required.' }
+        /** Self-heal: dedupe các tracked_branch trùng tên do bug case-sensitive cũ gây ra trước khi load. */
+        try {
+          const droppedDupes = await dedupeTrackedBranchesByLowercase(uid, projectId)
+          if (droppedDupes > 0) {
+            l.info(`[pr-sync] dedupe removed ${droppedDupes} duplicate tracked_branch row(s)`)
+          }
+        } catch (err) {
+          l.warn('[pr-sync] dedupeTrackedBranchesByLowercase failed:', err instanceof Error ? err.message : err)
+        }
         const repos = await listPrRepos(uid, projectId)
         const templates = await listCheckpointTemplates(uid, projectId)
         const trackedRows = await listTrackedBranches(uid, projectId)
@@ -552,12 +563,15 @@ export function registerPrIpcHandlers(): void {
               })
             }
 
-            /** Chỉ getPR/apply PR cho nhánh đang track và ref vẫn còn trên remote (tránh call API cho branch đã xóa/ghi nhầm list PR). */
+            /** Chỉ getPR/apply PR cho nhánh đang track.
+             * Với PR còn mở: chỉ xử lý khi branch vẫn tồn tại trên remote (tránh call API thừa).
+             * Với PR đã merged/closed: vẫn apply dù branch đã bị xóa khỏi remote sau khi merge,
+             * để cập nhật ghPrMerged/ghPrState thay vì giữ nguyên dữ liệu cũ (vd: "behind"). */
             const syncPrFilter = (p: PullRequestSummary) => {
               if (!prMatchesScope(p)) return false
               const headNorm = p.head.trim().toLowerCase()
               if (!existingBranchNames.has(headNorm)) return false
-              if (!remoteBranchNormSet.has(headNorm)) return false
+              if (p.state === 'open' && !remoteBranchNormSet.has(headNorm)) return false
               return true
             }
 
@@ -584,8 +598,33 @@ export function registerPrIpcHandlers(): void {
               try {
                 await applyPullRequestToCheckpoints({ projectId, repoId: repo.id, pr, templatesCache: templates })
                 synced++
-              } catch {
-                // thi\u1ebfu template checkpoint \u2014 b\u1ecf qua
+              } catch (err) {
+                l.warn(`[pr-sync] applyPullRequestToCheckpoints failed for ${repo.owner}/${repo.repo}#${pr.number}:`, err instanceof Error ? err.message : err)
+              }
+            })
+
+            /** Luôn lấy data tươi theo prNumber cho MỌI checkpoint đã có PR — giống PrDetailDialog.
+             * Không phụ thuộc listPRs pagination, không cache, đảm bảo status + title luôn đúng. */
+            const seenFallbackPrNums = new Set<number>()
+            const allKnownPrNumbers: number[] = []
+            for (const row of trackedRows) {
+              if (row.repoId !== repo.id) continue
+              if (onlyBranchHead && row.branchName.trim().toLowerCase() !== onlyBranchHead) continue
+              for (const cp of row.checkpoints) {
+                if (!cp.prNumber || seenFallbackPrNums.has(cp.prNumber)) continue
+                seenFallbackPrNums.add(cp.prNumber)
+                allKnownPrNumbers.push(cp.prNumber)
+              }
+            }
+            await runInBatches(allKnownPrNumbers, prDetailPrefetchConcurrency, async prNum => {
+              try {
+                const detailed = await githubClient.getPR(repo.owner, repo.repo, prNum, { includeReviewSubmissions: false })
+                // syncPullRequestIntoTrackedCheckpoints tìm checkpoint trực tiếp theo prNumber trong DB
+                // (không phụ thuộc template matching hay branch name) — giống cách PrDetailDialog đọc data tươi.
+                await syncPullRequestIntoTrackedCheckpoints(repo.owner, repo.repo, detailed)
+                synced++
+              } catch (err) {
+                l.warn(`[pr-sync] fallback prNum=${prNum} for ${repo.owner}/${repo.repo} failed:`, err instanceof Error ? err.message : err)
               }
             })
           } catch (err: any) {
@@ -921,6 +960,23 @@ export function registerPrIpcHandlers(): void {
       }
       const data = await markPullRequestAsDraft(input.owner, input.repo, input.number)
       await afterPrMutateSyncCheckpoints(input.owner, input.repo, data, 'PR_MARK_DRAFT')
+      return { status: 'success' as const, data }
+    } catch (err) {
+      return errResp(err)
+    }
+  })
+
+  ipcMain.handle(IPC.PR.PR_UPDATE_TITLE, async (_e, input: { owner: string; repo: string; number: number; title: string }) => {
+    try {
+      if (!getGithubToken()) {
+        return { status: 'error' as const, message: 'GitHub token ch\u01b0a c\u1ea5u h\u00ecnh.' }
+      }
+      const raw = typeof input.title === 'string' ? input.title.trim() : ''
+      if (!raw) {
+        return { status: 'error' as const, message: 'Ti\u00eau \u0111\u1ec1 kh\u00f4ng \u0111\u01b0\u1ee3c \u0111\u1ec3 tr\u1ed1ng.' }
+      }
+      const data = await updatePullRequestTitle(input.owner, input.repo, input.number, raw)
+      await afterPrMutateSyncCheckpoints(input.owner, input.repo, data, 'PR_UPDATE_TITLE')
       return { status: 'success' as const, data }
     } catch (err) {
       return errResp(err)

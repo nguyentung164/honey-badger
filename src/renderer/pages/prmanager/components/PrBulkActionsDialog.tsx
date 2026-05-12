@@ -60,7 +60,7 @@ type Props = {
   remoteExistMap: Record<string, boolean> | null
   onlyExistingOnRemote: boolean
   githubTokenOk: boolean
-  onAfterBatch: () => void | Promise<void>
+  onAfterBatch: (kind: BulkActionKind) => void | Promise<void>
 }
 
 function sleep(ms: number): Promise<void> {
@@ -869,7 +869,7 @@ export function PrBulkActionsDialog({
       }
 
       opLog.finishSuccess()
-      await Promise.resolve(onAfterBatch())
+      await Promise.resolve(onAfterBatch(kind))
       toast.success(t('prManager.bulk.toast.doneToast'))
     } catch (e) {
       const msg = e instanceof Error ? e.message : t('prManager.bulk.toast.unexpected')

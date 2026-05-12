@@ -20,6 +20,7 @@ import {
   Info,
   MessageCircle,
   MessageSquare,
+  Pencil,
   RefreshCw,
   RotateCcw,
   Send,
@@ -44,6 +45,7 @@ import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible'
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog'
+import { Input } from '@/components/ui/input'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Textarea } from '@/components/ui/textarea'
@@ -234,11 +236,17 @@ function mergeableBadgeForPr(pr: PrSummary, t: TFunction): { label: string; clas
   const lower = raw == null ? '' : String(raw).toLowerCase()
   let className = 'bg-muted/65 text-foreground/90'
   if (lower === 'clean') {
-    className = 'bg-emerald-500/18 text-emerald-900 dark:text-emerald-100'
-  } else if (['dirty', 'blocked', 'behind', 'unstable'].includes(lower)) {
-    className = 'bg-amber-500/20 text-amber-950 dark:text-amber-50'
+    className = 'bg-emerald-400/[0.2] dark:bg-emerald-400/[0.14] text-emerald-800 dark:text-emerald-100'
+  } else if (lower === 'dirty' || lower === 'conflict') {
+    className = 'bg-amber-400/16 text-amber-900 dark:text-amber-100'
+  } else if (lower === 'blocked') {
+    className = 'bg-rose-400/16 text-rose-900 dark:text-rose-100'
+  } else if (lower === 'behind') {
+    className = 'bg-sky-400/16 text-sky-900 dark:text-sky-100'
+  } else if (lower === 'unstable') {
+    className = 'bg-orange-400/14 text-orange-900 dark:text-orange-100'
   } else if (lower === 'unknown') {
-    className = 'bg-slate-500/18 text-slate-800 dark:text-slate-200'
+    className = 'bg-cyan-400/14 text-cyan-950 dark:text-cyan-50'
   }
   return { label: meta.label, className, title: meta.title }
 }
@@ -417,6 +425,9 @@ export function PrDetailDialog({ open, onOpenChange, projectId, prRepo, prNumber
   const [detailTab, setDetailTab] = useState<'conversation' | 'commits' | 'files'>('conversation')
   const [commits, setCommits] = useState<PrCommitRow[]>([])
   const [reviewersBlockOpen, setReviewersBlockOpen] = useState(false)
+  const [titleEditOpen, setTitleEditOpen] = useState(false)
+  const [titleEditDraft, setTitleEditDraft] = useState('')
+  const [titleRenaming, setTitleRenaming] = useState(false)
   const [commitResetTarget, setCommitResetTarget] = useState<{ sha: string; shortSha: string; message: string } | null>(null)
   const [commitForcePushOpen, setCommitForcePushOpen] = useState(false)
   const [commitBusySha, setCommitBusySha] = useState<string | null>(null)
@@ -492,6 +503,9 @@ export function PrDetailDialog({ open, onOpenChange, projectId, prRepo, prNumber
       setCommitBusySha(null)
       setMarkingReady(false)
       setUpdatingBranch(false)
+      setTitleEditOpen(false)
+      setTitleEditDraft('')
+      setTitleRenaming(false)
     }
   }, [open, prNumber, prRepo, load])
 
@@ -753,6 +767,47 @@ export function PrDetailDialog({ open, onOpenChange, projectId, prRepo, prNumber
     }
   }
 
+  const doRenamePrTitle = async () => {
+    if (!prRepo || prNumber == null || !pr) return
+    const nextTitle = titleEditDraft.trim()
+    if (!nextTitle) {
+      toast.error(t('prManager.detail.editTitleEmpty'))
+      return
+    }
+    const cur = (pr.title ?? '').trim()
+    if (nextTitle === cur) {
+      setTitleEditOpen(false)
+      return
+    }
+    if (!opLog.startOperation('prManager.operationLog.titleRenamePr', undefined, { silent: true })) return
+    opLog.appendLine(t('prManager.operationLog.lineRenameTitle', { owner: prRepo.owner, repo: prRepo.repo, n: prNumber }))
+    setTitleRenaming(true)
+    try {
+      const res = await window.api.pr.prUpdateTitle({
+        owner: prRepo.owner,
+        repo: prRepo.repo,
+        number: prNumber,
+        title: nextTitle,
+      })
+      if (res.status === 'success' && res.data) {
+        opLog.appendLine(t('prManager.operationLog.lineOk'))
+        opLog.finishSuccess()
+        toast.success(t('prManager.detail.titleRenamed'))
+        setTitleEditOpen(false)
+        setPr(res.data as PrSummary)
+        await Promise.resolve(onAfterChange?.())
+      } else {
+        const msg = res.message || t('prManager.detail.titleRenameFail')
+        opLog.finishError(msg)
+        toast.error(msg)
+      }
+    } catch (e) {
+      opLog.finishError(e instanceof Error ? e.message : t('prManager.bulk.toast.unexpected'))
+    } finally {
+      setTitleRenaming(false)
+    }
+  }
+
   const doCommitResetHard = async () => {
     if (!commitResetTarget || !prRepo || !headBranch) return
     if (!opLog.startOperation('prManager.operationLog.titleReset')) return
@@ -884,12 +939,27 @@ export function PrDetailDialog({ open, onOpenChange, projectId, prRepo, prNumber
                         </Badge>
                       ) : null}
                       {pr ? (
-                        <DialogTitle
-                          className="m-0 min-h-0 max-w-full min-w-0 flex-1 basis-0 truncate pr-0 text-left text-base !font-semibold !leading-6 tracking-tight sm:text-lg"
-                          title={!loading && (pr.title?.trim() ?? '') ? (pr.title ?? undefined) : undefined}
-                        >
-                          {titleText}
-                        </DialogTitle>
+                        <div className="flex min-w-0 max-w-full flex-1 basis-0 items-center gap-1 pr-0">
+                          <DialogTitle
+                            className="m-0 min-h-0 min-w-0 flex-1 basis-0 truncate text-left text-base !font-semibold !leading-6 tracking-tight sm:text-lg"
+                            title={!loading && (pr.title?.trim() ?? '') ? (pr.title ?? undefined) : undefined}
+                          >
+                            {titleText}
+                          </DialogTitle>
+                          {prRepo && !loading ? (
+                            <HeaderIconBtn
+                              label={t('prManager.detail.editTitleLabel')}
+                              disabled={titleRenaming}
+                              className="text-muted-foreground hover:text-foreground"
+                              onRequest={() => {
+                                setTitleEditDraft(pr.title?.trim() ?? '')
+                                setTitleEditOpen(true)
+                              }}
+                            >
+                              <Pencil className="h-3.5 w-3.5" />
+                            </HeaderIconBtn>
+                          ) : null}
+                        </div>
                       ) : (
                         <DialogTitle className="m-0 min-h-0 max-w-full min-w-0 flex-1 basis-0 truncate pr-0 text-left text-base !font-semibold !leading-6 sm:text-lg">
                           {titleText}
@@ -1024,8 +1094,8 @@ export function PrDetailDialog({ open, onOpenChange, projectId, prRepo, prNumber
 
           <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
             {pr && pr.state === 'open' && prMergeableIsConflict(pr.mergeableState) ? (
-              <div className="shrink-0 border-b border-amber-500/25 bg-amber-500/[0.08] px-4 py-2.5 text-sm dark:bg-amber-500/10">
-                <Alert className="border-amber-500/35 bg-amber-500/10 text-amber-950 dark:text-amber-100 [&>div]:!text-amber-950 dark:[&>div]:!text-amber-100">
+              <div className="shrink-0 px-4 py-2.5 text-sm">
+                <Alert className="bg-amber-500/10 text-amber-950 dark:text-amber-100 [&>div]:!text-amber-950 dark:[&>div]:!text-amber-100">
                   <GitMergeConflict className="h-4 w-4 !text-amber-700 dark:!text-amber-200" />
                   <AlertTitle className="text-sm font-semibold">{t('prManager.detail.mergeConflictFileListTitle')}</AlertTitle>
                   <AlertDescription className="text-xs text-amber-900/90 dark:text-amber-100/90">
@@ -1145,16 +1215,16 @@ export function PrDetailDialog({ open, onOpenChange, projectId, prRepo, prNumber
                                 {pr.requestedReviewers.map(u => (
                                   <Tooltip key={u.login}>
                                     <TooltipTrigger asChild>
-                                      <span className="inline-flex min-h-[2rem] items-center gap-1.5 rounded-md border border-border/55 bg-background/90 px-2 py-1 shadow-sm">
-                                        <Avatar className="h-6 w-6">
+                                      <span className="inline-flex max-w-full min-h-[2rem] min-w-0 flex-wrap items-center gap-1.5 rounded-md border border-border/55 bg-background/90 px-2 py-1 shadow-sm">
+                                        <Avatar className="h-6 w-6 shrink-0">
                                           {u.avatarUrl ? <AvatarImage src={u.avatarUrl} alt="" /> : null}
                                           <AvatarFallback className="text-[10px]">{u.login.slice(0, 1).toUpperCase()}</AvatarFallback>
                                         </Avatar>
-                                        <span className="max-w-[9rem] truncate text-sm text-foreground">@{u.login}</span>
+                                        <span className="min-w-0 max-w-full [overflow-wrap:anywhere] break-words text-sm leading-snug text-foreground">@{u.login}</span>
                                       </span>
                                     </TooltipTrigger>
-                                    <TooltipContent side="top" className="text-sm">
-                                      {u.login}
+                                    <TooltipContent side="top" className="max-w-sm text-sm whitespace-pre-wrap break-words">
+                                      @{u.login}
                                     </TooltipContent>
                                   </Tooltip>
                                 ))}
@@ -1487,6 +1557,47 @@ export function PrDetailDialog({ open, onOpenChange, projectId, prRepo, prNumber
               {confirm === 'github' || confirm === 'githubFiles' || confirm === 'alertFilesLink' || confirm === 'folder'
                 ? t('prManager.detail.continue')
                 : t('prManager.detail.confirmBtn')}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      <AlertDialog
+        open={titleEditOpen}
+        onOpenChange={o => {
+          if (!o && titleRenaming) return
+          setTitleEditOpen(o)
+        }}
+      >
+        <AlertDialogContent size="default" className="font-sans sm:max-w-lg">
+          <AlertDialogHeader>
+            <AlertDialogTitle>{t('prManager.detail.editTitleDialogTitle')}</AlertDialogTitle>
+            <AlertDialogDescription>{t('prManager.detail.editTitleDialogDesc')}</AlertDialogDescription>
+          </AlertDialogHeader>
+          <Input
+            value={titleEditDraft}
+            className="text-base font-medium"
+            onChange={e => setTitleEditDraft(e.target.value)}
+            disabled={titleRenaming}
+            onKeyDown={e => {
+              if (e.key === 'Enter' && !(e.ctrlKey || e.metaKey || e.altKey || e.shiftKey)) {
+                e.preventDefault()
+                void doRenamePrTitle()
+              }
+            }}
+            aria-label={t('prManager.detail.editTitlePlaceholder')}
+            placeholder={t('prManager.detail.editTitlePlaceholder')}
+          />
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={titleRenaming}>{t('common.cancel')}</AlertDialogCancel>
+            <AlertDialogAction
+              disabled={titleRenaming || !titleEditDraft.trim()}
+              onClick={e => {
+                e.preventDefault()
+                void doRenamePrTitle()
+              }}
+            >
+              {titleRenaming ? <GlowLoader className="h-4 w-4" /> : t('prManager.detail.editTitleSave')}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>

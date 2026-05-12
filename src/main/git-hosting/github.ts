@@ -710,6 +710,30 @@ export async function reopenPullRequest(owner: string, repo: string, number: num
   )
 }
 
+/** \u0110\u1ed5i ti\u00eau \u0111\u1ec1 PR (REST pulls.update — ch\u1ec9 c\u00e1p nh\u1eadt `title`). */
+export async function updatePullRequestTitle(owner: string, repo: string, number: number, title: string): Promise<PullRequestSummary> {
+  const t = (title ?? '').trim()
+  if (!t) {
+    throw new Error('Ti\u00eau \u0111\u1ec1 PR kh\u00f4ng \u0111\u01b0\u1ee3c \u0111\u1ec3 tr\u1ed1ng.')
+  }
+  /** GitHub ch\u1ea5p nh\u1eadn title d\u00e0i; c\u1eaft ph\u00f2ng API qu\u00e1 gi\u1edbi. */
+  const MAX = 8192
+  const safeTitle = t.length > MAX ? t.slice(0, MAX) : t
+  return withGithubRateLimitRetry(
+    async () => {
+      const octokit = getClient()
+      await octokit.pulls.update({
+        owner,
+        repo,
+        pull_number: number,
+        title: safeTitle,
+      })
+      return githubClient.getPR(owner, repo, number)
+    },
+    { label: `updatePRTitle ${owner}/${repo}#${number}` }
+  )
+}
+
 function normalizeReviewerLogins(raw: string[]): string[] {
   const seen = new Set<string>()
   const out: string[] = []

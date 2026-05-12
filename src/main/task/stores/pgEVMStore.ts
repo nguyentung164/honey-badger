@@ -2,7 +2,7 @@ import { EVM_DEFAULT_PHASES } from 'shared/evmDefaults'
 import { randomUuidV7 } from 'shared/randomUuidV7'
 import type { ACRow, EVMData, EVMMaster, EVMMasterUpdatePayload, EVMProject, EvmProjectRoleUser, WBSRow, WbsDayUnitRow, WbsMasterRow } from 'shared/types/evm'
 import { dbValueToCalendarYmd, todayCalendarYmd } from '../calendarDate'
-import { query, withTransaction } from '../schema/db'
+import { query, withTransaction, type TransactionQuery } from '../schema/db'
 import { migrateProjectsDropLegacyPmPlColumns } from '../schema/taskDbPatches'
 
 const PROJECT_SELECT_SQL = 'SELECT id, name as project_name, project_no, end_user, start_date, end_date, report_date FROM projects'
@@ -434,8 +434,6 @@ function parsePredecessorInt(p: string | null | undefined): number | null {
   return Number.isFinite(n) ? n : null
 }
 
-type SqlExec = (sql: string, params?: unknown[]) => Promise<unknown>
-
 /** Predecessor = số thứ tự WBS (no) trước đó; phải < no hiện tại và tồn tại trong cùng project. */
 /**
  * Khi AC và WBS khớp phase+category+feature+task và chỉ có **đúng một** dòng WBS — bổ sung actual/% từ AC
@@ -483,7 +481,7 @@ async function maybeSyncWbsDetailFromAc(projectId: string, ac: ACRow): Promise<v
   await query(`UPDATE evm_wbs_details SET ${patches.join(', ')} WHERE id = ?`, vals)
 }
 
-async function assertPredecessorValidTx(exec: SqlExec, projectId: string, rowNo: number, predecessor: number | null): Promise<void> {
+async function assertPredecessorValidTx(txQuery: TransactionQuery, projectId: string, rowNo: number, predecessor: number | null): Promise<void> {
   if (predecessor == null) return
   if (!Number.isInteger(predecessor) || predecessor < 1) {
     throw new Error('Predecessor must be a positive integer (WBS no).')
@@ -491,7 +489,7 @@ async function assertPredecessorValidTx(exec: SqlExec, projectId: string, rowNo:
   if (predecessor >= rowNo) {
     throw new Error('Predecessor must reference an earlier row (smaller No.) in this project.')
   }
-  const hit = (await exec('SELECT 1 FROM evm_wbs_details WHERE project_id = ? AND no = ? LIMIT 1', [projectId, predecessor])) as Record<string, unknown>[]
+  const hit = (await txQuery('SELECT 1 FROM evm_wbs_details WHERE project_id = ? AND no = ? LIMIT 1', [projectId, predecessor])) as Record<string, unknown>[]
   if (!hit?.[0]) {
     throw new Error(`Predecessor No.${predecessor} was not found in this project.`)
   }

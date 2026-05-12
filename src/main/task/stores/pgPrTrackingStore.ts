@@ -451,8 +451,40 @@ export async function getTrackedBranchById(id: string): Promise<PrTrackedBranch 
 }
 
 export async function findTrackedBranch(userId: string, repoId: string, branchName: string): Promise<PrTrackedBranch | null> {
-  const rows = await query<any>('SELECT * FROM pr_tracked_branches WHERE user_id = ? AND repo_id = ? AND branch_name = ? LIMIT 1', [userId, repoId, branchName])
+  /** Case-insensitive: GitHub `pr.head` đôi khi khác hoa-thường so với DB; nếu so sánh case-sensitive sẽ
+   * tạo tracked_branch trùng lặp khiến board hiển thị 2 dòng (1 dòng stale + 1 dòng fresh). */
+  const rows = await query<any>(
+    'SELECT * FROM pr_tracked_branches WHERE user_id = ? AND repo_id = ? AND LOWER(branch_name) = LOWER(?) ORDER BY updated_at DESC, id DESC LIMIT 1',
+    [userId, repoId, branchName]
+  )
   return rows?.[0] ? mapTracked(rows[0]) : null
+}
+
+/** Dedup các tracked_branch trùng tên (case-insensitive) trong cùng (user, repo, project).
+ * Bug cũ: findTrackedBranch case-sensitive làm sinh ra duplicate khi pr.head khác case với DB.
+ * Giữ tracked_branch updated_at mới nhất; xoá các bản còn lại cùng checkpoints của chúng.
+ * Idempotent — có thể gọi mỗi lần sync để self-heal DB. */
+export async function dedupeTrackedBranchesByLowercase(userId: string, projectId: string): Promise<number> {
+  const dupGroups = await query<{ ids: string[] }>(
+    `SELECT ARRAY_AGG(id ORDER BY updated_at DESC, id DESC) AS ids
+     FROM pr_tracked_branches
+     WHERE user_id = ? AND project_id = ?
+     GROUP BY repo_id, LOWER(branch_name)
+     HAVING COUNT(*) > 1`,
+    [userId, projectId]
+  )
+  let dropped = 0
+  for (const g of dupGroups ?? []) {
+    const ids = Array.isArray(g.ids) ? (g.ids as string[]) : []
+    if (ids.length < 2) continue
+    const dropIds = ids.slice(1)
+    if (dropIds.length === 0) continue
+    const dropPh = dropIds.map(() => '?').join(',')
+    await query(`DELETE FROM pr_branch_checkpoints WHERE tracked_branch_id IN (${dropPh})`, dropIds)
+    await query(`DELETE FROM pr_tracked_branches WHERE id IN (${dropPh})`, dropIds)
+    dropped += dropIds.length
+  }
+  return dropped
 }
 
 async function resolveUserIdForRepo(repoId: string): Promise<string | null> {
@@ -578,38 +610,53 @@ export async function upsertBranchCheckpoint(input: {
         await query(`DELETE FROM pr_branch_checkpoints WHERE id IN (${stalePh})`, staleIds)
       }
     }
-    /** Khi key không có trong payload: null → COALESCE giữ giá trị cột. Boolean native cho PostgreSQL. */
-    const ghDraftUpd = 'ghPrDraft' in input ? (input.ghPrDraft == null ? null : toDbBoolValue(Boolean(input.ghPrDraft), ghPrDraftBoolean)) : null
-    const ghMergedUpd = 'ghPrMerged' in input ? (input.ghPrMerged == null ? null : toDbBoolValue(Boolean(input.ghPrMerged), ghPrMergedBoolean)) : null
-    const isDoneUpd = 'isDone' in input ? (input.isDone == null ? null : toDbBoolValue(Boolean(input.isDone), isDoneBoolean)) : null
+    /** Mọi field dùng CASE WHEN <key_present_flag>: chỉ ghi đè khi key có trong input,
+     * cho phép ghi explicit null (vd: clear mergeable_state khi PR merged) thay vì COALESCE giữ giá trị cũ. */
+    const ghDraftUpd = 'ghPrDraft' in input && input.ghPrDraft != null ? toDbBoolValue(Boolean(input.ghPrDraft), ghPrDraftBoolean) : null
+    const ghMergedUpd = 'ghPrMerged' in input && input.ghPrMerged != null ? toDbBoolValue(Boolean(input.ghPrMerged), ghPrMergedBoolean) : null
+    const isDoneUpd = 'isDone' in input && input.isDone != null ? toDbBoolValue(Boolean(input.isDone), isDoneBoolean) : null
+    const hasIsDone = 'isDone' in input && input.isDone != null
     const hasPrNumber = 'prNumber' in input
     const hasPrUrl = 'prUrl' in input
     const hasMergedAt = 'mergedAt' in input
     const hasMergedBy = 'mergedBy' in input
+    const hasGhDraft = 'ghPrDraft' in input && input.ghPrDraft != null
+    const hasGhState = 'ghPrState' in input
+    const hasGhMerged = 'ghPrMerged' in input && input.ghPrMerged != null
+    const hasGhAuthor = 'ghPrAuthor' in input
+    const hasGhTitle = 'ghPrTitle' in input
+    const hasGhUpdatedAt = 'ghPrUpdatedAt' in input
+    const hasGhAdditions = 'ghPrAdditions' in input
+    const hasGhDeletions = 'ghPrDeletions' in input
+    const hasGhChangedFiles = 'ghPrChangedFiles' in input
+    const hasMergeableState = 'ghPrMergeableState' in input
+    const hasAssignees = 'ghPrAssignees' in input
+    const hasLabels = 'ghPrLabels' in input
 
-    await query(
+    const res = await exec(
       `UPDATE pr_branch_checkpoints
        SET user_id = COALESCE(?::varchar(36), user_id),
-           is_done = COALESCE(?::${isDoneCast}, is_done),
+           is_done = CASE WHEN ?::boolean THEN ?::${isDoneCast} ELSE is_done END,
            pr_number = CASE WHEN ?::boolean THEN ?::integer ELSE pr_number END,
            pr_url = CASE WHEN ?::boolean THEN ?::varchar(500) ELSE pr_url END,
            merged_at = CASE WHEN ?::boolean THEN ?::timestamptz ELSE merged_at END,
            merged_by = CASE WHEN ?::boolean THEN ?::varchar(255) ELSE merged_by END,
-           gh_pr_draft = COALESCE(?::${ghPrDraftCast}, gh_pr_draft),
-           gh_pr_state = COALESCE(?::varchar(20), gh_pr_state),
-           gh_pr_merged = COALESCE(?::${ghPrMergedCast}, gh_pr_merged),
-           gh_pr_author = COALESCE(?::varchar(255), gh_pr_author),
-           gh_pr_title = COALESCE(?::varchar(500), gh_pr_title),
-           gh_pr_updated_at = COALESCE(?::timestamptz, gh_pr_updated_at),
-           gh_pr_additions = COALESCE(?::integer, gh_pr_additions),
-           gh_pr_deletions = COALESCE(?::integer, gh_pr_deletions),
-           gh_pr_changed_files = COALESCE(?::integer, gh_pr_changed_files),
-           gh_pr_mergeable_state = COALESCE(?::varchar(50), gh_pr_mergeable_state),
-           gh_pr_assignees = COALESCE(?::jsonb, gh_pr_assignees),
-           gh_pr_labels = COALESCE(?::jsonb, gh_pr_labels)
+           gh_pr_draft = CASE WHEN ?::boolean THEN ?::${ghPrDraftCast} ELSE gh_pr_draft END,
+           gh_pr_state = CASE WHEN ?::boolean THEN ?::varchar(20) ELSE gh_pr_state END,
+           gh_pr_merged = CASE WHEN ?::boolean THEN ?::${ghPrMergedCast} ELSE gh_pr_merged END,
+           gh_pr_author = CASE WHEN ?::boolean THEN ?::varchar(255) ELSE gh_pr_author END,
+           gh_pr_title = CASE WHEN ?::boolean THEN ?::varchar(500) ELSE gh_pr_title END,
+           gh_pr_updated_at = CASE WHEN ?::boolean THEN ?::timestamptz ELSE gh_pr_updated_at END,
+           gh_pr_additions = CASE WHEN ?::boolean THEN ?::integer ELSE gh_pr_additions END,
+           gh_pr_deletions = CASE WHEN ?::boolean THEN ?::integer ELSE gh_pr_deletions END,
+           gh_pr_changed_files = CASE WHEN ?::boolean THEN ?::integer ELSE gh_pr_changed_files END,
+           gh_pr_mergeable_state = CASE WHEN ?::boolean THEN ?::varchar(50) ELSE gh_pr_mergeable_state END,
+           gh_pr_assignees = (CASE WHEN ?::boolean THEN ?::text ELSE gh_pr_assignees::text END)::jsonb,
+           gh_pr_labels = (CASE WHEN ?::boolean THEN ?::text ELSE gh_pr_labels::text END)::jsonb
        WHERE id = ?::varchar(36)`,
       [
         checkpointUserId,
+        hasIsDone,
         isDoneUpd,
         hasPrNumber,
         input.prNumber ?? null,
@@ -619,21 +666,36 @@ export async function upsertBranchCheckpoint(input: {
         input.mergedAt ?? null,
         hasMergedBy,
         input.mergedBy ?? null,
+        hasGhDraft,
         ghDraftUpd,
-        'ghPrState' in input ? input.ghPrState : null,
+        hasGhState,
+        hasGhState ? (input.ghPrState ?? null) : null,
+        hasGhMerged,
         ghMergedUpd,
-        'ghPrAuthor' in input ? (input.ghPrAuthor ?? null) : null,
-        'ghPrTitle' in input ? (input.ghPrTitle ?? null) : null,
+        hasGhAuthor,
+        hasGhAuthor ? (input.ghPrAuthor ?? null) : null,
+        hasGhTitle,
+        hasGhTitle ? (input.ghPrTitle ?? null) : null,
+        hasGhUpdatedAt,
         updatedAtDb,
-        'ghPrAdditions' in input ? (input.ghPrAdditions ?? null) : null,
-        'ghPrDeletions' in input ? (input.ghPrDeletions ?? null) : null,
-        'ghPrChangedFiles' in input ? (input.ghPrChangedFiles ?? null) : null,
-        'ghPrMergeableState' in input ? (input.ghPrMergeableState ?? null) : null,
+        hasGhAdditions,
+        hasGhAdditions ? (input.ghPrAdditions ?? null) : null,
+        hasGhDeletions,
+        hasGhDeletions ? (input.ghPrDeletions ?? null) : null,
+        hasGhChangedFiles,
+        hasGhChangedFiles ? (input.ghPrChangedFiles ?? null) : null,
+        hasMergeableState,
+        hasMergeableState ? (input.ghPrMergeableState ?? null) : null,
+        hasAssignees,
         assigneesJson,
+        hasLabels,
         labelsJson,
         id,
       ]
     )
+    if (!res.affectedRows) {
+      throw new Error(`upsertBranchCheckpoint: UPDATE matched no rows (id=${id})`)
+    }
     const row = (await query<any>('SELECT * FROM pr_branch_checkpoints WHERE id = ?::varchar(36)', [id]))?.[0]
     return mapCheckpoint(row)
   }
@@ -685,7 +747,7 @@ export async function listCheckpointKeysForRepoPr(owner: string, repo: string, p
   const r = repo.trim()
   if (!o || !r || !Number.isFinite(prNumber) || prNumber < 1) return []
   const rows = await query<any>(
-    `SELECT bc.tracked_branch_id AS trackedBranchId, bc.template_id AS templateId
+    `SELECT bc.tracked_branch_id, bc.template_id
      FROM pr_branch_checkpoints bc
      INNER JOIN pr_tracked_branches tb ON tb.id = bc.tracked_branch_id
      INNER JOIN pr_repos pr ON pr.id = tb.repo_id
@@ -694,8 +756,8 @@ export async function listCheckpointKeysForRepoPr(owner: string, repo: string, p
   )
   return (rows ?? [])
     .map(row => ({
-      trackedBranchId: String(row.trackedBranchId ?? row.tracked_branch_id ?? ''),
-      templateId: String(row.templateId ?? row.template_id ?? ''),
+      trackedBranchId: String(row.tracked_branch_id ?? ''),
+      templateId: String(row.template_id ?? ''),
     }))
     .filter(k => k.trackedBranchId && k.templateId)
 }

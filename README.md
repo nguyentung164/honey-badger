@@ -101,7 +101,7 @@
 - TortoiseSVN (nếu dùng SVN) – bật tùy chọn "command-line" khi cài đặt
 - Git command-line (nếu dùng Git)
 - JRE 11+ (nếu dùng SpotBugs)
-- PostgreSQL hoặc [Supabase](https://supabase.com/) (nếu dùng Task AI / Task Management và các module dùng chung DB ứng dụng)
+- PostgreSQL hoặc [Supabase](https://supabase.com/) (nếu dùng Task AI / Task Management và các module dùng chung DB ứng dụng). **PostgreSQL tối thiểu 14** nếu khởi tạo / áp dụng schema từ app: file [`src/main/task/schema/schema.sql`](src/main/task/schema/schema.sql) dùng trigger dạng `EXECUTE FUNCTION …` (cú pháp từ PG14).
 
 ## Cấu hình
 

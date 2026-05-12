@@ -29,4 +29,7 @@ yarn-error.log*
 
 /.history
 /.vscode
+
+# Local MCP — may contain bearer tokens (e.g. Lazyweb)
+/.cursor/mcp.json
 dev-app-update.yml

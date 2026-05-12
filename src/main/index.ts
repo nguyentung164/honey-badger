@@ -110,7 +110,9 @@ makeAppWithSingleInstanceLock(async () => {
           migrateTasksTicketIdNullable,
           migrateTasksStatusEnteredAt,
           migrateUserProjectRolesProjectIdUkToGenerated,
+          migrateAchievementBooleanColumns,
         } = await import('./task/schema/taskDbPatches')
+        await migrateAchievementBooleanColumns().catch(() => {})
         await migrateUserProjectRolesProjectIdUkToGenerated().catch(() => {})
         await migratePrCheckpointGithubColumns().catch(() => {})
         await migratePrCheckpointTemplateHeaderGroup().catch(() => {})

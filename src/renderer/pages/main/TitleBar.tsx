@@ -2118,7 +2118,7 @@ export const TitleBar = ({
       >
         {/* Left: logo + Workspace|Tasks (sát logo) + icon chỉ khi Workspace */}
         <div className="flex items-center h-full shrink-0 min-w-0 gap-0.5">
-          <div className="w-10 h-6 flex justify-center pt-1.5 pl-1 shrink-0" style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties}>
+          <div className="w-10 h-6 flex justify-center items-center shrink-0" style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties}>
             <Tooltip>
               <TooltipTrigger asChild>
                 <button

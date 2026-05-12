@@ -915,8 +915,8 @@ export async function getTeamProgressSummaries(userIds: string[], from: string, 
       const teamCommitAgg = await query<RuleSpotCommitAgg>(
         `SELECT
          COUNT(*) AS total,
-         SUM(CASE WHEN q.has_check_coding_rule THEN 1 ELSE 0 END) AS rule_checked,
-         SUM(CASE WHEN q.has_check_spotbugs THEN 1 ELSE 0 END) AS spotbugs_checked
+         SUM(CASE WHEN (q.has_check_coding_rule)::numeric <> 0 THEN 1 ELSE 0 END) AS rule_checked,
+         SUM(CASE WHEN (q.has_check_spotbugs)::numeric <> 0 THEN 1 ELSE 0 END) AS spotbugs_checked
        ${commitAggFrom}`,
         commitAggParams
       )
@@ -928,8 +928,8 @@ export async function getTeamProgressSummaries(userIds: string[], from: string, 
         `SELECT
          u.id AS user_id,
          COUNT(*) AS total,
-         SUM(CASE WHEN q.has_check_coding_rule THEN 1 ELSE 0 END) AS rule_checked,
-         SUM(CASE WHEN q.has_check_spotbugs THEN 1 ELSE 0 END) AS spotbugs_checked
+         SUM(CASE WHEN (q.has_check_coding_rule)::numeric <> 0 THEN 1 ELSE 0 END) AS rule_checked,
+         SUM(CASE WHEN (q.has_check_spotbugs)::numeric <> 0 THEN 1 ELSE 0 END) AS spotbugs_checked
        ${commitAggFrom}
        GROUP BY u.id`,
         commitAggParams
@@ -950,8 +950,8 @@ export async function getTeamProgressSummaries(userIds: string[], from: string, 
 
     const mappedSql = `SELECT u.id AS user_id, upsf.project_id AS project_id,
          COUNT(*) AS total,
-         SUM(CASE WHEN q.has_check_coding_rule THEN 1 ELSE 0 END) AS rule_checked,
-         SUM(CASE WHEN q.has_check_spotbugs THEN 1 ELSE 0 END) AS spotbugs_checked
+         SUM(CASE WHEN (q.has_check_coding_rule)::numeric <> 0 THEN 1 ELSE 0 END) AS rule_checked,
+         SUM(CASE WHEN (q.has_check_spotbugs)::numeric <> 0 THEN 1 ELSE 0 END) AS spotbugs_checked
        ${commitJoinUsers}
        INNER JOIN user_project_source_folder upsf
          ON upsf.user_id = u.id AND upsf.source_folder_path = q.source_folder_path
@@ -964,8 +964,8 @@ export async function getTeamProgressSummaries(userIds: string[], from: string, 
 
     const unmappedSql = `SELECT u.id AS user_id,
          COUNT(*) AS total,
-         SUM(CASE WHEN q.has_check_coding_rule THEN 1 ELSE 0 END) AS rule_checked,
-         SUM(CASE WHEN q.has_check_spotbugs THEN 1 ELSE 0 END) AS spotbugs_checked
+         SUM(CASE WHEN (q.has_check_coding_rule)::numeric <> 0 THEN 1 ELSE 0 END) AS rule_checked,
+         SUM(CASE WHEN (q.has_check_spotbugs)::numeric <> 0 THEN 1 ELSE 0 END) AS spotbugs_checked
        ${commitJoinUsers}
        WHERE u.id IN (${ph})
          AND (${COMMIT_TS_SQL_Q})::date >= ?::date AND (${COMMIT_TS_SQL_Q})::date <= ?::date
@@ -985,8 +985,8 @@ export async function getTeamProgressSummaries(userIds: string[], from: string, 
      */
     const teamPerProjectSqlFullTeam = `SELECT upsf.project_id AS project_id,
          COUNT(*) AS total,
-         SUM(CASE WHEN q.has_check_coding_rule THEN 1 ELSE 0 END) AS rule_checked,
-         SUM(CASE WHEN q.has_check_spotbugs THEN 1 ELSE 0 END) AS spotbugs_checked
+         SUM(CASE WHEN (q.has_check_coding_rule)::numeric <> 0 THEN 1 ELSE 0 END) AS rule_checked,
+         SUM(CASE WHEN (q.has_check_spotbugs)::numeric <> 0 THEN 1 ELSE 0 END) AS spotbugs_checked
        ${commitJoinUsers}
        INNER JOIN user_project_source_folder upsf
          ON upsf.user_id = u.id AND upsf.source_folder_path = q.source_folder_path
@@ -1004,8 +1004,8 @@ export async function getTeamProgressSummaries(userIds: string[], from: string, 
       query<RuleSpotCommitAgg>(
         `SELECT
            COUNT(*) AS total,
-           SUM(CASE WHEN q.has_check_coding_rule THEN 1 ELSE 0 END) AS rule_checked,
-           SUM(CASE WHEN q.has_check_spotbugs THEN 1 ELSE 0 END) AS spotbugs_checked
+           SUM(CASE WHEN (q.has_check_coding_rule)::numeric <> 0 THEN 1 ELSE 0 END) AS rule_checked,
+           SUM(CASE WHEN (q.has_check_spotbugs)::numeric <> 0 THEN 1 ELSE 0 END) AS spotbugs_checked
          ${commitAggFromAllDatesOnly}`,
         commitAggDateOnlyParams
       ),

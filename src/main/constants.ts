@@ -447,6 +447,8 @@ export const IPC = {
     PR_REVIEW_APPROVE: 'pr:pr-review-approve',
     PR_MARK_READY: 'pr:pr-mark-ready',
     PR_MARK_DRAFT: 'pr:pr-mark-draft',
+    /** \u0110\u1ed5i ti\u00eau \u0111\u1ec1 PR (REST pulls.update title). */
+    PR_UPDATE_TITLE: 'pr:pr-update-title',
     PR_CLOSE: 'pr:pr-close',
     PR_REOPEN: 'pr:pr-reopen',
     PR_REQUEST_REVIEWERS: 'pr:pr-request-reviewers',

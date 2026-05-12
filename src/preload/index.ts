@@ -888,6 +888,11 @@ declare global {
           data?: any
           message?: string
         }>
+        prUpdateTitle: (input: { owner: string; repo: string; number: number; title: string }) => Promise<{
+          status: string
+          data?: any
+          message?: string
+        }>
         prClose: (input: { owner: string; repo: string; number: number }) => Promise<{
           status: string
           data?: any
@@ -1651,6 +1656,8 @@ contextBridge.exposeInMainWorld('api', {
       ipcRenderer.invoke(IPC.PR.PR_REVIEW_APPROVE, toStructuredCloneable(input)),
     prMarkReady: (input: { owner: string; repo: string; number: number }) => ipcRenderer.invoke(IPC.PR.PR_MARK_READY, toStructuredCloneable(input)),
     prMarkDraft: (input: { owner: string; repo: string; number: number }) => ipcRenderer.invoke(IPC.PR.PR_MARK_DRAFT, toStructuredCloneable(input)),
+    prUpdateTitle: (input: { owner: string; repo: string; number: number; title: string }) =>
+      ipcRenderer.invoke(IPC.PR.PR_UPDATE_TITLE, toStructuredCloneable(input)),
     prClose: (input: { owner: string; repo: string; number: number }) => ipcRenderer.invoke(IPC.PR.PR_CLOSE, toStructuredCloneable(input)),
     prReopen: (input: { owner: string; repo: string; number: number }) => ipcRenderer.invoke(IPC.PR.PR_REOPEN, toStructuredCloneable(input)),
     prRequestReviewers: (input: { owner: string; repo: string; number: number; reviewers: string[] }) =>

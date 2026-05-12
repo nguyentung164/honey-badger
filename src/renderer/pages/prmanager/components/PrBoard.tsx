@@ -660,9 +660,9 @@ function getMergeableUi(mergeable: string | null | undefined, t: TFunction): Mer
   // conflict: một số luồng tự map; GitHub dùng dirty cho merge conflict
   if (s === 'dirty' || s === 'conflict') {
     return {
-      prText: 'text-amber-800 dark:text-amber-200',
-      prIcon: 'text-amber-600 dark:text-amber-400',
-      mergeCell: 'bg-amber-500/20 text-amber-950 dark:text-amber-50',
+      prText: 'text-amber-700 dark:text-amber-300',
+      prIcon: 'text-amber-500 dark:text-amber-300',
+      mergeCell: 'bg-amber-400/16 text-amber-900 dark:text-amber-100',
       shortLabel: t('prManager.mergeableUi.conflict'),
       subLabel: t('prManager.mergeableUi.conflictSub'),
       blockMerge: true,
@@ -672,9 +672,9 @@ function getMergeableUi(mergeable: string | null | undefined, t: TFunction): Mer
   }
   if (s === 'blocked') {
     return {
-      prText: 'text-rose-800 dark:text-rose-200',
-      prIcon: 'text-rose-600 dark:text-rose-400',
-      mergeCell: 'bg-rose-500/20 text-rose-950 dark:text-rose-50',
+      prText: 'text-rose-700 dark:text-rose-300',
+      prIcon: 'text-rose-500 dark:text-rose-300',
+      mergeCell: 'bg-rose-400/16 text-rose-900 dark:text-rose-100',
       shortLabel: t('prManager.mergeableUi.blocked'),
       subLabel: t('prManager.mergeableUi.blockedSub'),
       blockMerge: true,
@@ -684,9 +684,9 @@ function getMergeableUi(mergeable: string | null | undefined, t: TFunction): Mer
   }
   if (s === 'behind') {
     return {
-      prText: 'text-teal-800 dark:text-teal-200',
-      prIcon: 'text-teal-600 dark:text-teal-400',
-      mergeCell: 'bg-teal-500/20 text-teal-950 dark:text-teal-50',
+      prText: 'text-sky-700 dark:text-sky-300',
+      prIcon: 'text-sky-500 dark:text-sky-300',
+      mergeCell: 'bg-sky-400/16 text-sky-900 dark:text-sky-100',
       shortLabel: t('prManager.mergeableUi.behind'),
       subLabel: t('prManager.mergeableUi.behindSub'),
       blockMerge: true,
@@ -696,9 +696,9 @@ function getMergeableUi(mergeable: string | null | undefined, t: TFunction): Mer
   }
   if (s === 'unstable') {
     return {
-      prText: 'text-yellow-800 dark:text-yellow-200',
-      prIcon: 'text-yellow-600 dark:text-yellow-400',
-      mergeCell: 'bg-yellow-500/15 text-yellow-950 dark:text-yellow-100',
+      prText: 'text-orange-700 dark:text-orange-300',
+      prIcon: 'text-orange-500 dark:text-orange-300',
+      mergeCell: 'bg-orange-400/14 text-orange-900 dark:text-orange-100',
       shortLabel: t('prManager.mergeableUi.ciFailing'),
       subLabel: t('prManager.mergeableUi.ciFailingSub'),
       blockMerge: true,
@@ -708,9 +708,9 @@ function getMergeableUi(mergeable: string | null | undefined, t: TFunction): Mer
   }
   if (s === 'unknown') {
     return {
-      prText: 'text-zinc-800 dark:text-zinc-200',
-      prIcon: 'text-zinc-500 dark:text-zinc-400',
-      mergeCell: 'bg-zinc-500/15 text-zinc-900 dark:text-zinc-100',
+      prText: 'text-lime-700 dark:text-lime-300',
+      prIcon: 'text-lime-600 dark:text-lime-300',
+      mergeCell: 'bg-lime-400/14 text-lime-950 dark:text-lime-50',
       shortLabel: t('prManager.mergeableUi.checking'),
       subLabel: t('prManager.mergeableUi.checkingSub'),
       blockMerge: true,
@@ -720,8 +720,8 @@ function getMergeableUi(mergeable: string | null | undefined, t: TFunction): Mer
   }
   // clean, rỗng, hoặc giá trị khác: coi như sẵn sàng (hoặc chưa sync)
   return {
-    prText: 'text-emerald-800 dark:text-emerald-200',
-    prIcon: 'text-emerald-600 dark:text-emerald-400',
+    prText: 'text-emerald-700 dark:text-emerald-300',
+    prIcon: 'text-emerald-500 dark:text-emerald-300',
     mergeCell: '',
     shortLabel: t('prManager.mergeableUi.ready'),
     subLabel: '',
@@ -731,34 +731,80 @@ function getMergeableUi(mergeable: string | null | undefined, t: TFunction): Mer
   }
 }
 
+/**
+ * Phần nền (wash) của ô cột pr_* — `ghPrSurfaceClasses` / ô Merge ready.
+ * Chấm legend dùng `PR_COLUMN_LEGEND_DOT_BRIGHT` (sáng hơn, không trùng màu).
+ */
+const GH_PR_SURFACE_BG = {
+  merged: 'bg-violet-400/12',
+  closed: 'bg-rose-400/10',
+  draft: 'bg-slate-400/14',
+  conflict: 'bg-amber-400/14',
+  blocked: 'bg-rose-400/14',
+  behind: 'bg-sky-400/14',
+  unstable: 'bg-orange-400/12',
+  unknown: 'bg-lime-400/10 dark:bg-lime-400/14',
+  ready: 'bg-emerald-400/[0.2] dark:bg-emerald-400/[0.14]',
+} as const
+
+type GhPrSurfaceBgKey = keyof typeof GH_PR_SURFACE_BG
+
+const PR_COLUMN_LEGEND_ORDER: GhPrSurfaceBgKey[] = [
+  'merged',
+  'closed',
+  'draft',
+  'conflict',
+  'blocked',
+  'behind',
+  'unstable',
+  'unknown',
+  'ready',
+]
+
+/**
+ * Chỉ cho chấm tròn legend: tông 300/400 sáng, mỗi mục một màu (Closed = rose, Blocked = đỏ — không trùng).
+ * Bảng vẫn dùng `GH_PR_SURFACE_BG`.
+ */
+const PR_COLUMN_LEGEND_DOT_BRIGHT: Record<GhPrSurfaceBgKey, string> = {
+  merged: 'bg-violet-300 dark:bg-violet-400/95',
+  closed: 'bg-rose-300 dark:bg-rose-400/90',
+  draft: 'bg-stone-300 dark:bg-stone-500/85',
+  conflict: 'bg-amber-300 dark:bg-amber-400/90',
+  blocked: 'bg-red-400 dark:bg-red-500/85',
+  behind: 'bg-sky-300 dark:bg-sky-400/90',
+  unstable: 'bg-orange-300 dark:bg-orange-400/90',
+  unknown: 'bg-lime-300 dark:bg-lime-400/90',
+  ready: 'bg-emerald-300 dark:bg-emerald-400/90',
+}
+
 /** Cột pr_*: nền theo trạng thái PR; open + ready to merge = emerald (cùng họ với ô Merge). */
 function ghPrSurfaceClasses(cp: PrBranchCheckpoint): string {
   if (cp.ghPrMerged === true) {
-    return 'bg-violet-500/15 text-violet-800 dark:text-violet-200'
+    return cn(GH_PR_SURFACE_BG.merged, 'text-violet-700 dark:text-violet-300')
   }
   if (cp.ghPrState === 'closed') {
-    return 'bg-rose-500/12 text-rose-800 dark:text-rose-200'
+    return cn(GH_PR_SURFACE_BG.closed, 'text-rose-700 dark:text-rose-300')
   }
   if (cp.ghPrDraft === true) {
-    return 'bg-slate-500/10 text-slate-700 dark:text-slate-300'
+    return cn(GH_PR_SURFACE_BG.draft, 'text-slate-600 dark:text-slate-300')
   }
   const ms = (cp.ghPrMergeableState || '').toLowerCase().trim()
   if (ms === 'dirty' || ms === 'conflict') {
-    return 'bg-amber-500/20'
+    return GH_PR_SURFACE_BG.conflict
   }
   if (ms === 'blocked') {
-    return 'bg-rose-500/20'
+    return GH_PR_SURFACE_BG.blocked
   }
   if (ms === 'behind') {
-    return 'bg-teal-500/20'
+    return GH_PR_SURFACE_BG.behind
   }
   if (ms === 'unstable') {
-    return 'bg-yellow-500/15'
+    return GH_PR_SURFACE_BG.unstable
   }
   if (ms === 'unknown') {
-    return 'bg-zinc-500/12 dark:bg-zinc-500/15'
+    return GH_PR_SURFACE_BG.unknown
   }
-  return 'bg-emerald-500/[0.06] dark:bg-emerald-500/[0.05]'
+  return GH_PR_SURFACE_BG.ready
 }
 
 function ghPrContentTextClass(cp: PrBranchCheckpoint, t: TFunction): string {
@@ -769,9 +815,9 @@ function ghPrContentTextClass(cp: PrBranchCheckpoint, t: TFunction): string {
 type PrStatusIconProps = { cp: PrBranchCheckpoint; className?: string }
 function PrStatusIcon({ cp, className = 'h-3 w-3 shrink-0' }: PrStatusIconProps) {
   const { t } = useTranslation()
-  if (cp.ghPrMerged === true) return <GitMerge className={cn(className, 'text-violet-600 dark:text-violet-400')} />
-  if (cp.ghPrState === 'closed') return <GitPullRequestClosed className={cn(className, 'text-rose-600 dark:text-rose-400')} />
-  if (cp.ghPrDraft === true) return <GitPullRequestDraft className={cn(className, 'text-slate-500 dark:text-slate-400')} />
+  if (cp.ghPrMerged === true) return <GitMerge className={cn(className, 'text-violet-500 dark:text-violet-300')} />
+  if (cp.ghPrState === 'closed') return <GitPullRequestClosed className={cn(className, 'text-rose-500 dark:text-rose-300')} />
+  if (cp.ghPrDraft === true) return <GitPullRequestDraft className={cn(className, 'text-slate-400 dark:text-slate-300')} />
   const ui = getMergeableUi(cp.ghPrMergeableState, t)
   const I = ui.icon
   return <I className={cn(className, ui.prIcon)} />
@@ -1253,6 +1299,32 @@ export function PrBoard({ projectId, userId, repos, templates, tracked, loading,
     }
   }, [bulkToolbarConfirm, t])
 
+  const prColumnLegendItems = useMemo(
+    () =>
+      PR_COLUMN_LEGEND_ORDER.map(key => ({
+        dotBright: PR_COLUMN_LEGEND_DOT_BRIGHT[key],
+        label:
+          key === 'merged'
+            ? t('prManager.ghStatus.merged')
+            : key === 'closed'
+              ? t('prManager.ghStatus.closed')
+              : key === 'draft'
+                ? t('prManager.ghStatus.draft')
+                : key === 'unknown'
+                  ? t('prManager.mergeableUi.checking')
+                  : key === 'ready'
+                    ? t('prManager.mergeableUi.ready')
+                    : key === 'conflict'
+                      ? t('prManager.mergeableUi.conflict')
+                      : key === 'blocked'
+                        ? t('prManager.mergeableUi.blocked')
+                        : key === 'behind'
+                          ? t('prManager.mergeableUi.behind')
+                          : t('prManager.mergeableUi.ciFailing'),
+      })),
+    [t]
+  )
+
   const bulkElig = useMemo(() => {
     const rows = selectedRowsFull
     if (!githubTokenOk || rows.length === 0) {
@@ -1403,8 +1475,7 @@ export function PrBoard({ projectId, userId, repos, templates, tracked, loading,
       const uid = userId.trim()
 
       if (!isIdle) {
-        const useSilentOpLog = Boolean(effectiveScope?.repoId) || Boolean(effectiveScope?.trackedBranchId) || silentOpLogFlag
-        if (!opLog.startOperation('prManager.operationLog.titleSyncGithub', undefined, useSilentOpLog ? { silent: true } : undefined)) return
+        if (!opLog.startOperation('prManager.operationLog.titleSyncGithub', undefined, { silent: true })) return
       }
 
       syncLogActiveRef.current = !isIdle
@@ -1569,18 +1640,42 @@ export function PrBoard({ projectId, userId, repos, templates, tracked, loading,
     }
   }, [userId, projectId, t, onRefresh, onRefreshTracked])
 
-  const onAfterBulkBatch = useCallback(async () => {
-    if (!userId?.trim()) {
-      await Promise.resolve(onRefresh())
-      return
-    }
-    if (githubTokenOk) {
-      await new Promise<void>(r => setTimeout(r, PR_POST_BULK_SYNC_SETTLE_MS))
-      await handleSyncFromGithub('manual', { silentOpLog: true })
-    } else {
-      await Promise.resolve(onRefresh())
-    }
-  }, [userId, githubTokenOk, onRefresh, handleSyncFromGithub])
+  const onAfterBulkBatch = useCallback(
+    async (batchKind: BulkActionKind) => {
+      if (!userId?.trim()) {
+        await Promise.resolve(onRefresh())
+        return
+      }
+      if (githubTokenOk) {
+        await new Promise<void>(r => setTimeout(r, PR_POST_BULK_SYNC_SETTLE_MS))
+        await handleSyncFromGithub('manual', { silentOpLog: true })
+        /** Sau khi xóa nhánh trên GitHub, dọn luôn các tracked branch không còn trên remote (cùng luồng nút Prune stale). */
+        if (batchKind === 'deleteRemoteBranch') {
+          const uid = userId.trim()
+          try {
+            const res = await window.api.pr.trackedPruneNotOnGithub({ userId: uid, projectId, dryRun: false })
+            if (res.status === 'success' && res.data && 'deleted' in res.data) {
+              const { deleted, errors } = res.data
+              if (deleted > 0) {
+                toast.success(t('prManager.board.pruneStaleOk', { count: deleted }))
+              }
+              if (errors.length > 0) {
+                toast.warning(t('prManager.board.pruneStaleToastRepoWarn', { list: errors.join('; ') }))
+              }
+              await Promise.resolve(onRefreshTracked?.() ?? onRefresh())
+            } else {
+              toast.error(res.message ?? t('prManager.board.pruneStaleFail'))
+            }
+          } catch (e) {
+            toast.error(e instanceof Error ? e.message : String(e))
+          }
+        }
+      } else {
+        await Promise.resolve(onRefresh())
+      }
+    },
+    [userId, projectId, githubTokenOk, onRefresh, onRefreshTracked, handleSyncFromGithub, t]
+  )
 
   useEffect(() => {
     if (!autoSyncGithub) return
@@ -1667,7 +1762,7 @@ export function PrBoard({ projectId, userId, repos, templates, tracked, loading,
                   className={cn(
                     'h-8 gap-1 border transition-colors duration-500 ease-in-out [&_svg]:transition-colors [&_svg]:duration-500 [&_svg]:ease-in-out',
                     showFullTableGithubSyncOverlay
-                      ? 'border-sky-600 bg-sky-600 text-white shadow-none hover:border-sky-700 hover:bg-sky-700 hover:text-white dark:border-sky-500 dark:bg-sky-500 dark:hover:border-sky-400 dark:hover:bg-sky-400'
+                      ? 'border-green-600 bg-green-600 text-white shadow-none hover:border-green-700 hover:bg-green-700 hover:text-white dark:border-green-500 dark:bg-green-500 dark:hover:border-green-400 dark:hover:bg-green-400'
                       : fullTableGithubSyncIdleVisual === 'stale'
                         ? 'border-amber-500/80 bg-amber-50 text-amber-900 shadow-none hover:border-amber-600 hover:bg-amber-100 hover:text-amber-950 dark:border-amber-500/60 dark:bg-amber-950/35 dark:text-amber-100 dark:hover:border-amber-400 dark:hover:bg-amber-950/55 dark:hover:text-amber-50'
                         : fullTableGithubSyncIdleVisual === 'fresh'
@@ -1900,7 +1995,7 @@ export function PrBoard({ projectId, userId, repos, templates, tracked, loading,
                       <Checkbox
                         id="pr-filter-remote-exists"
                         checked={onlyExistingOnRemote}
-                        className="data-[state=checked]:border-cyan-600 data-[state=checked]:bg-cyan-600 data-[state=checked]:text-white dark:data-[state=checked]:border-cyan-500"
+                        className="data-[state=checked]:border-green-600 data-[state=checked]:bg-green-600 data-[state=checked]:text-white dark:data-[state=checked]:border-green-500"
                         onCheckedChange={v => {
                           if (v === true) setOnlyExistingOnRemote(true)
                           else setOnlyExistingOnRemote(false)
@@ -1908,7 +2003,7 @@ export function PrBoard({ projectId, userId, repos, templates, tracked, loading,
                       />
                       <Label
                         htmlFor="pr-filter-remote-exists"
-                        className="flex cursor-pointer items-center gap-1.5 text-xs font-medium leading-none text-cyan-800 dark:text-cyan-200 tabular-nums"
+                        className="flex cursor-pointer items-center gap-1.5 text-xs font-medium leading-none text-green-800 dark:text-green-200 tabular-nums"
                       >
                         {remoteExistLoading && onlyExistingOnRemote ? <Loader2 className="h-3 w-3 shrink-0 animate-spin" /> : null}
                         {`${t('prManager.board.onlyRemote')} (${remoteExistMap == null && remoteExistLoading ? '—' : branchesOnRemoteCount == null ? '—' : branchesOnRemoteCount})`}
@@ -2306,7 +2401,7 @@ export function PrBoard({ projectId, userId, repos, templates, tracked, loading,
                       className={cn(
                         'h-8 w-8 border transition-colors duration-500 ease-in-out [&_svg]:transition-colors [&_svg]:duration-500 [&_svg]:ease-in-out',
                         githubTokenOk && bulkElig.updateBranch > 0
-                          ? 'border-cyan-600 bg-cyan-600 text-white shadow-none hover:border-cyan-700 hover:bg-cyan-700 hover:text-white dark:border-cyan-500 dark:bg-cyan-500 dark:hover:border-cyan-400 dark:hover:bg-cyan-400'
+                          ? 'border-green-600 bg-green-600 text-white shadow-none hover:border-green-700 hover:bg-green-700 hover:text-white dark:border-green-500 dark:bg-green-500 dark:hover:border-green-400 dark:hover:bg-green-400'
                           : 'border-border/70 bg-muted/20 text-muted-foreground'
                       )}
                       disabled={!githubTokenOk || bulkElig.updateBranch === 0}
@@ -2697,17 +2792,18 @@ export function PrBoard({ projectId, userId, repos, templates, tracked, loading,
             </Table>
           </div>
           {filteredRows.length > 0 && (
-            <div className="flex shrink-0 flex-wrap items-center justify-between gap-3 border-t border-border/80 bg-muted/40 px-3 py-2.5 text-xs text-muted-foreground">
-              <div>
-                {totalRowCount === 0
-                  ? t('prManager.board.zeroRows')
-                  : t('prManager.board.showRows', {
-                      from: (safePage - 1) * pageSize + 1,
-                      to: Math.min(safePage * pageSize, totalRowCount),
-                      total: totalRowCount,
-                    })}
-              </div>
-              <div className="flex flex-wrap items-center gap-2 sm:gap-3">
+            <div className="flex shrink-0 flex-col gap-2 border-t border-border/50 bg-muted/20 px-3 py-2.5 text-xs text-muted-foreground dark:bg-muted/12">
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <div>
+                  {totalRowCount === 0
+                    ? t('prManager.board.zeroRows')
+                    : t('prManager.board.showRows', {
+                        from: (safePage - 1) * pageSize + 1,
+                        to: Math.min(safePage * pageSize, totalRowCount),
+                        total: totalRowCount,
+                      })}
+                </div>
+                <div className="flex flex-wrap items-center gap-2 sm:gap-3">
                 <div className="flex items-center gap-1.5">
                   <span className="whitespace-nowrap">{t('prManager.board.rowsPerPage')}</span>
                   <Select
@@ -2815,6 +2911,26 @@ export function PrBoard({ projectId, userId, repos, templates, tracked, loading,
                     </SelectContent>
                   </Select>
                 </div>
+              </div>
+              </div>
+              <div
+                role="list"
+                aria-label={t('prManager.board.prColumnLegendAria')}
+                className="flex flex-wrap items-center gap-x-3 gap-y-1.5 border-t border-border/35 pt-2 text-muted-foreground/90 dark:text-muted-foreground/85"
+              >
+                <span className="shrink-0 font-medium text-foreground/65 dark:text-foreground/55">{t('prManager.board.prColumnLegendTitle')}</span>
+                {prColumnLegendItems.map((item, i) => (
+                  <span key={i} role="listitem" className="inline-flex items-center gap-1.5">
+                    <span
+                      className={cn(
+                        'h-4 w-4 shrink-0 rounded-full border border-border/40 dark:border-border/35',
+                        item.dotBright
+                      )}
+                      aria-hidden
+                    />
+                    <span className="text-[11px] leading-none text-muted-foreground">{item.label}</span>
+                  </span>
+                ))}
               </div>
             </div>
           )}
@@ -3022,11 +3138,11 @@ function CheckpointCell({
         <div className="flex w-full min-w-0 items-stretch gap-0.5">
           <div
             className={vs(
-              cn('flex min-w-0 flex-1 items-center justify-center gap-1 rounded-md bg-violet-500/15 px-1.5 text-violet-800 dark:text-violet-200', CELL_CTRL_H, CELL_TXT)
+              cn('flex min-w-0 flex-1 items-center justify-center gap-1 rounded-md bg-violet-400/12 px-1.5 text-violet-700 dark:text-violet-300', CELL_CTRL_H, CELL_TXT)
             )}
             title={detail || undefined}
           >
-            <GitMerge className="h-3.5 w-3.5 shrink-0 text-violet-600 dark:text-violet-400" />
+            <GitMerge className="h-3.5 w-3.5 shrink-0 text-violet-500 dark:text-violet-300" />
             <span className="min-w-0 truncate font-medium">
               {t('prManager.board.merged')}
               {linkSrc?.prUrl ? (
@@ -3059,7 +3175,7 @@ function CheckpointCell({
             disabled={!canOpen}
             className={vs(
               cn(
-                'flex min-w-0 flex-1 items-center justify-center gap-1 rounded-md bg-slate-500/10 px-1.5 text-slate-700 dark:text-slate-300',
+                'flex min-w-0 flex-1 items-center justify-center gap-1 rounded-md bg-slate-400/10 px-1.5 text-slate-600 dark:text-slate-300',
                 CELL_CTRL_H,
                 CELL_TXT,
                 canOpen && 'hover:brightness-95 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50 dark:hover:brightness-110',
@@ -3122,7 +3238,7 @@ function CheckpointCell({
     if (canMerge) {
       return (
         <div className="flex w-full min-w-0 items-stretch gap-0.5">
-          <div className={vs(cn('flex min-w-0 flex-1 items-center justify-center rounded-md bg-emerald-500/[0.06] dark:bg-emerald-500/[0.05]', CELL_CTRL_H))}>
+          <div className={vs(cn('flex min-w-0 flex-1 items-center justify-center rounded-md', GH_PR_SURFACE_BG.ready, CELL_CTRL_H))}>
             <Button
               type="button"
               variant="ghost"
@@ -3131,7 +3247,7 @@ function CheckpointCell({
               className={cn(
                 stripBtn(
                   cn(
-                    'w-full rounded-md border-0 bg-transparent text-emerald-800 shadow-none hover:bg-emerald-500/12 dark:text-emerald-200 dark:hover:bg-emerald-500/10',
+                    'w-full rounded-md border-0 bg-transparent text-emerald-700 shadow-none hover:bg-emerald-400/16 dark:text-emerald-300 dark:hover:bg-emerald-400/12',
                     CELL_CTRL_H,
                     CELL_TXT
                   )
@@ -3139,7 +3255,7 @@ function CheckpointCell({
                 ghostNoDefaultHover
               )}
             >
-              <GitMerge className="h-3.5 w-3.5 shrink-0 text-emerald-700 dark:text-emerald-300" /> {t('prManager.board.merge')}
+              <GitMerge className="h-3.5 w-3.5 shrink-0 text-emerald-600 dark:text-emerald-300" /> {t('prManager.board.merge')}
             </Button>
           </div>
         </div>
@@ -3156,7 +3272,7 @@ function CheckpointCell({
             disabled={!canOpen}
             className={vs(
               cn(
-                'flex min-w-0 flex-1 items-center justify-center gap-1 rounded-md bg-rose-500/10 px-1.5 text-rose-800 dark:text-rose-200',
+                'flex min-w-0 flex-1 items-center justify-center gap-1 rounded-md bg-rose-400/10 px-1.5 text-rose-700 dark:text-rose-300',
                 CELL_CTRL_H,
                 CELL_TXT,
                 canOpen && 'hover:brightness-95 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50 dark:hover:brightness-110',
@@ -3166,7 +3282,7 @@ function CheckpointCell({
             onClick={canOpen ? () => onOpenPrInApp?.(closedN) : undefined}
             title={t('prManager.board.openPrInApp')}
           >
-            <GitPullRequestClosed className="h-3.5 w-3.5 shrink-0 text-rose-600 dark:text-rose-400" /> {t('prManager.board.closed')}
+            <GitPullRequestClosed className="h-3.5 w-3.5 shrink-0 text-rose-500 dark:text-rose-300" /> {t('prManager.board.closed')}
           </button>
         </div>
       )
@@ -3174,9 +3290,9 @@ function CheckpointCell({
     // Ch\u01b0a c\u00f3 PR c\u00f9ng target \u2192 hi\u1ec3n \u201cCh\u1edd PR\u201d
     return (
       <div
-        className={vs(cn('flex w-full items-center justify-center gap-1 rounded-md bg-zinc-500/10 text-zinc-800 dark:bg-zinc-900/45 dark:text-zinc-200', CELL_CTRL_H, CELL_TXT))}
+        className={vs(cn('flex w-full items-center justify-center gap-1 rounded-md bg-zinc-400/10 text-zinc-700 dark:bg-zinc-500/12 dark:text-zinc-200', CELL_CTRL_H, CELL_TXT))}
       >
-        <Hourglass className="h-3.5 w-3.5 shrink-0 text-zinc-600 dark:text-zinc-400" /> {t('prManager.board.waitingForPr')}
+        <Hourglass className="h-3.5 w-3.5 shrink-0 text-zinc-500 dark:text-zinc-400" /> {t('prManager.board.waitingForPr')}
       </div>
     )
   }
@@ -3265,9 +3381,9 @@ function CheckpointCell({
             ) : null}
             {cp.ghPrAdditions != null || cp.ghPrDeletions != null || cp.ghPrChangedFiles != null ? (
               <div>
-                {t('prManager.board.size')} <span className="text-emerald-600 dark:text-emerald-400">+{cp.ghPrAdditions ?? 0}</span>
+                {t('prManager.board.size')} <span className="text-emerald-600 dark:text-emerald-300">+{cp.ghPrAdditions ?? 0}</span>
                 {' / '}
-                <span className="text-rose-600 dark:text-rose-400">-{cp.ghPrDeletions ?? 0}</span>
+                <span className="text-rose-500 dark:text-rose-300">-{cp.ghPrDeletions ?? 0}</span>
                 {cp.ghPrChangedFiles != null ? (
                   <>
                     {' '}
@@ -3318,7 +3434,7 @@ function CheckpointCell({
         vs(
           stripBtn(
             cn(
-              'w-full rounded-md border-0 bg-zinc-500/10 text-zinc-800 shadow-none hover:bg-zinc-500/15 dark:bg-zinc-900/45 dark:text-zinc-200 dark:hover:bg-zinc-800',
+              'w-full rounded-md border-0 bg-zinc-400/10 text-zinc-700 shadow-none hover:bg-zinc-400/14 dark:bg-zinc-500/12 dark:text-zinc-200 dark:hover:bg-zinc-500/18',
               CELL_CTRL_H,
               CELL_TXT
             )
@@ -3327,7 +3443,7 @@ function CheckpointCell({
         ghostNoDefaultHover
       )}
     >
-      <GitPullRequestCreate className="h-3.5 w-3.5 shrink-0 text-zinc-600 dark:text-zinc-400" /> {t('prManager.board.createPrCell')}
+      <GitPullRequestCreate className="h-3.5 w-3.5 shrink-0 text-zinc-500 dark:text-zinc-400" /> {t('prManager.board.createPrCell')}
     </Button>
   )
 }

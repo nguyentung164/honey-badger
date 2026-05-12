@@ -3,12 +3,12 @@
 import { addDays, format, getDay, parse, startOfDay, startOfWeek } from 'date-fns'
 import { enUS, ja, vi } from 'date-fns/locale'
 import type { DragEvent } from 'react'
-import { type ComponentType, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
+import { type ComponentType, type CSSProperties, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { Calendar, dateFnsLocalizer, type EventProps, Navigate, type View as RbcView } from 'react-big-calendar'
 import withDragAndDrop from 'react-big-calendar/lib/addons/dragAndDrop'
 import { useTranslation } from 'react-i18next'
 import 'react-big-calendar/lib/css/react-big-calendar.css'
-import { Briefcase, ChevronDown, ChevronRight, ChevronUp, Layers, Users } from 'lucide-react'
+import { Briefcase, ChevronDown, ChevronRight, ChevronUp, FoldVertical, Layers, UnfoldVertical, Users } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Checkbox } from '@/components/ui/checkbox'
 import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group'
@@ -40,6 +40,8 @@ export type TaskCalendarMessages = {
   /** Nhãn ngắn dưới icon (cột giờ hẹp) */
   allDayCollapseLabel: string
   allDayExpandLabel: string
+  /** Nhãn sự kiện cả ngày (Agenda → RBC messages.allDay) */
+  agendaAllDay: string
 }
 
 /** HOC không khai báo generic theo kiểu sự kiện; ép kiểu để dùng `CalEvent` an toàn ở phía caller. */
@@ -222,6 +224,37 @@ export function TaskCalendarView({
     [unscheduled, unschedGroupingEffective, getAssigneeDisplay]
   )
 
+  const unscheduledBulkSelectableIds = useMemo(() => unscheduled.filter(isTaskBulkSelectable).map(t => t.id), [unscheduled])
+
+  const unschedGroupedSegmentKeys = useMemo(
+    () =>
+      unschedGroupingEffective !== 'flat'
+        ? unscheduledGroups.filter(g => Boolean(g.title)).map(g => g.segmentKey)
+        : [],
+    [unschedGroupingEffective, unscheduledGroups]
+  )
+
+  const allUnschedGroupsCollapsed = useMemo(
+    () =>
+      unschedGroupedSegmentKeys.length > 0 &&
+      unschedGroupedSegmentKeys.every(k => collapsedUnschedGroupSegmentKeys.has(k)),
+    [collapsedUnschedGroupSegmentKeys, unschedGroupedSegmentKeys]
+  )
+
+  const toggleAllUnschedGroupSegmentsCollapsed = useCallback(() => {
+    if (unschedGroupingEffective === 'flat') return
+    const keys = unscheduledGroups.filter(g => Boolean(g.title)).map(g => g.segmentKey)
+    if (keys.length === 0) return
+    setCollapsedUnschedGroupSegmentKeys(prev => {
+      const allCollapsed = keys.every(k => prev.has(k))
+      const next = new Set(prev)
+      if (allCollapsed) keys.forEach(k => next.delete(k))
+      else keys.forEach(k => next.add(k))
+      saveUnschedCollapsedSegments(next)
+      return next
+    })
+  }, [unschedGroupingEffective, unscheduledGroups])
+
   const [view, setView] = useState<'month' | 'week' | 'day' | 'agenda'>('month')
   const viewRef = useRef(view)
   viewRef.current = view
@@ -372,6 +405,7 @@ export function TaskCalendarView({
       today: messages.today,
       previous: messages.previous,
       next: messages.next,
+      allDay: messages.agendaAllDay,
     }),
     [messages]
   )
@@ -379,18 +413,26 @@ export function TaskCalendarView({
   const eventPropGetter = useMemo(() => {
     return (ev: CalEvent, _start: Date, _end: Date, _isSel: boolean) => {
       const sty = taskStatusBarStyle(statusColorMap?.[ev.resource.status])
-      if (!sty) return {}
-      /* Agenda: style lên <tr> — chỉ set biến CSS, nền/viền status áp vào cột Giờ + Event (không tô cột Ngày). */
+      /* Agenda: style lên <tr> — chỉ set nền status cho cột Giờ + Event (không tô cột Ngày); không viền/accent cạnh. */
       if (viewRef.current === 'agenda') {
-        return {
-          style: {
+        const row: { style?: CSSProperties; className?: string } = {}
+        if (sty) {
+          row.style = {
             ['--cal-agenda-row-bg' as string]: String(sty.backgroundColor ?? 'transparent'),
-            ['--cal-agenda-row-bd' as string]: String(sty.borderColor ?? 'transparent'),
-          },
+            ['--cal-agenda-row-bd' as string]: 'transparent',
+          }
         }
+        /* Cả ngày: RBC thêm «/» bằng ::before/::after theo “continues-prior/after” → ngày đầu chỉ có »; tắt pseudo và bọc nhãn đầy đủ trong components.time */
+        if (ev.allDay) {
+          row.className = 'cal-agenda-allday'
+        }
+        if (row.style ?? row.className) return row
+        return {}
       }
+      if (!sty) return {}
+      const { borderColor: _bd, borderWidth: _bw, borderStyle: _bs, ...barNoBorder } = sty
       return {
-        style: { ...sty, borderRadius: 4 },
+        style: { ...barNoBorder, borderRadius: 4 },
       }
     }
   }, [statusColorMap])
@@ -435,6 +477,22 @@ export function TaskCalendarView({
     }
   }, [selectedTaskIds, onToggleTaskSelect, onSelectTask])
 
+  const agendaTimeComponent = useMemo(
+    () =>
+      function TaskAgendaTime({ event, label }: { event: object; day: Date; label: string }) {
+        const ce = event as CalEvent
+        if (ce.allDay) {
+          return (
+            <span className="whitespace-nowrap">
+              {'\u00ab'} {label} {'\u00bb'}
+            </span>
+          )
+        }
+        return <>{label}</>
+      },
+    []
+  )
+
   const calendarComponents = useMemo(() => {
     const Toolbar = (props: {
       label: string
@@ -465,9 +523,10 @@ export function TaskCalendarView({
         </div>
       )
     }
-    const base = { toolbar: Toolbar, timeGutterHeader: TimeGutterHeader }
+    const base = { toolbar: Toolbar, timeGutterHeader: TimeGutterHeader, time: agendaTimeComponent }
     return selectableComponents ? { ...base, ...selectableComponents } : base
   }, [
+    agendaTimeComponent,
     allDaySectionCollapsed,
     messages.allDayCollapseAria,
     messages.allDayCollapseLabel,
@@ -593,8 +652,7 @@ export function TaskCalendarView({
           padding: 3px 6px;
           min-height: 1.75em;
           border-radius: calc(var(--radius) - 2px);
-          border-width: 1px;
-          border-style: solid;
+          border: none;
         }
         .task-management-calendar .rbc-event:focus-visible {
           outline: 2px solid var(--ring);
@@ -633,7 +691,7 @@ export function TaskCalendarView({
           color: var(--foreground);
         }
 
-        /* Agenda: viền thống nhất var(--border); cột Ngày không nền status; Giờ + Event nền/viền accent từ biến --cal-agenda-* trên <tr> */
+        /* Agenda: viền lưới var(--border); cột Ngày không nền status; Giờ + Event chỉ nền status (không accent cạnh). */
         .task-management-calendar .rbc-agenda-view table.rbc-agenda-table {
           font-size: 12px;
           border: 1px solid var(--border);
@@ -684,6 +742,12 @@ export function TaskCalendarView({
         }
         .task-management-calendar .rbc-agenda-view table.rbc-agenda-table tbody > tr > td.rbc-agenda-time-cell:first-child + td.rbc-agenda-event-cell {
           border-inline-start: 1px solid var(--border);
+        }
+
+        /* Sự kiện cả ngày: huỷ «/» mặc định của RBC (components.time bọc « label » đủ hai phía) */
+        .task-management-calendar .rbc-agenda-view tr.cal-agenda-allday .rbc-agenda-time-cell .rbc-continues-prior:before,
+        .task-management-calendar .rbc-agenda-view tr.cal-agenda-allday .rbc-agenda-time-cell .rbc-continues-after:after {
+          content: none;
         }
 
         .task-management-calendar .rbc-time-view .rbc-time-header > .rbc-row:first-child,
@@ -772,52 +836,101 @@ export function TaskCalendarView({
       </div>
 
       {unscheduled.length > 0 ? (
-        <div className="flex min-h-0 max-h-[min(40vh,18rem)] flex-col rounded-md border border-border/60 bg-muted/10 p-2 sm:p-3">
-          <div className="mb-2 flex min-w-0 flex-col gap-2 sm:mb-2.5 sm:flex-row sm:items-center sm:justify-between sm:gap-3">
-            <div className="min-w-0 shrink text-[10px] font-semibold text-muted-foreground sm:text-[11px]">
-              {unscheduledLabel} <span className="tabular-nums">({unscheduled.length})</span>
+        <div className="flex min-h-0 max-h-[min(40vh,18rem)] flex-col border-t border-border bg-background">
+          <div className="flex w-full shrink-0 border-b border-border/70 bg-muted">
+            <div className="flex min-h-[40px] min-w-0 flex-1 items-center justify-between gap-2 overflow-x-auto overflow-y-hidden px-2 sm:px-3">
+              <div className="flex min-h-0 min-w-0 flex-1 items-center gap-2">
+                {onToggleTaskSelect && onApplyBulkTaskSelection ? (
+                  <Checkbox
+                    className="h-4 w-4 shrink-0"
+                    disabled={unscheduledBulkSelectableIds.length === 0}
+                    checked={
+                      unscheduledBulkSelectableIds.length === 0
+                        ? false
+                        : unscheduledBulkSelectableIds.every(id => selectedTaskIds?.has(id))
+                          ? true
+                          : unscheduledBulkSelectableIds.some(id => selectedTaskIds?.has(id))
+                            ? 'indeterminate'
+                            : false
+                    }
+                    onCheckedChange={v => {
+                      onApplyBulkTaskSelection(unscheduledBulkSelectableIds, v === true)
+                    }}
+                    aria-label={t('taskManagement.ganttBulkSelectAllUnscheduled')}
+                  />
+                ) : null}
+                <div className="min-w-0 truncate text-[10px] font-semibold uppercase tracking-wide text-muted-foreground sm:text-[11px]">
+                  {unscheduledLabel} <span className="tabular-nums">({unscheduled.length})</span>
+                </div>
+                {(unschedGroupingEffective === 'assignee' || unschedGroupingEffective === 'project') && unschedGroupedSegmentKeys.length > 0 ? (
+                  <button
+                    type="button"
+                    className="flex h-8 w-8 shrink-0 items-center justify-center rounded border border-border/60 bg-background/70 text-muted-foreground hover:text-foreground"
+                    aria-label={
+                      allUnschedGroupsCollapsed
+                        ? t('taskManagement.ganttBulkUnfoldUnscheduledGroupsAria')
+                        : t('taskManagement.ganttBulkFoldUnscheduledGroupsAria')
+                    }
+                    title={
+                      allUnschedGroupsCollapsed
+                        ? t('taskManagement.ganttBulkUnfoldUnscheduledGroupsAria')
+                        : t('taskManagement.ganttBulkFoldUnscheduledGroupsAria')
+                    }
+                    onClick={e => {
+                      e.stopPropagation()
+                      toggleAllUnschedGroupSegmentsCollapsed()
+                    }}
+                  >
+                    {allUnschedGroupsCollapsed ? (
+                      <UnfoldVertical className="h-3.5 w-3.5" />
+                    ) : (
+                      <FoldVertical className="h-3.5 w-3.5" />
+                    )}
+                  </button>
+                ) : null}
+              </div>
+              {!disableUnschedGrouping ? (
+                <ToggleGroup
+                  type="single"
+                  value={unschedGrouping}
+                  onValueChange={v => v && setUnschedGrouping(v as TaskBoardRowGrouping)}
+                  variant="outline"
+                  size="sm"
+                  className="h-8 shrink-0 justify-start gap-px"
+                >
+                  <ToggleGroupItem
+                    value="flat"
+                    className="h-8 shrink-0 px-2"
+                    title={t('taskManagement.ganttGroupingFlat')}
+                    aria-label={t('taskManagement.ganttGroupingFlat')}
+                  >
+                    <Layers className="h-3.5 w-3.5 shrink-0" />
+                    <span className="hidden sm:inline">{t('taskManagement.ganttGroupingFlat')}</span>
+                  </ToggleGroupItem>
+                  <ToggleGroupItem
+                    value="assignee"
+                    className="h-8 shrink-0 px-2"
+                    title={t('taskManagement.ganttGroupingByAssignee')}
+                    aria-label={t('taskManagement.ganttGroupingByAssignee')}
+                  >
+                    <Users className="h-3.5 w-3.5 shrink-0" />
+                    <span className="hidden sm:inline">{t('taskManagement.ganttGroupingByAssignee')}</span>
+                  </ToggleGroupItem>
+                  <ToggleGroupItem
+                    value="project"
+                    className="h-8 shrink-0 px-2"
+                    title={t('taskManagement.ganttGroupingByProject')}
+                    aria-label={t('taskManagement.ganttGroupingByProject')}
+                  >
+                    <Briefcase className="h-3.5 w-3.5 shrink-0" />
+                    <span className="hidden sm:inline">{t('taskManagement.ganttGroupingByProject')}</span>
+                  </ToggleGroupItem>
+                </ToggleGroup>
+              ) : null}
             </div>
-            {!disableUnschedGrouping ? (
-              <ToggleGroup
-                type="single"
-                value={unschedGrouping}
-                onValueChange={v => v && setUnschedGrouping(v as TaskBoardRowGrouping)}
-                variant="outline"
-                size="sm"
-                className="w-full justify-start gap-px sm:w-auto"
-              >
-                <ToggleGroupItem
-                  value="flat"
-                  className="h-8 flex-1 px-2 sm:flex-none"
-                  title={t('taskManagement.ganttGroupingFlat')}
-                  aria-label={t('taskManagement.ganttGroupingFlat')}
-                >
-                  <Layers className="h-3.5 w-3.5 shrink-0" />
-                  <span className="hidden sm:inline">{t('taskManagement.ganttGroupingFlat')}</span>
-                </ToggleGroupItem>
-                <ToggleGroupItem
-                  value="assignee"
-                  className="h-8 flex-1 px-2 sm:flex-none"
-                  title={t('taskManagement.ganttGroupingByAssignee')}
-                  aria-label={t('taskManagement.ganttGroupingByAssignee')}
-                >
-                  <Users className="h-3.5 w-3.5 shrink-0" />
-                  <span className="hidden sm:inline">{t('taskManagement.ganttGroupingByAssignee')}</span>
-                </ToggleGroupItem>
-                <ToggleGroupItem
-                  value="project"
-                  className="h-8 flex-1 px-2 sm:flex-none"
-                  title={t('taskManagement.ganttGroupingByProject')}
-                  aria-label={t('taskManagement.ganttGroupingByProject')}
-                >
-                  <Briefcase className="h-3.5 w-3.5 shrink-0" />
-                  <span className="hidden sm:inline">{t('taskManagement.ganttGroupingByProject')}</span>
-                </ToggleGroupItem>
-              </ToggleGroup>
-            ) : null}
           </div>
-          <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain [-ms-overflow-style:auto] [scrollbar-gutter:stable] sm:pr-0.5">
-            <div className="flex flex-col gap-3 sm:gap-3.5">
+          <div className="min-h-0 flex-1 overflow-y-auto">
+            <div className="flex min-w-0 flex-col">
               {unscheduledGroups.map(group => {
                 const hasHeader = Boolean(group.title)
                 const groupExpanded = !hasHeader || !collapsedUnschedGroupSegmentKeys.has(group.segmentKey)
@@ -825,7 +938,7 @@ export function TaskCalendarView({
                 return (
                   <div key={group.segmentKey} className="min-w-0">
                     {hasHeader ? (
-                      <div className="mb-1.5 flex min-h-[28px] min-w-0 items-center gap-1.5 border-b border-border/50 bg-muted px-2 sm:mb-2">
+                      <div className="flex min-h-[28px] min-w-0 items-center gap-1.5 border-b border-border/50 bg-muted px-2">
                         <button
                           type="button"
                           className="flex h-6 w-6 shrink-0 items-center justify-center rounded-sm hover:bg-muted/80"
@@ -849,9 +962,10 @@ export function TaskCalendarView({
                       </div>
                     ) : null}
                     {groupExpanded ? (
-                      <ul className="grid grid-cols-1 gap-1 pb-0.5 min-[420px]:grid-cols-2 min-[420px]:gap-1.5 min-[640px]:grid-cols-3 min-[880px]:grid-cols-4 min-[1120px]:grid-cols-5 min-[1440px]:grid-cols-6">
+                      <ul className="grid grid-cols-1 gap-1 p-1.5 min-[420px]:grid-cols-2 min-[420px]:gap-1.5 min-[640px]:grid-cols-3 min-[880px]:grid-cols-4 min-[1120px]:grid-cols-5 min-[1440px]:grid-cols-6">
                         {group.tasks.map(task => {
                           const sh = statusColorMap?.[task.status]?.trim()
+                          const bulkTitle = taskDisplayLabel(task, t('taskManagement.ganttNoTitle'))
                           return (
                             <li
                               key={task.id}
@@ -868,7 +982,7 @@ export function TaskCalendarView({
                               }
                               onDragEnd={canEditPlans ? () => (draggingUnschedTaskIdRef.current = null) : undefined}
                               className={cn(
-                                'flex min-h-9 w-full min-w-0 items-center gap-1.5 rounded-md border border-border/80 bg-background/60 px-1.5 py-1 shadow-sm transition-colors hover:bg-muted/40 sm:min-h-8 sm:gap-2 sm:px-2 sm:py-1.5',
+                                'flex min-h-9 w-full min-w-0 items-center gap-1.5 rounded-md border border-border/80 bg-muted/20 px-1.5 py-1 shadow-sm transition-colors hover:bg-muted/35 sm:min-h-8 sm:gap-2 sm:px-2 sm:py-1.5',
                                 canEditPlans && 'cursor-grab active:cursor-grabbing'
                               )}
                             >
@@ -877,17 +991,13 @@ export function TaskCalendarView({
                                 style={{ backgroundColor: sh || 'hsl(var(--primary))' }}
                                 aria-hidden
                               />
-                              {onToggleTaskSelect && (task.type ?? 'bug') !== 'milestone' ? (
+                              {onToggleTaskSelect && isTaskBulkSelectable(task) ? (
                                 <Checkbox
                                   className="h-4 w-4 shrink-0"
                                   checked={selectedTaskIds?.has(task.id) ?? false}
                                   onCheckedChange={() => onToggleTaskSelect(task.id)}
                                   onClick={e => e.stopPropagation()}
-                                  aria-label={
-                                    task.title?.trim() || task.ticketId?.trim()
-                                      ? `Bulk select: ${taskDisplayLabel(task, '—')}`
-                                      : 'Bulk select'
-                                  }
+                                  aria-label={t('taskManagement.ganttBulkSelectTaskAria', { title: bulkTitle })}
                                 />
                               ) : null}
                               <button
@@ -895,7 +1005,7 @@ export function TaskCalendarView({
                                 className="min-w-0 flex-1 truncate text-left text-[10px] leading-tight hover:bg-muted/50 sm:text-[11px]"
                                 onClick={() => onSelectTask(task)}
                               >
-                                {taskDisplayLabel(task, '—')}
+                                {bulkTitle}
                               </button>
                             </li>
                           )

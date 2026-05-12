@@ -490,17 +490,17 @@ export function TeamProgressOverviewPage() {
   return (
     <div className="flex h-screen flex-col bg-background overflow-hidden select-none">
       <div
-        className="flex items-center justify-between h-9 text-base select-none shrink-0"
+        className="flex items-center justify-between h-8 text-sm select-none shrink-0 w-full min-w-0 gap-1"
         style={{ WebkitAppRegion: 'drag', backgroundColor: 'var(--main-bg)', color: 'var(--main-fg)' } as CSSProperties}
       >
-        <div className="flex items-center h-full min-w-0 gap-2">
-          <div className="w-10 h-6 flex justify-center pt-1.5 pl-1 shrink-0">
+        <div className="flex items-center h-full min-w-0 gap-1">
+          <div className="w-10 h-6 flex justify-center items-center shrink-0">
             <img src="logo.png" alt="icon" draggable="false" className="w-3.5 h-3.5 dark:brightness-130" />
           </div>
-          <div className="flex items-center gap-2 min-w-0 flex-wrap" style={{ WebkitAppRegion: 'no-drag' } as CSSProperties}>
-            <BarChart2 size={13} className="text-blue-500 shrink-0" />
-            <span className="font-medium shrink-0 text-base">{t('teamProgress.pageTitle')}</span>
-            <div className="w-[min(200px,28vw)] min-w-[140px] h-8">
+          <div className="flex items-center gap-1 min-w-0 flex-wrap" style={{ WebkitAppRegion: 'no-drag' } as CSSProperties}>
+            <BarChart2 className="h-3.5 w-3.5 shrink-0 text-blue-500" aria-hidden />
+            <span className="font-medium shrink-0 text-sm">{t('teamProgress.pageTitle')}</span>
+            <div className="w-[min(200px,28vw)] min-w-[120px] h-7">
               <Combobox
                 value={projectId}
                 onValueChange={v => setProjectId((v as string) || '__all__')}
@@ -511,10 +511,16 @@ export function TeamProgressOverviewPage() {
                 variant="ghost"
                 size="sm"
                 className="w-full"
-                triggerClassName="h-8 py-0 text-base font-medium rounded-md border-0 bg-transparent text-blue-600 dark:text-blue-400"
+                triggerClassName="h-7 py-0 px-2 text-xs font-medium gap-1 rounded-md border-0 bg-transparent shadow-none text-blue-600 dark:text-blue-400 [&_svg]:h-3.5 [&_svg]:w-3.5"
               />
             </div>
-            <DateRangePickerPopover dateRange={dateRange} onDateRangeChange={setDateRange} allTimeLabel={t('teamProgress.selectRange')} confirmLabel={t('common.confirm')} />
+            <DateRangePickerPopover
+              dateRange={dateRange}
+              onDateRangeChange={setDateRange}
+              allTimeLabel={t('teamProgress.selectRange')}
+              confirmLabel={t('common.confirm')}
+              triggerClassName="h-7 py-0 px-2 text-xs gap-1 font-normal border-0 bg-transparent shadow-none max-w-[min(220px,34vw)] [&_svg]:shrink-0"
+            />
           </div>
         </div>
         <div className="flex gap-1 shrink-0" style={{ WebkitAppRegion: 'no-drag' } as CSSProperties}>

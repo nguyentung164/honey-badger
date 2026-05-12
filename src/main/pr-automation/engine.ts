@@ -298,7 +298,9 @@ export async function onPrMerged(event: PrMergedEvent): Promise<AutomationResult
  */
 export async function syncPullRequestIntoTrackedCheckpoints(owner: string, repo: string, pr: PullRequestSummary): Promise<void> {
   const keys = await listCheckpointKeysForRepoPr(owner, repo, pr.number)
+  const trackedIds = new Set<string>()
   for (const k of keys) {
+    trackedIds.add(k.trackedBranchId)
     await upsertBranchCheckpoint({
       trackedBranchId: k.trackedBranchId,
       templateId: k.templateId,
@@ -320,6 +322,36 @@ export async function syncPullRequestIntoTrackedCheckpoints(owner: string, repo:
       templateId: k.templateId,
     })
   }
+  /** Chỉ cập nhật các checkpoint có đúng pr_number; cột merge_* có thể vẫn ghi PR đã merge trước (#243).
+   * Khi PR hiện tại đang mở, reset merge_* cho cùng tracked_branch (giống applyPullRequestToCheckpoints). */
+  const base = pr.base?.trim()
+  if (!pr.merged && pr.state === 'open' && base && trackedIds.size > 0) {
+    const tplCache = new Map<string, PrCheckpointTemplate[]>()
+    for (const trackedBranchId of trackedIds) {
+      const tb = await getTrackedBranchById(trackedBranchId)
+      if (!tb) continue
+      let tpls = tplCache.get(tb.projectId)
+      if (!tpls) {
+        tpls = await listCheckpointTemplates(tb.userId, tb.projectId)
+        tplCache.set(tb.projectId, tpls)
+      }
+      const mergeTplId = findMergedTemplateIdFromList(tpls, base, 'merge')
+      if (!mergeTplId) continue
+      await upsertBranchCheckpoint({
+        trackedBranchId,
+        templateId: mergeTplId,
+        isDone: false,
+        prNumber: null,
+        prUrl: null,
+        mergedAt: null,
+        mergedBy: null,
+      })
+      broadcast(IPC.PR.EVENT_CHECKPOINT_UPDATED, {
+        trackedBranchId,
+        templateId: mergeTplId,
+      })
+    }
+  }
 }
 
 export async function applyPullRequestToCheckpoints(args: {
@@ -340,7 +372,9 @@ export async function applyPullRequestToCheckpoints(args: {
 
   const templates = args.templatesCache ?? (await listCheckpointTemplates(repoRow.userId, args.projectId))
   const prTplId = findMergedTemplateIdFromList(templates, target, 'pr')
-  const mergeTplId = args.pr.merged ? findMergedTemplateIdFromList(templates, target, 'merge') : null
+  /** Luôn resolve merge_* (không chỉ khi merged): PR mở mới sau khi PR trước đã merge phải reset merge_*,
+   * nếu không cột merge vẫn giữ pr_number / merged_at của PR cũ (#243) trong khi pr_* đã #244. */
+  const mergeTplId = findMergedTemplateIdFromList(templates, target, 'merge')
   if (!prTplId && !mergeTplId) return
 
   const tracked = await upsertTrackedBranch({

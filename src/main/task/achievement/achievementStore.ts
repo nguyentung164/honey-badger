@@ -1,5 +1,5 @@
 import { randomUuidV7 } from 'shared/randomUuidV7'
-import { hasDbConfig, query, withTransaction } from '../schema/db'
+import { hasDbConfig, query, validatedPgSchemaName, withTransaction } from '../schema/db'
 
 export interface UserStats {
   user_id: string
@@ -164,9 +164,34 @@ export async function awardAchievement(userId: string, achievementCode: string, 
   return false
 }
 
+let isRedeemedColumnIsBoolean: boolean | null = null
+
+async function detectIsRedeemedColumnType(): Promise<boolean> {
+  if (isRedeemedColumnIsBoolean !== null) return isRedeemedColumnIsBoolean
+  try {
+    const schema = validatedPgSchemaName()
+    const rows = await query<{ data_type?: string }>(
+      `SELECT data_type
+       FROM information_schema.columns
+       WHERE table_schema = ?
+         AND table_name = 'user_achievements'
+         AND column_name = 'is_redeemed'
+       LIMIT 1`,
+      [schema]
+    )
+    const dataType = rows?.[0]?.data_type?.toLowerCase() ?? ''
+    isRedeemedColumnIsBoolean = dataType === 'boolean'
+  } catch {
+    isRedeemedColumnIsBoolean = true
+  }
+  return isRedeemedColumnIsBoolean
+}
+
 export async function markAchievementRedeemed(userId: string, achievementCode: string): Promise<void> {
   if (!hasDbConfig()) return
-  await query('UPDATE user_achievements SET is_redeemed = TRUE WHERE user_id = ? AND achievement_code = ?', [userId, achievementCode])
+  const useBoolean = await detectIsRedeemedColumnType()
+  const redeemedValue = useBoolean ? 'TRUE' : '1'
+  await query(`UPDATE user_achievements SET is_redeemed = ${redeemedValue} WHERE user_id = ? AND achievement_code = ?`, [userId, achievementCode])
 }
 
 export async function getUserBadgeDisplay(userId: string): Promise<UserBadgeDisplayRow[]> {
@@ -207,7 +232,7 @@ export async function getLeaderboard(limit = 20): Promise<LeaderboardEntry[]> {
             COALESCE((
               SELECT COUNT(*) FROM user_achievements ua
               WHERE ua.user_id = u.id
-              AND ua.achievement_code IN (SELECT code FROM achievements WHERE is_negative = FALSE)
+              AND ua.achievement_code IN (SELECT code FROM achievements WHERE COALESCE(is_negative::integer, 0) = 0)
             ), 0) AS total_achievements,
             pos.positions
      FROM users u
@@ -215,9 +240,9 @@ export async function getLeaderboard(limit = 20): Promise<LeaderboardEntry[]> {
      LEFT JOIN (
        SELECT user_id,
          NULLIF(CONCAT_WS(',',
-           IF(SUM(role = 'pm') > 0, 'PM', NULL),
-           IF(SUM(role = 'pl') > 0, 'PL', NULL),
-           IF(SUM(role = 'dev') > 0, 'DEV', NULL)
+           CASE WHEN BOOL_OR(role = 'pm') THEN 'PM' END,
+           CASE WHEN BOOL_OR(role = 'pl') THEN 'PL' END,
+           CASE WHEN BOOL_OR(role = 'dev') THEN 'DEV' END
          ), '') AS positions
        FROM user_project_roles
        GROUP BY user_id
@@ -240,7 +265,7 @@ export async function getLeaderboardByProject(projectId: string | null, limit = 
             COALESCE((
               SELECT COUNT(*) FROM user_achievements ua
               WHERE ua.user_id = u.id
-              AND ua.achievement_code IN (SELECT code FROM achievements WHERE is_negative = FALSE)
+              AND ua.achievement_code IN (SELECT code FROM achievements WHERE COALESCE(is_negative::integer, 0) = 0)
             ), 0) AS total_achievements,
             proj_pos.positions
      FROM users u
@@ -249,9 +274,9 @@ export async function getLeaderboardByProject(projectId: string | null, limit = 
      LEFT JOIN (
        SELECT user_id,
          NULLIF(CONCAT_WS(',',
-           IF(SUM(role = 'pm') > 0, 'PM', NULL),
-           IF(SUM(role = 'pl') > 0, 'PL', NULL),
-           IF(SUM(role = 'dev') > 0, 'DEV', NULL)
+           CASE WHEN BOOL_OR(role = 'pm') THEN 'PM' END,
+           CASE WHEN BOOL_OR(role = 'pl') THEN 'PL' END,
+           CASE WHEN BOOL_OR(role = 'dev') THEN 'DEV' END
          ), '') AS positions
        FROM user_project_roles
        WHERE project_id = ?

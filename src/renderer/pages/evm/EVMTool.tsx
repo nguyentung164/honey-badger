@@ -121,7 +121,7 @@ export function EVMTool() {
       <div className="flex shrink-0 select-none items-center justify-between gap-2 text-sm h-8" style={titleBarDragStyle}>
         <div className="flex h-full min-w-0 flex-1 items-center gap-2 overflow-hidden">
           <div className="flex shrink-0 items-center gap-2 pl-1" style={noDrag}>
-            <div className="w-10 h-6 flex justify-center pt-1.5 pl-1 shrink-0">
+            <div className="w-10 h-6 flex justify-center items-center shrink-0">
               <img src="logo.png" alt="icon" draggable="false" className="w-3.5 h-3.5 dark:brightness-130" />
             </div>
           </div>

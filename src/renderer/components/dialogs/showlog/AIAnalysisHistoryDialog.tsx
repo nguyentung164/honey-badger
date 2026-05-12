@@ -142,7 +142,7 @@ export function AIAnalysisHistoryDialog({ isOpen, onOpenChange }: AIAnalysisHist
           }}
         >
           <div className="flex items-center gap-1 h-full">
-            <div className="w-10 h-6 flex justify-center pt-1.5 pl-1 shrink-0">
+            <div className="w-10 h-6 flex justify-center items-center shrink-0">
               <img src="logo.png" alt="icon" draggable="false" className="w-3.5 h-3.5 dark:brightness-130" />
             </div>
             {selectedRecord && (

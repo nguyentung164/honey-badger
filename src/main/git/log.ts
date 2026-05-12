@@ -30,6 +30,8 @@ export interface GitLogOptions {
   revision?: string
   /** Skip first N commits (git log --skip). Use with maxCount for pagination. */
   skip?: number
+  /** Skip per-commit file stats (no git show per entry). Faster when only subject/body are needed. */
+  messagesOnly?: boolean
 }
 
 interface GitLogEntry {
@@ -77,7 +79,8 @@ async function fetchAllLogData(
   cwd?: string,
   allBranches?: boolean,
   revision?: string,
-  skip?: number
+  skip?: number,
+  messagesOnly?: boolean
 ): Promise<{
   status: 'success' | 'error'
   totalEntries?: number
@@ -276,6 +279,25 @@ async function fetchAllLogData(
     const totalEntries = logResult.all.length
     l.info(`Found ${totalEntries} commits matching criteria`)
 
+    if (messagesOnly) {
+      const minimal: GitLogEntry[] = logResult.all.map((c: any) => ({
+        hash: c.hash,
+        author: c.author,
+        authorEmail: c.authorEmail,
+        date: c.date,
+        subject: c.subject,
+        body: c.body || '',
+        branch: c.branch,
+      }))
+      return {
+        status: 'success',
+        totalEntries,
+        data: JSON.stringify(minimal),
+        sourceFolderPrefix: '',
+        workingCopyRootFolder: '',
+      }
+    }
+
     // Get detailed file information for each commit using raw command
     const enhancedLogData: GitLogEntry[] = []
 
@@ -376,7 +398,8 @@ export async function log(filePath: string | string[] = '.', options?: GitLogOpt
       options?.cwd,
       options?.allBranches,
       options?.revision,
-      options?.skip
+      options?.skip,
+      options?.messagesOnly
     )
 
     if (result.status === 'error') {

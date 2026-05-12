@@ -593,3 +593,49 @@ export async function migrateUserProjectRolesProjectIdUkToGenerated(): Promise<v
   }
   userProjectRolesProjectIdUkMigrationDone = true
 }
+
+let achievementBooleanColumnsMigrationDone = false
+
+/** Chuẩn hóa cột cờ achievement về BOOLEAN như schema.sql (hosted DB đôi khi còn smallint/int). */
+export async function migrateAchievementBooleanColumns(): Promise<void> {
+  if (achievementBooleanColumnsMigrationDone || !hasDbConfig()) return
+
+  const dataTypeOf = async (table: string, column: string): Promise<string | null> => {
+    const rows = await query<{ data_type: string }>(
+      `SELECT data_type FROM information_schema.columns
+       WHERE table_schema = current_schema() AND table_name = ? AND column_name = ? LIMIT 1`,
+      [table, column]
+    )
+    if (!Array.isArray(rows) || rows.length === 0) return null
+    return String(rows[0].data_type ?? '').toLowerCase()
+  }
+
+  /** Chỉ ALTER khi kiểu là số nguyên — tránh ép kiểu sai từ varchar, v.v. */
+  const shouldCastToBoolean = (dt: string | null): boolean =>
+    dt != null && dt !== 'boolean' && (dt === 'smallint' || dt === 'integer' || dt === 'bigint')
+
+  try {
+    let dt = await dataTypeOf('achievements', 'is_negative')
+    if (shouldCastToBoolean(dt)) {
+      await query(
+        'ALTER TABLE achievements ALTER COLUMN is_negative TYPE boolean USING (COALESCE(is_negative::integer, 0) <> 0)'
+      )
+    }
+    dt = await dataTypeOf('achievements', 'is_repeatable')
+    if (shouldCastToBoolean(dt)) {
+      await query(
+        'ALTER TABLE achievements ALTER COLUMN is_repeatable TYPE boolean USING (COALESCE(is_repeatable::integer, 0) <> 0)'
+      )
+    }
+    dt = await dataTypeOf('user_achievements', 'is_redeemed')
+    if (shouldCastToBoolean(dt)) {
+      await query(
+        'ALTER TABLE user_achievements ALTER COLUMN is_redeemed TYPE boolean USING (COALESCE(is_redeemed::integer, 0) <> 0)'
+      )
+    }
+  } catch (e) {
+    l.error('[db] migrateAchievementBooleanColumns failed', e)
+    return
+  }
+  achievementBooleanColumnsMigrationDone = true
+}

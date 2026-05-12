@@ -23,6 +23,7 @@ export {
   resetGithubClient,
   testGithubToken,
   updatePullRequestBranch,
+  updatePullRequestTitle,
   withGithubRateLimitRetry,
 } from './github'
 export { getGithubToken, hasGithubToken, removeGithubToken, setGithubToken } from './tokenStore'

@@ -9,6 +9,23 @@ import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from '
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import toast from '@/components/ui-elements/Toast'
+import { buildIssueStylePrTitle, pickIssueKeyAndVersion } from '@/pages/prmanager/utils/buildIssuePrTitle'
+
+const VERSION_SUFFIX_RE = /\(\d+\)\s*$/
+
+function withDefaultVersion(prefix: string): string {
+  const p = prefix.trim()
+  if (!p) return ''
+  return VERSION_SUFFIX_RE.test(p) ? p : `${p} (1)`
+}
+
+function buildSuggestedPrTitle(prefix: string, targetBranch: string): string {
+  const p = prefix.trim()
+  const t = targetBranch.trim()
+  if (!p) return t ? `(${t})` : ''
+  if (!t) return p
+  return `${p} (${t})`
+}
 
 type Props = {
   open: boolean
@@ -29,6 +46,9 @@ export function QuickCreatePrDialog({ open, onOpenChange, cwd, projectId, userId
   const [loading, setLoading] = useState(false)
   const [loadingBranches, setLoadingBranches] = useState(false)
   const [submitting, setSubmitting] = useState(false)
+  const [logEntries, setLogEntries] = useState<{ subject: string; body: string }[]>([])
+  const [prTitle, setPrTitle] = useState('')
+  const [titleDirty, setTitleDirty] = useState(false)
 
   useEffect(() => {
     if (!open) return
@@ -40,6 +60,9 @@ export function QuickCreatePrDialog({ open, onOpenChange, cwd, projectId, userId
       setBase('')
       setRemoteBranches([])
       setOwnerRepo(null)
+      setLogEntries([])
+      setPrTitle('')
+      setTitleDirty(false)
       try {
         if (!userId?.trim()) return
         if (!cwd?.trim()) return
@@ -87,10 +110,71 @@ export function QuickCreatePrDialog({ open, onOpenChange, cwd, projectId, userId
     }
   }, [open, cwd, userId, t, onOpenChange])
 
+  useEffect(() => {
+    if (!open || !cwd?.trim() || !head) {
+      setLogEntries([])
+      return
+    }
+    let cancelled = false
+    ;(async () => {
+      try {
+        const res = await window.api.git.log('.', { cwd: cwd.trim(), maxCount: 500, messagesOnly: true })
+        if (cancelled) return
+        if (res.status !== 'success' || !res.data) {
+          setLogEntries([])
+          return
+        }
+        const parsed = JSON.parse(res.data as string) as { subject: string; body: string }[]
+        setLogEntries(Array.isArray(parsed) ? parsed : [])
+      } catch {
+        if (!cancelled) setLogEntries([])
+      }
+    })()
+    return () => {
+      cancelled = true
+    }
+  }, [open, cwd, head])
+
+  useEffect(() => {
+    if (!open || !cwd?.trim()) return
+    const refreshHead = async () => {
+      const br = await window.api.git.get_branches(cwd.trim())
+      if (br.status === 'success' && br.data?.current) {
+        setTitleDirty(false)
+        setHead(br.data.current as string)
+      }
+    }
+    const onBranchChanged = () => {
+      void refreshHead()
+    }
+    window.addEventListener('git-branch-changed', onBranchChanged)
+    return () => window.removeEventListener('git-branch-changed', onBranchChanged)
+  }, [open, cwd])
+
+  const suggestedTitle = useMemo(() => {
+    const messages = logEntries.map(e => {
+      const sub = e.subject ?? ''
+      const body = e.body?.trim() ? e.body : ''
+      const full = body ? `${sub}\n${body}` : sub
+      return full.trim()
+    })
+    const picked = pickIssueKeyAndVersion(messages, head)
+    const t = base.trim()
+    if (picked) {
+      if (!t) return `${picked.key} (${picked.version})`
+      return buildIssueStylePrTitle(picked.key, picked.version, base)
+    }
+    return buildSuggestedPrTitle(withDefaultVersion(head), base)
+  }, [logEntries, head, base])
+
+  useEffect(() => {
+    if (!titleDirty) setPrTitle(suggestedTitle)
+  }, [suggestedTitle, titleDirty])
+
   const baseOptions = useMemo(() => remoteBranches.filter(b => b !== head).map(b => ({ value: b, label: b })), [remoteBranches, head])
 
   const handleSubmit = async () => {
-    if (!ownerRepo || !head.trim() || !base.trim()) {
+    if (!ownerRepo || !head.trim() || !base.trim() || !prTitle.trim()) {
       toast.error(t('prManager.createPr.toastFill'))
       return
     }
@@ -109,7 +193,7 @@ export function QuickCreatePrDialog({ open, onOpenChange, cwd, projectId, userId
         repoId: '',
         owner: ownerRepo.owner,
         repo: ownerRepo.repo,
-        title: head.trim(),
+        title: prTitle.trim(),
         body: '',
         head: head.trim(),
         base: base.trim(),
@@ -132,7 +216,7 @@ export function QuickCreatePrDialog({ open, onOpenChange, cwd, projectId, userId
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="gap-0 overflow-hidden p-3 sm:max-w-[17.5rem] sm:p-3">
+      <DialogContent className="gap-0 overflow-hidden p-3 sm:max-w-[22rem] sm:p-3">
         <DialogHeader className="space-y-0 pb-2">
           <DialogTitle className="flex items-center gap-1.5 text-sm font-medium leading-tight">
             <GitPullRequest className="h-3.5 w-3.5 shrink-0 text-emerald-600" />
@@ -160,6 +244,19 @@ export function QuickCreatePrDialog({ open, onOpenChange, cwd, projectId, userId
                 triggerClassName="h-8 min-h-8 w-full justify-between px-2 text-xs"
               />
             </div>
+            <div className="space-y-0.5">
+              <Label className="text-[11px] text-muted-foreground">{t('git.quickCreatePr.prName')}</Label>
+              <Input
+                value={prTitle}
+                onChange={e => {
+                  setTitleDirty(true)
+                  setPrTitle(e.target.value)
+                }}
+                placeholder={t('git.quickCreatePr.prNamePlaceholder')}
+                className="h-8 text-xs"
+                spellCheck={false}
+              />
+            </div>
           </div>
         )}
         <DialogFooter className="mt-3 pt-0 sm:justify-end">
@@ -168,7 +265,7 @@ export function QuickCreatePrDialog({ open, onOpenChange, cwd, projectId, userId
             size="sm"
             className="h-8 bg-emerald-600 px-3 text-xs text-white hover:bg-emerald-700 dark:bg-emerald-600 dark:hover:bg-emerald-700"
             onClick={() => void handleSubmit()}
-            disabled={submitting || loading || !head || !base}
+            disabled={submitting || loading || !head || !base || !prTitle.trim()}
           >
             {submitting ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : t('prManager.createPr.create')}
           </Button>
