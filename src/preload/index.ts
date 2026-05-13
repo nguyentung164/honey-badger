@@ -1001,8 +1001,100 @@ declare global {
         closeWindow: () => void
         requestDock: () => void
       }
+      taskManagement: {
+        openWindow: () => void
+        closeWindow: () => void
+        requestDock: () => void
+      }
+      automation: AutomationApi
     }
   }
+}
+
+// ----- Automation Test API types -----
+import type {
+  AiRepairProposal,
+  AutomationBrowser,
+  AutomationSettingsState,
+  ImportLayout,
+  ImportPreview,
+  RunRequest,
+  RunStreamEvent,
+  TestCase,
+  TestCaseResult,
+  TestProject,
+  TestRunSummary,
+  TestSuite,
+} from 'shared/automation/types'
+
+type AutomationEnvelope<T = unknown> = { status: 'success' | 'error'; data?: T; message?: string }
+
+export interface AutomationApi {
+  openWindow: () => void
+  closeWindow: () => void
+  requestDock: () => void
+  project: {
+    list: () => Promise<AutomationEnvelope<TestProject[]>>
+    get: (id: string) => Promise<AutomationEnvelope<TestProject | null>>
+    create: (input: { name: string; baseUrl: string; description?: string; browsers?: AutomationBrowser[] }) => Promise<AutomationEnvelope<TestProject>>
+    update: (args: { id: string; patch: Partial<Pick<TestProject, 'name' | 'baseUrl' | 'description' | 'browsers'>> }) => Promise<AutomationEnvelope<TestProject | null>>
+    delete: (id: string) => Promise<AutomationEnvelope<{ deleted: boolean }>>
+  }
+  suite: {
+    list: (projectId: string) => Promise<AutomationEnvelope<TestSuite[]>>
+    create: (input: Omit<TestSuite, 'id'>) => Promise<AutomationEnvelope<TestSuite>>
+    update: (args: { id: string; patch: Partial<Omit<TestSuite, 'id' | 'projectId'>> }) => Promise<AutomationEnvelope<{ updated: boolean }>>
+    delete: (id: string) => Promise<AutomationEnvelope<{ deleted: boolean }>>
+  }
+  case: {
+    list: (projectId: string) => Promise<AutomationEnvelope<TestCase[]>>
+    get: (id: string) => Promise<AutomationEnvelope<TestCase | null>>
+    create: (c: TestCase) => Promise<AutomationEnvelope<TestCase>>
+    update: (c: TestCase) => Promise<AutomationEnvelope<TestCase>>
+    bulkCreate: (args: { projectId: string; cases: TestCase[] }) => Promise<AutomationEnvelope<TestCase[]>>
+    delete: (id: string) => Promise<AutomationEnvelope<{ deleted: boolean }>>
+    readSpec: (args: { projectId: string; code: string }) => Promise<AutomationEnvelope<string>>
+    writeSpec: (args: { projectId: string; code: string; content: string; markSaved?: boolean }) => Promise<AutomationEnvelope<{ file: string }>>
+  }
+  importPickFile: () => Promise<AutomationEnvelope<{ filePath: string | null }>>
+  importParse: (args: { projectId: string; filePath: string; layout: ImportLayout }) => Promise<AutomationEnvelope<ImportPreview>>
+  ai: {
+    generateCases: (args: { projectId: string; inputText: string }) => Promise<AutomationEnvelope<ImportPreview>>
+    generateSpec: (args: { caseId: string }) => Promise<AutomationEnvelope<{ code: string; rationale: string; helpers: string[] }>>
+    repair: (args: { caseResultId: string }) => Promise<AutomationEnvelope<AiRepairProposal>>
+    repairApply: (args: { proposalId: string }) => Promise<AutomationEnvelope<{ applied: boolean }>>
+    repairReject: (args: { proposalId: string }) => Promise<AutomationEnvelope<{ rejected: boolean }>>
+    repairList: (caseResultId: string) => Promise<AutomationEnvelope<AiRepairProposal[]>>
+  }
+  run: {
+    start: (req: RunRequest) => Promise<AutomationEnvelope<{ runId: string }>>
+    cancel: (runId: string) => Promise<AutomationEnvelope<{ cancelled: boolean }>>
+    list: (args: { projectId: string; limit?: number }) => Promise<AutomationEnvelope<TestRunSummary[]>>
+    get: (runId: string) => Promise<AutomationEnvelope<TestRunSummary | null>>
+    results: (runId: string) => Promise<AutomationEnvelope<TestCaseResult[]>>
+    openReport: (runId: string) => Promise<AutomationEnvelope<{ opened: boolean }>>
+    openLog: (args: { projectId: string; runId: string }) => Promise<AutomationEnvelope<{ opened: boolean }>>
+    openTrace: (args: { tracePath: string }) => Promise<AutomationEnvelope<{ opened: boolean }>>
+    openWorkspace: (projectId: string) => Promise<AutomationEnvelope<{ opened: boolean }>>
+  }
+  browsers: {
+    install: (args: { browsers?: AutomationBrowser[] }) => Promise<AutomationEnvelope<{ installed: AutomationBrowser[] }>>
+    status: () => Promise<AutomationEnvelope<{ installed: AutomationBrowser[] }>>
+    onInstallStream: (cb: (chunk: string) => void) => () => void
+  }
+  dashboard: {
+    summary: (projectId: string) => Promise<AutomationEnvelope<{ runs: TestRunSummary[]; last?: TestRunSummary; lastResults: TestCaseResult[]; flaky: Array<{ caseId: string; passes: number; fails: number }> }>>
+  }
+  settings: {
+    get: () => Promise<AutomationEnvelope<AutomationSettingsState>>
+    set: (patch: Partial<AutomationSettingsState>) => Promise<AutomationEnvelope<AutomationSettingsState>>
+  }
+  secrets: {
+    get: (projectId: string) => Promise<AutomationEnvelope<{ keys: string[]; masked: Record<string, string> }>>
+    set: (args: { projectId: string; secrets: Record<string, string> }) => Promise<AutomationEnvelope<{ saved: boolean }>>
+  }
+  authReset: () => Promise<AutomationEnvelope<{ ok: boolean }>>
+  onRunStream: (cb: (event: RunStreamEvent) => void) => () => void
 }
 
 // Expose APIs to the renderer process
@@ -1741,6 +1833,93 @@ contextBridge.exposeInMainWorld('api', {
     openWindow: () => ipcRenderer.send(IPC.WINDOW.PR_MANAGER),
     closeWindow: () => ipcRenderer.send(IPC.WINDOW.PR_MANAGER_CLOSE),
     requestDock: () => ipcRenderer.send(IPC.WINDOW.PR_MANAGER_DOCK_REQUEST),
+  },
+
+  taskManagement: {
+    openWindow: () => ipcRenderer.send(IPC.WINDOW.TASK_MANAGEMENT),
+    closeWindow: () => ipcRenderer.send(IPC.WINDOW.TASK_MANAGEMENT_CLOSE),
+    requestDock: () => ipcRenderer.send(IPC.WINDOW.TASK_MANAGEMENT_DOCK_REQUEST),
+  },
+
+  automation: {
+    openWindow: () => ipcRenderer.send(IPC.WINDOW.AUTOMATION),
+    closeWindow: () => ipcRenderer.send(IPC.WINDOW.AUTOMATION_CLOSE),
+    requestDock: () => ipcRenderer.send(IPC.WINDOW.AUTOMATION_DOCK_REQUEST),
+    project: {
+      list: () => ipcRenderer.invoke(IPC.AUTOMATION.PROJECT_LIST),
+      get: (id: string) => ipcRenderer.invoke(IPC.AUTOMATION.PROJECT_GET, id),
+      create: (input: any) => ipcRenderer.invoke(IPC.AUTOMATION.PROJECT_CREATE, toStructuredCloneable(input)),
+      update: (args: any) => ipcRenderer.invoke(IPC.AUTOMATION.PROJECT_UPDATE, toStructuredCloneable(args)),
+      delete: (id: string) => ipcRenderer.invoke(IPC.AUTOMATION.PROJECT_DELETE, id),
+    },
+    suite: {
+      list: (projectId: string) => ipcRenderer.invoke(IPC.AUTOMATION.SUITE_LIST, projectId),
+      create: (input: any) => ipcRenderer.invoke(IPC.AUTOMATION.SUITE_CREATE, toStructuredCloneable(input)),
+      update: (args: any) => ipcRenderer.invoke(IPC.AUTOMATION.SUITE_UPDATE, toStructuredCloneable(args)),
+      delete: (id: string) => ipcRenderer.invoke(IPC.AUTOMATION.SUITE_DELETE, id),
+    },
+    case: {
+      list: (projectId: string) => ipcRenderer.invoke(IPC.AUTOMATION.CASE_LIST, projectId),
+      get: (id: string) => ipcRenderer.invoke(IPC.AUTOMATION.CASE_GET, id),
+      create: (c: any) => ipcRenderer.invoke(IPC.AUTOMATION.CASE_CREATE, toStructuredCloneable(c)),
+      update: (c: any) => ipcRenderer.invoke(IPC.AUTOMATION.CASE_UPDATE, toStructuredCloneable(c)),
+      bulkCreate: (args: any) => ipcRenderer.invoke(IPC.AUTOMATION.CASE_BULK_CREATE, toStructuredCloneable(args)),
+      delete: (id: string) => ipcRenderer.invoke(IPC.AUTOMATION.CASE_DELETE, id),
+      readSpec: (args: any) => ipcRenderer.invoke(IPC.AUTOMATION.CASE_READ_SPEC, toStructuredCloneable(args)),
+      writeSpec: (args: any) => ipcRenderer.invoke(IPC.AUTOMATION.CASE_WRITE_SPEC, toStructuredCloneable(args)),
+    },
+    importPickFile: () => ipcRenderer.invoke(IPC.AUTOMATION.IMPORT_PICK_FILE),
+    importParse: (args: any) => ipcRenderer.invoke(IPC.AUTOMATION.IMPORT_PARSE, toStructuredCloneable(args)),
+    ai: {
+      generateCases: (args: any) => ipcRenderer.invoke(IPC.AUTOMATION.AI_GEN_CASES, toStructuredCloneable(args)),
+      generateSpec: (args: any) => ipcRenderer.invoke(IPC.AUTOMATION.AI_GEN_SPEC, toStructuredCloneable(args)),
+      repair: (args: any) => ipcRenderer.invoke(IPC.AUTOMATION.AI_REPAIR, toStructuredCloneable(args)),
+      repairApply: (args: any) => ipcRenderer.invoke(IPC.AUTOMATION.AI_REPAIR_APPLY, toStructuredCloneable(args)),
+      repairReject: (args: any) => ipcRenderer.invoke(IPC.AUTOMATION.AI_REPAIR_REJECT, toStructuredCloneable(args)),
+      repairList: (caseResultId: string) => ipcRenderer.invoke(IPC.AUTOMATION.AI_REPAIR_LIST, caseResultId),
+    },
+    run: {
+      start: (req: any) => ipcRenderer.invoke(IPC.AUTOMATION.RUN_START, toStructuredCloneable(req)),
+      cancel: (runId: string) => ipcRenderer.invoke(IPC.AUTOMATION.RUN_CANCEL, runId),
+      list: (args: any) => ipcRenderer.invoke(IPC.AUTOMATION.RUN_LIST, toStructuredCloneable(args)),
+      get: (runId: string) => ipcRenderer.invoke(IPC.AUTOMATION.RUN_GET, runId),
+      results: (runId: string) => ipcRenderer.invoke(IPC.AUTOMATION.RUN_RESULTS, runId),
+      openReport: (runId: string) => ipcRenderer.invoke(IPC.AUTOMATION.RUN_OPEN_REPORT, runId),
+      openLog: (args: any) => ipcRenderer.invoke(IPC.AUTOMATION.RUN_OPEN_LOG, toStructuredCloneable(args)),
+      openTrace: (args: any) => ipcRenderer.invoke(IPC.AUTOMATION.RUN_OPEN_TRACE, toStructuredCloneable(args)),
+      openWorkspace: (projectId: string) => ipcRenderer.invoke(IPC.AUTOMATION.RUN_OPEN_WORKSPACE, projectId),
+    },
+    browsers: {
+      install: (args: any) => ipcRenderer.invoke(IPC.AUTOMATION.BROWSERS_INSTALL, toStructuredCloneable(args)),
+      status: () => ipcRenderer.invoke(IPC.AUTOMATION.BROWSERS_STATUS),
+      onInstallStream: (cb: (chunk: string) => void) => {
+        const handler = (_: unknown, chunk: string) => cb(chunk)
+        ipcRenderer.on(IPC.AUTOMATION.STREAM_INSTALL, handler)
+        return () => ipcRenderer.removeListener(IPC.AUTOMATION.STREAM_INSTALL, handler)
+      },
+    },
+    dashboard: {
+      summary: (projectId: string) => ipcRenderer.invoke(IPC.AUTOMATION.DASHBOARD_SUMMARY, projectId),
+    },
+    settings: {
+      get: () => ipcRenderer.invoke(IPC.AUTOMATION.SETTINGS_GET),
+      set: (patch: any) => ipcRenderer.invoke(IPC.AUTOMATION.SETTINGS_SET, toStructuredCloneable(patch)),
+    },
+    secrets: {
+      get: (projectId: string) => ipcRenderer.invoke('automation:secrets:get', projectId),
+      set: (args: any) => ipcRenderer.invoke('automation:secrets:set', toStructuredCloneable(args)),
+    },
+    authReset: () => ipcRenderer.invoke(IPC.AUTOMATION.AUTH_RESET),
+    onRunStream: (cb: (event: any) => void) => {
+      const logHandler = (_: unknown, payload: any) => cb(payload)
+      const progressHandler = (_: unknown, payload: any) => cb(payload)
+      ipcRenderer.on(IPC.AUTOMATION.STREAM_LOG, logHandler)
+      ipcRenderer.on(IPC.AUTOMATION.STREAM_PROGRESS, progressHandler)
+      return () => {
+        ipcRenderer.removeListener(IPC.AUTOMATION.STREAM_LOG, logHandler)
+        ipcRenderer.removeListener(IPC.AUTOMATION.STREAM_PROGRESS, progressHandler)
+      }
+    },
   },
 
   on: (channel: string, listener: (event: any, ...args: any[]) => void) => {

@@ -639,3 +639,122 @@ export async function migrateAchievementBooleanColumns(): Promise<void> {
   }
   achievementBooleanColumnsMigrationDone = true
 }
+
+let automationTestTablesMigrationDone = false
+
+/**
+ * Tạo các bảng cho tính năng Automation Test (Playwright).
+ * Idempotent: dùng IF NOT EXISTS + ON CONFLICT để chạy nhiều lần an toàn.
+ */
+export async function migrateAutomationTestTables(): Promise<void> {
+  if (automationTestTablesMigrationDone || !hasDbConfig()) return
+  try {
+    await query(`
+CREATE TABLE IF NOT EXISTS test_projects (
+  id VARCHAR(36) PRIMARY KEY,
+  name VARCHAR(200) NOT NULL,
+  base_url TEXT NOT NULL,
+  description TEXT NULL,
+  browsers TEXT[] NOT NULL DEFAULT ARRAY['chromium']::TEXT[],
+  workspace_path TEXT NOT NULL,
+  created_by VARCHAR(36) NULL,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
+)`)
+
+    await query(`
+CREATE TABLE IF NOT EXISTS test_suites (
+  id VARCHAR(36) PRIMARY KEY,
+  project_id VARCHAR(36) NOT NULL REFERENCES test_projects(id) ON DELETE CASCADE,
+  name VARCHAR(200) NOT NULL,
+  description TEXT NULL,
+  tag_filter TEXT NULL,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
+)`)
+    await query('CREATE INDEX IF NOT EXISTS idx_test_suites_project ON test_suites(project_id)')
+
+    await query(`
+CREATE TABLE IF NOT EXISTS test_cases (
+  id VARCHAR(36) PRIMARY KEY,
+  project_id VARCHAR(36) NOT NULL REFERENCES test_projects(id) ON DELETE CASCADE,
+  code VARCHAR(100) NOT NULL,
+  title VARCHAR(500) NOT NULL,
+  priority VARCHAR(16) NOT NULL DEFAULT 'medium',
+  tags TEXT[] NOT NULL DEFAULT ARRAY[]::TEXT[],
+  preconditions TEXT NULL,
+  steps JSONB NOT NULL DEFAULT '[]'::jsonb,
+  expected TEXT NOT NULL DEFAULT '',
+  source VARCHAR(20) NOT NULL DEFAULT 'manual',
+  spec_status VARCHAR(20) NOT NULL DEFAULT 'none',
+  ai_rationale TEXT NULL,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  CONSTRAINT uk_test_cases_project_code UNIQUE (project_id, code)
+)`)
+    await query('CREATE INDEX IF NOT EXISTS idx_test_cases_project ON test_cases(project_id)')
+
+    await query(`
+CREATE TABLE IF NOT EXISTS test_runs (
+  id VARCHAR(36) PRIMARY KEY,
+  project_id VARCHAR(36) NOT NULL REFERENCES test_projects(id) ON DELETE CASCADE,
+  status VARCHAR(20) NOT NULL DEFAULT 'queued',
+  browsers TEXT[] NOT NULL DEFAULT ARRAY['chromium']::TEXT[],
+  workers INT NOT NULL DEFAULT 1,
+  retries INT NOT NULL DEFAULT 0,
+  grep TEXT NULL,
+  total INT NOT NULL DEFAULT 0,
+  passed INT NOT NULL DEFAULT 0,
+  failed INT NOT NULL DEFAULT 0,
+  skipped INT NOT NULL DEFAULT 0,
+  flaky INT NOT NULL DEFAULT 0,
+  duration_ms BIGINT NOT NULL DEFAULT 0,
+  started_at TIMESTAMPTZ NULL,
+  finished_at TIMESTAMPTZ NULL,
+  triggered_by VARCHAR(36) NULL,
+  report_path TEXT NULL,
+  junit_path TEXT NULL,
+  json_path TEXT NULL,
+  cancel_reason TEXT NULL,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
+)`)
+    await query('CREATE INDEX IF NOT EXISTS idx_test_runs_project_started ON test_runs(project_id, started_at DESC)')
+
+    await query(`
+CREATE TABLE IF NOT EXISTS test_case_results (
+  id VARCHAR(36) PRIMARY KEY,
+  run_id VARCHAR(36) NOT NULL REFERENCES test_runs(id) ON DELETE CASCADE,
+  case_id VARCHAR(36) NULL REFERENCES test_cases(id) ON DELETE SET NULL,
+  case_code VARCHAR(100) NULL,
+  browser VARCHAR(20) NOT NULL,
+  status VARCHAR(20) NOT NULL,
+  duration_ms BIGINT NOT NULL DEFAULT 0,
+  attempts INT NOT NULL DEFAULT 1,
+  error_message TEXT NULL,
+  trace_path TEXT NULL,
+  screenshot_paths TEXT[] NOT NULL DEFAULT ARRAY[]::TEXT[],
+  video_path TEXT NULL,
+  stdout_path TEXT NULL,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
+)`)
+    await query('CREATE INDEX IF NOT EXISTS idx_test_case_results_run ON test_case_results(run_id)')
+    await query('CREATE INDEX IF NOT EXISTS idx_test_case_results_case ON test_case_results(case_id)')
+
+    await query(`
+CREATE TABLE IF NOT EXISTS ai_repair_proposals (
+  id VARCHAR(36) PRIMARY KEY,
+  case_result_id VARCHAR(36) NOT NULL REFERENCES test_case_results(id) ON DELETE CASCADE,
+  original_spec TEXT NOT NULL,
+  proposed_spec TEXT NOT NULL,
+  rationale TEXT NULL,
+  status VARCHAR(20) NOT NULL DEFAULT 'pending',
+  created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
+)`)
+    await query('CREATE INDEX IF NOT EXISTS idx_ai_repair_proposals_result ON ai_repair_proposals(case_result_id)')
+  } catch (e) {
+    l.error('[db] migrateAutomationTestTables failed', e)
+    return
+  }
+  automationTestTablesMigrationDone = true
+}

@@ -36,6 +36,14 @@ export default {
     output: `dist/v${version}`,
   },
 
+  asarUnpack: [
+    'node_modules/@playwright/**',
+    'node_modules/playwright/**',
+    'node_modules/playwright-core/**',
+    'node_modules/exceljs/**',
+    'node_modules/pdfjs-dist/**',
+  ],
+
   extraResources: [
     {
       from: 'spotbugs-4.9.3',

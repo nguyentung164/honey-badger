@@ -53,7 +53,9 @@
     "tasks": "Task",
     "prManager": "PR Manager",
     "prManagerDetachTooltip": "Mở PR Manager trong cửa sổ riêng",
-    "prManagerDockTooltip": "Gộp PR Manager vào cửa sổ chính"
+    "prManagerDockTooltip": "Gộp PR Manager vào cửa sổ chính",
+    "tasksDetachTooltip": "Mở Task trong cửa sổ riêng",
+    "tasksDockTooltip": "Gộp Task vào cửa sổ chính"
   },
   "contextMenu": {
     "revealInExplorer": "Mở trong File Explorer",
@@ -3781,6 +3783,193 @@
       "mergeConflictFileListLocalClean": "Kho local (origin/{{base}} với head PR) mô phỏng gộp sạch, trong khi GitHub vẫn báo xung đột. Thử: git fetch origin, hoặc đối chiếu fork / nhánh; GitHub tính trên tip base khác so với clone cũ.",
       "mergeConflictFileListNoPaths": "Có xung đột ở mức cây/đổi tên, không tách thành danh sách tệp đầy đủ qua công cụ dòng lệnh (hoặc cần Git mới hơn). Mở PR trên GitHub để xem chi tiết.",
       "mergeConflictFileListError": "Không tính được xung đột trên kho local."
+    }
+  },
+  "automation": {
+    "title": "Automation",
+    "openWindow": "Mở cửa sổ riêng",
+    "dock": "Gắn về cửa sổ chính",
+    "tabs": {
+      "projects": "Dự án",
+      "cases": "Test case",
+      "runs": "Lượt chạy",
+      "dashboard": "Dashboard",
+      "settings": "Cài đặt"
+    },
+    "common": {
+      "loading": "Đang tải…",
+      "save": "Lưu",
+      "saving": "Đang lưu…",
+      "cancel": "Huỷ",
+      "close": "Đóng",
+      "delete": "Xoá",
+      "refresh": "Làm mới",
+      "reset": "Đặt lại",
+      "reject": "Từ chối",
+      "applyAi": "Áp dụng đề xuất AI",
+      "noProjectSelected": "Chưa chọn dự án"
+    },
+    "projects": {
+      "title": "Dự án",
+      "empty": "Chưa có dự án. Tạo mới để bắt đầu.",
+      "new": "Tạo dự án",
+      "edit": "Sửa dự án",
+      "delete": "Xoá dự án",
+      "deleteConfirm": "Xoá dự án \"{{name}}\" cùng workspace?",
+      "deleted": "Đã xoá dự án",
+      "saved": "Đã lưu dự án",
+      "created": "Đã tạo dự án",
+      "updated": "Đã cập nhật dự án",
+      "selectHint": "Chọn dự án để quản lý case và run.",
+      "newTitle": "Tạo dự án",
+      "editTitle": "Sửa dự án",
+      "fields": {
+        "name": "Tên",
+        "baseUrl": "Base URL",
+        "description": "Mô tả",
+        "browsers": "Trình duyệt"
+      },
+      "errors": {
+        "name": "Tên không được trống",
+        "baseUrl": "Base URL không được trống",
+        "browsers": "Chọn ít nhất một trình duyệt"
+      }
+    },
+    "cases": {
+      "title": "Test case",
+      "empty": "Chưa có test case. Tạo mới hoặc import.",
+      "new": "Tạo case",
+      "edit": "Sửa case",
+      "delete": "Xoá case",
+      "deleted": "Đã xoá case",
+      "saved": "Đã lưu case",
+      "importLabel": "Import",
+      "import": {
+        "title": "Import test case",
+        "fileTab": "Từ tệp",
+        "aiTab": "AI prompt",
+        "pick": "Chọn tệp",
+        "noFile": "Chưa chọn tệp",
+        "layout": "Bố cục",
+        "rowPerStep": "Mỗi dòng = 1 bước",
+        "rowPerCase": "Mỗi dòng = 1 case",
+        "parse": "Phân tích",
+        "aiPrompt": "Prompt AI",
+        "aiPlaceholder": "Mô tả luồng cần test…",
+        "aiGenerate": "Sinh case",
+        "stepsCount": "Bước",
+        "commit": "Import {{count}} case",
+        "committed": "Đã import {{count}} case",
+        "nothingToImport": "Hãy phân tích tệp hoặc sinh case bằng AI trước khi import."
+      },
+      "addStep": "Thêm bước",
+      "filterPlaceholder": "Lọc theo code, title, tag…",
+      "generateSpec": "Sinh spec bằng AI",
+      "specHint": "Tệp Playwright (.spec.ts).",
+      "aiApplied": "Đã áp dụng đề xuất AI",
+      "tabs": {
+        "meta": "Thông tin",
+        "steps": "Các bước",
+        "spec": "Spec"
+      },
+      "columns": {
+        "code": "Code",
+        "title": "Tiêu đề",
+        "priority": "Mức",
+        "tags": "Tag",
+        "source": "Nguồn",
+        "spec": "Spec"
+      },
+      "fields": {
+        "code": "Code",
+        "title": "Tiêu đề",
+        "priority": "Mức ưu tiên",
+        "tags": "Tag (phân tách bởi dấu phẩy)",
+        "preconditions": "Tiền điều kiện",
+        "expected": "Kết quả mong đợi",
+        "action": "Hành động",
+        "target": "Đối tượng",
+        "value": "Giá trị",
+        "note": "Ghi chú"
+      },
+      "errors": {
+        "codeRequired": "Code không được trống",
+        "titleRequired": "Tiêu đề không được trống",
+        "saveBeforeGenerate": "Lưu case trước khi sinh spec."
+      }
+    },
+    "runs": {
+      "title": "Lượt chạy",
+      "history": "Lịch sử",
+      "empty": "Chưa có lượt chạy nào.",
+      "selectHint": "Chọn một lượt chạy để xem chi tiết.",
+      "start": "Chạy mới",
+      "started": "Đã bắt đầu chạy",
+      "cancel": "Huỷ",
+      "openLog": "Mở log",
+      "openReport": "Mở HTML report",
+      "openTrace": "Mở trace",
+      "openWorkspace": "Mở workspace",
+      "noTrace": "Không có trace.",
+      "noResults": "Không có kết quả.",
+      "idle": "Chưa chạy",
+      "status": "Trạng thái: {{status}}",
+      "errorDetailTitle": "Chi tiết lỗi",
+      "errorDetailToast": "{{detail}}",
+      "fields": {
+        "browsers": "Trình duyệt",
+        "workers": "Worker",
+        "retries": "Retry",
+        "grep": "Mẫu lọc (grep)",
+        "headed": "Chạy headed",
+        "status": "Trạng thái",
+        "totals": "Tổng",
+        "duration": "Thời lượng"
+      },
+      "errors": {
+        "browsers": "Chọn ít nhất một trình duyệt."
+      },
+      "columns": {
+        "browser": "Trình duyệt",
+        "case": "Case",
+        "status": "Trạng thái",
+        "attempts": "Lần",
+        "duration": "Thời lượng"
+      }
+    },
+    "repair": {
+      "title": "AI sửa spec",
+      "apply": "Áp dụng",
+      "applied": "Đã áp dụng sửa lỗi.",
+      "rejected": "Đã từ chối đề xuất.",
+      "empty": "Chưa có đề xuất.",
+      "notNeeded": "Case này không lỗi – không cần sửa."
+    },
+    "dashboard": {
+      "lastRun": "Lượt chạy gần nhất",
+      "runs": "Tổng lượt chạy",
+      "recentRuns": "Lượt chạy gần đây",
+      "flakyCount": "Case không ổn định",
+      "flakyHint": "Vừa pass vừa fail",
+      "distribution": "Phân bố kết quả",
+      "passRateTrend": "Biểu đồ pass rate",
+      "durationByBrowser": "Thời lượng theo trình duyệt",
+      "topFlaky": "Top case flaky",
+      "empty": "Chưa có dữ liệu."
+    },
+    "settings": {
+      "saved": "Đã lưu cài đặt.",
+      "runDefaults": "Mặc định lượt chạy",
+      "retention": "Số lượt giữ lại",
+      "aiTitle": "AI",
+      "aiProvider": "Nhà cung cấp",
+      "providerAuto": "Tự động (dùng global)",
+      "browsersTitle": "Trình duyệt",
+      "installed": "Đã cài",
+      "browsersInstalled": "Đã cài: {{browsers}}",
+      "reinstallBrowsers": "Cài / Cài lại trình duyệt",
+      "openWorkspace": "Mở workspace dự án",
+      "noProject": "Chọn dự án trước."
     }
   }
 }

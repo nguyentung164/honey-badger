@@ -53,7 +53,9 @@
     "tasks": "タスク",
     "prManager": "PR Manager",
     "prManagerDetachTooltip": "PR Manager を別ウィンドウで開く",
-    "prManagerDockTooltip": "PR Manager をメインウィンドウに戻す"
+    "prManagerDockTooltip": "PR Manager をメインウィンドウに戻す",
+    "tasksDetachTooltip": "タスクを別ウィンドウで開く",
+    "tasksDockTooltip": "タスクをメインウィンドウに戻す"
   },
   "contextMenu": {
     "revealInExplorer": "エクスプローラーで表示",
@@ -3788,6 +3790,193 @@
       "mergeConflictFileListLocalClean": "ローカル（origin/{{base}} と PR の head）のシミュレーションではクリーンですが、GitHub は未解決のままです。`git fetch origin` や、フォーク／古い clone の違いを疑ってください。",
       "mergeConflictFileListNoPaths": "ツールでは列挙しにくい競合（ディレクトリ/リネーム等）の可能性があります。github.com の PR 画面を確認してください。",
       "mergeConflictFileListError": "ローカルでのマージ競合の計算に失敗しました。"
+    }
+  },
+  "automation": {
+    "title": "Automation",
+    "openWindow": "別ウィンドウで開く",
+    "dock": "メインに戻す",
+    "tabs": {
+      "projects": "プロジェクト",
+      "cases": "テストケース",
+      "runs": "実行",
+      "dashboard": "ダッシュボード",
+      "settings": "設定"
+    },
+    "common": {
+      "loading": "読み込み中…",
+      "save": "保存",
+      "saving": "保存中…",
+      "cancel": "キャンセル",
+      "close": "閉じる",
+      "delete": "削除",
+      "refresh": "更新",
+      "reset": "リセット",
+      "reject": "却下",
+      "applyAi": "AI 提案を適用",
+      "noProjectSelected": "プロジェクト未選択"
+    },
+    "projects": {
+      "title": "プロジェクト",
+      "empty": "プロジェクトがありません。作成してください。",
+      "new": "新規プロジェクト",
+      "edit": "プロジェクト編集",
+      "delete": "プロジェクト削除",
+      "deleteConfirm": "プロジェクト「{{name}}」を削除しますか?",
+      "deleted": "プロジェクトを削除しました",
+      "saved": "プロジェクトを保存しました",
+      "created": "プロジェクトを作成しました",
+      "updated": "プロジェクトを更新しました",
+      "selectHint": "プロジェクトを選択してください。",
+      "newTitle": "新規プロジェクト",
+      "editTitle": "プロジェクト編集",
+      "fields": {
+        "name": "名前",
+        "baseUrl": "ベース URL",
+        "description": "説明",
+        "browsers": "ブラウザ"
+      },
+      "errors": {
+        "name": "名前は必須です",
+        "baseUrl": "ベース URL は必須です",
+        "browsers": "少なくとも 1 つのブラウザを選択"
+      }
+    },
+    "cases": {
+      "title": "テストケース",
+      "empty": "ケースがありません。新規作成またはインポートしてください。",
+      "new": "新規ケース",
+      "edit": "ケース編集",
+      "delete": "ケース削除",
+      "deleted": "ケースを削除しました",
+      "saved": "ケースを保存しました",
+      "importLabel": "インポート",
+      "import": {
+        "title": "テストケースのインポート",
+        "fileTab": "ファイルから",
+        "aiTab": "AI プロンプト",
+        "pick": "ファイル選択",
+        "noFile": "ファイル未選択",
+        "layout": "レイアウト",
+        "rowPerStep": "1 行 = 1 ステップ",
+        "rowPerCase": "1 行 = 1 ケース",
+        "parse": "解析",
+        "aiPrompt": "AI プロンプト",
+        "aiPlaceholder": "テストしたいフローを記述…",
+        "aiGenerate": "生成",
+        "stepsCount": "ステップ",
+        "commit": "{{count}} 件をインポート",
+        "committed": "{{count}} 件インポートしました",
+        "nothingToImport": "インポートするにはファイル解析または AI 生成を先に実行してください。"
+      },
+      "addStep": "ステップ追加",
+      "filterPlaceholder": "コード/タイトル/タグで絞り込み…",
+      "generateSpec": "AI で spec を生成",
+      "specHint": "Playwright スペックファイル (.spec.ts)",
+      "aiApplied": "AI 提案を適用しました",
+      "tabs": {
+        "meta": "メタ",
+        "steps": "ステップ",
+        "spec": "Spec"
+      },
+      "columns": {
+        "code": "コード",
+        "title": "タイトル",
+        "priority": "優先度",
+        "tags": "タグ",
+        "source": "由来",
+        "spec": "Spec"
+      },
+      "fields": {
+        "code": "コード",
+        "title": "タイトル",
+        "priority": "優先度",
+        "tags": "タグ (カンマ区切り)",
+        "preconditions": "前提条件",
+        "expected": "期待結果",
+        "action": "アクション",
+        "target": "対象",
+        "value": "値",
+        "note": "メモ"
+      },
+      "errors": {
+        "codeRequired": "コードは必須です",
+        "titleRequired": "タイトルは必須です",
+        "saveBeforeGenerate": "spec を生成する前にケースを保存してください。"
+      }
+    },
+    "runs": {
+      "title": "実行",
+      "history": "履歴",
+      "empty": "実行履歴がありません。",
+      "selectHint": "実行を選択してください。",
+      "start": "実行開始",
+      "started": "実行を開始しました",
+      "cancel": "中止",
+      "openLog": "ログを開く",
+      "openReport": "HTML レポート",
+      "openTrace": "トレース",
+      "openWorkspace": "ワークスペース",
+      "noTrace": "トレースなし",
+      "noResults": "結果がありません",
+      "idle": "待機中",
+      "status": "状態: {{status}}",
+      "errorDetailTitle": "詳細",
+      "errorDetailToast": "{{detail}}",
+      "fields": {
+        "browsers": "ブラウザ",
+        "workers": "ワーカー",
+        "retries": "リトライ",
+        "grep": "Grep",
+        "headed": "Headed 実行",
+        "status": "状態",
+        "totals": "合計",
+        "duration": "時間"
+      },
+      "errors": {
+        "browsers": "少なくとも 1 つのブラウザを選択。"
+      },
+      "columns": {
+        "browser": "ブラウザ",
+        "case": "ケース",
+        "status": "状態",
+        "attempts": "試行",
+        "duration": "時間"
+      }
+    },
+    "repair": {
+      "title": "AI スペック修復",
+      "apply": "適用",
+      "applied": "修復を適用しました。",
+      "rejected": "提案を却下しました。",
+      "empty": "提案なし。",
+      "notNeeded": "失敗していないため修復不要です。"
+    },
+    "dashboard": {
+      "lastRun": "直近の実行",
+      "runs": "総実行数",
+      "recentRuns": "直近の実行",
+      "flakyCount": "Flaky ケース",
+      "flakyHint": "成功と失敗が混在するケース",
+      "distribution": "結果の分布",
+      "passRateTrend": "合格率推移",
+      "durationByBrowser": "ブラウザ別時間",
+      "topFlaky": "Top Flaky",
+      "empty": "データなし"
+    },
+    "settings": {
+      "saved": "設定を保存しました。",
+      "runDefaults": "実行デフォルト",
+      "retention": "保持件数",
+      "aiTitle": "AI",
+      "aiProvider": "プロバイダ",
+      "providerAuto": "自動 (グローバル)",
+      "browsersTitle": "ブラウザ",
+      "installed": "インストール済",
+      "browsersInstalled": "インストールしました: {{browsers}}",
+      "reinstallBrowsers": "ブラウザ再インストール",
+      "openWorkspace": "ワークスペースを開く",
+      "noProject": "プロジェクトを選択してください。"
     }
   }
 }

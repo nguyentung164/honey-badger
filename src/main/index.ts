@@ -4,6 +4,7 @@ import { makeAppWithSingleInstanceLock } from 'lib/electron-app/factories/app/in
 import { makeAppSetup } from 'lib/electron-app/factories/app/setup'
 import { registerAchievementIpcHandlers } from './ipc/achievement'
 import { registerAiAnalysisIpcHandlers } from './ipc/aiAnalysis'
+import { registerAutomationTestIpcHandlers } from './ipc/automationTest'
 import { registerAiUsageIpcHandlers } from './ipc/aiUsage'
 import { registerAppLogsIpcHandlers } from './ipc/appLogs'
 import { registerCommitMessageHistoryIpcHandlers } from './ipc/commitMessageHistory'
@@ -58,6 +59,7 @@ makeAppWithSingleInstanceLock(async () => {
   registerCommitMessageHistoryIpcHandlers()
   registerDailyReportIpcHandlers()
   registerAiAnalysisIpcHandlers()
+  registerAutomationTestIpcHandlers()
   registerGitCommitQueueIpcHandlers()
   registerSvnIpcHandlers()
   registerVcsIpcHandlers()
@@ -95,6 +97,8 @@ makeAppWithSingleInstanceLock(async () => {
         startAchievementDailyScheduler()
         const { startProgressScheduler } = await import('./scheduler/progressScheduler')
         startProgressScheduler()
+        const { startAutomationRetentionScheduler } = await import('./scheduler/automationRetention')
+        startAutomationRetentionScheduler()
         const {
           migratePrCheckpointGithubColumns,
           migratePrCheckpointTemplateHeaderGroup,
@@ -111,6 +115,7 @@ makeAppWithSingleInstanceLock(async () => {
           migrateTasksStatusEnteredAt,
           migrateUserProjectRolesProjectIdUkToGenerated,
           migrateAchievementBooleanColumns,
+          migrateAutomationTestTables,
         } = await import('./task/schema/taskDbPatches')
         await migrateAchievementBooleanColumns().catch(() => {})
         await migrateUserProjectRolesProjectIdUkToGenerated().catch(() => {})
@@ -127,6 +132,7 @@ makeAppWithSingleInstanceLock(async () => {
         await migrateTaskTypesAddMilestone().catch(() => {})
         await migrateTasksTicketIdNullable().catch(() => {})
         await migrateTasksStatusEnteredAt().catch(() => {})
+        await migrateAutomationTestTables().catch(() => {})
         const { startPrStatusSync } = await import('./scheduler/prStatusSync')
         startPrStatusSync()
       })()

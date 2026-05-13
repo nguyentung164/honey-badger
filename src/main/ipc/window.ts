@@ -6,7 +6,7 @@ import { IPC } from 'main/constants'
 import { getMainWindowRef } from 'main/mainWindowRef'
 import { closeSingletonWindow, focusSingletonWindow, registerSingletonWindow } from 'main/utils/singletonWindow'
 import { getWindowBackgroundColor } from 'main/utils/windowBackground'
-import { ENVIRONMENT, PR_MANAGER_RENDERER_CHANNELS } from 'shared/constants'
+import { AUTOMATION_RENDERER_CHANNELS, ENVIRONMENT, PR_MANAGER_RENDERER_CHANNELS, TASK_MANAGEMENT_RENDERER_CHANNELS } from 'shared/constants'
 import { getCommitDiff } from '../git/diff'
 import { onSpotBugs } from '../task/achievement/achievementService'
 import { getTokenFromStore, verifyToken } from '../task/auth'
@@ -225,6 +225,18 @@ export function registerWindowIpcHandlers() {
     }
   })
 
+  ipcMain.on(IPC.WINDOW.TASK_MANAGEMENT_CLOSE, () => {
+    closeSingletonWindow('task-management')
+  })
+
+  ipcMain.on(IPC.WINDOW.TASK_MANAGEMENT_DOCK_REQUEST, () => {
+    closeSingletonWindow('task-management')
+    const main = getMainWindowRef()
+    if (main && !main.isDestroyed()) {
+      main.webContents.send(TASK_MANAGEMENT_RENDERER_CHANNELS.DOCKED_TO_MAIN)
+    }
+  })
+
   ipcMain.on(IPC.WINDOW.TASK_MANAGEMENT, () => {
     if (focusSingletonWindow('task-management')) return
 
@@ -247,6 +259,13 @@ export function registerWindowIpcHandlers() {
       },
     })
     registerSingletonWindow('task-management', window)
+
+    window.once('closed', () => {
+      const main = getMainWindowRef()
+      if (main && !main.isDestroyed()) {
+        main.webContents.send(TASK_MANAGEMENT_RENDERER_CHANNELS.WINDOW_CLOSED)
+      }
+    })
 
     const url = ENVIRONMENT.IS_DEV
       ? 'http://localhost:4927/#/task-management'
@@ -984,6 +1003,65 @@ export function registerWindowIpcHandlers() {
           protocol: 'file:',
           slashes: true,
           hash: '/pr-manager',
+        })
+    window.loadURL(url)
+
+    window.webContents.on('did-finish-load', () => {
+      if (ENVIRONMENT.IS_DEV) {
+        window.webContents.openDevTools({ mode: 'bottom' })
+      }
+    })
+  })
+
+  ipcMain.on(IPC.WINDOW.AUTOMATION_CLOSE, () => {
+    closeSingletonWindow('automation')
+  })
+
+  ipcMain.on(IPC.WINDOW.AUTOMATION_DOCK_REQUEST, () => {
+    closeSingletonWindow('automation')
+    const main = getMainWindowRef()
+    if (main && !main.isDestroyed()) {
+      main.webContents.send(AUTOMATION_RENDERER_CHANNELS.DOCKED_TO_MAIN)
+    }
+  })
+
+  ipcMain.on(IPC.WINDOW.AUTOMATION, () => {
+    if (focusSingletonWindow('automation')) return
+
+    const window = new BrowserWindow({
+      width: 1366,
+      height: 820,
+      minWidth: 1280,
+      minHeight: 720,
+      center: true,
+      frame: false,
+      show: true,
+      backgroundColor: getWindowBackgroundColor(),
+      autoHideMenuBar: true,
+      title: 'Automation',
+      webPreferences: {
+        contextIsolation: true,
+        nodeIntegration: false,
+        preload: join(__dirname, '../preload/index.js'),
+        sandbox: false,
+      },
+    })
+    registerSingletonWindow('automation', window)
+
+    window.once('closed', () => {
+      const main = getMainWindowRef()
+      if (main && !main.isDestroyed()) {
+        main.webContents.send(AUTOMATION_RENDERER_CHANNELS.WINDOW_CLOSED)
+      }
+    })
+
+    const url = ENVIRONMENT.IS_DEV
+      ? 'http://localhost:4927/#/automation'
+      : format({
+          pathname: resolve(__dirname, '../renderer/index.html'),
+          protocol: 'file:',
+          slashes: true,
+          hash: '/automation',
         })
     window.loadURL(url)
 

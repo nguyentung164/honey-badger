@@ -24,6 +24,9 @@ const ProgressTrackingPage = lazy(() => import('../pages/progress/ProgressTracki
 const TeamProgressOverviewPage = lazy(() => import('../pages/progress/TeamProgressOverviewPage').then(m => ({ default: m.TeamProgressOverviewPage })))
 const ReportManagerPage = lazy(() => import('../pages/reportmanager/ReportManagerPage').then(m => ({ default: m.ReportManagerPage })))
 const PrManager = lazy(() => import('../pages/prmanager/PrManager').then(m => ({ default: m.PrManager })))
+const AutomationPageStandalone = lazy(() =>
+  import('../pages/automation/AutomationPage').then(m => ({ default: () => <m.AutomationPage mode="standalone" /> }))
+)
 
 function PageFallback() {
   return (
@@ -78,6 +81,7 @@ export function AppRoutes() {
           <Route path="/team-progress" element={<TeamProgressOverviewPage />} />
           <Route path="/report-manager" element={<ReportManagerPage />} />
           <Route path="/pr-manager" element={<PrManager />} />
+          <Route path="/automation" element={<AutomationPageStandalone />} />
         </Routes>
       </Suspense>
     </Router>

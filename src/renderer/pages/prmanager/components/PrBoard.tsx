@@ -861,6 +861,8 @@ export function PrBoard({ projectId, userId, repos, templates, tracked, loading,
   const [scopedSyncStaleClock, setScopedSyncStaleClock] = useState(0)
   const isAnyGithubSync = githubSyncUi.kind !== 'idle'
   const showFullTableGithubSyncOverlay = githubSyncUi.kind === 'full'
+  /** Loading dữ liệu board hoặc đồng bộ GitHub full-table — chỉ phủ khung bảng, không phủ toolbar. */
+  const showTableBlockingOverlay = loading || showFullTableGithubSyncOverlay
   const rowGithubSyncInteractionDisabled = useCallback(
     (row: TrackedBranchRow): boolean => {
       if (githubSyncUi.kind === 'repo') return row.repoId === githubSyncUi.repoId
@@ -2448,12 +2450,34 @@ export function PrBoard({ projectId, userId, repos, templates, tracked, loading,
       )}
 
       {repos.length === 0 ? (
-        <div className="flex flex-1 items-center justify-center rounded-md border border-dashed p-10 text-sm text-muted-foreground">{t('prManager.board.emptyNoRepos')}</div>
+        <div className="relative flex min-h-0 flex-1 flex-col">
+          <div className="flex flex-1 items-center justify-center rounded-md border border-dashed p-10 text-sm text-muted-foreground">{t('prManager.board.emptyNoRepos')}</div>
+          {loading ? (
+            <div
+              className="absolute inset-0 z-30 flex items-center justify-center rounded-md bg-background/60 backdrop-blur-[1px]"
+              aria-busy="true"
+              aria-live="polite"
+            >
+              <GlowLoader className="h-10 w-10" />
+            </div>
+          ) : null}
+        </div>
       ) : activeTemplates.length === 0 ? (
-        <div className="flex flex-1 items-center justify-center rounded-md border border-dashed p-10 text-sm text-muted-foreground">{t('prManager.board.emptyNoTemplates')}</div>
+        <div className="relative flex min-h-0 flex-1 flex-col">
+          <div className="flex flex-1 items-center justify-center rounded-md border border-dashed p-10 text-sm text-muted-foreground">{t('prManager.board.emptyNoTemplates')}</div>
+          {loading ? (
+            <div
+              className="absolute inset-0 z-30 flex items-center justify-center rounded-md bg-background/60 backdrop-blur-[1px]"
+              aria-busy="true"
+              aria-live="polite"
+            >
+              <GlowLoader className="h-10 w-10" />
+            </div>
+          ) : null}
+        </div>
       ) : (
         <div className="relative flex min-h-0 flex-1 flex-col overflow-hidden rounded-md border bg-card">
-          {showFullTableGithubSyncOverlay ? (
+          {showTableBlockingOverlay ? (
             <div className="absolute inset-0 z-30 flex items-center justify-center bg-background/60 backdrop-blur-[1px]" aria-busy="true" aria-live="polite">
               <GlowLoader className="h-10 w-10" />
             </div>

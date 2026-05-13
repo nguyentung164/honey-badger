@@ -1,0 +1,144 @@
+import { formatDistanceToNow } from 'date-fns'
+import { FolderOpen, Play, RefreshCw } from 'lucide-react'
+import { useEffect, useMemo, useState } from 'react'
+import { useTranslation } from 'react-i18next'
+import type { TestProject, TestRunSummary } from 'shared/automation/types'
+import { Badge } from '@/components/ui/badge'
+import { Button } from '@/components/ui/button'
+import { ScrollArea } from '@/components/ui/scroll-area'
+import { automationEmptyRuns, useAutomationStore } from '@/stores/useAutomationStore'
+import { RunConsole } from './RunConsole'
+import { RunDetail } from './RunDetail'
+import { RunDialog } from './RunDialog'
+
+interface Props {
+  project: TestProject
+}
+
+export function RunsView({ project }: Props) {
+  const { t } = useTranslation()
+  const runs = useAutomationStore(s => s.runs[project.id] ?? automationEmptyRuns)
+  const setRuns = useAutomationStore(s => s.setRuns)
+  const current = useAutomationStore(s => s.current)
+  const [loading, setLoading] = useState(false)
+  const [selectedId, setSelectedId] = useState<string | null>(null)
+  const [dialogOpen, setDialogOpen] = useState(false)
+
+  const refresh = async () => {
+    setLoading(true)
+    try {
+      const res = await window.api.automation.run.list({ projectId: project.id, limit: 50 })
+      if (res.status === 'success' && res.data) {
+        setRuns(project.id, res.data)
+        if (!selectedId && res.data.length > 0) setSelectedId(res.data[0].id)
+      }
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  useEffect(() => {
+    setSelectedId(null)
+    void refresh()
+  }, [project.id])
+
+  useEffect(() => {
+    if (current.status === 'passed' || current.status === 'failed' || current.status === 'cancelled' || current.status === 'error') {
+      void refresh()
+    }
+  }, [current.status])
+
+  const selectedRun = useMemo<TestRunSummary | null>(() => {
+    if (!selectedId) return null
+    return runs.find(r => r.id === selectedId) ?? null
+  }, [runs, selectedId])
+
+  const showLiveConsole = current.status === 'running' && current.projectId === project.id
+
+  return (
+    <div className="flex h-full min-h-0 flex-col gap-3">
+      <div className="flex items-center justify-between">
+        <h2 className="text-sm font-semibold">{t('automation.runs.title')}</h2>
+        <div className="flex gap-2">
+          <Button size="sm" variant="outline" onClick={refresh} disabled={loading}>
+            <RefreshCw className={`size-4 ${loading ? 'animate-spin' : ''}`} />
+            {t('automation.common.refresh')}
+          </Button>
+          <Button size="sm" variant="outline" onClick={() => void window.api.automation.run.openWorkspace(project.id)}>
+            <FolderOpen className="size-4" />
+            {t('automation.runs.openWorkspace')}
+          </Button>
+          <Button size="sm" onClick={() => setDialogOpen(true)} disabled={showLiveConsole}>
+            <Play className="size-4" />
+            {t('automation.runs.start')}
+          </Button>
+        </div>
+      </div>
+
+      <div className="grid min-h-0 flex-1 grid-cols-[260px_1fr] gap-3">
+        <div className="flex min-h-0 flex-col rounded-md border">
+          <div className="border-b p-2 text-xs font-medium uppercase text-muted-foreground">
+            {t('automation.runs.history')}
+          </div>
+          <ScrollArea className="flex-1">
+            <div className="flex flex-col gap-1 p-1">
+              {runs.length === 0 ? (
+                <div className="p-3 text-center text-xs text-muted-foreground">{t('automation.runs.empty')}</div>
+              ) : (
+                runs.map(r => (
+                  <button
+                    type="button"
+                    key={r.id}
+                    onClick={() => setSelectedId(r.id)}
+                    className={`flex flex-col gap-1 rounded-md border p-2 text-left transition-colors ${
+                      selectedId === r.id ? 'border-primary bg-accent' : 'border-transparent hover:bg-muted'
+                    }`}
+                  >
+                    <div className="flex items-center justify-between gap-2">
+                      <Badge
+                        variant={r.status === 'passed' ? 'default' : r.status === 'failed' || r.status === 'error' ? 'destructive' : 'secondary'}
+                        className="capitalize"
+                      >
+                        {r.status}
+                      </Badge>
+                      <span className="font-mono text-[10px] text-muted-foreground">
+                        {r.passed}/{r.total}
+                      </span>
+                    </div>
+                    <div className="font-mono text-[10px] text-muted-foreground">
+                      {r.startedAt ? formatDistanceToNow(new Date(r.startedAt), { addSuffix: true }) : ''}
+                    </div>
+                    <div className="font-mono text-[10px] text-muted-foreground">
+                      {r.browsers.join(', ')}
+                    </div>
+                  </button>
+                ))
+              )}
+            </div>
+          </ScrollArea>
+        </div>
+
+        <div className="min-h-0">
+          {showLiveConsole ? (
+            <RunConsole projectId={project.id} />
+          ) : selectedRun ? (
+            <RunDetail run={selectedRun} />
+          ) : (
+            <div className="flex h-full items-center justify-center rounded-md border text-sm text-muted-foreground">
+              {t('automation.runs.selectHint')}
+            </div>
+          )}
+        </div>
+      </div>
+
+      <RunDialog
+        project={project}
+        open={dialogOpen}
+        onOpenChange={setDialogOpen}
+        onStarted={() => {
+          /* stream listener will populate */
+        }}
+      />
+    </div>
+  )
+}

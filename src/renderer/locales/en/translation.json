@@ -53,7 +53,9 @@
     "tasks": "Tasks",
     "prManager": "PR Manager",
     "prManagerDetachTooltip": "Open PR Manager in a separate window",
-    "prManagerDockTooltip": "Dock PR Manager in the main window"
+    "prManagerDockTooltip": "Dock PR Manager in the main window",
+    "tasksDetachTooltip": "Open Tasks in a separate window",
+    "tasksDockTooltip": "Dock Tasks in the main window"
   },
   "contextMenu": {
     "revealInExplorer": "Reveal in File Explorer",
@@ -3790,6 +3792,193 @@
       "mergeConflictFileListLocalClean": "Your local clone (origin/{{base}} vs. the PR head) simulates a clean merge while GitHub still reports conflicts. Try `git fetch origin`, or a fork/branch mismatch; GitHub’s mergeability uses a base tip that may differ from a stale clone.",
       "mergeConflictFileListNoPaths": "A conflict is reported that cannot be broken into a simple per-file list from the command line (e.g. directory/rename). Open the pull request on GitHub for the full view.",
       "mergeConflictFileListError": "Could not compute local merge conflicts."
+    }
+  },
+  "automation": {
+    "title": "Automation",
+    "openWindow": "Open in window",
+    "dock": "Dock to main",
+    "tabs": {
+      "projects": "Projects",
+      "cases": "Cases",
+      "runs": "Runs",
+      "dashboard": "Dashboard",
+      "settings": "Settings"
+    },
+    "common": {
+      "loading": "Loading…",
+      "save": "Save",
+      "saving": "Saving…",
+      "cancel": "Cancel",
+      "close": "Close",
+      "delete": "Delete",
+      "refresh": "Refresh",
+      "reset": "Reset",
+      "reject": "Reject",
+      "applyAi": "Apply AI proposal",
+      "noProjectSelected": "No project selected"
+    },
+    "projects": {
+      "title": "Projects",
+      "empty": "No projects yet. Create one to get started.",
+      "new": "New project",
+      "edit": "Edit project",
+      "delete": "Delete project",
+      "deleteConfirm": "Delete project \"{{name}}\" and its workspace?",
+      "deleted": "Project deleted",
+      "saved": "Project saved",
+      "created": "Project created",
+      "updated": "Project updated",
+      "selectHint": "Select a project to manage cases and runs.",
+      "newTitle": "New project",
+      "editTitle": "Edit project",
+      "fields": {
+        "name": "Name",
+        "baseUrl": "Base URL",
+        "description": "Description",
+        "browsers": "Browsers"
+      },
+      "errors": {
+        "name": "Name is required",
+        "baseUrl": "Base URL is required",
+        "browsers": "Select at least one browser"
+      }
+    },
+    "cases": {
+      "title": "Test cases",
+      "empty": "No test cases. Create one or import a file.",
+      "new": "New case",
+      "edit": "Edit case",
+      "delete": "Delete case",
+      "deleted": "Case deleted",
+      "saved": "Case saved",
+      "importLabel": "Import",
+      "import": {
+        "title": "Import test cases",
+        "fileTab": "From file",
+        "aiTab": "AI prompt",
+        "pick": "Pick file",
+        "noFile": "No file picked",
+        "layout": "Layout",
+        "rowPerStep": "Row per step",
+        "rowPerCase": "Row per case",
+        "parse": "Parse",
+        "aiPrompt": "AI prompt",
+        "aiPlaceholder": "Describe the flow you want to test…",
+        "aiGenerate": "Generate cases",
+        "stepsCount": "Steps",
+        "commit": "Import {{count}} cases",
+        "committed": "Imported {{count}} cases",
+        "nothingToImport": "Parse or generate cases before importing."
+      },
+      "addStep": "Add step",
+      "filterPlaceholder": "Filter by code, title, or tag…",
+      "generateSpec": "Generate spec with AI",
+      "specHint": "Playwright test file (.spec.ts).",
+      "aiApplied": "AI proposal applied",
+      "tabs": {
+        "meta": "Metadata",
+        "steps": "Steps",
+        "spec": "Spec"
+      },
+      "columns": {
+        "code": "Code",
+        "title": "Title",
+        "priority": "Priority",
+        "tags": "Tags",
+        "source": "Source",
+        "spec": "Spec"
+      },
+      "fields": {
+        "code": "Code",
+        "title": "Title",
+        "priority": "Priority",
+        "tags": "Tags (comma-separated)",
+        "preconditions": "Preconditions",
+        "expected": "Expected result",
+        "action": "Action",
+        "target": "Target",
+        "value": "Value",
+        "note": "Note"
+      },
+      "errors": {
+        "codeRequired": "Code is required",
+        "titleRequired": "Title is required",
+        "saveBeforeGenerate": "Save the case before generating its spec."
+      }
+    },
+    "runs": {
+      "title": "Runs",
+      "history": "History",
+      "empty": "No runs yet. Click Start to launch a Playwright run.",
+      "selectHint": "Select a run to view its results.",
+      "start": "Start run",
+      "started": "Run started",
+      "cancel": "Cancel",
+      "openLog": "Open log",
+      "openReport": "Open HTML report",
+      "openTrace": "Open trace",
+      "openWorkspace": "Open workspace",
+      "noTrace": "No trace recorded.",
+      "noResults": "No results recorded.",
+      "idle": "Idle",
+      "status": "Status: {{status}}",
+      "errorDetailTitle": "Details",
+      "errorDetailToast": "{{detail}}",
+      "fields": {
+        "browsers": "Browsers",
+        "workers": "Workers",
+        "retries": "Retries",
+        "grep": "Grep pattern",
+        "headed": "Run headed",
+        "status": "Status",
+        "totals": "Totals",
+        "duration": "Duration"
+      },
+      "errors": {
+        "browsers": "Select at least one browser to run."
+      },
+      "columns": {
+        "browser": "Browser",
+        "case": "Case",
+        "status": "Status",
+        "attempts": "Attempts",
+        "duration": "Duration"
+      }
+    },
+    "repair": {
+      "title": "AI Repair Proposal",
+      "apply": "Apply proposal",
+      "applied": "Repair applied to spec.",
+      "rejected": "Repair rejected.",
+      "empty": "No proposal generated.",
+      "notNeeded": "This result didn't fail – nothing to repair."
+    },
+    "dashboard": {
+      "lastRun": "Last run",
+      "runs": "Total runs",
+      "recentRuns": "Recent runs in window",
+      "flakyCount": "Flaky cases",
+      "flakyHint": "Cases with both passes & failures",
+      "distribution": "Result distribution",
+      "passRateTrend": "Pass rate trend",
+      "durationByBrowser": "Duration by browser",
+      "topFlaky": "Top flaky cases",
+      "empty": "No data yet."
+    },
+    "settings": {
+      "saved": "Settings saved.",
+      "runDefaults": "Run defaults",
+      "retention": "Run retention (count)",
+      "aiTitle": "AI",
+      "aiProvider": "Provider override",
+      "providerAuto": "Auto (use global)",
+      "browsersTitle": "Browsers",
+      "installed": "Installed",
+      "browsersInstalled": "Browsers installed: {{browsers}}",
+      "reinstallBrowsers": "Install / Reinstall browsers",
+      "openWorkspace": "Open project workspace",
+      "noProject": "Select a project first."
     }
   }
 }

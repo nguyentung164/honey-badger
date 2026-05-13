@@ -5,6 +5,8 @@ export const IPC = {
     APP_LOGS: 'window:app-logs',
     DASHBOARD: 'window:dashboard',
     TASK_MANAGEMENT: 'window:task-management',
+    TASK_MANAGEMENT_CLOSE: 'window:task-management-close',
+    TASK_MANAGEMENT_DOCK_REQUEST: 'window:task-management-dock-request',
     DIFF_WINDOWS: 'window:diff-windows',
     REQUEST_DIFF_DATA: 'window:request-diff-data',
     REQUEST_CONFLICT_RESOLVER_DATA: 'window:request-conflict-resolver-data',
@@ -25,6 +27,9 @@ export const IPC = {
     PR_MANAGER: 'window:pr-manager',
     PR_MANAGER_CLOSE: 'window:pr-manager-close',
     PR_MANAGER_DOCK_REQUEST: 'window:pr-manager-dock-request',
+    AUTOMATION: 'window:automation',
+    AUTOMATION_CLOSE: 'window:automation-close',
+    AUTOMATION_DOCK_REQUEST: 'window:automation-dock-request',
   },
   CONFIG_UPDATED: 'config-updated',
   FILES_CHANGED: 'files-changed',
@@ -495,6 +500,51 @@ export const IPC = {
     GET_PROJECT_MEMBER_IDS: 'progress:get-project-member-ids',
     GET_TEAM_OVERVIEW_USER_PROJECTS: 'progress:get-team-overview-user-projects',
   },
+  AUTOMATION: {
+    PROJECT_LIST: 'automation:project:list',
+    PROJECT_GET: 'automation:project:get',
+    PROJECT_CREATE: 'automation:project:create',
+    PROJECT_UPDATE: 'automation:project:update',
+    PROJECT_DELETE: 'automation:project:delete',
+    SUITE_LIST: 'automation:suite:list',
+    SUITE_CREATE: 'automation:suite:create',
+    SUITE_UPDATE: 'automation:suite:update',
+    SUITE_DELETE: 'automation:suite:delete',
+    CASE_LIST: 'automation:case:list',
+    CASE_GET: 'automation:case:get',
+    CASE_CREATE: 'automation:case:create',
+    CASE_UPDATE: 'automation:case:update',
+    CASE_DELETE: 'automation:case:delete',
+    CASE_BULK_CREATE: 'automation:case:bulk-create',
+    CASE_READ_SPEC: 'automation:case:read-spec',
+    CASE_WRITE_SPEC: 'automation:case:write-spec',
+    IMPORT_PICK_FILE: 'automation:import:pick-file',
+    IMPORT_PARSE: 'automation:import:parse',
+    AI_GEN_CASES: 'automation:ai:gen-cases',
+    AI_GEN_SPEC: 'automation:ai:gen-spec',
+    AI_REPAIR: 'automation:ai:repair',
+    AI_REPAIR_APPLY: 'automation:ai:repair-apply',
+    AI_REPAIR_REJECT: 'automation:ai:repair-reject',
+    AI_REPAIR_LIST: 'automation:ai:repair-list',
+    RUN_START: 'automation:run:start',
+    RUN_CANCEL: 'automation:run:cancel',
+    RUN_LIST: 'automation:run:list',
+    RUN_GET: 'automation:run:get',
+    RUN_RESULTS: 'automation:run:results',
+    RUN_OPEN_REPORT: 'automation:run:open-report',
+    RUN_OPEN_TRACE: 'automation:run:open-trace',
+    RUN_OPEN_LOG: 'automation:run:open-log',
+    RUN_OPEN_WORKSPACE: 'automation:run:open-workspace',
+    BROWSERS_INSTALL: 'automation:browsers:install',
+    BROWSERS_STATUS: 'automation:browsers:status',
+    DASHBOARD_SUMMARY: 'automation:dashboard:summary',
+    SETTINGS_GET: 'automation:settings:get',
+    SETTINGS_SET: 'automation:settings:set',
+    AUTH_RESET: 'automation:auth-reset',
+    STREAM_LOG: 'automation:stream:log',
+    STREAM_PROGRESS: 'automation:stream:progress',
+    STREAM_INSTALL: 'automation:stream:install',
+  },
 }
 
 export type CommitMessageDetailLevel = 'detail' | 'normal' | 'simple'
@@ -846,10 +896,128 @@ Tracked branches JSON (repoId, owner, repo, branchName):
 User message:
 {user_message}
 `,
+
+  AUTOMATION_GEN_CASES: `
+You are a senior QA engineer. From the input text below, extract structured test cases.
+
+Constraints:
+- Output JSON matching the provided schema (no markdown, no comments).
+- Each case has a unique code (e.g. TC-001), a short title, ordered steps, and an overall expected result.
+- Always include tags (array — use [] if none) and preconditions (string — use "" if none).
+- Every step MUST include strings target, value, expected, and note: use "" when a field does not apply (the schema requires all keys present).
+- Use action enum: navigate | click | fill | select | expect | wait | custom.
+- For UI tests against a web app, "target" should be a stable CSS or role selector when known; otherwise a human-readable hint.
+- Keep test cases self-contained and deterministic.
+
+Project context: {project_context}
+
+Input text:
+{input_text}
+`,
+
+  AUTOMATION_GEN_SPEC: `
+You are a senior Playwright (Node, @playwright/test) engineer. Convert the provided TestCase JSON into a runnable .spec.ts file.
+
+Constraints:
+- Output JSON matching the provided schema (no markdown).
+- The "code" field must be a complete TypeScript module beginning with: import { test, expect } from '@playwright/test'
+- Include "helpers": an array of short optional hints/snippet titles (use [] if none — the field must be present).
+- Use page.goto / page.locator / expect with auto-wait. Avoid arbitrary sleeps.
+- Use the project's baseURL (already configured in playwright.config) — call relative URLs.
+- Keep steps in order, comment each step with the original step.note when present.
+- Use a single test() block named after the TestCase title.
+
+Project context: {project_context}
+
+TestCase JSON:
+{case_json}
+`,
+
+  AUTOMATION_REPAIR_SPEC: `
+You are a Playwright debugging expert. The spec below failed at runtime. Produce a minimal, safe fix.
+
+Constraints:
+- Output JSON matching the provided schema (no markdown).
+- proposedSpec: the FULL updated .spec.ts file (TypeScript), top of file: import { test, expect } from '@playwright/test'.
+- rationale: 2-4 sentences explaining the fix.
+- Prefer locator changes, role-based selectors, and explicit awaits over try/catch hacks. Do not weaken assertions just to make it pass.
+
+Failure context:
+- Failed step: {failed_step}
+- Error message: {error_message}
+- Stdout tail (last 50 lines): {stdout_tail}
+- Screenshot path (informational only): {screenshot_path}
+
+Original spec:
+{original_spec}
+`,
 }
 
 /** Chat SpotBugs (raw prompt qua openai.chat) — không có template trong PROMPT */
 export const AI_FEATURE_SPOTBUGS_CHAT = 'SPOTBUGS_AI_CHAT' as const
+
+/** JSON schemas đính kèm cho các prompt AUTOMATION_*; dùng cho structured-output của 3 provider. */
+export const AUTOMATION_JSON_SCHEMAS = {
+  GEN_CASES: {
+    type: 'object',
+    additionalProperties: false,
+    required: ['cases'],
+    properties: {
+      cases: {
+        type: 'array',
+        items: {
+          type: 'object',
+          additionalProperties: false,
+          // OpenAI json_schema strict: every key in `properties` MUST appear in `required` (nullable via empty strings / []).
+          required: ['code', 'title', 'priority', 'tags', 'preconditions', 'steps', 'expected'],
+          properties: {
+            code: { type: 'string' },
+            title: { type: 'string' },
+            priority: { type: 'string', enum: ['low', 'medium', 'high', 'critical'] },
+            tags: { type: 'array', items: { type: 'string' } },
+            preconditions: { type: 'string' },
+            steps: {
+              type: 'array',
+              items: {
+                type: 'object',
+                additionalProperties: false,
+                required: ['order', 'action', 'target', 'value', 'expected', 'note'],
+                properties: {
+                  order: { type: 'integer' },
+                  action: { type: 'string', enum: ['navigate', 'click', 'fill', 'select', 'expect', 'wait', 'custom'] },
+                  target: { type: 'string' },
+                  value: { type: 'string' },
+                  expected: { type: 'string' },
+                  note: { type: 'string' },
+                },
+              },
+            },
+            expected: { type: 'string' },
+          },
+        },
+      },
+    },
+  },
+  GEN_SPEC: {
+    type: 'object',
+    additionalProperties: false,
+    required: ['code', 'rationale', 'helpers'],
+    properties: {
+      code: { type: 'string' },
+      rationale: { type: 'string' },
+      helpers: { type: 'array', items: { type: 'string' } },
+    },
+  },
+  REPAIR_SPEC: {
+    type: 'object',
+    additionalProperties: false,
+    required: ['proposedSpec', 'rationale'],
+    properties: {
+      proposedSpec: { type: 'string' },
+      rationale: { type: 'string' },
+    },
+  },
+} as const
 
 export type AiFeatureId = keyof typeof PROMPT | typeof AI_FEATURE_SPOTBUGS_CHAT
 

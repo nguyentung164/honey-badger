@@ -8,6 +8,7 @@ import {
   Award,
   BarChart3,
   Bell,
+  Bot,
   CalendarDays,
   CheckSquare,
   ChevronDown,
@@ -36,6 +37,7 @@ import {
   Square,
   SquareArrowDown,
   SquareArrowOutDownLeft,
+  SquareArrowOutUpRight,
   Terminal,
   Turtle,
   Undo2,
@@ -116,6 +118,13 @@ interface TitleBarProps {
   enableShellSwitcher?: boolean
   prManagerDetached?: boolean
   onPrManagerDock?: () => void
+  onPrManagerDetach?: () => void
+  tasksDetached?: boolean
+  onTasksDock?: () => void
+  onTasksDetach?: () => void
+  automationDetached?: boolean
+  onAutomationDock?: () => void
+  onAutomationDetach?: () => void
   onRequestLogin?: () => void
   onRequestChangePassword?: () => void
   hideUndoCommit?: boolean
@@ -126,6 +135,7 @@ interface TitleBarProps {
   taskToolbarHostRef?: RefCallback<HTMLDivElement>
   taskToolbarActionsHostRef?: RefCallback<HTMLDivElement>
   prManagerToolbarHostRef?: RefCallback<HTMLDivElement>
+  automationToolbarHostRef?: RefCallback<HTMLDivElement>
 }
 
 function TitleBarClockFlagVn({ size = 16 }: { size?: number }) {
@@ -167,6 +177,13 @@ export const TitleBar = ({
   enableShellSwitcher = false,
   prManagerDetached = false,
   onPrManagerDock,
+  onPrManagerDetach,
+  tasksDetached = false,
+  onTasksDock,
+  onTasksDetach,
+  automationDetached = false,
+  onAutomationDock,
+  onAutomationDetach,
   onRequestLogin,
   onRequestChangePassword,
   hideUndoCommit: _hideUndoCommit = false,
@@ -177,6 +194,7 @@ export const TitleBar = ({
   taskToolbarHostRef,
   taskToolbarActionsHostRef,
   prManagerToolbarHostRef,
+  automationToolbarHostRef,
 }: TitleBarProps) => {
   const navigate = useNavigate()
   const { t } = useTranslation()
@@ -222,8 +240,8 @@ export const TitleBar = ({
 
   useEffect(() => {
     if (user) {
-      achievementFetchAll().catch(() => {})
-      const t = setTimeout(() => achievementFetchAll().catch(() => {}), 2000)
+      achievementFetchAll().catch(() => { })
+      const t = setTimeout(() => achievementFetchAll().catch(() => { }), 2000)
       return () => clearTimeout(t)
     }
   }, [user, achievementFetchAll])
@@ -693,9 +711,9 @@ export const TitleBar = ({
               selectedProjectId && folders.length > 0
                 ? folders[0]
                 : (() => {
-                    const savedFolder = localStorage.getItem('current-source-folder')
-                    return (savedFolder ? folders.find(f => f.name === savedFolder) : null) ?? folders[0]
-                  })()
+                  const savedFolder = localStorage.getItem('current-source-folder')
+                  return (savedFolder ? folders.find(f => f.name === savedFolder) : null) ?? folders[0]
+                })()
             if (fallbackFolder) {
               effectiveFolder = fallbackFolder
               usedFallback = true
@@ -1201,7 +1219,7 @@ export const TitleBar = ({
       }
     }
     localStorage.setItem('taskReminderSentDate', JSON.stringify({ userId: user.id, date: todayStr }))
-    window.api.task.sendDeadlineReminders().catch(() => {})
+    window.api.task.sendDeadlineReminders().catch(() => { })
   }, [user, isGuest])
 
   const handleReminderOpenChange = useCallback(
@@ -1215,6 +1233,13 @@ export const TitleBar = ({
   const openTaskDetailFromReminder = useCallback(
     (taskId: string) => {
       if (enableShellSwitcher && onShellViewChange) {
+        if (tasksDetached) {
+          window.api.taskManagement.openWindow()
+          queueMicrotask(() => {
+            window.dispatchEvent(new CustomEvent('open-task-from-reminder', { detail: { taskId } }))
+          })
+          return
+        }
         onShellViewChange('tasks')
         queueMicrotask(() => {
           window.dispatchEvent(new CustomEvent('open-task-from-reminder', { detail: { taskId } }))
@@ -1224,7 +1249,7 @@ export const TitleBar = ({
       setShowReminderDialog(false)
       navigate('/task-management', { state: { openTaskId: taskId } })
     },
-    [enableShellSwitcher, onShellViewChange, navigate]
+    [enableShellSwitcher, navigate, onShellViewChange, tasksDetached]
   )
 
   const openSettingsDialog = () => {
@@ -1351,7 +1376,7 @@ export const TitleBar = ({
       clearSession()
       // Đồng bộ UI ngay (không gọi saveConfigurationConfig — tránh ghi đè file bằng snapshot Zustand chưa load).
       setFieldConfiguration('multiRepoEnabled', false)
-      window.api.configuration.patch({ multiRepoEnabled: false }).catch(() => {})
+      window.api.configuration.patch({ multiRepoEnabled: false }).catch(() => { })
     }
   }
 
@@ -1625,9 +1650,9 @@ export const TitleBar = ({
         setUncommittedFiles(
           Array.isArray(rawFiles)
             ? rawFiles.map((file: any) => ({
-                filePath: typeof file === 'string' ? file : file.path,
-                status: file.working_dir ?? file.index ?? 'M',
-              }))
+              filePath: typeof file === 'string' ? file : file.path,
+              status: file.working_dir ?? file.index ?? 'M',
+            }))
             : []
         )
         setShowGitSwitchBranchDialog(true)
@@ -2167,7 +2192,7 @@ export const TitleBar = ({
                 type="single"
                 value={shellView}
                 onValueChange={v => {
-                  if (v === 'vcs' || v === 'tasks' || v === 'prManager') onShellViewChange(v)
+                  if (v === 'vcs' || v === 'tasks' || v === 'prManager' || v === 'automation') onShellViewChange(v)
                 }}
                 variant="default"
                 size="md"
@@ -2195,27 +2220,29 @@ export const TitleBar = ({
                   <Folder className="h-3.5 w-3.5 shrink-0 transition-transform duration-200 ease-out group-data-[state=on]:scale-105 motion-reduce:group-data-[state=on]:scale-100" />
                   <span className="hidden sm:inline max-w-[7rem] truncate">{t('mainShell.workspace')}</span>
                 </ToggleGroupItem>
-                <ToggleGroupItem
-                  value="tasks"
-                  aria-label={t('mainShell.tasks')}
-                  className={cn(
-                    'group h-[21px] px-2 sm:px-2.5 py-0 text-xs gap-1 !rounded-md !border-0 !shadow-none',
-                    'transition-[color,transform,opacity,font-weight,text-decoration-thickness] duration-200 ease-out motion-reduce:transition-none',
-                    'active:scale-[0.98] motion-reduce:active:scale-100',
-                    'bg-transparent text-muted-foreground hover:bg-muted/60 hover:text-foreground',
-                    'data-[state=on]:bg-transparent data-[state=on]:hover:bg-transparent',
-                    'data-[state=on]:text-emerald-600 data-[state=on]:hover:text-emerald-700 dark:data-[state=on]:text-emerald-400 dark:data-[state=on]:hover:text-emerald-300',
-                    'data-[state=on]:underline data-[state=on]:decoration-emerald-600 data-[state=on]:decoration-2 data-[state=on]:underline-offset-[5px]',
-                    'dark:data-[state=on]:decoration-emerald-400'
-                  )}
-                >
-                  <CheckSquare
-                    strokeWidth={1.25}
-                    absoluteStrokeWidth
-                    className="h-3.5 w-3.5 shrink-0 transition-transform duration-200 ease-out group-data-[state=on]:scale-105 motion-reduce:group-data-[state=on]:scale-100"
-                  />
-                  <span className="hidden sm:inline max-w-[7rem] truncate">{t('mainShell.tasks')}</span>
-                </ToggleGroupItem>
+                {!tasksDetached && (
+                  <ToggleGroupItem
+                    value="tasks"
+                    aria-label={t('mainShell.tasks')}
+                    className={cn(
+                      'group h-[21px] px-2 sm:px-2.5 py-0 text-xs gap-1 !rounded-md !border-0 !shadow-none',
+                      'transition-[color,transform,opacity,font-weight,text-decoration-thickness] duration-200 ease-out motion-reduce:transition-none',
+                      'active:scale-[0.98] motion-reduce:active:scale-100',
+                      'bg-transparent text-muted-foreground hover:bg-muted/60 hover:text-foreground',
+                      'data-[state=on]:bg-transparent data-[state=on]:hover:bg-transparent',
+                      'data-[state=on]:text-emerald-600 data-[state=on]:hover:text-emerald-700 dark:data-[state=on]:text-emerald-400 dark:data-[state=on]:hover:text-emerald-300',
+                      'data-[state=on]:underline data-[state=on]:decoration-emerald-600 data-[state=on]:decoration-2 data-[state=on]:underline-offset-[5px]',
+                      'dark:data-[state=on]:decoration-emerald-400'
+                    )}
+                  >
+                    <CheckSquare
+                      strokeWidth={1.25}
+                      absoluteStrokeWidth
+                      className="h-3.5 w-3.5 shrink-0 transition-transform duration-200 ease-out group-data-[state=on]:scale-105 motion-reduce:group-data-[state=on]:scale-100"
+                    />
+                    <span className="hidden sm:inline max-w-[7rem] truncate">{t('mainShell.tasks')}</span>
+                  </ToggleGroupItem>
+                )}
                 {!prManagerDetached && (
                   <ToggleGroupItem
                     value="prManager"
@@ -2239,7 +2266,40 @@ export const TitleBar = ({
                     <span className="hidden sm:inline max-w-[7rem] truncate">{t('mainShell.prManager')}</span>
                   </ToggleGroupItem>
                 )}
+                {!automationDetached && (
+                  <ToggleGroupItem
+                    value="automation"
+                    aria-label={t('mainShell.automation', 'Automation')}
+                    className={cn(
+                      'group h-[21px] px-2 sm:px-2.5 py-0 text-xs gap-1 !rounded-md !border-0 !shadow-none',
+                      'transition-[color,transform,opacity,font-weight,text-decoration-thickness] duration-200 ease-out motion-reduce:transition-none',
+                      'active:scale-[0.98] motion-reduce:active:scale-100',
+                      'bg-transparent text-muted-foreground hover:bg-muted/60 hover:text-foreground',
+                      'data-[state=on]:bg-transparent data-[state=on]:hover:bg-transparent',
+                      'data-[state=on]:text-emerald-600 data-[state=on]:hover:text-emerald-700 dark:data-[state=on]:text-emerald-400 dark:data-[state=on]:hover:text-emerald-300',
+                      'data-[state=on]:underline data-[state=on]:decoration-emerald-600 data-[state=on]:decoration-2 data-[state=on]:underline-offset-[5px]',
+                      'dark:data-[state=on]:decoration-emerald-400'
+                    )}
+                  >
+                    <Bot
+                      strokeWidth={1.25}
+                      absoluteStrokeWidth
+                      className="h-3.5 w-3.5 shrink-0 transition-transform duration-200 ease-out group-data-[state=on]:scale-105 motion-reduce:group-data-[state=on]:scale-100"
+                    />
+                    <span className="hidden sm:inline max-w-[7rem] truncate">{t('mainShell.automation', 'Automation')}</span>
+                  </ToggleGroupItem>
+                )}
               </ToggleGroup>
+            )}
+            {enableShellSwitcher && automationDetached && onAutomationDock && (
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button type="button" variant="ghost" size="icon" className="h-[25px] w-[25px] shrink-0 rounded-sm" onClick={onAutomationDock}>
+                    <SquareArrowOutDownLeft strokeWidth={1.25} absoluteStrokeWidth className="h-4 w-4" />
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent side="bottom">{t('mainShell.automationDockTooltip', 'Dock Automation back to main window')}</TooltipContent>
+              </Tooltip>
             )}
             {enableShellSwitcher && prManagerDetached && onPrManagerDock && (
               <Tooltip>
@@ -2249,6 +2309,16 @@ export const TitleBar = ({
                   </Button>
                 </TooltipTrigger>
                 <TooltipContent side="bottom">{t('mainShell.prManagerDockTooltip')}</TooltipContent>
+              </Tooltip>
+            )}
+            {enableShellSwitcher && tasksDetached && onTasksDock && (
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button type="button" variant="ghost" size="icon" className="h-[25px] w-[25px] shrink-0 rounded-sm" onClick={onTasksDock}>
+                    <SquareArrowOutDownLeft strokeWidth={1.25} absoluteStrokeWidth className="h-4 w-4" />
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent side="bottom">{t('mainShell.tasksDockTooltip')}</TooltipContent>
               </Tooltip>
             )}
             {enableShellSwitcher && shellView === 'vcs' && user && !isGuest && (
@@ -2389,7 +2459,7 @@ export const TitleBar = ({
               </>
             )}
 
-            {user && !isGuest && enableShellSwitcher && shellView === 'tasks' && (
+            {user && !isGuest && enableShellSwitcher && shellView === 'tasks' && !tasksDetached && (
               <>
                 <Separator orientation="vertical" className="h-4 w-px bg-muted mx-0.5 shrink-0" />
                 {reminderBellControl}
@@ -2448,7 +2518,7 @@ export const TitleBar = ({
         )}
 
         {/* Task toolbar / PR Manager top bar (portal) — giữa trái và phải */}
-        {enableShellSwitcher && shellView === 'tasks' && taskToolbarHostRef ? (
+        {enableShellSwitcher && shellView === 'tasks' && !tasksDetached && taskToolbarHostRef ? (
           <div
             ref={taskToolbarHostRef}
             className="flex-1 min-w-0 flex items-center h-full overflow-x-auto overflow-y-hidden gap-2 px-1"
@@ -2457,6 +2527,12 @@ export const TitleBar = ({
         ) : enableShellSwitcher && shellView === 'prManager' && !prManagerDetached && prManagerToolbarHostRef ? (
           <div
             ref={prManagerToolbarHostRef}
+            className="flex min-w-0 flex-1 basis-0 w-full items-center h-full overflow-x-auto overflow-y-hidden gap-0 px-0"
+            style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties}
+          />
+        ) : enableShellSwitcher && shellView === 'automation' && !automationDetached && automationToolbarHostRef ? (
+          <div
+            ref={automationToolbarHostRef}
             className="flex min-w-0 flex-1 basis-0 w-full items-center h-full overflow-x-auto overflow-y-hidden gap-0 px-0"
             style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties}
           />
@@ -2977,12 +3053,12 @@ export const TitleBar = ({
             </div>
           )}
 
-          {enableShellSwitcher && shellView === 'tasks' && taskToolbarActionsHostRef ? (
+          {enableShellSwitcher && shellView === 'tasks' && !tasksDetached && taskToolbarActionsHostRef ? (
             <div ref={taskToolbarActionsHostRef} className="flex items-center gap-1.5 shrink-0 h-full pr-1" style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties} />
           ) : null}
 
           {/* User / Auth Section */}
-          <div className="flex items-center gap-2 px-4 h-8" style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties}>
+          <div className="flex items-center gap-2 h-8" style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties}>
             {user ? (
               <>
                 <DropdownMenu
@@ -3144,6 +3220,36 @@ export const TitleBar = ({
                     </DropdownMenuGroup>
                   </DropdownMenuContent>
                 </DropdownMenu>
+                {enableShellSwitcher && shellView === 'prManager' && !prManagerDetached && onPrManagerDetach ? (
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <Button type="button" variant="ghost" size="icon" className="h-[25px] w-[25px] shrink-0 rounded-sm" onClick={onPrManagerDetach}>
+                        <SquareArrowOutUpRight strokeWidth={1.25} absoluteStrokeWidth className="h-4 w-4" />
+                      </Button>
+                    </TooltipTrigger>
+                    <TooltipContent side="bottom">{t('mainShell.prManagerDetachTooltip')}</TooltipContent>
+                  </Tooltip>
+                ) : null}
+                {enableShellSwitcher && shellView === 'tasks' && !tasksDetached && onTasksDetach ? (
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <Button type="button" variant="ghost" size="icon" className="h-[25px] w-[25px] shrink-0 rounded-sm" onClick={onTasksDetach}>
+                        <SquareArrowOutUpRight strokeWidth={1.25} absoluteStrokeWidth className="h-4 w-4" />
+                      </Button>
+                    </TooltipTrigger>
+                    <TooltipContent side="bottom">{t('mainShell.tasksDetachTooltip')}</TooltipContent>
+                  </Tooltip>
+                ) : null}
+                {enableShellSwitcher && shellView === 'automation' && !automationDetached && onAutomationDetach ? (
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <Button type="button" variant="ghost" size="icon" className="h-[25px] w-[25px] shrink-0 rounded-sm" onClick={onAutomationDetach}>
+                        <SquareArrowOutUpRight strokeWidth={1.25} absoluteStrokeWidth className="h-4 w-4" />
+                      </Button>
+                    </TooltipTrigger>
+                    <TooltipContent side="bottom">{t('mainShell.automationDetachTooltip', 'Detach Automation to a separate window')}</TooltipContent>
+                  </Tooltip>
+                ) : null}
                 <UserProfilePanel open={showProfile} onOpenChange={setShowProfile} />
                 <HolidayCalendarDialog open={showHolidayCalendar} onOpenChange={setShowHolidayCalendar} />
                 <LeaderboardDialog open={showLeaderboard} onOpenChange={setShowLeaderboard} isAdmin={user?.role === 'admin'} />

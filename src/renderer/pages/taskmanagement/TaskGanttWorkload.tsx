@@ -632,6 +632,38 @@ function mergeWorkloadSegmentsByAssignee(segments: WorkloadBoardSegment[], prefe
   }
 }
 
+/** Payload có thể lặp cùng một user (ví dụ nhiều vai trò) — workload dùng một dòng / userId cho key + matrix. */
+function dedupeWorkloadUsersPreserveOrder(users: WorkloadUserMeta[]): WorkloadUserMeta[] {
+  const seen = new Set<string>()
+  const out: WorkloadUserMeta[] = []
+  for (const u of users) {
+    const id = String(u.userId ?? '').trim()
+    if (!id || seen.has(id)) continue
+    seen.add(id)
+    out.push(u)
+  }
+  return out
+}
+
+function dedupeSegmentWorkloadUsers(seg: WorkloadBoardSegment): WorkloadBoardSegment {
+  const users = dedupeWorkloadUsersPreserveOrder(seg.data.users)
+  if (users.length === seg.data.users.length) return seg
+  return { ...seg, data: { ...seg.data, users } }
+}
+
+function buildDisplayWorkloadSegments(
+  workloadRowGrouping: 'flat' | 'assignee' | 'project',
+  segments: WorkloadBoardSegment[],
+  showActualBars: boolean
+): WorkloadBoardSegment[] {
+  const base =
+    workloadRowGrouping === 'assignee' && segments.length > 0
+      ? [mergeWorkloadSegmentsByAssignee(segments, showActualBars)]
+      : segments
+  const mapped = base.map(dedupeSegmentWorkloadUsers)
+  return mapped.every((s, i) => s === base[i]) ? base : mapped
+}
+
 /** By-project workload: đóng (0) → mở khối project (1) → mở mini-Gantt user (2) → đóng. Khi không có user row thì chỉ 0↔1. */
 function getWorkloadProjectBulkCyclePhase(
   projectIds: string[],
@@ -659,12 +691,10 @@ function useWorkloadPaneBulkExpand(
   expandedRowKeys: Set<string>,
   setExpandedRowKeys: Dispatch<SetStateAction<Set<string>>>
 ) {
-  const displaySegments = useMemo((): WorkloadBoardSegment[] => {
-    if (workloadRowGrouping === 'assignee' && segments.length > 0) {
-      return [mergeWorkloadSegmentsByAssignee(segments, showActualBars)]
-    }
-    return segments
-  }, [workloadRowGrouping, segments, showActualBars])
+  const displaySegments = useMemo(
+    () => buildDisplayWorkloadSegments(workloadRowGrouping, segments, showActualBars),
+    [workloadRowGrouping, segments, showActualBars]
+  )
 
   const panelLayout: 'project' | 'flat' | 'assignee' =
     workloadRowGrouping === 'flat' ? 'flat' : workloadRowGrouping === 'assignee' ? 'assignee' : 'project'
@@ -899,12 +929,10 @@ export const TaskGanttWorkload = memo(function TaskGanttWorkload({
   const expandedRowKeys = expandedRowKeysShared ?? localExpandedRowKeys
   const setExpandedRowKeys = setExpandedRowKeysShared ?? setLocalExpandedRowKeys
 
-  const displaySegments = useMemo((): WorkloadBoardSegment[] => {
-    if (workloadRowGrouping === 'assignee' && segments.length > 0) {
-      return [mergeWorkloadSegmentsByAssignee(segments, showActualBars)]
-    }
-    return segments
-  }, [workloadRowGrouping, segments, showActualBars])
+  const displaySegments = useMemo(
+    () => buildDisplayWorkloadSegments(workloadRowGrouping, segments, showActualBars),
+    [workloadRowGrouping, segments, showActualBars]
+  )
 
   /** Đã có ít nhất một segment có lưới user×ngày — segment khác chỉ `empty` sẽ không render (tránh lặp message). */
   const boardHasRenderableWorkloadGrid = useMemo(() => displaySegments.some(s => s.data.users.length > 0 && s.data.days.length > 0), [displaySegments])
@@ -1319,7 +1347,6 @@ const WorkloadUserWorkloadRow = memo(function WorkloadUserWorkloadRow({
   renderMiniGanttForUser,
   toggleRowKey,
   chartCellsVirtual,
-  stickyMetaTopGridLine = true,
 }: {
   projectId: string
   projectLabel: string
@@ -1370,9 +1397,7 @@ const WorkloadUserWorkloadRow = memo(function WorkloadUserWorkloadRow({
       >
         <div
           className={cn(
-            'sticky left-0 isolate flex min-w-0 shrink-0 transform-gpu items-center gap-2 bg-background border-r border-border/50 px-3',
-            stickyMetaTopGridLine &&
-            (showGridBorders ? 'border-t border-t-border/60' : cn('border-t', 'border-t-border/[0.08]'))
+            'sticky left-0 isolate flex min-w-0 shrink-0 transform-gpu items-center gap-2 bg-background border-r border-border/50 px-3'
           )}
           style={{ ...hbGantt.leftBlock, zIndex: Z_WORKLOAD_STICKY_ROW_META }}
         >

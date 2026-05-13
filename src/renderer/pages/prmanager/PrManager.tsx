@@ -5,7 +5,6 @@ import { createPortal } from 'react-dom'
 import { useTranslation } from 'react-i18next'
 import { GitCherryPickBranchesDialog } from '@/components/dialogs/git/GitCherryPickBranchesDialog'
 import { Tabs, TabsContent } from '@/components/ui/tabs'
-import { OverlayLoader } from '@/components/ui-elements/OverlayLoader'
 import toast from '@/components/ui-elements/Toast'
 import { cn } from '@/lib/utils'
 import { usePrManagerToolbarPortalTarget } from '@/pages/main/PrManagerToolbarPortalContext'
@@ -23,11 +22,9 @@ type Tab = 'board' | 'settings'
 
 export type PrManagerProps = {
   embedded?: boolean
-  /** Khi nhúng trong main: tách sang cửa sổ PR Manager riêng */
-  onDetachToWindow?: () => void
 }
 
-export function PrManager({ embedded = false, onDetachToWindow }: PrManagerProps) {
+export function PrManager({ embedded = false }: PrManagerProps) {
   const { t } = useTranslation()
   const user = useTaskAuthStore(s => s.user)
   const verifySession = useTaskAuthStore(s => s.verifySession)
@@ -125,7 +122,6 @@ export function PrManager({ embedded = false, onDetachToWindow }: PrManagerProps
       onCherryPick={() => setCherryPickOpen(true)}
       onOpenToken={() => setTokenDialogOpen(true)}
       onDockToMain={!embedded ? () => window.api.prManager.requestDock() : undefined}
-      onDetachToWindow={embedded ? onDetachToWindow : undefined}
     />
   )
 
@@ -158,7 +154,6 @@ export function PrManager({ embedded = false, onDetachToWindow }: PrManagerProps
               </TabsContent>
             </Tabs>
           )}
-          <OverlayLoader isLoading={loading} />
         </div>
 
         <GitHubTokenDialog open={tokenDialogOpen} onOpenChange={setTokenDialogOpen} currentStatus={tokenStatus} onChanged={refreshToken} />

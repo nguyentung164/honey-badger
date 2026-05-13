@@ -1,6 +1,6 @@
 'use client'
 
-import { GitPullRequest, LayoutDashboard, ListOrdered, Minus, Settings, ShieldCheck, Square, SquareArrowOutDownLeft, SquareArrowOutUpRight, X } from 'lucide-react'
+import { GitPullRequest, LayoutDashboard, ListOrdered, Minus, Settings, ShieldCheck, Square, SquareArrowOutDownLeft, X } from 'lucide-react'
 import type { CSSProperties } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Button } from '@/components/ui/button'
@@ -28,8 +28,6 @@ export type PrManagerTopBarProps = {
   onOpenToken: () => void
   /** Cửa sổ riêng: gộp vào app chính */
   onDockToMain?: () => void
-  /** Nhúng title bar: tách sang cửa sổ */
-  onDetachToWindow?: () => void
 }
 
 export function PrManagerTopBar({
@@ -45,7 +43,6 @@ export function PrManagerTopBar({
   onCherryPick,
   onOpenToken,
   onDockToMain,
-  onDetachToWindow,
 }: PrManagerTopBarProps) {
   const { t } = useTranslation()
   const embedded = variant === 'embedded'
@@ -161,16 +158,6 @@ export function PrManagerTopBar({
                 <ShieldCheck className="h-3.5 w-3.5 shrink-0" />
                 <span>{tokenStatus?.ok ? tokenStatus.login : t('prManager.shell.tokenConfigure')}</span>
               </Button>
-            )}
-            {embedded && onDetachToWindow && (
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <Button type="button" variant="ghost" size="icon" className={cn('shrink-0 rounded-sm', compactBtn)} onClick={onDetachToWindow}>
-                    <SquareArrowOutUpRight strokeWidth={1.25} className="h-3.5 w-3.5" />
-                  </Button>
-                </TooltipTrigger>
-                <TooltipContent side="bottom">{t('mainShell.prManagerDetachTooltip')}</TooltipContent>
-              </Tooltip>
             )}
             {!embedded && onDockToMain && (
               <Tooltip>

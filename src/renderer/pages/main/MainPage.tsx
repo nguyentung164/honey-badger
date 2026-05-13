@@ -3,15 +3,19 @@ import { Bug, CheckCircle, CircleAlert, GitPullRequest, HelpCircle, SendHorizont
 import { IPC } from 'main/constants'
 import { lazy, memo, Suspense, useCallback, useEffect, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { PR_MANAGER_RENDERER_CHANNELS } from 'shared/constants'
+import { AUTOMATION_RENDERER_CHANNELS, PR_MANAGER_RENDERER_CHANNELS, TASK_MANAGEMENT_RENDERER_CHANNELS } from 'shared/constants'
 import {
   getInitialShellViewFromStorage,
   isTaskShellRole,
   MAIN_SHELL_VIEW_KEY,
   type MainShellView,
+  readPersistedAutomationDetached,
   readPersistedPrManagerDetached,
+  readPersistedTasksDetached,
   readStoredShellView,
+  writePersistedAutomationDetached,
   writePersistedPrManagerDetached,
+  writePersistedTasksDetached,
 } from 'shared/mainShellView'
 import { ChangePasswordDialog } from '@/components/dialogs/auth/ChangePasswordDialog'
 import { LoginDialog } from '@/components/dialogs/auth/LoginDialog'
@@ -33,6 +37,7 @@ import toast from '@/components/ui-elements/Toast'
 import { cn } from '@/lib/utils'
 import { validateCommitMessage } from '@/lib/validateCommitMessage'
 import { GitStagingTable } from '@/pages/main/GitStagingTable'
+import { AutomationToolbarPortalContext } from '@/pages/main/AutomationToolbarPortalContext'
 import { PrManagerToolbarPortalContext } from '@/pages/main/PrManagerToolbarPortalContext'
 import { QuickCreatePrDialog } from '@/pages/main/QuickCreatePrDialog'
 import { type FileData, SvnFileTable } from '@/pages/main/SvnFileTable'
@@ -87,12 +92,14 @@ const TaskManagement = lazy(() => import('@/pages/taskmanagement/TaskManagement'
 
 const PrManager = lazy(() => import('@/pages/prmanager/PrManager').then(m => ({ default: m.PrManager })))
 
+const AutomationPage = lazy(() => import('@/pages/automation/AutomationPage').then(m => ({ default: m.AutomationPage })))
+
 function getInitialMainPageShellView(): MainShellView {
-  if (readPersistedPrManagerDetached()) {
-    const v = getInitialShellViewFromStorage()
-    if (v === 'prManager') return 'vcs'
-  }
-  return getInitialShellViewFromStorage()
+  const v = getInitialShellViewFromStorage()
+  if (readPersistedPrManagerDetached() && v === 'prManager') return 'vcs'
+  if (readPersistedTasksDetached() && v === 'tasks') return 'vcs'
+  if (readPersistedAutomationDetached() && v === 'automation') return 'vcs'
+  return v
 }
 
 let _initialGitLoadDone = false
@@ -480,6 +487,8 @@ export function MainPage() {
   const [showChangePasswordDialog, setShowChangePasswordDialog] = useState(false)
   const [shellView, setShellView] = useState<MainShellView>(() => getInitialMainPageShellView())
   const [prManagerDetached, setPrManagerDetached] = useState<boolean>(() => readPersistedPrManagerDetached())
+  const [tasksDetached, setTasksDetached] = useState<boolean>(() => readPersistedTasksDetached())
+  const [automationDetached, setAutomationDetached] = useState<boolean>(() => readPersistedAutomationDetached())
 
   const persistShellView = useCallback((v: MainShellView) => {
     setShellView(v)
@@ -495,16 +504,36 @@ export function MainPage() {
     writePersistedPrManagerDetached(detached)
   }, [])
 
+  const persistTasksDetached = useCallback((detached: boolean) => {
+    setTasksDetached(detached)
+    writePersistedTasksDetached(detached)
+  }, [])
+
+  const persistAutomationDetached = useCallback((detached: boolean) => {
+    setAutomationDetached(detached)
+    writePersistedAutomationDetached(detached)
+  }, [])
+
   useEffect(() => {
     if (!user || isGuest) {
       setShellView('vcs')
       setPrManagerDetached(false)
       writePersistedPrManagerDetached(false)
+      setTasksDetached(false)
+      writePersistedTasksDetached(false)
+      setAutomationDetached(false)
+      writePersistedAutomationDetached(false)
       return
     }
     const stored = readStoredShellView()
     let next = stored ?? (isTaskShellRole(user.role) ? 'tasks' : 'vcs')
     if (readPersistedPrManagerDetached() && next === 'prManager') {
+      next = 'vcs'
+    }
+    if (readPersistedTasksDetached() && next === 'tasks') {
+      next = 'vcs'
+    }
+    if (readPersistedAutomationDetached() && next === 'automation') {
       next = 'vcs'
     }
     setShellView(next)
@@ -527,6 +556,26 @@ export function MainPage() {
     window.api.prManager.requestDock()
   }, [])
 
+  const handleTasksDetach = useCallback(() => {
+    persistTasksDetached(true)
+    persistShellView('vcs')
+    window.api.taskManagement.openWindow()
+  }, [persistTasksDetached, persistShellView])
+
+  const handleTasksDockFromTitleBar = useCallback(() => {
+    window.api.taskManagement.requestDock()
+  }, [])
+
+  const handleAutomationDetach = useCallback(() => {
+    persistAutomationDetached(true)
+    persistShellView('vcs')
+    window.api.automation.openWindow()
+  }, [persistAutomationDetached, persistShellView])
+
+  const handleAutomationDockFromTitleBar = useCallback(() => {
+    window.api.automation.requestDock()
+  }, [])
+
   useEffect(() => {
     const onDocked = () => {
       persistPrManagerDetached(false)
@@ -544,9 +593,44 @@ export function MainPage() {
     }
   }, [persistPrManagerDetached, persistShellView])
 
+  useEffect(() => {
+    const onDocked = () => {
+      persistTasksDetached(false)
+      persistShellView('tasks')
+    }
+    const onWindowClosed = () => {
+      persistTasksDetached(false)
+      persistShellView('tasks')
+    }
+    window.api.on(TASK_MANAGEMENT_RENDERER_CHANNELS.DOCKED_TO_MAIN, onDocked)
+    window.api.on(TASK_MANAGEMENT_RENDERER_CHANNELS.WINDOW_CLOSED, onWindowClosed)
+    return () => {
+      window.api.removeListener(TASK_MANAGEMENT_RENDERER_CHANNELS.DOCKED_TO_MAIN, onDocked)
+      window.api.removeListener(TASK_MANAGEMENT_RENDERER_CHANNELS.WINDOW_CLOSED, onWindowClosed)
+    }
+  }, [persistTasksDetached, persistShellView])
+
+  useEffect(() => {
+    const onDocked = () => {
+      persistAutomationDetached(false)
+      persistShellView('automation')
+    }
+    const onWindowClosed = () => {
+      persistAutomationDetached(false)
+      persistShellView('automation')
+    }
+    window.api.on(AUTOMATION_RENDERER_CHANNELS.DOCKED_TO_MAIN, onDocked)
+    window.api.on(AUTOMATION_RENDERER_CHANNELS.WINDOW_CLOSED, onWindowClosed)
+    return () => {
+      window.api.removeListener(AUTOMATION_RENDERER_CHANNELS.DOCKED_TO_MAIN, onDocked)
+      window.api.removeListener(AUTOMATION_RENDERER_CHANNELS.WINDOW_CLOSED, onWindowClosed)
+    }
+  }, [persistAutomationDetached, persistShellView])
+
   const enableShellSwitcher = Boolean(user && !isGuest)
-  const showEmbeddedTasks = enableShellSwitcher && shellView === 'tasks'
+  const showEmbeddedTasks = enableShellSwitcher && shellView === 'tasks' && !tasksDetached
   const showEmbeddedPrManager = enableShellSwitcher && shellView === 'prManager' && !prManagerDetached
+  const showEmbeddedAutomation = enableShellSwitcher && shellView === 'automation' && !automationDetached
   const [taskToolbarHostEl, setTaskToolbarHostEl] = useState<HTMLDivElement | null>(null)
   const taskToolbarHostRef = useCallback((node: HTMLDivElement | null) => {
     setTaskToolbarHostEl(node)
@@ -558,6 +642,10 @@ export function MainPage() {
   const [prManagerToolbarHostEl, setPrManagerToolbarHostEl] = useState<HTMLDivElement | null>(null)
   const prManagerToolbarHostRef = useCallback((node: HTMLDivElement | null) => {
     setPrManagerToolbarHostEl(node)
+  }, [])
+  const [automationToolbarHostEl, setAutomationToolbarHostEl] = useState<HTMLDivElement | null>(null)
+  const automationToolbarHostRef = useCallback((node: HTMLDivElement | null) => {
+    setAutomationToolbarHostEl(node)
   }, [])
 
   const [showCommitResultDialog, setShowCommitResultDialog] = useState(false)
@@ -1134,14 +1222,22 @@ export function MainPage() {
           enableShellSwitcher={enableShellSwitcher}
           prManagerDetached={prManagerDetached}
           onPrManagerDock={handlePrManagerDockFromTitleBar}
+          onPrManagerDetach={handlePrManagerDetach}
+          tasksDetached={tasksDetached}
+          onTasksDock={handleTasksDockFromTitleBar}
+          onTasksDetach={handleTasksDetach}
+          automationDetached={automationDetached}
+          onAutomationDock={handleAutomationDockFromTitleBar}
+          onAutomationDetach={handleAutomationDetach}
           onRequestLogin={() => setShowLoginDialog(true)}
           onRequestChangePassword={() => setShowChangePasswordDialog(true)}
           taskToolbarHostRef={taskToolbarHostRef}
           taskToolbarActionsHostRef={taskToolbarActionsHostRef}
           prManagerToolbarHostRef={prManagerToolbarHostRef}
+          automationToolbarHostRef={automationToolbarHostRef}
         />
         {/* Content */}
-        <div className={cn('flex-1 flex flex-col min-h-0', showEmbeddedTasks || showEmbeddedPrManager ? 'p-0 overflow-hidden' : 'p-4')}>
+        <div className={cn('flex-1 flex flex-col min-h-0', showEmbeddedTasks || showEmbeddedPrManager || showEmbeddedAutomation ? 'p-0 overflow-hidden' : 'p-4')}>
           {enableShellSwitcher && showEmbeddedTasks ? (
             <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
               <Suspense
@@ -1166,8 +1262,22 @@ export function MainPage() {
                 }
               >
                 <PrManagerToolbarPortalContext.Provider value={{ host: prManagerToolbarHostEl }}>
-                  <PrManager embedded onDetachToWindow={handlePrManagerDetach} />
+                  <PrManager embedded />
                 </PrManagerToolbarPortalContext.Provider>
+              </Suspense>
+            </div>
+          ) : enableShellSwitcher && showEmbeddedAutomation ? (
+            <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
+              <Suspense
+                fallback={
+                  <div className="flex min-h-0 flex-1 items-center justify-center">
+                    <GlowLoader className="w-10 h-10" />
+                  </div>
+                }
+              >
+                <AutomationToolbarPortalContext.Provider value={{ host: automationToolbarHostEl }}>
+                  <AutomationPage mode="embedded" />
+                </AutomationToolbarPortalContext.Provider>
               </Suspense>
             </div>
           ) : (

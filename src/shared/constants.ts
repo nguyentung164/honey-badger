@@ -18,3 +18,15 @@ export const PR_MANAGER_RENDERER_CHANNELS = {
   DOCKED_TO_MAIN: 'pr-manager:docked-to-main',
   WINDOW_CLOSED: 'pr-manager:window-closed',
 } as const
+
+/** Main process → renderer (cửa sổ chính): trạng thái Tasks (task-management window) tách/gộp. */
+export const TASK_MANAGEMENT_RENDERER_CHANNELS = {
+  DOCKED_TO_MAIN: 'task-management:docked-to-main',
+  WINDOW_CLOSED: 'task-management:window-closed',
+} as const
+
+/** Main process → renderer (cửa sổ chính): trạng thái Automation window tách/gộp. */
+export const AUTOMATION_RENDERER_CHANNELS = {
+  DOCKED_TO_MAIN: 'automation:docked-to-main',
+  WINDOW_CLOSED: 'automation:window-closed',
+} as const

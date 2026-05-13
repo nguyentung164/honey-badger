@@ -29,6 +29,7 @@ import {
   Settings2,
   Sparkles,
   Square,
+  SquareArrowOutDownLeft,
   Wrench,
   X,
   XCircle,
@@ -2425,9 +2426,8 @@ export function TaskManagement({ embedded = false }: { embedded?: boolean }) {
           taskToolbarPortalTarget
         )
         : null}
-      {embedded && taskToolbarActionsTarget
+      {embedded && taskToolbarActionsTarget && activeTab === 'tasks'
         ? createPortal(
-          activeTab === 'tasks' ? (
             <div className="flex items-center gap-1 shrink-0 h-full" style={{ WebkitAppRegion: 'no-drag' } as CSSProperties}>
               <Button
                 variant="outline"
@@ -2456,10 +2456,9 @@ export function TaskManagement({ embedded = false }: { embedded?: boolean }) {
                 <FileDown className="h-3 w-3 shrink-0" />
                 {t('taskManagement.importFromCsv')}
               </Button>
-            </div>
-          ) : null,
-          taskToolbarActionsTarget
-        )
+            </div>,
+            taskToolbarActionsTarget
+          )
         : null}
 
       {/* Toolbar cửa sổ Task riêng (không embedded) */}
@@ -2512,7 +2511,7 @@ export function TaskManagement({ embedded = false }: { embedded?: boolean }) {
                 <Button
                   variant="outline"
                   size="sm"
-                  className={cn(PR_MANAGER_ACCENT_OUTLINE_BTN, PR_MANAGER_ACCENT_OUTLINE_SURFACE, 'shrink-0 px-2 text-xs')}
+                  className={cn(PR_MANAGER_ACCENT_OUTLINE_BTN_COMPACT, PR_MANAGER_ACCENT_TITLEBAR_SURFACE)}
                   onClick={() => {
                     if (projects.length === 0) {
                       toast.error(t('taskManagement.createProjectFirst'))
@@ -2523,21 +2522,29 @@ export function TaskManagement({ embedded = false }: { embedded?: boolean }) {
                   }}
                   disabled={!taskApiOk || isLoading || isImporting}
                 >
-                  <Plus className="h-3.5 w-3.5 shrink-0" />
+                  <Plus className="h-3 w-3 shrink-0" />
                   {t('taskManagement.createTask')}
                 </Button>
                 <Button
                   variant="outline"
                   size="sm"
-                  className={cn(PR_MANAGER_ACCENT_OUTLINE_BTN, PR_MANAGER_ACCENT_OUTLINE_SURFACE, 'shrink-0 px-2 text-xs')}
+                  className={cn(PR_MANAGER_ACCENT_OUTLINE_BTN_COMPACT, PR_MANAGER_ACCENT_TITLEBAR_SURFACE)}
                   onClick={handleImportCsv}
                   disabled={!taskApiOk || isLoading || isImporting}
                 >
-                  <FileDown className="h-3.5 w-3.5 shrink-0" />
+                  <FileDown className="h-3 w-3 shrink-0" />
                   {t('taskManagement.importFromCsv')}
                 </Button>
               </>
             )}
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button type="button" variant="link" size="sm" className="h-[25px] w-[25px] shrink-0 rounded-sm shadow-none" onClick={() => window.api.taskManagement.requestDock()}>
+                  <SquareArrowOutDownLeft strokeWidth={1.25} absoluteStrokeWidth className="h-4 w-4" />
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent side="bottom">{t('mainShell.tasksDockTooltip')}</TooltipContent>
+            </Tooltip>
             <button
               type="button"
               onClick={() => handleWindow('minimize')}
@@ -2552,7 +2559,7 @@ export function TaskManagement({ embedded = false }: { embedded?: boolean }) {
             >
               <Square size={14.5} strokeWidth={1} absoluteStrokeWidth />
             </button>
-            <button type="button" onClick={() => handleWindow('close')} className="w-10 h-8 flex items-center justify-center hover:bg-red-600 hover:text-white">
+            <button type="button" onClick={() => window.api.taskManagement.closeWindow()} className="w-10 h-8 flex items-center justify-center hover:bg-red-600 hover:text-white">
               <X size={20} strokeWidth={1} absoluteStrokeWidth />
             </button>
           </div>

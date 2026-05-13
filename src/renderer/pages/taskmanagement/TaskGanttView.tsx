@@ -25,7 +25,7 @@ import { GANTT_LEADING_FIXED_W, GANTT_LEFT_META_FIXED_W, HB_GANTT_GRID_V_VAR, HB
 import { PLAN_UNSCHED_TASK_DRAG_MIME } from './planUnschedTaskDragMime'
 import type { WorkloadBoardSegment, WorkloadDisplayMode, WorkloadOverrideUpsertInput } from './TaskGanttWorkload'
 import { WORKLOAD_EXPANDED_MINI_MAX_SCROLL_PX, WorkloadGanttPaneRailControlStack } from './TaskGanttWorkload'
-import { isTaskBulkSelectable, taskDisplayLabel, type TaskTableRowTask } from './TaskTableRow'
+import { isTaskBulkSelectable, type TaskTableRowTask, taskDisplayLabel } from './TaskTableRow'
 import {
   bucketTasksByGroup,
   loadTaskBoardRowGrouping,
@@ -750,7 +750,20 @@ export type GanttVirtualSliceStableCtx = {
 }
 
 /** Viền dưới hàng Gantt: `showGridBorders === undefined` → theo `data-gantt-grid` trên sheet (group). */
-function ganttRowSheetBorderClasses(showGridBorders: boolean | undefined, rowSelected: boolean) {
+function ganttRowSheetBorderClasses(showGridBorders: boolean | undefined, rowSelected: boolean, omitBottom = false) {
+  if (omitBottom) {
+    if (showGridBorders === true) {
+      return rowSelected ? 'bg-primary/[0.09] dark:bg-primary/12' : 'bg-transparent'
+    }
+    if (showGridBorders === false) {
+      return !rowSelected ? 'bg-transparent' : undefined
+    }
+    return cn(
+      rowSelected
+        ? 'group-data-[gantt-grid=on]/ganttGridShell:bg-primary/[0.09] dark:group-data-[gantt-grid=on]/ganttGridShell:bg-primary/12'
+        : 'group-data-[gantt-grid=on]/ganttGridShell:bg-transparent'
+    )
+  }
   if (showGridBorders === true) {
     return cn('border-b border-b-border/60', rowSelected ? 'bg-primary/[0.09] dark:bg-primary/12' : 'bg-transparent')
   }
@@ -1436,8 +1449,7 @@ export function TaskGanttView({
   const unscheduledGroups = useMemo(() => bucketTasksByGroup(unscheduled, groupingEffective, getAssigneeDisplay, 'title'), [unscheduled, groupingEffective, getAssigneeDisplay])
 
   const unschedGroupedSegmentKeys = useMemo(
-    () =>
-      groupingEffective !== 'flat' ? unscheduledGroups.filter(g => Boolean(g.title)).map(g => g.segmentKey) : [],
+    () => (groupingEffective !== 'flat' ? unscheduledGroups.filter(g => Boolean(g.title)).map(g => g.segmentKey) : []),
     [groupingEffective, unscheduledGroups]
   )
 
@@ -1476,10 +1488,7 @@ export function TaskGanttView({
     })
   }, [scheduledGroups, childrenByParentFull, groupingEffective, taskLinks])
 
-  const scheduledGroupSegmentKeys = useMemo(
-    () => groupTrees.filter(g => Boolean(g.title)).map(g => g.segmentKey),
-    [groupTrees]
-  )
+  const scheduledGroupSegmentKeys = useMemo(() => groupTrees.filter(g => Boolean(g.title)).map(g => g.segmentKey), [groupTrees])
 
   const toggleAllScheduledGroupSegmentsCollapsed = useCallback(() => {
     const keys = groupTrees.filter(g => Boolean(g.title)).map(g => g.segmentKey)
@@ -1515,14 +1524,12 @@ export function TaskGanttView({
   }, [groupingEffective, unscheduledGroups])
 
   const allScheduledGroupsCollapsed = useMemo(
-    () =>
-      scheduledGroupSegmentKeys.length > 0 && scheduledGroupSegmentKeys.every(k => collapsedGroupSegmentKeys.has(k)),
+    () => scheduledGroupSegmentKeys.length > 0 && scheduledGroupSegmentKeys.every(k => collapsedGroupSegmentKeys.has(k)),
     [collapsedGroupSegmentKeys, scheduledGroupSegmentKeys]
   )
 
   const allUnschedGroupsCollapsed = useMemo(
-    () =>
-      unschedGroupedSegmentKeys.length > 0 && unschedGroupedSegmentKeys.every(k => collapsedUnschedGroupSegmentKeys.has(k)),
+    () => unschedGroupedSegmentKeys.length > 0 && unschedGroupedSegmentKeys.every(k => collapsedUnschedGroupSegmentKeys.has(k)),
     [collapsedUnschedGroupSegmentKeys, unschedGroupedSegmentKeys]
   )
 
@@ -2669,26 +2676,14 @@ export function TaskGanttView({
                   'motion-safe:active:scale-[0.97] motion-reduce:active:scale-100',
                   'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/50 focus-visible:ring-inset'
                 )}
-                aria-label={
-                  allScheduledGroupsCollapsed
-                    ? t('taskManagement.ganttBulkUnfoldAllTimelineGroupsAria')
-                    : t('taskManagement.ganttBulkFoldAllTimelineGroupsAria')
-                }
-                title={
-                  allScheduledGroupsCollapsed
-                    ? t('taskManagement.ganttBulkUnfoldAllTimelineGroupsAria')
-                    : t('taskManagement.ganttBulkFoldAllTimelineGroupsAria')
-                }
+                aria-label={allScheduledGroupsCollapsed ? t('taskManagement.ganttBulkUnfoldAllTimelineGroupsAria') : t('taskManagement.ganttBulkFoldAllTimelineGroupsAria')}
+                title={allScheduledGroupsCollapsed ? t('taskManagement.ganttBulkUnfoldAllTimelineGroupsAria') : t('taskManagement.ganttBulkFoldAllTimelineGroupsAria')}
                 onClick={e => {
                   e.stopPropagation()
                   toggleAllScheduledGroupSegmentsCollapsed()
                 }}
               >
-                {allScheduledGroupsCollapsed ? (
-                  <UnfoldVertical className="h-3.5 w-3.5" aria-hidden />
-                ) : (
-                  <FoldVertical className="h-3.5 w-3.5" aria-hidden />
-                )}
+                {allScheduledGroupsCollapsed ? <UnfoldVertical className="h-3.5 w-3.5" aria-hidden /> : <FoldVertical className="h-3.5 w-3.5" aria-hidden />}
               </button>
             ) : null}
           </div>
@@ -2935,26 +2930,14 @@ export function TaskGanttView({
                     <button
                       type="button"
                       className="flex h-8 w-8 shrink-0 items-center justify-center rounded border border-border/60 bg-background/70 text-muted-foreground hover:text-foreground"
-                      aria-label={
-                        allUnschedGroupsCollapsed
-                          ? t('taskManagement.ganttBulkUnfoldUnscheduledGroupsAria')
-                          : t('taskManagement.ganttBulkFoldUnscheduledGroupsAria')
-                      }
-                      title={
-                        allUnschedGroupsCollapsed
-                          ? t('taskManagement.ganttBulkUnfoldUnscheduledGroupsAria')
-                          : t('taskManagement.ganttBulkFoldUnscheduledGroupsAria')
-                      }
+                      aria-label={allUnschedGroupsCollapsed ? t('taskManagement.ganttBulkUnfoldUnscheduledGroupsAria') : t('taskManagement.ganttBulkFoldUnscheduledGroupsAria')}
+                      title={allUnschedGroupsCollapsed ? t('taskManagement.ganttBulkUnfoldUnscheduledGroupsAria') : t('taskManagement.ganttBulkFoldUnscheduledGroupsAria')}
                       onClick={e => {
                         e.stopPropagation()
                         toggleAllUnschedGroupSegmentsCollapsed()
                       }}
                     >
-                      {allUnschedGroupsCollapsed ? (
-                        <UnfoldVertical className="h-3.5 w-3.5" />
-                      ) : (
-                        <FoldVertical className="h-3.5 w-3.5" />
-                      )}
+                      {allUnschedGroupsCollapsed ? <UnfoldVertical className="h-3.5 w-3.5" /> : <FoldVertical className="h-3.5 w-3.5" />}
                     </button>
                   ) : null}
                 </div>
@@ -3106,6 +3089,8 @@ const GanttTaskRow = memo(function GanttTaskRow({
   metaRailExpanded = true,
   priorityColorMap,
   getBadgeStyle,
+  /** Mini-Gantt trong Workload: hàng cuối khung con — viền đáy do wrapper `WorkloadUserWorkloadRow` đảm nhiệm. */
+  omitBottomRowBorder = false,
 }: {
   task: TaskTableRowTask
   start: Date
@@ -3150,6 +3135,7 @@ const GanttTaskRow = memo(function GanttTaskRow({
   rowSegment?: GanttRowSegment
   displayNo: string | null
   metaRailExpanded?: boolean
+  omitBottomRowBorder?: boolean
 }) {
   const { t } = useTranslation()
   const sRaw = parsePlanDate(task.planStartDate)
@@ -3363,12 +3349,12 @@ const GanttTaskRow = memo(function GanttTaskRow({
   const rowChromeFull = cn(
     'relative flex w-full shrink-0 items-stretch hover:bg-muted/25',
     rowSelected && 'bg-primary/[0.11] hover:bg-primary/[0.14] dark:bg-primary/15 dark:hover:bg-primary/[0.18]',
-    ganttRowSheetBorderClasses(showGridBordersProp, rowSelected)
+    ganttRowSheetBorderClasses(showGridBordersProp, rowSelected, omitBottomRowBorder)
   )
   const rowChromeHalf = cn(
     'flex shrink-0 items-stretch hover:bg-muted/25',
     rowSelected && 'bg-primary/[0.11] hover:bg-primary/[0.14] dark:bg-primary/15 dark:hover:bg-primary/[0.18]',
-    ganttRowSheetBorderClasses(showGridBordersProp, rowSelected)
+    ganttRowSheetBorderClasses(showGridBordersProp, rowSelected, omitBottomRowBorder)
   )
 
   const metaCellBg = rowSelected ? 'bg-transparent' : 'bg-background'
@@ -3505,9 +3491,7 @@ const GanttTaskRow = memo(function GanttTaskRow({
               <div className="relative overflow-hidden px-3.5 pb-3 pt-3">
                 <div className="pointer-events-none absolute inset-0 bg-gradient-to-br from-primary/[0.07] via-transparent to-transparent" aria-hidden />
                 <p className="relative text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">{actualStrip.sectionTitle}</p>
-                <p className="relative mt-1 line-clamp-2 text-left text-xs font-medium leading-snug text-foreground">
-                  {taskDisplayLabel(task, ganttNoTitle)}
-                </p>
+                <p className="relative mt-1 line-clamp-2 text-left text-xs font-medium leading-snug text-foreground">{taskDisplayLabel(task, ganttNoTitle)}</p>
                 <p className="relative mt-2 text-sm font-semibold tabular-nums leading-snug text-foreground">{actualStrip.rangeLine}</p>
                 <div className="relative mt-2 flex flex-wrap items-baseline gap-x-2 gap-y-1 border-t border-border/60 pt-2 text-[11px] leading-snug text-muted-foreground">
                   <span>
@@ -3573,10 +3557,7 @@ const GanttTaskRow = memo(function GanttTaskRow({
               {/* biome-ignore lint/a11y/noStaticElementInteractions: Gantt timeline drag */}
               <div
                 role="presentation"
-                className={cn(
-                  'flex min-h-0 min-w-0 flex-1 cursor-default items-center gap-1 overflow-hidden px-0.5',
-                  canDrag && 'cursor-grab active:cursor-grabbing'
-                )}
+                className={cn('flex min-h-0 min-w-0 flex-1 cursor-default items-center gap-1 overflow-hidden px-0.5', canDrag && 'cursor-grab active:cursor-grabbing')}
                 style={{ minHeight: planBarHeightPx }}
                 onPointerDown={e => canDrag && beginDrag('move', e)}
                 onDoubleClick={handleOpenTask}
@@ -3593,10 +3574,7 @@ const GanttTaskRow = memo(function GanttTaskRow({
                     {getPriorityIcon(priority)}
                     <span className="max-w-[4rem] truncate">{priorityLabel}</span>
                   </span>
-                  <span
-                    className="min-w-0 flex-1 truncate text-left text-[9px] font-semibold tabular-nums text-foreground/90"
-                    title={planBarTitleShort}
-                  >
+                  <span className="min-w-0 flex-1 truncate text-left text-[9px] font-semibold tabular-nums text-foreground/90" title={planBarTitleShort}>
                     {planBarTitleShort}
                   </span>
                 </div>
@@ -3798,6 +3776,7 @@ const WorkloadMiniGanttSplitPanel = memo(function WorkloadMiniGanttSplitPanel({
               isExpanded={false}
               rowSegment="meta"
               displayNo={String(index + 1)}
+              omitBottomRowBorder={index === userTasks.length - 1}
             />
           ))}
         </div>
@@ -3847,6 +3826,7 @@ const WorkloadMiniGanttSplitPanel = memo(function WorkloadMiniGanttSplitPanel({
               isExpanded={false}
               rowSegment="chart"
               displayNo={String(index + 1)}
+              omitBottomRowBorder={index === userTasks.length - 1}
             />
           ))}
         </div>
