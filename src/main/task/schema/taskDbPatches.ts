@@ -726,6 +726,8 @@ CREATE TABLE IF NOT EXISTS test_case_results (
   run_id VARCHAR(36) NOT NULL REFERENCES test_runs(id) ON DELETE CASCADE,
   case_id VARCHAR(36) NULL REFERENCES test_cases(id) ON DELETE SET NULL,
   case_code VARCHAR(100) NULL,
+  test_title TEXT NULL,
+  spec_file TEXT NULL,
   browser VARCHAR(20) NOT NULL,
   status VARCHAR(20) NOT NULL,
   duration_ms BIGINT NOT NULL DEFAULT 0,
@@ -739,6 +741,29 @@ CREATE TABLE IF NOT EXISTS test_case_results (
 )`)
     await query('CREATE INDEX IF NOT EXISTS idx_test_case_results_run ON test_case_results(run_id)')
     await query('CREATE INDEX IF NOT EXISTS idx_test_case_results_case ON test_case_results(case_id)')
+
+    const missingTitleCol = await query<{ cnt: number }>(
+      `SELECT 1 AS cnt FROM information_schema.columns
+       WHERE table_schema = current_schema() AND table_name = 'test_case_results' AND column_name = 'test_title' LIMIT 1`
+    )
+    if (!missingTitleCol?.length) {
+      await query('ALTER TABLE test_case_results ADD COLUMN test_title TEXT NULL')
+    }
+    const missingSpecCol = await query<{ cnt: number }>(
+      `SELECT 1 AS cnt FROM information_schema.columns
+       WHERE table_schema = current_schema() AND table_name = 'test_case_results' AND column_name = 'spec_file' LIMIT 1`
+    )
+    if (!missingSpecCol?.length) {
+      await query('ALTER TABLE test_case_results ADD COLUMN spec_file TEXT NULL')
+    }
+
+    const missingFailureStepsCol = await query<{ cnt: number }>(
+      `SELECT 1 AS cnt FROM information_schema.columns
+       WHERE table_schema = current_schema() AND table_name = 'test_case_results' AND column_name = 'failure_steps' LIMIT 1`
+    )
+    if (!missingFailureStepsCol?.length) {
+      await query('ALTER TABLE test_case_results ADD COLUMN failure_steps TEXT NULL')
+    }
 
     await query(`
 CREATE TABLE IF NOT EXISTS ai_repair_proposals (

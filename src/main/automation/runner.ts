@@ -67,15 +67,6 @@ export function broadcastAutomationRunEvent(event: RunStreamEvent): void {
   broadcast(event)
 }
 
-function sendTo(target: WebContents | undefined, event: RunStreamEvent): void {
-  const channel = event.kind === 'progress' ? IPC.AUTOMATION.STREAM_PROGRESS : IPC.AUTOMATION.STREAM_LOG
-  try {
-    target?.send(channel, event)
-  } catch {
-    // ignore
-  }
-}
-
 interface ProgressTally {
   total: number
   passed: number
@@ -169,7 +160,7 @@ function buildArgs(req: RunRequest, workspacePath: string, runId: string): strin
   if (req.grep?.trim()) args.push(`--grep=${req.grep.trim()}`)
   if (req.headed) args.push('--headed')
 
-  // Không trùng thư mục với report.json/junit: Playwright dọn `--output` có thể gây mất file hoặc race khi đọc JSON.
+  // Không trùng thư mục với Playwright `--output` (artifacts): tránh bị dọn/ghi đè cùng cây thư mục.
   args.push(`--output=${getRunArtifactsDir(req.projectId, runId)}`)
   args.push(`--config=${path.join(workspacePath, 'playwright.config.ts')}`)
 
@@ -207,7 +198,6 @@ export function cancelRun(runId: string, reason = 'user-cancel'): boolean {
 interface StartRunArgs {
   project: TestProject
   request: RunRequest
-  sender?: WebContents
   /** Bí mật theo project (env passthrough) — chỉ tồn tại trong child process. */
   secretEnv?: Record<string, string>
 }
@@ -223,7 +213,7 @@ export interface StartRunResult {
  * Trả về promise resolve khi process kết thúc (kèm parsed report nếu có).
  */
 export async function startRun(args: StartRunArgs): Promise<{ start: StartRunResult; outcome: Promise<RunOutcome> }> {
-  const { project, request, sender, secretEnv } = args
+  const { project, request, secretEnv } = args
   if (isRunBusy(project.id)) {
     throw new Error(`Project ${project.name} already has an active run.`)
   }
@@ -232,6 +222,7 @@ export async function startRun(args: StartRunArgs): Promise<{ start: StartRunRes
   const startedAt = new Date().toISOString()
 
   await fs.mkdir(path.dirname(getRunLogFile(project.id, runId)), { recursive: true })
+  await fs.mkdir(path.dirname(getRunJsonFile(project.id, runId)), { recursive: true })
   const logFile = getRunLogFile(project.id, runId)
   const jsonFile = getRunJsonFile(project.id, runId)
   const junitFile = getRunJunitFile(project.id, runId)
@@ -241,6 +232,7 @@ export async function startRun(args: StartRunArgs): Promise<{ start: StartRunRes
   const workspacePath = await bootstrapWorkspace(project, {
     jsonFile,
     junitFile,
+    htmlOutputFolder: reportDir,
   })
 
   const baseEnv = buildPlaywrightSpawnEnv({
@@ -275,14 +267,12 @@ export async function startRun(args: StartRunArgs): Promise<{ start: StartRunRes
       currentTest: tally.currentTest,
     }
     broadcast(event)
-    sendTo(sender, event)
   }, 250)
 
   const flushLog = _.throttle(
     (chunk: string, stream: 'stdout' | 'stderr') => {
       const event: RunStreamEvent = { kind: 'log', runId, chunk, stream }
       broadcast(event)
-      sendTo(sender, event)
     },
     100,
     { leading: true, trailing: true }
@@ -344,12 +334,19 @@ export async function startRun(args: StartRunArgs): Promise<{ start: StartRunRes
       let parsed: ParsedRunReport | undefined
       let logTailForFailure: string | undefined
       try {
-        const report = await readReportJsonWithRetry(jsonFile)
+        await new Promise<void>(r => {
+          setTimeout(r, 450)
+        })
+        const report = await readReportJsonWithRetry(jsonFile, { maxWaitMs: 25000, intervalMs: 120 })
         try {
           parsed = parsePlaywrightReport(report)
         } catch (parseErr) {
           l.warn('[automation] parsePlaywrightReport failed', parseErr)
           logTailForFailure = await readLogTailString(logFile, 12000)
+          if (tally.total > 0) {
+            parsed = parsedFromListTally(tally, startedAt, finishedAt)
+            l.info('[automation] using list-reporter tally fallback (report.json parse failed)')
+          }
         }
       } catch (err) {
         l.warn(`[automation] could not read JSON report ${jsonFile} (child exitCode=${code ?? 'unknown'})`, err)
@@ -400,7 +397,6 @@ export async function startRun(args: StartRunArgs): Promise<{ start: StartRunRes
         },
       }
       broadcast(finishedEvent)
-      sendTo(sender, finishedEvent)
       if (signal) l.info(`[automation] run ${runId} exited via signal ${signal}`)
 
       projectLocks.delete(project.id)
@@ -442,7 +438,6 @@ export async function startRun(args: StartRunArgs): Promise<{ start: StartRunRes
     startedAt,
   }
   broadcast(startedEvent)
-  sendTo(sender, startedEvent)
 
   return {
     start: { runId, startedAt, workspacePath },

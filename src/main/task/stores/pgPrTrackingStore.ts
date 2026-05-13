@@ -98,7 +98,7 @@ export interface PrBranchCheckpoint {
   ghPrAdditions: number | null
   ghPrDeletions: number | null
   ghPrChangedFiles: number | null
-  /** clean|dirty|blocked|behind|unknown|unstable|draft; ch\u1ec9 c\u00f3 khi sync qua getPR. */
+  /** GitHub REST mergeable_state (\u2248 GraphQL MergeStateStatus, ch\u1eef th\u01b0\u1eddng): clean|dirty|conflict|blocked|behind|unknown|unstable|draft|has_hooks; ch\u1ec9 khi sync qua getPR. */
   ghPrMergeableState: string | null
   ghPrAssignees: Array<{ login: string; id: number; avatarUrl?: string | null }> | null
   ghPrLabels: Array<{ name: string; color: string }> | null

@@ -1,6 +1,7 @@
 import type { TestCase } from 'shared/automation/types'
 import { AUTOMATION_JSON_SCHEMAS, PROMPT } from 'main/constants'
 import { callStructuredJSON } from './aiStructured'
+import { patchSpecPlaywrightImport } from './workspace'
 
 interface AiGenSpecPayload {
   code: string
@@ -18,10 +19,14 @@ function fillTemplate(template: string, vars: Record<string, string>): string {
 
 function ensurePlaywrightImports(code: string): string {
   const trimmed = code.trim()
-  if (/^\s*import\s+\{[^}]*\btest\b/m.test(trimmed) && /\bexpect\b/.test(trimmed)) {
-    return trimmed.endsWith('\n') ? trimmed : `${trimmed}\n`
-  }
-  return `import { test, expect } from '@playwright/test'\n\n${trimmed}\n`
+  const withImport =
+    /^\s*import\s+\{[^}]*\btest\b/m.test(trimmed) && /\bexpect\b/.test(trimmed)
+      ? trimmed.endsWith('\n')
+        ? trimmed
+        : `${trimmed}\n`
+      : `import { test, expect, expectSoft } from './hb-fixtures.ts'\n\n${trimmed}\n`
+  /** Chuẩn hoá @playwright/test / import file:// cũ → `./hb-fixtures.ts` (cùng logic khi ghi file). */
+  return patchSpecPlaywrightImport(withImport)
 }
 
 /**

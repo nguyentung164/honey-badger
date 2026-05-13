@@ -64,6 +64,16 @@ export type RunStatus = 'queued' | 'running' | 'passed' | 'failed' | 'cancelled'
 
 export type CaseResultStatus = 'passed' | 'failed' | 'skipped' | 'flaky' | 'timedOut' | 'interrupted'
 
+/** Một bước / một assertion lỗi (từ test.step hoặc tách errors[]) — dùng cho UI + DB JSON. */
+export interface TestCaseFailureStep {
+  /** Tiêu đề hiển thị (Playwright step title hoặc "Failure 1", …). */
+  label: string
+  message: string
+  screenshotPaths: string[]
+  /** Ảnh failure-highlight-*.png từ hb-fixtures (một lỗi ↔ một ảnh khi có). */
+  failureHighlightPaths?: string[]
+}
+
 export interface TestRunSummary {
   id: string
   projectId: string
@@ -90,12 +100,21 @@ export interface TestRunSummary {
 export interface TestCaseResult {
   id: string
   runId: string
+  /** Liên kết `test_cases.id` khi resolve được theo code; có thể rỗng. */
   caseId: string
+  /** Mã TC trích từ report (ví dụ TC-01) — luôn có khi parser nhận diện được. */
+  caseCode?: string
+  /** Tiêu đề test Playwright (hiển thị khi không có UUID case trong app). */
+  testTitle?: string
+  /** File spec Playwright (đường dẫn tương đối). */
+  specFile?: string
   browser: AutomationBrowser
   status: CaseResultStatus
   durationMs: number
   attempts: number
   errorMessage?: string
+  /** Chi tiết từng lỗi (soft nhiều assert, hoặc test.step); rỗng nếu dữ liệu cũ. */
+  failureSteps?: TestCaseFailureStep[]
   tracePath?: string
   screenshotPaths: string[]
   videoPath?: string

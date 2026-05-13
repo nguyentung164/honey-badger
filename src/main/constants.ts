@@ -520,7 +520,10 @@ export const IPC = {
     CASE_WRITE_SPEC: 'automation:case:write-spec',
     IMPORT_PICK_FILE: 'automation:import:pick-file',
     IMPORT_PARSE: 'automation:import:parse',
+    IMPORT_EXCEL_LIST_SHEETS: 'automation:import:excel-list-sheets',
+    IMPORT_EXCEL_MARKDOWN: 'automation:import:excel-markdown',
     AI_GEN_CASES: 'automation:ai:gen-cases',
+    AI_PICK_SCREENSHOTS: 'automation:ai:pick-screenshots',
     AI_GEN_SPEC: 'automation:ai:gen-spec',
     AI_REPAIR: 'automation:ai:repair',
     AI_REPAIR_APPLY: 'automation:ai:repair-apply',
@@ -533,8 +536,12 @@ export const IPC = {
     RUN_RESULTS: 'automation:run:results',
     RUN_OPEN_REPORT: 'automation:run:open-report',
     RUN_OPEN_TRACE: 'automation:run:open-trace',
+    RUN_OPEN_SCREENSHOT: 'automation:run:open-screenshot',
+    RUN_OPEN_VIDEO: 'automation:run:open-video',
+    RUN_READ_SCREENSHOT_PREVIEW: 'automation:run:read-screenshot-preview',
     RUN_OPEN_LOG: 'automation:run:open-log',
     RUN_OPEN_WORKSPACE: 'automation:run:open-workspace',
+    RUN_CLEAR_HISTORY: 'automation:run:clear-history',
     BROWSERS_INSTALL: 'automation:browsers:install',
     BROWSERS_STATUS: 'automation:browsers:status',
     DASHBOARD_SUMMARY: 'automation:dashboard:summary',
@@ -898,7 +905,7 @@ User message:
 `,
 
   AUTOMATION_GEN_CASES: `
-You are a senior QA engineer. From the input text below, extract structured test cases.
+You are a senior QA engineer. From the input text and/or any attached UI screenshots, extract structured test cases.
 
 Constraints:
 - Output JSON matching the provided schema (no markdown, no comments).
@@ -908,24 +915,26 @@ Constraints:
 - Use action enum: navigate | click | fill | select | expect | wait | custom.
 - For UI tests against a web app, "target" should be a stable CSS or role selector when known; otherwise a human-readable hint.
 - Keep test cases self-contained and deterministic.
+- {vision_note}
 
 Project context: {project_context}
 
-Input text:
+Tester notes (may be empty if only screenshots are provided):
 {input_text}
 `,
 
   AUTOMATION_GEN_SPEC: `
-You are a senior Playwright (Node, @playwright/test) engineer. Convert the provided TestCase JSON into a runnable .spec.ts file.
+You are a senior Playwright engineer. Convert the provided TestCase JSON into a runnable .spec.ts file for a Honey Badger automation workspace (Playwright under the hood).
 
 Constraints:
 - Output JSON matching the provided schema (no markdown).
-- The "code" field must be a complete TypeScript module beginning with: import { test, expect } from '@playwright/test'
+- The "code" field must be a complete TypeScript module beginning with: import { test, expect, expectSoft } from './hb-fixtures.ts' (project-local wrapper: extended test fixture + expect.soft; do not import test/expect from '@playwright/test' in generated specs).
 - Include "helpers": an array of short optional hints/snippet titles (use [] if none — the field must be present).
 - Use page.goto / page.locator / expect with auto-wait. Avoid arbitrary sleeps.
 - Use the project's baseURL (already configured in playwright.config) — call relative URLs.
 - Keep steps in order, comment each step with the original step.note when present.
-- Use a single test() block named after the TestCase title.
+- Prefer one test() named after the TestCase title. For multiple UI checks in that test, use await expectSoft(...).toBeVisible() (or other matchers) so one failed assertion does not abort the rest — each soft failure still fails the test at the end and keeps screenshots useful. Reserve hard expect() only when a failure must stop the flow immediately (e.g. before destructive actions).
+- Alternatively you may split into multiple test() blocks if each step should be an isolated case.
 
 Project context: {project_context}
 
@@ -938,9 +947,10 @@ You are a Playwright debugging expert. The spec below failed at runtime. Produce
 
 Constraints:
 - Output JSON matching the provided schema (no markdown).
-- proposedSpec: the FULL updated .spec.ts file (TypeScript), top of file: import { test, expect } from '@playwright/test'.
+- proposedSpec: the FULL updated .spec.ts file (TypeScript), top of file: import { test, expect, expectSoft } from './hb-fixtures.ts' (same as generated specs — not bare '@playwright/test').
 - rationale: 2-4 sentences explaining the fix.
 - Prefer locator changes, role-based selectors, and explicit awaits over try/catch hacks. Do not weaken assertions just to make it pass.
+- If the spec chains many visibility checks in one test(), consider expectSoft for non-gating assertions so later steps still run.
 
 Failure context:
 - Failed step: {failed_step}

@@ -1,6 +1,7 @@
 import l from 'electron-log'
 import { randomUuidV7 } from 'shared/randomUuidV7'
 import type { ApiProvider } from '../store/ConfigurationStore'
+import { isBooleanColumn, toDbBoolValue } from './stores/pgPrTrackingStore'
 import { hasDbConfig, query } from './schema/db'
 
 export type AiUsageEvent = {
@@ -48,10 +49,22 @@ function mapRow(r: Record<string, unknown>): AiUsageEvent {
 export async function appendAiUsageEvent(event: Omit<AiUsageEvent, 'id' | 'ts'>): Promise<boolean> {
   if (!hasDbConfig()) return false
   try {
+    const pricingKnownColIsBoolean = await isBooleanColumn('ai_usage_events', 'pricing_known')
+    const pricingKnownDb = toDbBoolValue(event.pricingKnown, pricingKnownColIsBoolean)
     await query(
-      `INSERT INTO ai_usage_events (id, feature, provider, model, input_tokens, output_tokens, cached_input_tokens, cost_usd, pricing_known)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-      [randomUuidV7(), event.feature, event.provider, event.model, event.inputTokens, event.outputTokens, event.cachedInputTokens, event.costUsd, event.pricingKnown]
+      `INSERT INTO ai_usage_events (id, created_at, feature, provider, model, input_tokens, output_tokens, cached_input_tokens, cost_usd, pricing_known)
+       VALUES (?, CURRENT_TIMESTAMP(3), ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [
+        randomUuidV7(),
+        event.feature,
+        event.provider,
+        event.model,
+        event.inputTokens,
+        event.outputTokens,
+        event.cachedInputTokens,
+        event.costUsd,
+        pricingKnownDb,
+      ]
     )
     const cntRows = await query<{ c: number }>('SELECT COUNT(*) AS c FROM ai_usage_events')
     const c = Number(cntRows?.[0]?.c) || 0

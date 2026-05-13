@@ -1,4 +1,5 @@
 import Anthropic from '@anthropic-ai/sdk'
+import type { ImageBlockParam, TextBlockParam } from '@anthropic-ai/sdk/resources/messages/messages'
 import { GoogleGenAI } from '@google/genai'
 import l from 'electron-log'
 import OpenAI from 'openai'
@@ -7,12 +8,20 @@ import type { ApiProvider } from '../store/ConfigurationStore'
 import configurationStore from '../store/ConfigurationStore'
 import { appendAiUsageEvent } from '../task/aiUsageDb'
 
+/** Ảnh kèm prompt (multimodal). `mimeType`: ví dụ image/png; `base64` không kèm prefix data:. */
+export interface StructuredImagePart {
+  mimeType: string
+  base64: string
+}
+
 interface StructuredCall {
   prompt: string
   schema: Record<string, unknown>
   schemaName: string
   feature: string
   maxTokens?: number
+  /** Khi có, gửi kèm text prompt tới các model vision. */
+  images?: StructuredImagePart[]
 }
 
 interface StructuredResult<T> {
@@ -100,9 +109,26 @@ async function callOpenAIStructured<T>(req: StructuredCall): Promise<StructuredR
   if (!openaiApiKey) throw new Error('OpenAI API key is not configured.')
   const openai = new OpenAI({ apiKey: openaiApiKey })
   const model = openaiModel?.trim() || 'gpt-5.4'
+  const inputParam: Parameters<typeof openai.responses.create>[0]['input'] =
+    req.images?.length ?
+      [
+        {
+          role: 'user',
+          type: 'message',
+          content: [
+            { type: 'input_text', text: req.prompt },
+            ...req.images.map(img => ({
+              type: 'input_image' as const,
+              detail: 'auto' as const,
+              image_url: `data:${img.mimeType};base64,${img.base64}`,
+            })),
+          ],
+        },
+      ]
+    : (req.prompt as Parameters<typeof openai.responses.create>[0]['input'])
   const response = await openai.responses.create({
     model,
-    input: req.prompt,
+    input: inputParam,
     reasoning: { effort: openaiReasoningEffort ?? 'low' },
     text: {
       format: {
@@ -136,10 +162,22 @@ async function callClaudeStructured<T>(req: StructuredCall): Promise<StructuredR
   const anthropic = new Anthropic({ apiKey: claudeApiKey })
   const model = 'claude-sonnet-4-6'
   const toolName = req.schemaName
+  const imageBlocks: ImageBlockParam[] = (req.images ?? []).map(img => ({
+    type: 'image',
+    source: {
+      type: 'base64',
+      media_type: img.mimeType as 'image/jpeg' | 'image/png' | 'image/gif' | 'image/webp',
+      data: img.base64,
+    },
+  }))
+  const textBlock: TextBlockParam = { type: 'text', text: req.prompt }
+  const userContent: string | Array<ImageBlockParam | TextBlockParam> =
+    imageBlocks.length > 0 ? [...imageBlocks, textBlock] : req.prompt
+
   const message = await anthropic.messages.create({
     max_tokens: req.maxTokens ?? 8192,
     model,
-    messages: [{ role: 'user', content: req.prompt }],
+    messages: [{ role: 'user', content: userContent }],
     tools: [
       {
         name: toolName,
@@ -175,9 +213,20 @@ async function callGoogleStructured<T>(req: StructuredCall): Promise<StructuredR
   const ai = new GoogleGenAI({ apiKey: googleApiKey })
   const model = 'gemini-3-flash-preview'
   const sanitized = sanitizeForGoogle(req.schema)
+  const contents =
+    req.images?.length ?
+      {
+        role: 'user',
+        parts: [
+          { text: req.prompt },
+          ...req.images.map(img => ({ inlineData: { mimeType: img.mimeType, data: img.base64 } })),
+        ],
+      }
+    : req.prompt
+
   const response = await ai.models.generateContent({
     model,
-    contents: req.prompt,
+    contents,
     config: {
       responseMimeType: 'application/json',
       responseSchema: sanitized as unknown as Parameters<typeof ai.models.generateContent>[0]['config'] extends infer C

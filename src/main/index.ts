@@ -28,6 +28,24 @@ import { registerVcsIpcHandlers } from './ipc/vcs'
 import { registerWindowIpcHandlers } from './ipc/window'
 import { setMainWindowRef } from './mainWindowRef'
 import configurationStore from './store/ConfigurationStore'
+import {
+  migrateAchievementBooleanColumns,
+  migrateAutomationTestTables,
+  migratePrAiAssistChatsTable,
+  migratePrCheckpointGithubColumns,
+  migratePrCheckpointTemplateHeaderGroup,
+  migratePrManagerTablesUserIdColumns,
+  migratePrTrackedBranchesDropAssigneeStatus,
+  migratePrUserBoardSkipBranchesTable,
+  migrateProjectUserDailyWorkload,
+  migrateTaskChangeHistoryTable,
+  migrateTaskTypesAddMilestone,
+  migrateTaskWorkloadOverridesTable,
+  migrateTasksStatusEnteredAt,
+  migrateTasksTicketIdNullable,
+  migrateUserDailySnapshotsUniqueConstraint,
+  migrateUserProjectRolesProjectIdUkToGenerated,
+} from './task/schema/taskDbPatches'
 import { initAutoUpdater } from './updater'
 import { initDeveloperModeShortcut } from './utils/developerModeShortcut'
 import { startFileWatcher } from './utils/fileWatcher'
@@ -99,24 +117,6 @@ makeAppWithSingleInstanceLock(async () => {
         startProgressScheduler()
         const { startAutomationRetentionScheduler } = await import('./scheduler/automationRetention')
         startAutomationRetentionScheduler()
-        const {
-          migratePrCheckpointGithubColumns,
-          migratePrCheckpointTemplateHeaderGroup,
-          migratePrManagerTablesUserIdColumns,
-          migratePrTrackedBranchesDropAssigneeStatus,
-          migratePrUserBoardSkipBranchesTable,
-          migratePrAiAssistChatsTable,
-          migrateTaskChangeHistoryTable,
-          migrateProjectUserDailyWorkload,
-          migrateTaskWorkloadOverridesTable,
-          migrateUserDailySnapshotsUniqueConstraint,
-          migrateTaskTypesAddMilestone,
-          migrateTasksTicketIdNullable,
-          migrateTasksStatusEnteredAt,
-          migrateUserProjectRolesProjectIdUkToGenerated,
-          migrateAchievementBooleanColumns,
-          migrateAutomationTestTables,
-        } = await import('./task/schema/taskDbPatches')
         await migrateAchievementBooleanColumns().catch(() => {})
         await migrateUserProjectRolesProjectIdUkToGenerated().catch(() => {})
         await migratePrCheckpointGithubColumns().catch(() => {})

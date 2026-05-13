@@ -1058,8 +1058,25 @@ export interface AutomationApi {
   }
   importPickFile: () => Promise<AutomationEnvelope<{ filePath: string | null }>>
   importParse: (args: { projectId: string; filePath: string; layout: ImportLayout }) => Promise<AutomationEnvelope<ImportPreview>>
+  importExcelListSheets: (filePath: string) => Promise<
+    AutomationEnvelope<{ sheets: Array<{ name: string }>; warnings: string[] }>
+  >
+  importExcelMarkdown: (args: {
+    filePath: string
+    sheetNames: string[]
+    headerRow: number
+    firstDataRow?: number
+    lastRow?: number
+    firstCol?: number
+    lastCol?: number
+  }) => Promise<AutomationEnvelope<{ markdown: string; warnings: string[] }>>
   ai: {
-    generateCases: (args: { projectId: string; inputText: string }) => Promise<AutomationEnvelope<ImportPreview>>
+    pickScreenshots: () => Promise<AutomationEnvelope<{ filePaths: string[] }>>
+    generateCases: (args: {
+      projectId: string
+      inputText: string
+      imagePaths?: string[]
+    }) => Promise<AutomationEnvelope<ImportPreview>>
     generateSpec: (args: { caseId: string }) => Promise<AutomationEnvelope<{ code: string; rationale: string; helpers: string[] }>>
     repair: (args: { caseResultId: string }) => Promise<AutomationEnvelope<AiRepairProposal>>
     repairApply: (args: { proposalId: string }) => Promise<AutomationEnvelope<{ applied: boolean }>>
@@ -1074,8 +1091,16 @@ export interface AutomationApi {
     results: (runId: string) => Promise<AutomationEnvelope<TestCaseResult[]>>
     openReport: (runId: string) => Promise<AutomationEnvelope<{ opened: boolean }>>
     openLog: (args: { projectId: string; runId: string }) => Promise<AutomationEnvelope<{ opened: boolean }>>
-    openTrace: (args: { tracePath: string }) => Promise<AutomationEnvelope<{ opened: boolean }>>
+    openTrace: (args: { tracePath: string; projectId?: string; runId?: string }) => Promise<AutomationEnvelope<{ opened: boolean }>>
+    openScreenshot: (args: { screenshotPath: string; projectId: string; runId: string }) => Promise<AutomationEnvelope<{ opened: boolean }>>
+    openVideo: (args: { videoPath: string; projectId: string; runId: string }) => Promise<AutomationEnvelope<{ opened: boolean }>>
+    readScreenshotPreview: (args: {
+      screenshotPath: string
+      projectId: string
+      runId: string
+    }) => Promise<AutomationEnvelope<{ dataUrl: string }>>
     openWorkspace: (projectId: string) => Promise<AutomationEnvelope<{ opened: boolean }>>
+    clearHistory: (projectId: string) => Promise<AutomationEnvelope<{ cleared: boolean }>>
   }
   browsers: {
     install: (args: { browsers?: AutomationBrowser[] }) => Promise<AutomationEnvelope<{ installed: AutomationBrowser[] }>>
@@ -1870,7 +1895,11 @@ contextBridge.exposeInMainWorld('api', {
     },
     importPickFile: () => ipcRenderer.invoke(IPC.AUTOMATION.IMPORT_PICK_FILE),
     importParse: (args: any) => ipcRenderer.invoke(IPC.AUTOMATION.IMPORT_PARSE, toStructuredCloneable(args)),
+    importExcelListSheets: (filePath: string) => ipcRenderer.invoke(IPC.AUTOMATION.IMPORT_EXCEL_LIST_SHEETS, filePath),
+    importExcelMarkdown: (args: any) =>
+      ipcRenderer.invoke(IPC.AUTOMATION.IMPORT_EXCEL_MARKDOWN, toStructuredCloneable(args)),
     ai: {
+      pickScreenshots: () => ipcRenderer.invoke(IPC.AUTOMATION.AI_PICK_SCREENSHOTS),
       generateCases: (args: any) => ipcRenderer.invoke(IPC.AUTOMATION.AI_GEN_CASES, toStructuredCloneable(args)),
       generateSpec: (args: any) => ipcRenderer.invoke(IPC.AUTOMATION.AI_GEN_SPEC, toStructuredCloneable(args)),
       repair: (args: any) => ipcRenderer.invoke(IPC.AUTOMATION.AI_REPAIR, toStructuredCloneable(args)),
@@ -1887,7 +1916,12 @@ contextBridge.exposeInMainWorld('api', {
       openReport: (runId: string) => ipcRenderer.invoke(IPC.AUTOMATION.RUN_OPEN_REPORT, runId),
       openLog: (args: any) => ipcRenderer.invoke(IPC.AUTOMATION.RUN_OPEN_LOG, toStructuredCloneable(args)),
       openTrace: (args: any) => ipcRenderer.invoke(IPC.AUTOMATION.RUN_OPEN_TRACE, toStructuredCloneable(args)),
+      openScreenshot: (args: any) => ipcRenderer.invoke(IPC.AUTOMATION.RUN_OPEN_SCREENSHOT, toStructuredCloneable(args)),
+      openVideo: (args: any) => ipcRenderer.invoke(IPC.AUTOMATION.RUN_OPEN_VIDEO, toStructuredCloneable(args)),
+      readScreenshotPreview: (args: any) =>
+        ipcRenderer.invoke(IPC.AUTOMATION.RUN_READ_SCREENSHOT_PREVIEW, toStructuredCloneable(args)),
       openWorkspace: (projectId: string) => ipcRenderer.invoke(IPC.AUTOMATION.RUN_OPEN_WORKSPACE, projectId),
+      clearHistory: (projectId: string) => ipcRenderer.invoke(IPC.AUTOMATION.RUN_CLEAR_HISTORY, projectId),
     },
     browsers: {
       install: (args: any) => ipcRenderer.invoke(IPC.AUTOMATION.BROWSERS_INSTALL, toStructuredCloneable(args)),

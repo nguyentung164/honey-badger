@@ -34,6 +34,8 @@ describe('automation workspace paths', () => {
     expect(workspace.getResultsDir(id).startsWith(root)).toBe(true)
     expect(workspace.getRunArtifactsDir(id, 'run-1').startsWith(root)).toBe(true)
     expect(workspace.getRunArtifactsDir(id, 'run-1')).toContain(`${path.sep}test-results${path.sep}run-1${path.sep}artifacts`)
+    expect(workspace.getRunReportsDir(id, 'run-1').startsWith(root)).toBe(true)
+    expect(workspace.getRunReportsDir(id, 'run-1')).toContain(`${path.sep}hb-reports${path.sep}run-1`)
     expect(workspace.getReportDir(id).startsWith(root)).toBe(true)
     expect(workspace.getStorageStateFile(id).startsWith(root)).toBe(true)
   })
@@ -65,6 +67,7 @@ describe('automation workspace paths', () => {
     expect(cfg).toContain("name: 'firefox'")
     expect(cfg).not.toContain('\\\\')
     expect(cfg).toMatch(/from\s+["']file:/)
+    expect(cfg).toContain('maxFailures: 0')
   })
 
   it('embeds json/junit reporter paths when reporterOutputs is set', () => {
@@ -89,8 +92,56 @@ describe('automation workspace paths', () => {
     const patched = workspace.patchSpecPlaywrightImport(
       `import { test } from '@playwright/test'\nimport { x } from "lodash"\n`
     )
-    expect(patched).toMatch(/from\s+["']file:/)
+    expect(patched).toContain('./hb-fixtures.ts')
     expect(patched).not.toMatch(/from\s+['"]@playwright\/test['"]/)
+  })
+
+  it('patchSpecPlaywrightImport rewrites legacy file URL import to hb-fixtures', () => {
+    const href = workspace.resolvePlaywrightTestImportSpecifier()
+    const raw = `import { test } from ${JSON.stringify(href)}\n`
+    const patched = workspace.patchSpecPlaywrightImport(raw)
+    expect(patched).toContain('./hb-fixtures.ts')
+    expect(patched).not.toContain(href)
+  })
+
+  it('hb-fixtures writes named highlight PNGs under outputDir and attaches by path', () => {
+    const src = workspace.renderHbFailureFixtures()
+    expect(src).toContain('attachAllFailureHighlights')
+    expect(src).toContain('failure-highlight-${i + 1}.png')
+    expect(src).toContain('clearHbFailureMarks')
+    expect(src).toContain('testInfo.outputDir')
+    expect(src).toContain('fs.writeFile')
+    expect(src).toContain('path: outPath')
+  })
+
+  it('resolves attachment under playwright-report/... against workspace root', () => {
+    const id = 'proj-x'
+    const root = workspace.getWorkspacePath(id)
+    const abs = workspace.resolveStoredArtifactPathForOpen('playwright-report/run-1/data/abc.png', {
+      projectId: id,
+      runId: 'run-1',
+    })
+    expect(abs).toBe(path.normalize(path.join(root, 'playwright-report/run-1/data/abc.png')))
+  })
+
+  it('resolves data/<file> under playwright-report/<runId> for HTML reporter embeds', () => {
+    const id = 'proj-x'
+    const abs = workspace.resolveStoredArtifactPathForOpen('data/d792a33e45f588c61f3841a1ca5f64007dfe8e5a.png', {
+      projectId: id,
+      runId: 'run-1',
+    })
+    expect(abs).toBe(
+      path.normalize(
+        path.join(workspace.getReportDir(id, 'run-1'), 'data', 'd792a33e45f588c61f3841a1ca5f64007dfe8e5a.png')
+      )
+    )
+  })
+
+  it('resolves bare 40-hex png as playwright-report/<runId>/data file', () => {
+    const id = 'proj-x'
+    const hash = 'd792a33e45f588c61f3841a1ca5f64007dfe8e5a.png'
+    const abs = workspace.resolveStoredArtifactPathForOpen(hash, { projectId: id, runId: 'run-1' })
+    expect(abs).toBe(path.normalize(path.join(workspace.getReportDir(id, 'run-1'), 'data', hash)))
   })
 
   it('builds spawn env with Electron-as-Node and browsers cache path', () => {

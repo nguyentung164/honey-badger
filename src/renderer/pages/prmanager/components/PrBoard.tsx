@@ -642,7 +642,7 @@ function githubBranchUrl(row: TrackedBranchRow): string {
   return `https://github.com/${row.repoOwner}/${row.repoRepo}/tree/${branchPath}`
 }
 
-/** Trạng thái mergeable từ GitHub (PR mở): pr_* = màu chữ; merge_* = nền trạng thái. */
+/** Trạng thái mergeable từ GitHub REST `mergeable_state` (mirror GraphQL MergeStateStatus, chữ thường). */
 type MergeableUi = {
   prText: string
   prIcon: string
@@ -694,6 +694,7 @@ function getMergeableUi(mergeable: string | null | undefined, t: TFunction): Mer
       mergeTitle: t('prManager.mergeableUi.behindTitle'),
     }
   }
+  // MergeStateStatus UNSTABLE (GraphQL: có thể merge nhưng có check chưa pass — app vẫn chặn merge hàng loạt)
   if (s === 'unstable') {
     return {
       prText: 'text-orange-700 dark:text-orange-300',
@@ -704,6 +705,32 @@ function getMergeableUi(mergeable: string | null | undefined, t: TFunction): Mer
       blockMerge: true,
       icon: AlertCircle,
       mergeTitle: t('prManager.mergeableUi.ciFailingTitle'),
+    }
+  }
+  // MergeStateStatus DRAFT — merge blocked (thường trùng ghPrDraft nhưng API vẫn có trường hợp chỉ báo qua đây)
+  if (s === 'draft') {
+    return {
+      prText: 'text-slate-600 dark:text-slate-300',
+      prIcon: 'text-slate-400 dark:text-slate-300',
+      mergeCell: 'bg-slate-400/16 text-slate-900 dark:text-slate-100',
+      shortLabel: t('prManager.mergeableUi.mergeStateDraft'),
+      subLabel: t('prManager.mergeableUi.mergeStateDraftSub'),
+      blockMerge: true,
+      icon: GitPullRequestDraft,
+      mergeTitle: t('prManager.mergeableUi.mergeStateDraftTitle'),
+    }
+  }
+  // MergeStateStatus CLEAN / HAS_HOOKS (Enterprise: có pre-receive hooks nhưng vẫn merge được)
+  if (s === 'clean' || s === 'has_hooks') {
+    return {
+      prText: 'text-emerald-700 dark:text-emerald-300',
+      prIcon: 'text-emerald-500 dark:text-emerald-300',
+      mergeCell: '',
+      shortLabel: t('prManager.mergeableUi.ready'),
+      subLabel: s === 'has_hooks' ? t('prManager.mergeableUi.mergeStateHooksSub') : '',
+      blockMerge: false,
+      icon: CheckCircle2,
+      mergeTitle: '',
     }
   }
   if (s === 'unknown') {
@@ -718,7 +745,7 @@ function getMergeableUi(mergeable: string | null | undefined, t: TFunction): Mer
       mergeTitle: t('prManager.mergeableUi.checkingTitle'),
     }
   }
-  // clean, rỗng, hoặc giá trị khác: coi như sẵn sàng (hoặc chưa sync)
+  // Giá trị API mới / chưa ánh xạ: coi sẵn sàng để không chặn merge oan (chuỗi "unknown" đã xử lý ở trên).
   return {
     prText: 'text-emerald-700 dark:text-emerald-300',
     prIcon: 'text-emerald-500 dark:text-emerald-300',
@@ -800,6 +827,12 @@ function ghPrSurfaceClasses(cp: PrBranchCheckpoint): string {
   }
   if (ms === 'unstable') {
     return GH_PR_SURFACE_BG.unstable
+  }
+  if (ms === 'draft') {
+    return GH_PR_SURFACE_BG.draft
+  }
+  if (ms === 'clean' || ms === 'has_hooks') {
+    return GH_PR_SURFACE_BG.ready
   }
   if (ms === 'unknown') {
     return GH_PR_SURFACE_BG.unknown

@@ -98,8 +98,8 @@ export function AutomationDashboard({ projectId }: Props) {
   const flaky = data.flaky.slice(0, 10)
 
   return (
-    <div className="flex h-full min-h-0 flex-col gap-4 overflow-auto">
-      <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
+    <div className="flex h-full min-h-0 flex-col gap-4 overflow-hidden">
+      <div className="grid shrink-0 grid-cols-1 gap-4 md:grid-cols-3">
         <Card>
           <CardHeader>
             <CardTitle className="text-sm">{t('automation.dashboard.lastRun')}</CardTitle>
@@ -137,14 +137,14 @@ export function AutomationDashboard({ projectId }: Props) {
         </Card>
       </div>
 
-      <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
-        <Card>
-          <CardHeader>
+      <div className="grid min-h-0 min-w-0 flex-1 grid-cols-1 gap-4 auto-rows-[minmax(0,1fr)] lg:grid-cols-2 lg:grid-rows-2 [&>*]:min-h-0 [&>*]:min-w-0">
+        <Card className="flex h-full min-h-0 flex-col overflow-hidden">
+          <CardHeader className="shrink-0">
             <CardTitle className="text-sm">{t('automation.dashboard.distribution')}</CardTitle>
           </CardHeader>
-          <CardContent className="h-64">
+          <CardContent className="flex min-h-0 flex-1 flex-col">
             {donutData.length > 0 ? (
-              <ChartContainer config={donutConfig}>
+              <ChartContainer config={donutConfig} className="aspect-auto h-full min-h-0 w-full min-w-0 flex-1">
                 <PieChart>
                   <ChartTooltip content={<ChartTooltipContent hideLabel />} />
                   <Pie data={donutData} dataKey="value" nameKey="name" innerRadius={50} outerRadius={80} paddingAngle={2}>
@@ -155,20 +155,20 @@ export function AutomationDashboard({ projectId }: Props) {
                 </PieChart>
               </ChartContainer>
             ) : (
-              <div className="flex h-full items-center justify-center text-sm text-muted-foreground">
+              <div className="flex min-h-0 flex-1 items-center justify-center text-sm text-muted-foreground">
                 {t('automation.dashboard.empty')}
               </div>
             )}
           </CardContent>
         </Card>
 
-        <Card>
-          <CardHeader>
+        <Card className="flex h-full min-h-0 flex-col overflow-hidden">
+          <CardHeader className="shrink-0">
             <CardTitle className="text-sm">{t('automation.dashboard.passRateTrend')}</CardTitle>
           </CardHeader>
-          <CardContent className="h-64">
+          <CardContent className="flex min-h-0 flex-1 flex-col">
             {trendData.length > 0 ? (
-              <ChartContainer config={trendConfig}>
+              <ChartContainer config={trendConfig} className="aspect-auto h-full min-h-0 w-full min-w-0 flex-1">
                 <LineChart data={trendData}>
                   <CartesianGrid strokeDasharray="3 3" />
                   <XAxis dataKey="label" tick={{ fontSize: 10 }} interval="preserveStartEnd" />
@@ -178,22 +178,20 @@ export function AutomationDashboard({ projectId }: Props) {
                 </LineChart>
               </ChartContainer>
             ) : (
-              <div className="flex h-full items-center justify-center text-sm text-muted-foreground">
+              <div className="flex min-h-0 flex-1 items-center justify-center text-sm text-muted-foreground">
                 {t('automation.dashboard.empty')}
               </div>
             )}
           </CardContent>
         </Card>
-      </div>
 
-      <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
-        <Card>
-          <CardHeader>
+        <Card className="flex h-full min-h-0 flex-col overflow-hidden">
+          <CardHeader className="shrink-0">
             <CardTitle className="text-sm">{t('automation.dashboard.durationByBrowser')}</CardTitle>
           </CardHeader>
-          <CardContent className="h-64">
+          <CardContent className="flex min-h-0 flex-1 flex-col">
             {durationByBrowser.length > 0 ? (
-              <ChartContainer config={durationConfig}>
+              <ChartContainer config={durationConfig} className="aspect-auto h-full min-h-0 w-full min-w-0 flex-1">
                 <BarChart data={durationByBrowser}>
                   <CartesianGrid strokeDasharray="3 3" />
                   <XAxis dataKey="browser" tick={{ fontSize: 11 }} />
@@ -203,18 +201,18 @@ export function AutomationDashboard({ projectId }: Props) {
                 </BarChart>
               </ChartContainer>
             ) : (
-              <div className="flex h-full items-center justify-center text-sm text-muted-foreground">
+              <div className="flex min-h-0 flex-1 items-center justify-center text-sm text-muted-foreground">
                 {t('automation.dashboard.empty')}
               </div>
             )}
           </CardContent>
         </Card>
 
-        <Card>
-          <CardHeader>
+        <Card className="flex h-full min-h-0 flex-col overflow-hidden">
+          <CardHeader className="shrink-0">
             <CardTitle className="text-sm">{t('automation.dashboard.topFlaky')}</CardTitle>
           </CardHeader>
-          <CardContent className="max-h-64 overflow-auto">
+          <CardContent className="flex min-h-0 flex-1 flex-col overflow-auto">
             {flaky.length === 0 ? (
               <div className="py-6 text-center text-sm text-muted-foreground">{t('automation.dashboard.empty')}</div>
             ) : (

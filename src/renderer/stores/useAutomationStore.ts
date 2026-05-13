@@ -24,6 +24,8 @@ interface CurrentRunState {
   tally: { total: number; passed: number; failed: number; skipped: number; currentTest?: string }
   /** Chi tiết lỗi (stream) — hiển thị dưới status / toast. */
   finishDetail: string | null
+  /** Từ sự kiện `started` — dùng cho History khi run đang chạy. */
+  startedAt: string | null
 }
 
 interface AutomationState {
@@ -45,6 +47,7 @@ interface AutomationState {
   setCasesLoading: (v: boolean) => void
   setRuns: (projectId: string, runs: TestRunSummary[]) => void
   setResults: (runId: string, results: TestCaseResult[]) => void
+  clearRunHistoryForProject: (projectId: string) => void
   setSettings: (s: AutomationSettingsState) => void
   setInstalledBrowsers: (list: string[]) => void
   handleStreamEvent: (event: RunStreamEvent) => void
@@ -61,7 +64,14 @@ export const useAutomationStore = create<AutomationState>(set => ({
   runs: {},
   results: {},
   settings: null,
-  current: { runId: null, projectId: null, status: 'idle', tally: { total: 0, passed: 0, failed: 0, skipped: 0 }, finishDetail: null },
+  current: {
+    runId: null,
+    projectId: null,
+    status: 'idle',
+    tally: { total: 0, passed: 0, failed: 0, skipped: 0 },
+    finishDetail: null,
+    startedAt: null,
+  },
   streamLog: [],
   installedBrowsers: [],
   setProjects: projects => set({ projects }),
@@ -79,6 +89,31 @@ export const useAutomationStore = create<AutomationState>(set => ({
   setCasesLoading: casesLoading => set({ casesLoading }),
   setRuns: (projectId, runs) => set(state => ({ runs: { ...state.runs, [projectId]: runs } })),
   setResults: (runId, results) => set(state => ({ results: { ...state.results, [runId]: results } })),
+  clearRunHistoryForProject: projectId =>
+    set(state => {
+      const prevRuns = state.runs[projectId] ?? []
+      const nextResults = { ...state.results }
+      for (const r of prevRuns) {
+        delete nextResults[r.id]
+      }
+      const resetThisProject =
+        state.current.projectId === projectId
+          ? {
+              runId: null,
+              projectId: null,
+              status: 'idle' as const,
+              tally: { total: 0, passed: 0, failed: 0, skipped: 0 },
+              finishDetail: null,
+              startedAt: null,
+            }
+          : state.current
+      return {
+        runs: { ...state.runs, [projectId]: [] },
+        results: nextResults,
+        current: resetThisProject,
+        streamLog: state.current.projectId === projectId ? [] : state.streamLog,
+      }
+    }),
   setSettings: settings => set({ settings }),
   setInstalledBrowsers: list => set({ installedBrowsers: list }),
   handleStreamEvent: event =>
@@ -92,6 +127,7 @@ export const useAutomationStore = create<AutomationState>(set => ({
               status: 'running',
               tally: { total: 0, passed: 0, failed: 0, skipped: 0 },
               finishDetail: null,
+              startedAt: event.startedAt,
             },
             streamLog: [],
           }
@@ -147,7 +183,14 @@ export const useAutomationStore = create<AutomationState>(set => ({
     }),
   resetCurrentRun: () =>
     set({
-      current: { runId: null, projectId: null, status: 'idle', tally: { total: 0, passed: 0, failed: 0, skipped: 0 }, finishDetail: null },
+      current: {
+        runId: null,
+        projectId: null,
+        status: 'idle',
+        tally: { total: 0, passed: 0, failed: 0, skipped: 0 },
+        finishDetail: null,
+        startedAt: null,
+      },
       streamLog: [],
     }),
 }))

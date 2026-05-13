@@ -1,5 +1,6 @@
 import { AUTOMATION_JSON_SCHEMAS, PROMPT } from 'main/constants'
 import { callStructuredJSON } from './aiStructured'
+import { patchSpecPlaywrightImport } from './workspace'
 
 interface AiRepairPayload {
   proposedSpec: string
@@ -50,5 +51,8 @@ export async function proposeSpecRepair(args: {
   if (!proposedSpec) {
     throw new Error('AI returned empty proposedSpec.')
   }
-  return { proposedSpec, rationale: result.data.rationale ?? '' }
+  return {
+    proposedSpec: patchSpecPlaywrightImport(proposedSpec),
+    rationale: result.data.rationale ?? '',
+  }
 }

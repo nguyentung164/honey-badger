@@ -4,6 +4,7 @@ import type {
   AutomationBrowser,
   RunStatus,
   TestCase,
+  TestCaseFailureStep,
   TestCaseResult,
   TestProject,
   TestRunSummary,
@@ -403,6 +404,8 @@ interface ResultRow {
   run_id: string
   case_id: string | null
   case_code: string | null
+  test_title: string | null
+  spec_file: string | null
   browser: string
   status: string
   duration_ms: string | number
@@ -412,6 +415,35 @@ interface ResultRow {
   screenshot_paths: string[] | null
   video_path: string | null
   stdout_path: string | null
+  failure_steps: string | null
+}
+
+function parseFailureStepsJson(raw: string | null | undefined): TestCaseFailureStep[] | undefined {
+  if (!raw?.trim()) return undefined
+  try {
+    const v = JSON.parse(raw) as unknown
+    if (!Array.isArray(v) || v.length === 0) return undefined
+    const out: TestCaseFailureStep[] = []
+    for (const item of v) {
+      if (!item || typeof item !== 'object') continue
+      const o = item as Record<string, unknown>
+      const label = typeof o.label === 'string' ? o.label : 'Step'
+      const message = typeof o.message === 'string' ? o.message : ''
+      const sp = o.screenshotPaths
+      const screenshotPaths = Array.isArray(sp) ? sp.filter((x): x is string => typeof x === 'string') : []
+      const fh = o.failureHighlightPaths ?? (o as { failure_highlight_paths?: unknown }).failure_highlight_paths
+      const failureHighlightPaths = Array.isArray(fh) ? fh.filter((x): x is string => typeof x === 'string') : []
+      out.push({
+        label,
+        message,
+        screenshotPaths,
+        failureHighlightPaths: failureHighlightPaths.length > 0 ? failureHighlightPaths : undefined,
+      })
+    }
+    return out.length > 0 ? out : undefined
+  } catch {
+    return undefined
+  }
 }
 
 function rowToResult(r: ResultRow): TestCaseResult {
@@ -419,11 +451,15 @@ function rowToResult(r: ResultRow): TestCaseResult {
     id: r.id,
     runId: r.run_id,
     caseId: r.case_id ?? '',
+    caseCode: r.case_code ?? undefined,
+    testTitle: r.test_title ?? undefined,
+    specFile: r.spec_file ?? undefined,
     browser: r.browser as AutomationBrowser,
     status: r.status as TestCaseResult['status'],
     durationMs: Number(r.duration_ms ?? 0),
     attempts: r.attempts,
     errorMessage: r.error_message ?? undefined,
+    failureSteps: parseFailureStepsJson(r.failure_steps),
     tracePath: r.trace_path ?? undefined,
     screenshotPaths: r.screenshot_paths ?? [],
     videoPath: r.video_path ?? undefined,
@@ -433,22 +469,25 @@ function rowToResult(r: ResultRow): TestCaseResult {
 
 export async function insertCaseResults(
   runId: string,
-  rows: Array<Omit<TestCaseResult, 'id' | 'runId' | 'caseId'> & { caseId?: string | null; caseCode?: string }>
+  rows: Array<Omit<TestCaseResult, 'id' | 'runId' | 'caseId'> & { caseId?: string | null }>
 ): Promise<void> {
   for (const row of rows) {
     await exec(
-      `INSERT INTO test_case_results (id, run_id, case_id, case_code, browser, status, duration_ms, attempts, error_message, trace_path, screenshot_paths, video_path, stdout_path)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      `INSERT INTO test_case_results (id, run_id, case_id, case_code, test_title, spec_file, browser, status, duration_ms, attempts, error_message, failure_steps, trace_path, screenshot_paths, video_path, stdout_path)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [
         randomUuidV7(),
         runId,
         row.caseId ?? null,
         row.caseCode ?? null,
+        row.testTitle ?? null,
+        row.specFile ?? null,
         row.browser,
         row.status,
         toRoundedMs(row.durationMs),
         toSafeInt(row.attempts, 1),
         row.errorMessage ?? null,
+        row.failureSteps?.length ? JSON.stringify(row.failureSteps) : null,
         row.tracePath ?? null,
         row.screenshotPaths ?? [],
         row.videoPath ?? null,
@@ -460,7 +499,7 @@ export async function insertCaseResults(
 
 export async function listResults(runId: string): Promise<TestCaseResult[]> {
   const rows = await query<ResultRow>(
-    `SELECT id, run_id, case_id, case_code, browser, status, duration_ms, attempts, error_message, trace_path, screenshot_paths, video_path, stdout_path
+    `SELECT id, run_id, case_id, case_code, test_title, spec_file, browser, status, duration_ms, attempts, error_message, failure_steps, trace_path, screenshot_paths, video_path, stdout_path
      FROM test_case_results WHERE run_id = ? ORDER BY browser ASC, status ASC`,
     [runId]
   )
@@ -469,7 +508,7 @@ export async function listResults(runId: string): Promise<TestCaseResult[]> {
 
 export async function getResult(id: string): Promise<TestCaseResult | null> {
   const rows = await query<ResultRow>(
-    `SELECT id, run_id, case_id, case_code, browser, status, duration_ms, attempts, error_message, trace_path, screenshot_paths, video_path, stdout_path
+    `SELECT id, run_id, case_id, case_code, test_title, spec_file, browser, status, duration_ms, attempts, error_message, failure_steps, trace_path, screenshot_paths, video_path, stdout_path
      FROM test_case_results WHERE id = ?`,
     [id]
   )
@@ -535,6 +574,11 @@ export async function listOldRunIds(projectId: string, keep: number): Promise<st
 export async function listAllProjectIds(): Promise<string[]> {
   const rows = await query<{ id: string }>('SELECT id FROM test_projects')
   return rows.map(r => r.id)
+}
+
+/** Xoá mọi run (và cascade test_case_results, ai_repair_proposals) của project. */
+export async function deleteAllRunsForProject(projectId: string): Promise<void> {
+  await exec('DELETE FROM test_runs WHERE project_id = ?', [projectId])
 }
 
 export async function deleteRunCascade(runId: string): Promise<void> {

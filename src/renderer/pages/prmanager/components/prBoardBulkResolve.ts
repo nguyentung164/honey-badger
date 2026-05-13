@@ -27,7 +27,7 @@ export type BulkActionKind = 'merge' | 'close' | 'draft' | 'ready' | 'updateBran
 /** Giống getMergeableUi(...).blockMerge trên PrBoard — không phụ thuộc i18n. */
 export function githubMergeableBlocksMerge(mergeable: string | null | undefined): boolean {
   const s = (mergeable || '').toLowerCase().trim()
-  return s === 'dirty' || s === 'conflict' || s === 'blocked' || s === 'behind' || s === 'unstable' || s === 'unknown'
+  return s === 'dirty' || s === 'conflict' || s === 'blocked' || s === 'behind' || s === 'unstable' || s === 'unknown' || s === 'draft'
 }
 
 export type BulkPrRowTarget = {

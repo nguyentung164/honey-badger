@@ -1,6 +1,6 @@
 import { promises as fs } from 'node:fs'
 import path from 'node:path'
-import { dialog, ipcMain, shell, type WebContents } from 'electron'
+import { dialog, ipcMain, shell } from 'electron'
 import l from 'electron-log'
 import { IPC } from 'main/constants'
 import { randomUuidV7 } from 'shared/randomUuidV7'
@@ -10,9 +10,11 @@ import type {
   ImportLayout,
   RunRequest,
   TestCase,
+  TestCaseResult,
   TestProject,
   TestRunSummary,
 } from 'shared/automation/types'
+import { isPlaywrightDefaultFailureScreenshotPath } from 'shared/automation/playwrightFailureScreenshots'
 import { generateSpecCode } from '../automation/aiSpecCodegen'
 import { proposeSpecRepair } from '../automation/aiSpecRepair'
 import { generateTestCases } from '../automation/aiTestCase'
@@ -45,8 +47,10 @@ import {
   updateSuite,
   upsertCases,
   deleteRunCascade,
+  deleteAllRunsForProject,
 } from '../automation/db'
 import { parseImportFile } from '../automation/importers'
+import { excelSelectionsToMarkdown, listExcelWorkbookSheets } from '../automation/importers/excelMarkdown'
 import {
   broadcastAutomationRunEvent,
   cancelAllRuns,
@@ -63,14 +67,39 @@ import {
   setProjectSecrets,
 } from '../automation/settingsStore'
 import {
+  assertResolvedPathInsideProjectWorkspace,
   bootstrapWorkspace,
+  buildPlaywrightSpawnEnv,
+  clearRunHistoryArtifactsFromWorkspace,
   detectInstalledBrowsers,
   getSpecFile,
   getWorkspacePath,
   patchSpecPlaywrightImport,
   removeWorkspace,
+  resolvePlaywrightCliPath,
+  resolveStoredArtifactPathForOpen,
+  resolveStoredTracePathForOpen,
+  resolveTraceArtifactAbsolutePath,
 } from '../automation/workspace'
 import { getTokenFromStore, verifyToken } from '../task/auth'
+import { query } from '../task/schema/db'
+
+const PREVIEW_IMAGE_MAX_BYTES = 15 * 1024 * 1024
+
+function safeResolveRunArtifact(args: { artifactPath: string; projectId: string; runId: string }): string {
+  const abs = resolveStoredArtifactPathForOpen(args.artifactPath, { projectId: args.projectId, runId: args.runId })
+  assertResolvedPathInsideProjectWorkspace(args.projectId, abs)
+  return abs
+}
+
+function mimeForImagePreview(filePath: string): string {
+  const ext = path.extname(filePath).toLowerCase()
+  if (ext === '.png') return 'image/png'
+  if (ext === '.jpg' || ext === '.jpeg') return 'image/jpeg'
+  if (ext === '.webp') return 'image/webp'
+  if (ext === '.gif') return 'image/gif'
+  return 'application/octet-stream'
+}
 
 interface Envelope<T = unknown> {
   status: 'success' | 'error'
@@ -112,6 +141,13 @@ async function writeSpec(projectId: string, code: string, content: string): Prom
   await fs.mkdir(path.dirname(file), { recursive: true })
   await fs.writeFile(file, patchSpecPlaywrightImport(content), 'utf8')
   return file
+}
+
+function preferredScreenshotPathForRepair(result: TestCaseResult): string | undefined {
+  const paths = result.screenshotPaths ?? []
+  const hl = paths.find(p => /failure-highlight(?:-\d+)?\.png$/i.test(path.basename(p)))
+  if (hl) return hl
+  return paths.find(p => !isPlaywrightDefaultFailureScreenshotPath(p)) ?? paths[0]
 }
 
 export function registerAutomationTestIpcHandlers(): void {
@@ -321,17 +357,77 @@ export function registerAutomationTestIpcHandlers(): void {
     }
   )
 
+  ipcMain.handle(IPC.AUTOMATION.IMPORT_EXCEL_LIST_SHEETS, async (_e, filePath: string) => {
+    try {
+      const { sheets, warnings } = await listExcelWorkbookSheets(filePath)
+      return ok({ sheets, warnings })
+    } catch (err) {
+      return fail((err as Error).message)
+    }
+  })
+
+  ipcMain.handle(
+    IPC.AUTOMATION.IMPORT_EXCEL_MARKDOWN,
+    async (
+      _e,
+      args: {
+        filePath: string
+        sheetNames: string[]
+        headerRow: number
+        firstDataRow?: number
+        lastRow?: number
+        firstCol?: number
+        lastCol?: number
+      }
+    ) => {
+      try {
+        const { markdown, warnings } = await excelSelectionsToMarkdown({
+          filePath: args.filePath,
+          sheetNames: args.sheetNames,
+          headerRow: args.headerRow,
+          firstDataRow: args.firstDataRow,
+          lastRow: args.lastRow,
+          firstCol: args.firstCol,
+          lastCol: args.lastCol,
+        })
+        return ok({ markdown, warnings })
+      } catch (err) {
+        return fail((err as Error).message)
+      }
+    }
+  )
+
+  ipcMain.handle(IPC.AUTOMATION.AI_PICK_SCREENSHOTS, async () => {
+    try {
+      const result = await dialog.showOpenDialog({
+        properties: ['openFile', 'multiSelections'],
+        filters: [
+          { name: 'Images', extensions: ['png', 'jpg', 'jpeg', 'webp', 'gif'] },
+          { name: 'All files', extensions: ['*'] },
+        ],
+      })
+      if (result.canceled || result.filePaths.length === 0) return ok({ filePaths: [] as string[] })
+      return ok({ filePaths: result.filePaths })
+    } catch (err) {
+      return fail((err as Error).message)
+    }
+  })
+
   // -------------------- AI --------------------
   ipcMain.handle(
     IPC.AUTOMATION.AI_GEN_CASES,
-    async (_e, args: { projectId: string; inputText: string }) => {
+    async (
+      _e,
+      args: { projectId: string; inputText: string; imagePaths?: string[] }
+    ) => {
       try {
         const project = await getProject(args.projectId)
         if (!project) return fail('Project not found.')
         const preview = await generateTestCases({
           projectId: project.id,
           projectContext: projectContextText(project),
-          inputText: args.inputText,
+          inputText: args.inputText ?? '',
+          imagePaths: args.imagePaths,
         })
         return ok(preview)
       } catch (err) {
@@ -369,7 +465,7 @@ export function registerAutomationTestIpcHandlers(): void {
         originalSpec,
         errorMessage: result.errorMessage ?? '',
         stdoutTail: '',
-        screenshotPath: result.screenshotPaths[0],
+        screenshotPath: preferredScreenshotPathForRepair(result),
       })
       const saved = await insertRepairProposal({
         caseResultId: result.id,
@@ -429,12 +525,10 @@ export function registerAutomationTestIpcHandlers(): void {
       const secretEnv = getProjectSecrets(project.id)
       const userId = currentUserId() ?? undefined
       const triggeredBy = request.triggeredBy ?? userId
-      const sender: WebContents = event.sender
 
       const { start, outcome } = await startRun({
         project,
         request: { ...request, triggeredBy },
-        sender,
         secretEnv,
       })
 
@@ -493,12 +587,26 @@ export function registerAutomationTestIpcHandlers(): void {
                 return {
                   caseId,
                   caseCode: r.caseCode,
+                  testTitle: r.title,
+                  specFile: r.specFile,
                   browser: r.browser,
                   status: r.status,
                   durationMs: r.durationMs,
                   attempts: r.attempts,
                   errorMessage: r.errorMessage,
-                  tracePath: r.tracePath,
+                  failureSteps: r.failureSteps?.length
+                    ? r.failureSteps.map(s => ({
+                        label: s.label,
+                        message: s.message,
+                        screenshotPaths: (s.screenshotPaths ?? [])
+                          .map(p => resolveTraceArtifactAbsolutePath(project.id, result.runId, p) ?? p)
+                          .filter(Boolean),
+                        failureHighlightPaths: (s.failureHighlightPaths ?? [])
+                          .map(p => resolveTraceArtifactAbsolutePath(project.id, result.runId, p) ?? p)
+                          .filter(Boolean),
+                      }))
+                    : undefined,
+                  tracePath: resolveTraceArtifactAbsolutePath(project.id, result.runId, r.tracePath),
                   screenshotPaths: r.screenshotPaths,
                   videoPath: r.videoPath,
                   stdoutPath: r.stdoutPath,
@@ -562,7 +670,13 @@ export function registerAutomationTestIpcHandlers(): void {
     try {
       const run = await getRunSummary(runId)
       if (!run?.reportPath) return fail('Report path missing.')
-      await shell.openPath(run.reportPath)
+      const indexHtml = path.join(run.reportPath, 'index.html')
+      try {
+        await fs.access(indexHtml)
+        await shell.openPath(indexHtml)
+      } catch {
+        await shell.openPath(run.reportPath)
+      }
       return ok({ opened: true })
     } catch (err) {
       return fail((err as Error).message)
@@ -579,26 +693,116 @@ export function registerAutomationTestIpcHandlers(): void {
     }
   })
 
-  ipcMain.handle(IPC.AUTOMATION.RUN_OPEN_TRACE, async (_e, args: { tracePath: string }) => {
+  ipcMain.handle(IPC.AUTOMATION.RUN_OPEN_TRACE, async (_e, args: { tracePath: string; projectId?: string; runId?: string }) => {
     try {
+      const hints =
+        args.projectId && args.runId ? { projectId: args.projectId, runId: args.runId } : undefined
+      const abs = resolveStoredTracePathForOpen(args.tracePath, hints)
+      if (hints) assertResolvedPathInsideProjectWorkspace(hints.projectId, abs)
+      try {
+        await fs.access(abs)
+      } catch {
+        return fail(`Trace file not found: ${abs}`)
+      }
+      /** Playwright docs: `show-trace path/to/trace.zip` — native path, not file:// (Windows URL form often breaks). */
+      const traceArg = path.normalize(abs)
       const { spawn } = await import('node:child_process')
-      const { buildPlaywrightSpawnEnv, resolvePlaywrightCliPath } = await import('../automation/workspace')
-      const proc = spawn(process.execPath, [resolvePlaywrightCliPath(), 'show-trace', args.tracePath], {
+      const proc = spawn(process.execPath, [resolvePlaywrightCliPath(), 'show-trace', traceArg], {
         env: buildPlaywrightSpawnEnv(),
         detached: true,
         stdio: 'ignore',
+        cwd: hints ? getWorkspacePath(hints.projectId) : undefined,
       })
+      try {
+        await new Promise<void>((resolve, reject) => {
+          proc.once('spawn', () => resolve())
+          proc.once('error', reject)
+        })
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err)
+        l.warn('[automation] show-trace spawn failed', msg)
+        return fail(`Could not start trace viewer: ${msg}`)
+      }
       proc.unref()
+      l.info('[automation] show-trace spawned', traceArg)
       return ok({ opened: true })
     } catch (err) {
       return fail((err as Error).message)
     }
   })
 
+  ipcMain.handle(
+    IPC.AUTOMATION.RUN_OPEN_SCREENSHOT,
+    async (_e, args: { screenshotPath: string; projectId: string; runId: string }) => {
+      try {
+        const abs = safeResolveRunArtifact({
+          artifactPath: args.screenshotPath,
+          projectId: args.projectId,
+          runId: args.runId,
+        })
+        await fs.access(abs)
+        await shell.openPath(abs)
+        return ok({ opened: true })
+      } catch (err) {
+        return fail((err as Error).message)
+      }
+    }
+  )
+
+  ipcMain.handle(IPC.AUTOMATION.RUN_OPEN_VIDEO, async (_e, args: { videoPath: string; projectId: string; runId: string }) => {
+    try {
+      const abs = safeResolveRunArtifact({ artifactPath: args.videoPath, projectId: args.projectId, runId: args.runId })
+      await fs.access(abs)
+      await shell.openPath(abs)
+      return ok({ opened: true })
+    } catch (err) {
+      return fail((err as Error).message)
+    }
+  })
+
+  ipcMain.handle(
+    IPC.AUTOMATION.RUN_READ_SCREENSHOT_PREVIEW,
+    async (_e, args: { screenshotPath: string; projectId: string; runId: string }) => {
+      try {
+        const abs = safeResolveRunArtifact({
+          artifactPath: args.screenshotPath,
+          projectId: args.projectId,
+          runId: args.runId,
+        })
+        const ext = path.extname(abs).toLowerCase()
+        if (!['.png', '.jpg', '.jpeg', '.webp', '.gif'].includes(ext)) {
+          return fail('Unsupported image type for preview.')
+        }
+        const st = await fs.stat(abs)
+        if (st.size > PREVIEW_IMAGE_MAX_BYTES) return fail('Screenshot too large for in-app preview.')
+        const mime = mimeForImagePreview(abs)
+        if (mime === 'application/octet-stream') return fail('Unsupported image type for preview.')
+        const buf = await fs.readFile(abs)
+        const dataUrl = `data:${mime};base64,${buf.toString('base64')}`
+        return ok({ dataUrl })
+      } catch (err) {
+        return fail((err as Error).message)
+      }
+    }
+  )
+
   ipcMain.handle(IPC.AUTOMATION.RUN_OPEN_WORKSPACE, async (_e, projectId: string) => {
     try {
       await shell.openPath(getWorkspacePath(projectId))
       return ok({ opened: true })
+    } catch (err) {
+      return fail((err as Error).message)
+    }
+  })
+
+  ipcMain.handle(IPC.AUTOMATION.RUN_CLEAR_HISTORY, async (_e, projectId: string) => {
+    try {
+      if (isRunBusy(projectId)) {
+        return fail('CLEAR_HISTORY_BUSY')
+      }
+      await deleteAllRunsForProject(projectId)
+      await clearRunHistoryArtifactsFromWorkspace(projectId)
+      return ok({ cleared: true })
     } catch (err) {
       return fail((err as Error).message)
     }
@@ -708,7 +912,6 @@ export function registerAutomationTestIpcHandlers(): void {
 async function query_all_repair_by_id(id: string) {
   // listRepairProposalsByResult takes a result id; nhưng đôi khi caller chỉ có
   // proposalId → query trực tiếp 1 dòng.
-  const { query } = await import('../task/schema/db')
   const rows = await query<{
     id: string
     case_result_id: string

@@ -3,7 +3,7 @@ import l from 'electron-log'
 import { MANAGEMENT_BOARD_MAX_ROWS } from 'shared/constants'
 import { randomUuidV7 } from 'shared/randomUuidV7'
 import { calendarInputToPgTimestamptzSql, dbValueToCalendarYmd } from '../calendarDate'
-import { exec, query, withTransaction } from '../schema/db'
+import { exec, query, testConnection, withTransaction } from '../schema/db'
 import { migrateUserProjectRolesProjectIdUkToGenerated } from '../schema/taskDbPatches'
 import { collectRedmineCsvProjectRefsForAuthorization, createTasksFromCsv, createUsersFromCsv, parseCSVRows } from '../seed/importCsv'
 import { getNextTicketId } from '../ticketSequence'
@@ -2269,7 +2269,6 @@ export async function createTasksFromRedmineCsv(
 }
 
 export async function ensureTaskFile(): Promise<void> {
-  const { testConnection } = await import('../schema/db')
   const res = await testConnection()
   if (!res.ok) throw new Error(res.error || 'Database connection failed')
 }

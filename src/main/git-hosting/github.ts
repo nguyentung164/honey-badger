@@ -164,6 +164,43 @@ export async function withGithubRateLimitRetry<T>(fn: () => Promise<T>, options?
   throw lastErr
 }
 
+/** Tr\u1ec5 ng\u1eafn gi\u1eefa c\u00e1c GET khi GitHub \u0111ang t\u00ednh mergeability (bounded backoff). */
+function githubPrMergePollDelayMs(attemptIndex: number): number {
+  return Math.min(400 + attemptIndex * 280, 2200)
+}
+
+/**
+ * `pulls.get` có thể trả `mergeable: null` hoặc `mergeable_state: "unknown"` trong lúc GitHub test-merge.
+ * Theo tài liệu REST nên GET lại sau một nhịp — nếu không UI sẽ kẹt "Checking"/unknown dù thực tế conflict/behind.
+ * Chỉ chờ lại cho PR đang mở, chưa merge; không lặp GET phí cho PR đã đóng hoặc đã merge.
+ */
+async function pullsGetAwaitStableMergeability(
+  octokit: InstanceType<typeof Octokit>,
+  owner: string,
+  repo: string,
+  pull_number: number
+): Promise<any> {
+  const maxPasses = 12
+  let data: any = null
+  for (let i = 0; i < maxPasses; i++) {
+    ;({ data } = await octokit.pulls.get({ owner, repo, pull_number }))
+    const isOpen = String(data?.state ?? '') === 'open'
+    const alreadyMerged = data?.merged === true || !!data?.merged_at
+    if (!isOpen || alreadyMerged) break
+
+    const mergePending = data.mergeable == null
+    const ms = typeof data.mergeable_state === 'string' ? data.mergeable_state.toLowerCase() : ''
+    const stateUnknown = ms === 'unknown'
+    if (!mergePending && !stateUnknown) break
+    if (i >= maxPasses - 1) break
+    await new Promise<void>(r => setTimeout(r, githubPrMergePollDelayMs(i)))
+  }
+  if (data == null) {
+    throw new Error('GitHub pulls.get returned no data')
+  }
+  return data
+}
+
 let cachedClient: Octokit | null = null
 let cachedToken: string | null = null
 
@@ -413,7 +450,7 @@ export const githubClient: IHostingClient = {
   async createPR(input: CreatePRInput): Promise<PullRequestSummary> {
     const octokit = getClient()
     try {
-      const { data } = await octokit.pulls.create({
+      const { data: created } = await octokit.pulls.create({
         owner: input.owner,
         repo: input.repo,
         title: input.title,
@@ -422,7 +459,8 @@ export const githubClient: IHostingClient = {
         base: input.base,
         draft: input.draft,
       })
-      return mapPrFields(data)
+      const prData = await pullsGetAwaitStableMergeability(octokit, input.owner, input.repo, created.number)
+      return mapPrFields(prData)
     } catch (err: any) {
       l.error('GitHub createPR failed:', err?.message)
       throw wrapError(err, 'Failed to create PR')
@@ -453,7 +491,7 @@ export const githubClient: IHostingClient = {
       return await withGithubRateLimitRetry(
         async () => {
           const octokit = getClient()
-          const { data: prData } = await octokit.pulls.get({ owner, repo, pull_number: number })
+          const prData = await pullsGetAwaitStableMergeability(octokit, owner, repo, number)
           if (!wantReviews) {
             return mapPrFields(prData, { reviewSubmissions: null })
           }
