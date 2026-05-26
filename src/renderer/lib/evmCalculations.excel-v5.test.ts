@@ -325,7 +325,7 @@ describe('EVM Excel V5 parity', () => {
     expect(g2?.masterId).toBe('m2')
     expect(g2?.bac).toBe(3)
     expect(g2?.ev).toBeCloseTo(1.5, 6)
-    expect(wbsDetailRowsForRollupKey(wbs, g1?.rollupKey).length).toBe(2)
+    expect(wbsDetailRowsForRollupKey(wbs, g1!.rollupKey).length).toBe(2)
   })
 
   it('Sheet EV / テーブル1: L sau ngày báo cáo → EV bảng = 0; Dashboard vẫn Q×N nếu K≤Report (khớp E11)', () => {

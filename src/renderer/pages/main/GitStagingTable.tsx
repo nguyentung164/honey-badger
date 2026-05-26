@@ -1,7 +1,7 @@
 'use client'
 import { type ColumnDef, flexRender, getCoreRowModel, getFilteredRowModel, getSortedRowModel, type SortingState, useReactTable } from '@tanstack/react-table'
 import { t } from 'i18next'
-import { Columns2, Copy, FolderOpen, History, Pencil, Plus, RotateCcw, Rows2, SquareMinus, SquarePlus } from 'lucide-react'
+import { Check, Columns2, Copy, Folder, FolderOpen, History, ListFilter, Pencil, Plus, RotateCcw, Rows2, SquareMinus, SquarePlus, Trash2, X } from 'lucide-react'
 import { IPC } from 'main/constants'
 import { forwardRef, type HTMLProps, useCallback, useEffect, useImperativeHandle, useMemo, useRef, useState } from 'react'
 import {
@@ -15,6 +15,7 @@ import {
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog'
 import { Button } from '@/components/ui/button'
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import {
   ContextMenu,
   ContextMenuContent,
@@ -190,6 +191,93 @@ const Table = forwardRef<HTMLTableElement, React.HTMLAttributes<HTMLTableElement
 ))
 Table.displayName = 'Table'
 
+const GIT_CHANGES_LOCAL_IGNORE_STORAGE_KEY = 'git-changes-local-ignore-regexes'
+
+function normalizeRepoRootPath(repo: string): string {
+  return repo.replace(/\\/g, '/').replace(/\/+$/, '')
+}
+
+function readLocalIgnoreRegexMap(): Record<string, string[]> {
+  try {
+    const raw = localStorage.getItem(GIT_CHANGES_LOCAL_IGNORE_STORAGE_KEY)
+    if (!raw) return {}
+    const parsed = JSON.parse(raw) as unknown
+    if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+      const out: Record<string, string[]> = {}
+      for (const [k, v] of Object.entries(parsed as Record<string, unknown>)) {
+        if (Array.isArray(v) && v.every(x => typeof x === 'string')) out[k] = v as string[]
+      }
+      return out
+    }
+  } catch {
+    /* ignore */
+  }
+  return {}
+}
+
+function writeLocalIgnorePatternsForRepo(repoKey: string, patterns: string[]): void {
+  const map = readLocalIgnoreRegexMap()
+  if (patterns.length === 0) delete map[repoKey]
+  else map[repoKey] = patterns
+  localStorage.setItem(GIT_CHANGES_LOCAL_IGNORE_STORAGE_KEY, JSON.stringify(map))
+}
+
+function escapeRegExpSegment(s: string): string {
+  return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+}
+
+function basenameFromFilePath(filePath: string): string {
+  const parts = filePath.split(/[/\\]/)
+  return parts[parts.length - 1] ?? filePath
+}
+
+function normalizeGitPath(filePath: string): string {
+  return filePath.replace(/\\/g, '/')
+}
+
+/** Regex matching only the file name (basename), for local Changes hide list */
+function regexForBasenameOnly(filePath: string): string {
+  return `^${escapeRegExpSegment(basenameFromFilePath(filePath))}$`
+}
+
+/** Parent directory prefix as regex (all files under that folder), repo-relative path */
+function regexForParentDirOfFile(filePath: string): string | null {
+  const norm = normalizeGitPath(filePath).replace(/\/+$/, '')
+  const slash = norm.lastIndexOf('/')
+  if (slash <= 0) return null
+  return `^${escapeRegExpSegment(norm.slice(0, slash + 1))}`
+}
+
+function tryCompileRegex(p: string): RegExp | null {
+  try {
+    return new RegExp(p)
+  } catch {
+    return null
+  }
+}
+
+/** Each pattern is tested against basename and against normalized path (forward slashes). */
+function pathMatchesLocalIgnore(filePath: string, patterns: string[]): boolean {
+  const norm = normalizeGitPath(filePath)
+  const basename = basenameFromFilePath(filePath)
+  for (const p of patterns) {
+    const re = tryCompileRegex(p)
+    if (re && (re.test(basename) || re.test(norm))) return true
+  }
+  return false
+}
+
+/** When the row is a directory: hide everything under this path (not the parent). */
+function regexForDirectoryPathItself(filePath: string): string | null {
+  const norm = normalizeGitPath(filePath).replace(/\/+$/, '')
+  if (!norm) return null
+  return `^${escapeRegExpSegment(norm)}/`
+}
+
+function pathEntryKindCacheKey(repoKey: string, relativePath: string): string {
+  return `${repoKey}\0${relativePath}`
+}
+
 interface GitStagingTableProps {
   onLoadingChange?: (loading: boolean) => void
   /** When set, all git operations (status, add, reset_staged) use this path instead of config sourceFolder */
@@ -218,6 +306,156 @@ export const GitStagingTable = forwardRef(({ onLoadingChange, cwd, label }: GitS
   const [changesFilter, setChangesFilter] = useState('')
   const [stagedFilter, setStagedFilter] = useState('')
   const { sourceFolder } = useConfigurationStore()
+  const repoRootKey = useMemo(
+    () => normalizeRepoRootPath((cwd ?? sourceFolder ?? '').trim() || '__none__'),
+    [cwd, sourceFolder]
+  )
+  const [changesIgnorePatterns, setChangesIgnorePatterns] = useState<string[]>([])
+  const [changesIgnoreListOpen, setChangesIgnoreListOpen] = useState(false)
+  const [localIgnoreCustomInput, setLocalIgnoreCustomInput] = useState('')
+  const [editingIgnoreOld, setEditingIgnoreOld] = useState<string | null>(null)
+  const [editingIgnoreDraft, setEditingIgnoreDraft] = useState('')
+  const [pathEntryKinds, setPathEntryKinds] = useState<Record<string, 'file' | 'directory' | 'missing'>>({})
+
+  useEffect(() => {
+    const map = readLocalIgnoreRegexMap()
+    setChangesIgnorePatterns(map[repoRootKey] ?? [])
+    setPathEntryKinds({})
+  }, [repoRootKey])
+
+  useEffect(() => {
+    if (changesIgnoreListOpen) {
+      setLocalIgnoreCustomInput('')
+      setEditingIgnoreOld(null)
+      setEditingIgnoreDraft('')
+    }
+  }, [changesIgnoreListOpen])
+
+  const appendIgnorePatterns = useCallback(
+    (additions: string[]) => {
+      const clean = additions.filter(Boolean)
+      if (clean.length === 0) return
+      setChangesIgnorePatterns(prev => {
+        const next = [...prev]
+        let added = 0
+        for (const r of clean) {
+          if (!next.includes(r)) {
+            next.push(r)
+            added++
+          }
+        }
+        if (added > 0) {
+          writeLocalIgnorePatternsForRepo(repoRootKey, next)
+          queueMicrotask(() => {
+            toast.success(t('git.localIgnoreAdded', { count: added }))
+            setChangesRowSelection({})
+            setChangesAnchorRowIndex(null)
+          })
+          return next
+        }
+        queueMicrotask(() => toast.info(t('git.localIgnoreAlreadyPresent')))
+        return prev
+      })
+    },
+    [repoRootKey, t]
+  )
+
+  const addChangesIgnorePatternsForPaths = useCallback(
+    (filePaths: string[]) => {
+      appendIgnorePatterns(filePaths.map(regexForBasenameOnly))
+    },
+    [appendIgnorePatterns]
+  )
+
+  const addChangesIgnoreFolderForPaths = useCallback(
+    (filePaths: string[], entryKinds: Array<'file' | 'directory' | 'missing'>) => {
+      const seen = new Set<string>()
+      const additions: string[] = []
+      filePaths.forEach((fp, i) => {
+        const kind = entryKinds[i] ?? 'file'
+        const r = kind === 'directory' ? regexForDirectoryPathItself(fp) : regexForParentDirOfFile(fp)
+        if (r && !seen.has(r)) {
+          seen.add(r)
+          additions.push(r)
+        }
+      })
+      if (additions.length === 0) {
+        toast.warning(t('git.localIgnoreNoParentFolder'))
+        return
+      }
+      appendIgnorePatterns(additions)
+    },
+    [appendIgnorePatterns, t]
+  )
+
+  const addCustomLocalIgnorePattern = useCallback(() => {
+    const raw = localIgnoreCustomInput.trim()
+    if (!raw) {
+      toast.warning(t('git.localIgnoreEmptyPattern'))
+      return
+    }
+    if (tryCompileRegex(raw) === null) {
+      toast.error(t('git.localIgnoreInvalidRegex'))
+      return
+    }
+    appendIgnorePatterns([raw])
+    setLocalIgnoreCustomInput('')
+  }, [localIgnoreCustomInput, appendIgnorePatterns, t])
+
+  const removeChangesIgnorePattern = useCallback(
+    (pattern: string) => {
+      setChangesIgnorePatterns(prev => {
+        const next = prev.filter(p => p !== pattern)
+        writeLocalIgnorePatternsForRepo(repoRootKey, next)
+        return next
+      })
+    },
+    [repoRootKey]
+  )
+
+  const updateChangesIgnorePattern = useCallback(
+    (fromPattern: string, toRaw: string) => {
+      const raw = toRaw.trim()
+      if (!raw) {
+        toast.warning(t('git.localIgnoreEmptyPattern'))
+        return
+      }
+      if (tryCompileRegex(raw) === null) {
+        toast.error(t('git.localIgnoreInvalidRegex'))
+        return
+      }
+      setChangesIgnorePatterns(prev => {
+        const idx = prev.indexOf(fromPattern)
+        if (idx === -1) return prev
+        if (raw === fromPattern) {
+          queueMicrotask(() => {
+            setEditingIgnoreOld(null)
+            setEditingIgnoreDraft('')
+          })
+          return prev
+        }
+        if (prev.some(p => p === raw && p !== fromPattern)) {
+          queueMicrotask(() => toast.info(t('git.localIgnoreAlreadyPresent')))
+          return prev
+        }
+        const next = prev.map(p => (p === fromPattern ? raw : p))
+        writeLocalIgnorePatternsForRepo(repoRootKey, next)
+        queueMicrotask(() => {
+          toast.success(t('git.localIgnorePatternUpdated'))
+          setEditingIgnoreOld(null)
+          setEditingIgnoreDraft('')
+        })
+        return next
+      })
+    },
+    [repoRootKey, t]
+  )
+
+  const displayedChangesData = useMemo(
+    () => changesData.filter(f => !pathMatchesLocalIgnore(f.filePath, changesIgnorePatterns)),
+    [changesData, changesIgnorePatterns]
+  )
+
   const lastChangesClickRef = useRef({ time: 0, rowId: '' })
   const lastStagedClickRef = useRef({ time: 0, rowId: '' })
 
@@ -548,7 +786,7 @@ export const GitStagingTable = forwardRef(({ onLoadingChange, cwd, label }: GitS
   )
 
   const changesTable = useReactTable({
-    data: changesData,
+    data: displayedChangesData,
     columns: changesColumns,
     onSortingChange: setChangesSorting,
     onRowSelectionChange: setChangesRowSelection,
@@ -668,6 +906,17 @@ export const GitStagingTable = forwardRef(({ onLoadingChange, cwd, label }: GitS
   }
 
   const renderTableContent = (table: any, title: string, isStaged: boolean) => {
+    const localIgnoreMenuI18nKey = (base: 'addToLocalIgnore' | 'addFolderToLocalIgnore', paths: string[]) => {
+      const kinds = paths.map(p => pathEntryKinds[pathEntryKindCacheKey(repoRootKey, p)])
+      if (kinds.some(k => k === undefined)) return `contextMenu.${base}_unknown`
+      const uniq = new Set(kinds)
+      if (uniq.size > 1) return `contextMenu.${base}_mixed`
+      const k = kinds[0]
+      if (k === 'directory') return `contextMenu.${base}_folder`
+      if (k === 'file') return `contextMenu.${base}_file`
+      return `contextMenu.${base}_unknown`
+    }
+
     return (
       <div className="h-full flex flex-col">
         <div className="flex items-center justify-between px-2 py-2 border-b bg-muted/30">
@@ -704,7 +953,7 @@ export const GitStagingTable = forwardRef(({ onLoadingChange, cwd, label }: GitS
                   variant={buttonVariant}
                   className="h-7 px-2! text-xs"
                   onClick={() => {
-                    const files = changesData.map(f => f.filePath)
+                    const files = displayedChangesData.map(f => f.filePath)
                     if (files.length === 0) {
                       toast.warning(t('message.noFilesChanged'))
                       return
@@ -732,6 +981,17 @@ export const GitStagingTable = forwardRef(({ onLoadingChange, cwd, label }: GitS
                 >
                   <Plus className="h-3 w-3 mr-1" />
                   {t('git.stageSelected')}
+                </Button>
+                <Button
+                  size="sm"
+                  variant={buttonVariant}
+                  className="h-7 w-7 shrink-0 p-0"
+                  type="button"
+                  title={t('git.localIgnoreListTitle')}
+                  aria-label={t('git.localIgnoreListTitle')}
+                  onClick={() => setChangesIgnoreListOpen(true)}
+                >
+                  <ListFilter className="h-3.5 w-3.5" />
                 </Button>
               </>
             )}
@@ -799,11 +1059,21 @@ export const GitStagingTable = forwardRef(({ onLoadingChange, cwd, label }: GitS
                 table.getRowModel().rows.map((row: any) => {
                   const filePath = row.original.filePath
                   const selectedRows = row.getIsSelected() && table.getSelectedRowModel().rows.length > 0 ? table.getSelectedRowModel().rows : [row]
-                  const filesToActOn = selectedRows.map((r: any) => r.original.filePath)
+                  const filesToActOn: string[] = selectedRows.map((r: any) => r.original.filePath as string)
                   const showDiscardChanges = !isStaged && filesToActOn.length > 0
 
                   return (
-                    <ContextMenu key={row.id}>
+                    <ContextMenu
+                      key={row.id}
+                      onOpenChange={open => {
+                        if (isStaged || !open) return
+                        for (const fp of [...new Set(filesToActOn)]) {
+                          void window.api.system.get_path_entry_kind({ relativePath: fp, cwd }).then(kind => {
+                            setPathEntryKinds(prev => ({ ...prev, [pathEntryKindCacheKey(repoRootKey, fp)]: kind }))
+                          })
+                        }
+                      }}
+                    >
                       <ContextMenuTrigger asChild>
                         <TableRow
                           data-state={row.getIsSelected() ? 'selected' : undefined}
@@ -861,6 +1131,32 @@ export const GitStagingTable = forwardRef(({ onLoadingChange, cwd, label }: GitS
                               <Plus strokeWidth={1.25} className="ml-3 h-4 w-4" />
                             </ContextMenuShortcut>
                           </ContextMenuItem>
+                        )}
+                        {!isStaged && (
+                          <ContextMenuSub>
+                            <ContextMenuSubTrigger>{t('contextMenu.hideFromChangesLocal')}</ContextMenuSubTrigger>
+                            <ContextMenuSubContent>
+                              <ContextMenuItem onClick={() => addChangesIgnorePatternsForPaths(filesToActOn)}>
+                                {t(localIgnoreMenuI18nKey('addToLocalIgnore', filesToActOn))}
+                                <ContextMenuShortcut>
+                                  <ListFilter strokeWidth={1.25} className="ml-3 h-4 w-4" />
+                                </ContextMenuShortcut>
+                              </ContextMenuItem>
+                              <ContextMenuItem
+                                onClick={() =>
+                                  addChangesIgnoreFolderForPaths(
+                                    filesToActOn,
+                                    filesToActOn.map(fp => pathEntryKinds[pathEntryKindCacheKey(repoRootKey, fp)] ?? 'file')
+                                  )
+                                }
+                              >
+                                {t(localIgnoreMenuI18nKey('addFolderToLocalIgnore', filesToActOn))}
+                                <ContextMenuShortcut>
+                                  <Folder strokeWidth={1.25} className="ml-3 h-4 w-4" />
+                                </ContextMenuShortcut>
+                              </ContextMenuItem>
+                            </ContextMenuSubContent>
+                          </ContextMenuSub>
                         )}
                         {isStaged && (
                           <ContextMenuItem onClick={() => gitUnstage(filesToActOn)}>
@@ -935,6 +1231,128 @@ export const GitStagingTable = forwardRef(({ onLoadingChange, cwd, label }: GitS
             </div>
           </ResizablePanel>
         </ResizablePanelGroup>
+        <Dialog open={changesIgnoreListOpen} onOpenChange={setChangesIgnoreListOpen}>
+          <DialogContent className="max-w-lg">
+            <DialogHeader>
+              <DialogTitle>{t('git.localIgnoreDialogTitle')}</DialogTitle>
+              <DialogDescription className="text-left">{t('git.localIgnoreDialogHint')}</DialogDescription>
+            </DialogHeader>
+            <div className="space-y-3 py-1">
+              <div className="flex gap-2">
+                <Input
+                  value={localIgnoreCustomInput}
+                  onChange={e => setLocalIgnoreCustomInput(e.target.value)}
+                  placeholder={t('git.localIgnoreCustomPlaceholder')}
+                  className="font-mono text-xs h-9"
+                  onKeyDown={e => {
+                    if (e.key === 'Enter') {
+                      e.preventDefault()
+                      addCustomLocalIgnorePattern()
+                    }
+                  }}
+                />
+                <Button type="button" variant={buttonVariant} className="shrink-0 h-9" onClick={addCustomLocalIgnorePattern}>
+                  {t('git.localIgnoreAddCustom')}
+                </Button>
+              </div>
+              <div className="text-sm font-medium">{t('git.localIgnoreListHeading')}</div>
+              {changesIgnorePatterns.length === 0 ? (
+                <p className="text-xs text-muted-foreground">{t('git.localIgnoreListEmpty')}</p>
+              ) : (
+                <ul className="max-h-64 overflow-y-auto space-y-1 rounded-md border p-2">
+                  {changesIgnorePatterns.map(p => (
+                    <li key={p} className="flex items-center justify-between gap-2 text-xs font-mono">
+                      {editingIgnoreOld === p ? (
+                        <>
+                          <Input
+                            value={editingIgnoreDraft}
+                            onChange={e => setEditingIgnoreDraft(e.target.value)}
+                            className="h-8 min-w-0 flex-1 font-mono text-xs"
+                            autoFocus
+                            onKeyDown={e => {
+                              if (e.key === 'Enter') {
+                                e.preventDefault()
+                                updateChangesIgnorePattern(p, editingIgnoreDraft)
+                              }
+                              if (e.key === 'Escape') {
+                                e.preventDefault()
+                                setEditingIgnoreOld(null)
+                                setEditingIgnoreDraft('')
+                              }
+                            }}
+                          />
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            size="sm"
+                            className="h-7 w-7 shrink-0 p-0"
+                            onClick={() => updateChangesIgnorePattern(p, editingIgnoreDraft)}
+                            aria-label={t('git.localIgnoreSavePattern')}
+                          >
+                            <Check className="h-3.5 w-3.5" />
+                          </Button>
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            size="sm"
+                            className="h-7 w-7 shrink-0 p-0"
+                            onClick={() => {
+                              setEditingIgnoreOld(null)
+                              setEditingIgnoreDraft('')
+                            }}
+                            aria-label={t('git.localIgnoreCancelEdit')}
+                          >
+                            <X className="h-3.5 w-3.5" />
+                          </Button>
+                        </>
+                      ) : (
+                        <>
+                          <span className="min-w-0 flex-1 break-all" title={p}>
+                            {p}
+                          </span>
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            size="sm"
+                            className="h-7 w-7 shrink-0 p-0"
+                            onClick={() => {
+                              setEditingIgnoreOld(p)
+                              setEditingIgnoreDraft(p)
+                            }}
+                            aria-label={t('git.localIgnoreEditPattern')}
+                          >
+                            <Pencil className="h-3.5 w-3.5" />
+                          </Button>
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            size="sm"
+                            className="h-7 w-7 shrink-0 p-0"
+                            onClick={() => {
+                              if (editingIgnoreOld === p) {
+                                setEditingIgnoreOld(null)
+                                setEditingIgnoreDraft('')
+                              }
+                              removeChangesIgnorePattern(p)
+                            }}
+                            aria-label={t('git.localIgnoreRemovePattern')}
+                          >
+                            <Trash2 className="h-3.5 w-3.5" />
+                          </Button>
+                        </>
+                      )}
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </div>
+            <DialogFooter>
+              <Button type="button" variant={buttonVariant} onClick={() => setChangesIgnoreListOpen(false)}>
+                {t('git.localIgnoreClose')}
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
         <AlertDialog
           open={discardConfirmOpen}
           onOpenChange={open => {

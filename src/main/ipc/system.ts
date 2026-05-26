@@ -1,10 +1,11 @@
 import { execFile, spawn } from 'node:child_process'
 import fs from 'node:fs'
-import { readFile, writeFile } from 'node:fs/promises'
+import { mkdir, readFile, writeFile } from 'node:fs/promises'
 import path from 'node:path'
 import { dialog, ipcMain, shell } from 'electron'
 import l from 'electron-log'
 import { IPC } from 'main/constants'
+import { getAutomationRoot } from '../automation/workspace'
 import configurationStore from '../store/ConfigurationStore'
 import { getResourcePath, resolvePathRelativeToBase } from '../utils/utils'
 import { detectVersionControl, getVersionControlDetails } from '../utils/versionControlDetector'
@@ -53,18 +54,39 @@ export function registerSystemIpcHandlers() {
   ipcMain.handle(IPC.SYSTEM.OPEN_FOLDER_IN_EXPLORER, async (_event, folderPath: string) => {
     if (!folderPath || typeof folderPath !== 'string') {
       l.warn('Open folder in Explorer: No path provided.')
-      return
+      return { ok: false as const, error: 'no_path' }
     }
-    const absolutePath = path.resolve(folderPath)
+    const absolutePath = path.normalize(path.resolve(folderPath.trim()))
+    const automationRoot = path.normalize(getAutomationRoot())
+    const underAutomation =
+      absolutePath === automationRoot || absolutePath.startsWith(`${automationRoot}${path.sep}`)
+
     if (!fs.existsSync(absolutePath)) {
-      l.warn(`Open folder in Explorer: Path not found: ${absolutePath}`)
-      return
+      if (underAutomation) {
+        try {
+          await mkdir(absolutePath, { recursive: true })
+        } catch (err) {
+          const msg = err instanceof Error ? err.message : String(err)
+          l.warn('Open folder: could not create automation workspace dir', msg)
+          return { ok: false as const, error: msg }
+        }
+      } else {
+        l.warn(`Open folder in Explorer: Path not found: ${absolutePath}`)
+        return { ok: false as const, error: 'not_found' }
+      }
     }
     try {
-      await shell.openPath(absolutePath)
+      const errMsg = await shell.openPath(absolutePath)
+      if (errMsg) {
+        l.warn(`shell.openPath failed: ${errMsg}`, absolutePath)
+        return { ok: false as const, error: errMsg }
+      }
       l.info(`Opened folder in Explorer: ${absolutePath}`)
-    } catch (err: any) {
+      return { ok: true as const }
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err)
       l.error('Error opening folder in Explorer:', err)
+      return { ok: false as const, error: msg }
     }
   })
 
@@ -85,6 +107,23 @@ export function registerSystemIpcHandlers() {
       await shell.openExternal(url)
     } catch (err: any) {
       l.error('Error opening external URL:', err)
+    }
+  })
+
+  ipcMain.handle(IPC.SYSTEM.GET_PATH_ENTRY_KIND, async (_event, payload: { relativePath: string; cwd?: string }) => {
+    try {
+      const filePath = typeof payload?.relativePath === 'string' ? payload.relativePath : ''
+      if (!filePath.trim()) return 'missing' as const
+      const basePathRaw = payload?.cwd?.trim() || configurationStore.store.sourceFolder
+      const basePath = await resolveReadWriteBase(basePathRaw)
+      if (!basePath) return 'missing' as const
+      const relativePath = resolvePathRelativeToBase(basePath, filePath)
+      const absolutePath = path.join(basePath, relativePath)
+      if (!fs.existsSync(absolutePath)) return 'missing' as const
+      const st = fs.statSync(absolutePath)
+      return st.isDirectory() ? ('directory' as const) : ('file' as const)
+    } catch {
+      return 'missing' as const
     }
   })
 

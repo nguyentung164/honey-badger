@@ -490,6 +490,9 @@ export function MainPage() {
   const [tasksDetached, setTasksDetached] = useState<boolean>(() => readPersistedTasksDetached())
   const [automationDetached, setAutomationDetached] = useState<boolean>(() => readPersistedAutomationDetached())
 
+  /** TitleBar dock chỉ gỡ trạng thái tách; dock từ cửa sổ riêng vẫn chuyển shell sang tab tương ứng. */
+  const dockFromTitleBarRef = useRef({ pr: false, tasks: false, automation: false })
+
   const persistShellView = useCallback((v: MainShellView) => {
     setShellView(v)
     try {
@@ -553,6 +556,7 @@ export function MainPage() {
   }, [persistPrManagerDetached, persistShellView])
 
   const handlePrManagerDockFromTitleBar = useCallback(() => {
+    dockFromTitleBarRef.current.pr = true
     window.api.prManager.requestDock()
   }, [])
 
@@ -563,6 +567,7 @@ export function MainPage() {
   }, [persistTasksDetached, persistShellView])
 
   const handleTasksDockFromTitleBar = useCallback(() => {
+    dockFromTitleBarRef.current.tasks = true
     window.api.taskManagement.requestDock()
   }, [])
 
@@ -573,13 +578,18 @@ export function MainPage() {
   }, [persistAutomationDetached, persistShellView])
 
   const handleAutomationDockFromTitleBar = useCallback(() => {
+    dockFromTitleBarRef.current.automation = true
     window.api.automation.requestDock()
   }, [])
 
   useEffect(() => {
     const onDocked = () => {
       persistPrManagerDetached(false)
-      persistShellView('prManager')
+      if (dockFromTitleBarRef.current.pr) {
+        dockFromTitleBarRef.current.pr = false
+      } else {
+        persistShellView('prManager')
+      }
     }
     const onWindowClosed = () => {
       persistPrManagerDetached(false)
@@ -596,7 +606,11 @@ export function MainPage() {
   useEffect(() => {
     const onDocked = () => {
       persistTasksDetached(false)
-      persistShellView('tasks')
+      if (dockFromTitleBarRef.current.tasks) {
+        dockFromTitleBarRef.current.tasks = false
+      } else {
+        persistShellView('tasks')
+      }
     }
     const onWindowClosed = () => {
       persistTasksDetached(false)
@@ -613,7 +627,11 @@ export function MainPage() {
   useEffect(() => {
     const onDocked = () => {
       persistAutomationDetached(false)
-      persistShellView('automation')
+      if (dockFromTitleBarRef.current.automation) {
+        dockFromTitleBarRef.current.automation = false
+      } else {
+        persistShellView('automation')
+      }
     }
     const onWindowClosed = () => {
       persistAutomationDetached(false)

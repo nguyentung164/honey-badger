@@ -126,7 +126,7 @@ export function RunFailureScreenshotDialog({ open, onOpenChange, projectId, runI
                         <ChevronLeft className="size-4" />
                       </Button>
                       <span
-                        className="min-w-0 flex-1 truncate text-center font-mono text-[11px] leading-tight text-muted-foreground sm:text-xs"
+                        className="min-w-0 flex-1 truncate text-center text-[11px] leading-tight text-muted-foreground sm:text-xs"
                         title={
                           fileNameLabel(currentPath) +
                           (isFailureHighlightPath(currentPath)
@@ -157,7 +157,7 @@ export function RunFailureScreenshotDialog({ open, onOpenChange, projectId, runI
                     </>
                   ) : (
                     <span
-                      className="w-full truncate px-2 text-center font-mono text-[11px] leading-tight text-muted-foreground sm:text-xs"
+                      className="w-full truncate px-2 text-center text-[11px] leading-tight text-muted-foreground sm:text-xs"
                       title={fileNameLabel(currentPath)}
                     >
                       {fileNameLabel(currentPath)}

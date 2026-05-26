@@ -30,6 +30,8 @@ export const IPC = {
     AUTOMATION: 'window:automation',
     AUTOMATION_CLOSE: 'window:automation-close',
     AUTOMATION_DOCK_REQUEST: 'window:automation-dock-request',
+    DEV_PIPELINES: 'window:dev-pipelines',
+    DEV_PIPELINES_CLOSE: 'window:dev-pipelines-close',
   },
   CONFIG_UPDATED: 'config-updated',
   FILES_CHANGED: 'files-changed',
@@ -224,6 +226,7 @@ export const IPC = {
     SELECT_AUDIO_FILE: 'system:select-audio-file',
     GET_NOTIFICATION_SOUND_URL: 'system:get-notification-sound-url',
     GET_DEFAULT_NOTIFICATION_SOUND_URL: 'system:get-default-notification-sound-url',
+    GET_PATH_ENTRY_KIND: 'system:get-path-entry-kind',
   },
   UPDATER: {
     CHECK_FOR_UPDATES: 'updater:check-for-updates',
@@ -518,18 +521,48 @@ export const IPC = {
     CASE_BULK_CREATE: 'automation:case:bulk-create',
     CASE_READ_SPEC: 'automation:case:read-spec',
     CASE_WRITE_SPEC: 'automation:case:write-spec',
+    CASE_LAUNCH_CODEGEN: 'automation:case:launch-codegen',
+    CATALOG_PAGE_LIST: 'automation:catalog-page:list',
+    CATALOG_PAGE_CASE_COUNTS: 'automation:catalog-page:case-counts',
+    CATALOG_PAGE_CREATE: 'automation:catalog-page:create',
+    CATALOG_PAGE_UPDATE: 'automation:catalog-page:update',
+    CATALOG_PAGE_DELETE: 'automation:catalog-page:delete',
+    CATALOG_PAGE_DUPLICATE_DEEP: 'automation:catalog-page:duplicate-deep',
+    CATALOG_GROUP_LIST: 'automation:catalog-group:list',
+    CATALOG_GROUP_LIST_GRAPH: 'automation:catalog-group:list-graph',
+    CATALOG_GROUP_CREATE: 'automation:catalog-group:create',
+    CATALOG_GROUP_UPDATE: 'automation:catalog-group:update',
+    CATALOG_GROUP_DELETE: 'automation:catalog-group:delete',
+    CATALOG_GROUP_MOVE: 'automation:catalog-group:move',
+    MAP_ANNOTATION_CREATE: 'automation:map-annotation:create',
+    MAP_ANNOTATION_UPDATE: 'automation:map-annotation:update',
+    MAP_ANNOTATION_DELETE: 'automation:map-annotation:delete',
+    MAP_ANNOTATION_DUPLICATE: 'automation:map-annotation:duplicate',
+    FLOW_LIST: 'automation:flow:list',
+    FLOW_CREATE: 'automation:flow:create',
+    FLOW_UPDATE: 'automation:flow:update',
+    FLOW_DELETE: 'automation:flow:delete',
+    NAV_EDGE_LIST: 'automation:nav-edge:list',
+    NAV_EDGE_CREATE: 'automation:nav-edge:create',
+    NAV_EDGE_UPDATE: 'automation:nav-edge:update',
+    NAV_EDGE_DELETE: 'automation:nav-edge:delete',
+    EXPORT_CASES_BY_PAGE: 'automation:export:cases-by-page',
     IMPORT_PICK_FILE: 'automation:import:pick-file',
     IMPORT_PARSE: 'automation:import:parse',
     IMPORT_EXCEL_LIST_SHEETS: 'automation:import:excel-list-sheets',
-    IMPORT_EXCEL_MARKDOWN: 'automation:import:excel-markdown',
+    IMPORT_EXCEL_JSON: 'automation:import:excel-json',
+    IMPORT_EXCEL_PLAIN_TEXT: 'automation:import:excel-plain-text',
     AI_GEN_CASES: 'automation:ai:gen-cases',
     AI_PICK_SCREENSHOTS: 'automation:ai:pick-screenshots',
+    AI_SAVE_IMPORT_IMAGE: 'automation:ai:save-import-image',
+    AI_READ_IMPORT_IMAGE_PREVIEW: 'automation:ai:read-import-image-preview',
     AI_GEN_SPEC: 'automation:ai:gen-spec',
     AI_REPAIR: 'automation:ai:repair',
     AI_REPAIR_APPLY: 'automation:ai:repair-apply',
     AI_REPAIR_REJECT: 'automation:ai:repair-reject',
     AI_REPAIR_LIST: 'automation:ai:repair-list',
     RUN_START: 'automation:run:start',
+    RUN_RESOLVE_SCOPE: 'automation:run:resolve-scope',
     RUN_CANCEL: 'automation:run:cancel',
     RUN_LIST: 'automation:run:list',
     RUN_GET: 'automation:run:get',
@@ -542,7 +575,10 @@ export const IPC = {
     RUN_OPEN_LOG: 'automation:run:open-log',
     RUN_OPEN_WORKSPACE: 'automation:run:open-workspace',
     RUN_CLEAR_HISTORY: 'automation:run:clear-history',
+    RUN_DELETE: 'automation:run:delete',
+    RUN_PAGE_MAP_STATUS: 'automation:run:page-map-status',
     BROWSERS_INSTALL: 'automation:browsers:install',
+    BROWSERS_UNINSTALL: 'automation:browsers:uninstall',
     BROWSERS_STATUS: 'automation:browsers:status',
     DASHBOARD_SUMMARY: 'automation:dashboard:summary',
     SETTINGS_GET: 'automation:settings:get',
@@ -551,6 +587,19 @@ export const IPC = {
     STREAM_LOG: 'automation:stream:log',
     STREAM_PROGRESS: 'automation:stream:progress',
     STREAM_INSTALL: 'automation:stream:install',
+  },
+  DEV_PIPELINE: {
+    FLOW_LIST: 'dev-pipeline:flow:list',
+    FLOW_GET: 'dev-pipeline:flow:get',
+    FLOW_CREATE: 'dev-pipeline:flow:create',
+    FLOW_UPSERT: 'dev-pipeline:flow:upsert',
+    FLOW_DELETE: 'dev-pipeline:flow:delete',
+    RUN_START: 'dev-pipeline:run:start',
+    RUN_CANCEL: 'dev-pipeline:run:cancel',
+    RUN_GET: 'dev-pipeline:run:get',
+    APPROVAL_RESPOND: 'dev-pipeline:approval:respond',
+    STREAM_RUN: 'dev-pipeline:stream:run',
+    STREAM_LOG: 'dev-pipeline:stream:log',
   },
 }
 
@@ -913,7 +962,8 @@ Constraints:
 - Always include tags (array — use [] if none) and preconditions (string — use "" if none).
 - Every step MUST include strings target, value, expected, and note: use "" when a field does not apply (the schema requires all keys present).
 - Use action enum: navigate | click | fill | select | expect | wait | custom.
-- For UI tests against a web app, "target" should be a stable CSS or role selector when known; otherwise a human-readable hint.
+- For UI tests against a web app, "target" should prefer data-testid or role-based hints; use CSS only when stable. Avoid a single ambiguous substring that could match multiple controls.
+- For expect/click/fill steps, write "target" so a Playwright engineer can map it cleanly: e.g. role=button name "Submit", testid=login-email, label "Password" — not vague "the red button" or full Japanese marketing copy unless the case is explicitly about that string.
 - Keep test cases self-contained and deterministic.
 - {vision_note}
 
@@ -928,13 +978,30 @@ You are a senior Playwright engineer. Convert the provided TestCase JSON into a 
 
 Constraints:
 - Output JSON matching the provided schema (no markdown).
-- The "code" field must be a complete TypeScript module beginning with: import { test, expect, expectSoft } from './hb-fixtures.ts' (project-local wrapper: extended test fixture + expect.soft; do not import test/expect from '@playwright/test' in generated specs).
+- The "code" field must be a complete TypeScript module. First line imports from './hb-fixtures.ts' MUST be exactly: import { test, expect, expectSoft, expectSoftVisible, expectVisibleWithOutline } from './hb-fixtures.ts' (project-local wrapper). If the spec also calls hbDebugHighlight, extend the same import list to include hbDebugHighlight. Do not import test/expect from '@playwright/test'.
 - Include "helpers": an array of short optional hints/snippet titles (use [] if none — the field must be present).
-- Use page.goto / page.locator / expect with auto-wait. Avoid arbitrary sleeps.
-- Use the project's baseURL (already configured in playwright.config) — call relative URLs.
+- Use page.goto / page.locator / expect with auto-wait. Avoid arbitrary sleeps and avoid page.waitForTimeout except when the TestCase explicitly requires a fixed delay (almost never).
+- Use the project's baseURL (already configured in playwright.config) — call relative URLs for page.goto when the case uses navigate.
+- Path-prefixed baseURL (e.g. https://host/my-app/): Playwright resolves page.goto against that base only when the argument has NO leading slash. If navigate uses a path starting with "/" (e.g. page.goto("/login")), it resolves from the origin only and drops the /my-app prefix (wrong). Prefer page.goto("login"), page.goto("./"), or a path relative to the configured base; only use a leading "/" when the case must hit the site root on purpose.
 - Keep steps in order, comment each step with the original step.note when present.
-- Prefer one test() named after the TestCase title. For multiple UI checks in that test, use await expectSoft(...).toBeVisible() (or other matchers) so one failed assertion does not abort the rest — each soft failure still fails the test at the end and keeps screenshots useful. Reserve hard expect() only when a failure must stop the flow immediately (e.g. before destructive actions).
-- Alternatively you may split into multiple test() blocks if each step should be an isolated case.
+
+Locator and assertion style (critical for reliable runs and failure evidence):
+- Prefer page.getByRole(role, { name: '...', exact: true }) when the accessible name is stable; use getByLabel, getByPlaceholder, getByTestId as appropriate. Avoid page.locator('text=...') for long or environment-specific UI copy unless no better selector exists.
+- For every visibility check on a control: (1) declare const <name> = page.getByRole(...) or getByTestId(...) on its own line, (2) then call await expectSoftVisible(<name>) — NOT bare await expectSoft(<name>).toBeVisible() unless the step is explicitly non-UI or you have a documented reason. expectSoftVisible wraps expect.soft(toBeVisible) and calls locator.highlight immediately before the assertion so screenshots/traces at assert time show Playwright's outline (stable evidence). Set HB_OUTLINE_SOFT_VIS=0 to disable only the pre-assert highlight.
+- For a gating visibility check that must stop the test on failure (hard expect): use await expectVisibleWithOutline(<name>) instead of await expect(<name>).toBeVisible().
+- Reuse the same const if the same element is asserted multiple times; do not recreate identical locators inline ten times.
+- Use test.step('Short title', async () => { ... }) to group related actions/assertions when the TestCase has several steps; keeps traces and failure reports readable.
+- Prefer one test() named after the TestCase title. For multiple UI checks in one test, use await expectSoftVisible on named locators so one failed assertion does not abort the rest — each soft failure still fails the test at the end. Reserve await expectVisibleWithOutline or await expect for non-visibility matchers or when a failure must stop the flow immediately (e.g. before delete, payment submit, or before assuming the next page loaded).
+- For stable page or region structure, consider expect(page).toMatchAriaSnapshot(...) or expect(locator).toMatchAriaSnapshot(...) when it reduces many fragile text assertions.
+- Alternatively split into multiple test() blocks when isolation is clearer than one long test.
+
+Anti-patterns (do not generate):
+- Inline expectSoft(page.locator('text=...')) or expectSoftVisible(page.getByRole(...)) without assigning the locator to a const first.
+- await expectSoft(x).toBeVisible() when x is a UI control — use await expectSoftVisible(x) instead for evidence outline.
+- Overly broad text= partial strings that can match multiple nodes (e.g. one CJK character shared by many headings).
+- Hard-coded environment labels (e.g. Dev/Staging/Prod banners) unless the TestCase title or expected result explicitly requires them.
+
+Optional local debugging (omit unless the case is marked for debug): await hbDebugHighlight(loginButton) immediately before a tricky assert — never commit heavy debug in every line.
 
 Project context: {project_context}
 
@@ -947,10 +1014,18 @@ You are a Playwright debugging expert. The spec below failed at runtime. Produce
 
 Constraints:
 - Output JSON matching the provided schema (no markdown).
-- proposedSpec: the FULL updated .spec.ts file (TypeScript), top of file: import { test, expect, expectSoft } from './hb-fixtures.ts' (same as generated specs — not bare '@playwright/test').
+- proposedSpec: the FULL updated .spec.ts file (TypeScript). First import line must include expectSoftVisible and expectVisibleWithOutline from './hb-fixtures.ts' whenever the spec contains visibility assertions (same single import line as greenfield specs). Add hbDebugHighlight to that import only if used. Do not import from '@playwright/test'.
 - rationale: 2-4 sentences explaining the fix.
 - Prefer locator changes, role-based selectors, and explicit awaits over try/catch hacks. Do not weaken assertions just to make it pass.
-- If the spec chains many visibility checks in one test(), consider expectSoft for non-gating assertions so later steps still run.
+- Prefer getByRole / getByTestId / getByLabel over text= when the failure is due to ambiguous or environment-specific copy; use aria snapshot assertions when the regression is structural (layout / a11y tree).
+- If the spec chains many visibility checks in one test(), use expectSoftVisible for non-gating visibility so later steps still run.
+- If navigation lands on the wrong path (e.g. missing a deployed subpath like /my-app/), check page.goto: a leading "/" resolves from the origin only and drops the baseURL path prefix; fix with relative paths without a leading slash unless hitting the site root is intentional.
+
+Locator structure (apply on every repair, not only when the error mentions timeout):
+- Refactor visibility checks to: const <name> = page.getByRole(...) or getByTestId(...); await expectSoftVisible(<name>) (soft, continues test). Use await expectVisibleWithOutline(<name>) for hard gating visibility.
+- Remove await expectSoft(<name>).toBeVisible() for UI controls in favor of expectSoftVisible(<name>) unless non-UI.
+- Preserve existing const names when they exist; only introduce new names that match the UI meaning (submitButton, errorBanner, envBadge).
+- If the error message or failure step suggests multiple matching elements, add .first() only when semantically correct, or narrow with getByTestId / getByRole with exact: true / a parent locator (page.getByRole('dialog').getByRole('button', { name: 'OK' })).
 
 Failure context:
 - Failed step: {failed_step}

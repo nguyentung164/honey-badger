@@ -1,4 +1,5 @@
 import l from 'electron-log'
+import { randomUuidV7 } from 'shared/randomUuidV7'
 import { hasDbConfig, query } from './db'
 
 let legacyPmPlProjectsColumnsMigrationDone = false
@@ -611,27 +612,20 @@ export async function migrateAchievementBooleanColumns(): Promise<void> {
   }
 
   /** Chỉ ALTER khi kiểu là số nguyên — tránh ép kiểu sai từ varchar, v.v. */
-  const shouldCastToBoolean = (dt: string | null): boolean =>
-    dt != null && dt !== 'boolean' && (dt === 'smallint' || dt === 'integer' || dt === 'bigint')
+  const shouldCastToBoolean = (dt: string | null): boolean => dt != null && dt !== 'boolean' && (dt === 'smallint' || dt === 'integer' || dt === 'bigint')
 
   try {
     let dt = await dataTypeOf('achievements', 'is_negative')
     if (shouldCastToBoolean(dt)) {
-      await query(
-        'ALTER TABLE achievements ALTER COLUMN is_negative TYPE boolean USING (COALESCE(is_negative::integer, 0) <> 0)'
-      )
+      await query('ALTER TABLE achievements ALTER COLUMN is_negative TYPE boolean USING (COALESCE(is_negative::integer, 0) <> 0)')
     }
     dt = await dataTypeOf('achievements', 'is_repeatable')
     if (shouldCastToBoolean(dt)) {
-      await query(
-        'ALTER TABLE achievements ALTER COLUMN is_repeatable TYPE boolean USING (COALESCE(is_repeatable::integer, 0) <> 0)'
-      )
+      await query('ALTER TABLE achievements ALTER COLUMN is_repeatable TYPE boolean USING (COALESCE(is_repeatable::integer, 0) <> 0)')
     }
     dt = await dataTypeOf('user_achievements', 'is_redeemed')
     if (shouldCastToBoolean(dt)) {
-      await query(
-        'ALTER TABLE user_achievements ALTER COLUMN is_redeemed TYPE boolean USING (COALESCE(is_redeemed::integer, 0) <> 0)'
-      )
+      await query('ALTER TABLE user_achievements ALTER COLUMN is_redeemed TYPE boolean USING (COALESCE(is_redeemed::integer, 0) <> 0)')
     }
   } catch (e) {
     l.error('[db] migrateAchievementBooleanColumns failed', e)
@@ -693,6 +687,72 @@ CREATE TABLE IF NOT EXISTS test_cases (
   CONSTRAINT uk_test_cases_project_code UNIQUE (project_id, code)
 )`)
     await query('CREATE INDEX IF NOT EXISTS idx_test_cases_project ON test_cases(project_id)')
+
+    await query(`
+CREATE TABLE IF NOT EXISTS test_catalog_pages (
+  id VARCHAR(36) PRIMARY KEY,
+  project_id VARCHAR(36) NOT NULL REFERENCES test_projects(id) ON DELETE CASCADE,
+  name VARCHAR(200) NOT NULL,
+  slug VARCHAR(100) NULL,
+  description TEXT NULL,
+  sort_order INT NOT NULL DEFAULT 0,
+  diagram_x DOUBLE PRECISION NULL,
+  diagram_y DOUBLE PRECISION NULL,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
+)`)
+    await query('CREATE INDEX IF NOT EXISTS idx_test_catalog_pages_project ON test_catalog_pages(project_id)')
+    await query('CREATE UNIQUE INDEX IF NOT EXISTS uq_test_catalog_pages_project_slug ON test_catalog_pages (project_id, slug) WHERE slug IS NOT NULL')
+
+    await query(`
+CREATE TABLE IF NOT EXISTS test_flows (
+  id VARCHAR(36) PRIMARY KEY,
+  page_id VARCHAR(36) NOT NULL REFERENCES test_catalog_pages(id) ON DELETE CASCADE,
+  name VARCHAR(200) NOT NULL,
+  sort_order INT NOT NULL DEFAULT 0,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
+)`)
+    await query('CREATE INDEX IF NOT EXISTS idx_test_flows_page ON test_flows(page_id)')
+
+    await query(`
+CREATE TABLE IF NOT EXISTS test_page_nav_edges (
+  id VARCHAR(36) PRIMARY KEY,
+  project_id VARCHAR(36) NOT NULL REFERENCES test_projects(id) ON DELETE CASCADE,
+  source_page_id VARCHAR(36) NOT NULL REFERENCES test_catalog_pages(id) ON DELETE CASCADE,
+  target_page_id VARCHAR(36) NOT NULL REFERENCES test_catalog_pages(id) ON DELETE CASCADE,
+  label VARCHAR(200) NULL,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
+)`)
+    await query('CREATE INDEX IF NOT EXISTS idx_test_page_nav_edges_project ON test_page_nav_edges(project_id)')
+
+    const missingFlowIdCol = await query<{ cnt: number }>(
+      `SELECT 1 AS cnt FROM information_schema.columns
+       WHERE table_schema = current_schema() AND table_name = 'test_cases' AND column_name = 'flow_id' LIMIT 1`
+    )
+    if (!missingFlowIdCol?.length) {
+      await query(`
+ALTER TABLE test_cases
+  ADD COLUMN flow_id VARCHAR(36) NULL REFERENCES test_flows(id) ON DELETE SET NULL
+`)
+      await query('CREATE INDEX IF NOT EXISTS idx_test_cases_flow ON test_cases(flow_id)')
+    }
+
+    const projectsNeedCatalog = await query<{ id: string }>(
+      `SELECT p.id FROM test_projects p
+       WHERE NOT EXISTS (SELECT 1 FROM test_catalog_pages c WHERE c.project_id = p.id)`
+    )
+    for (const row of projectsNeedCatalog ?? []) {
+      const pageId = randomUuidV7()
+      const flowId = randomUuidV7()
+      await query(
+        `INSERT INTO test_catalog_pages (id, project_id, name, slug, description, sort_order, diagram_x, diagram_y)
+         VALUES (?, ?, ?, ?, NULL, 0, NULL, NULL)`,
+        [pageId, row.id, 'General', 'general']
+      )
+      await query(`INSERT INTO test_flows (id, page_id, name, sort_order) VALUES (?, ?, ?, 0)`, [flowId, pageId, 'General'])
+      await query(`UPDATE test_cases SET flow_id = ? WHERE project_id = ? AND flow_id IS NULL`, [flowId, row.id])
+    }
 
     await query(`
 CREATE TABLE IF NOT EXISTS test_runs (
@@ -765,6 +825,96 @@ CREATE TABLE IF NOT EXISTS test_case_results (
       await query('ALTER TABLE test_case_results ADD COLUMN failure_steps TEXT NULL')
     }
 
+    const missingReportStepsCol = await query<{ cnt: number }>(
+      `SELECT 1 AS cnt FROM information_schema.columns
+       WHERE table_schema = current_schema() AND table_name = 'test_case_results' AND column_name = 'report_steps' LIMIT 1`
+    )
+    if (!missingReportStepsCol?.length) {
+      await query('ALTER TABLE test_case_results ADD COLUMN report_steps TEXT NULL')
+    }
+
+    const missingNavEdgeStyle = await query<{ cnt: number }>(
+      `SELECT 1 AS cnt FROM information_schema.columns
+       WHERE table_schema = current_schema() AND table_name = 'test_page_nav_edges' AND column_name = 'style_json' LIMIT 1`
+    )
+    if (!missingNavEdgeStyle?.length) {
+      await query('ALTER TABLE test_page_nav_edges ADD COLUMN style_json TEXT NULL')
+    }
+
+    const missingCatalogDiagramStyle = await query<{ cnt: number }>(
+      `SELECT 1 AS cnt FROM information_schema.columns
+       WHERE table_schema = current_schema() AND table_name = 'test_catalog_pages' AND column_name = 'diagram_style_json' LIMIT 1`
+    )
+    if (!missingCatalogDiagramStyle?.length) {
+      await query('ALTER TABLE test_catalog_pages ADD COLUMN diagram_style_json TEXT NULL')
+    }
+
+    await query(`
+CREATE TABLE IF NOT EXISTS test_catalog_groups (
+  id VARCHAR(36) PRIMARY KEY,
+  project_id VARCHAR(36) NOT NULL REFERENCES test_projects(id) ON DELETE CASCADE,
+  parent_group_id VARCHAR(36) NULL REFERENCES test_catalog_groups(id) ON DELETE SET NULL,
+  name VARCHAR(200) NOT NULL,
+  description TEXT NULL,
+  sort_order INT NOT NULL DEFAULT 0,
+  diagram_x DOUBLE PRECISION NULL,
+  diagram_y DOUBLE PRECISION NULL,
+  diagram_width DOUBLE PRECISION NULL,
+  diagram_height DOUBLE PRECISION NULL,
+  diagram_style_json TEXT NULL,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
+)`)
+    await query('CREATE INDEX IF NOT EXISTS idx_test_catalog_groups_project ON test_catalog_groups(project_id)')
+    await query('CREATE INDEX IF NOT EXISTS idx_test_catalog_groups_parent ON test_catalog_groups(parent_group_id)')
+    await query('CREATE INDEX IF NOT EXISTS idx_test_catalog_groups_project_parent ON test_catalog_groups(project_id, parent_group_id)')
+
+    const missingPageGroupId = await query<{ cnt: number }>(
+      `SELECT 1 AS cnt FROM information_schema.columns
+       WHERE table_schema = current_schema() AND table_name = 'test_catalog_pages' AND column_name = 'group_id' LIMIT 1`
+    )
+    if (!missingPageGroupId?.length) {
+      await query(`
+ALTER TABLE test_catalog_pages
+  ADD COLUMN group_id VARCHAR(36) NULL REFERENCES test_catalog_groups(id) ON DELETE SET NULL
+`)
+      await query('CREATE INDEX IF NOT EXISTS idx_test_catalog_pages_group ON test_catalog_pages(group_id)')
+    }
+
+    await query(`
+CREATE TABLE IF NOT EXISTS test_catalog_group_members (
+  user_id VARCHAR(36) NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  group_id VARCHAR(36) NOT NULL REFERENCES test_catalog_groups(id) ON DELETE CASCADE,
+  role VARCHAR(20) NOT NULL DEFAULT 'viewer',
+  created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (user_id, group_id)
+)`)
+    await query('CREATE INDEX IF NOT EXISTS idx_test_catalog_group_members_group ON test_catalog_group_members(group_id)')
+
+    await query(`
+CREATE TABLE IF NOT EXISTS test_page_map_annotations (
+  id VARCHAR(36) PRIMARY KEY,
+  project_id VARCHAR(36) NOT NULL REFERENCES test_projects(id) ON DELETE CASCADE,
+  content TEXT NOT NULL,
+  label_number INT NOT NULL DEFAULT 1,
+  diagram_x DOUBLE PRECISION NULL,
+  diagram_y DOUBLE PRECISION NULL,
+  sort_order INT NOT NULL DEFAULT 0,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
+)`)
+    await query('CREATE INDEX IF NOT EXISTS idx_test_page_map_annotations_project ON test_page_map_annotations(project_id)')
+
+    const missingAnnWidth = await query<{ cnt: number }>(
+      `SELECT 1 AS cnt FROM information_schema.columns
+       WHERE table_schema = current_schema() AND table_name = 'test_page_map_annotations' AND column_name = 'diagram_width' LIMIT 1`
+    )
+    if (!missingAnnWidth?.length) {
+      await query('ALTER TABLE test_page_map_annotations ADD COLUMN diagram_width DOUBLE PRECISION NULL')
+      await query('ALTER TABLE test_page_map_annotations ADD COLUMN diagram_height DOUBLE PRECISION NULL')
+      await query('ALTER TABLE test_page_map_annotations ADD COLUMN style_json TEXT NULL')
+    }
+
     await query(`
 CREATE TABLE IF NOT EXISTS ai_repair_proposals (
   id VARCHAR(36) PRIMARY KEY,
@@ -782,4 +932,45 @@ CREATE TABLE IF NOT EXISTS ai_repair_proposals (
     return
   }
   automationTestTablesMigrationDone = true
+}
+
+let devPipelineTablesMigrationDone = false
+
+/**
+ * Dev Pipelines: build/release flow graphs (React Flow JSON), per-user — tách khỏi Automation Test (Playwright).
+ */
+export async function migrateDevPipelineTables(): Promise<void> {
+  if (devPipelineTablesMigrationDone || !hasDbConfig()) return
+  try {
+    await query(`
+CREATE TABLE IF NOT EXISTS dev_pipeline_flows (
+  id VARCHAR(36) PRIMARY KEY,
+  user_id VARCHAR(36) NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  name VARCHAR(200) NOT NULL,
+  description TEXT NULL,
+  schema_version INT NOT NULL DEFAULT 1,
+  graph_json JSONB NOT NULL DEFAULT '{"version":1,"nodes":[],"edges":[]}'::jsonb,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
+)`)
+    await query('CREATE INDEX IF NOT EXISTS idx_dev_pipeline_flows_user_updated ON dev_pipeline_flows(user_id, updated_at DESC)')
+
+    await query(`
+CREATE TABLE IF NOT EXISTS dev_pipeline_runs (
+  id VARCHAR(36) PRIMARY KEY,
+  flow_id VARCHAR(36) NOT NULL REFERENCES dev_pipeline_flows(id) ON DELETE CASCADE,
+  user_id VARCHAR(36) NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  status VARCHAR(20) NOT NULL DEFAULT 'queued',
+  context_json JSONB NULL,
+  step_status_json JSONB NOT NULL DEFAULT '{}'::jsonb,
+  started_at TIMESTAMPTZ NULL,
+  finished_at TIMESTAMPTZ NULL,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
+)`)
+    await query('CREATE INDEX IF NOT EXISTS idx_dev_pipeline_runs_flow ON dev_pipeline_runs(flow_id, started_at DESC)')
+  } catch (e) {
+    l.error('[db] migrateDevPipelineTables failed', e)
+    return
+  }
+  devPipelineTablesMigrationDone = true
 }

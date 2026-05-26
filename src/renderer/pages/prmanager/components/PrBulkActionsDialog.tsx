@@ -855,7 +855,7 @@ export function PrBulkActionsDialog({
             base: item.base,
             draft: createDraft,
             openInBrowser: false,
-            userId: userId?.trim(),
+            userId: (userId ?? '').trim(),
           })
           if (res.status === 'success') {
             markRowSuccess(item.id)

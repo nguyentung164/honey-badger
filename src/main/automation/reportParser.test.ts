@@ -1,8 +1,9 @@
+import { unlinkSync, writeFileSync } from 'node:fs'
 import { promises as fs } from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { describe, expect, it } from 'vitest'
-import { buildFailureStepsList, overallStatusFromSummary, parsePlaywrightReport, readReportJsonWithRetry } from './reportParser'
+import { buildFailureStepsList, mergeHbFullStepsFromDisk, overallStatusFromSummary, parsePlaywrightReport, readReportJsonWithRetry } from './reportParser'
 
 describe('parsePlaywrightReport', () => {
   it('aggregates totals and detects flaky results', () => {
@@ -68,7 +69,54 @@ describe('parsePlaywrightReport', () => {
     expect(tc2?.failureSteps).toHaveLength(1)
     expect(tc2?.failureSteps?.[0].label).toBe('Failure')
     expect(tc2?.failureSteps?.[0].message).toContain('selector not found')
+    expect(tc2?.failureSteps?.[0].summary).toContain('selector not found')
     expect(tc2?.failureSteps?.[0].screenshotPaths).toContain('/tmp/a.png')
+  })
+
+  it('extracts nested report steps for UI (preorder)', () => {
+    const report = {
+      stats: { duration: 1, startTime: '2026-05-12T12:00:00.000Z' },
+      suites: [
+        {
+          specs: [
+            {
+              title: 'x',
+              file: 'a.spec.ts',
+              tests: [
+                {
+                  title: 'my test',
+                  projectName: 'chromium',
+                  results: [
+                    {
+                      status: 'passed',
+                      duration: 10,
+                      steps: [
+                        { title: 'Before Hooks', category: 'hook', duration: 2 },
+                        {
+                          title: 'Navigate',
+                          category: 'pw:api',
+                          duration: 100,
+                          location: { file: 'tests/Test.spec.ts', line: 4 },
+                          steps: [{ title: 'Inner', duration: 50, location: { file: 'tests/Test.spec.ts', line: 9 } }],
+                        },
+                      ],
+                    },
+                  ],
+                },
+              ],
+            },
+          ],
+        },
+      ],
+    }
+
+    const parsed = parsePlaywrightReport(report as any)
+    const r = parsed.results[0]
+    expect(r?.reportSteps?.map(s => ({ t: s.title, d: s.depth, loc: s.location?.line, nested: s.hasNestedSteps }))).toEqual([
+      { t: 'Before Hooks', d: 0, loc: undefined, nested: undefined },
+      { t: 'Navigate', d: 0, loc: 4, nested: true },
+      { t: 'Inner', d: 1, loc: 9, nested: undefined },
+    ])
   })
 
   it('puts failure-highlight paths before other screenshots on the case row', () => {
@@ -153,6 +201,24 @@ describe('parsePlaywrightReport', () => {
 })
 
 describe('buildFailureStepsList', () => {
+  it('maps errorContext from errors[] onto each failure step (Playwright 1.60+)', () => {
+    const last = {
+      status: 'failed',
+      errors: [
+        { message: 'first', errorContext: '  aria: button "OK"  \n' },
+        { message: 'second', errorContext: '- heading "Title" [level=1]' },
+      ],
+      attachments: [
+        { name: 'failure-highlight-1.png', path: '/h1.png', contentType: 'image/png' },
+        { name: 'failure-highlight-2.png', path: '/h2.png', contentType: 'image/png' },
+      ],
+    }
+    const steps = buildFailureStepsList(last as any)
+    expect(steps).toHaveLength(2)
+    expect(steps[0].errorContext).toBe('aria: button "OK"')
+    expect(steps[1].errorContext).toBe('- heading "Title" [level=1]')
+  })
+
   it('splits multiple errors[] into numbered failure steps with shared root media', () => {
     const last = {
       status: 'failed',
@@ -227,6 +293,23 @@ describe('buildFailureStepsList', () => {
     expect(steps[0].failureHighlightPaths).toEqual(['/tmp/failure-highlight-1.png'])
   })
 
+  it('carries errorContext from nested test.step errors', () => {
+    const last = {
+      status: 'failed',
+      attachments: [],
+      steps: [
+        {
+          title: 'Login',
+          error: { message: 'bad creds', errorContext: '- textbox [active]' },
+          attachments: [],
+        },
+      ],
+    }
+    const steps = buildFailureStepsList(last as any)
+    expect(steps).toHaveLength(1)
+    expect(steps[0].errorContext).toBe('- textbox [active]')
+  })
+
   it('prefers nested step attachments and falls back to root for steps without media', () => {
     const last = {
       status: 'failed',
@@ -255,6 +338,87 @@ describe('buildFailureStepsList', () => {
     expect(steps[1].label).toBe('Checkout')
     expect(steps[1].screenshotPaths).toEqual(['/step.png'])
     expect(steps[1].failureHighlightPaths).toBeUndefined()
+  })
+
+  it('fills summary and prefers JSON error.location over stack', () => {
+    const last = {
+      status: 'failed',
+      errors: [
+        {
+          message: `Error: timeout\n\n  at tests/foo.spec.ts:10:5`,
+          location: { file: 'tests/bar.spec.ts', line: 99, column: 1 },
+        },
+      ],
+      attachments: [],
+    }
+    const steps = buildFailureStepsList(last as any)
+    expect(steps).toHaveLength(1)
+    expect(steps[0].location?.file).toBe('tests/bar.spec.ts')
+    expect(steps[0].location?.line).toBe(99)
+    expect(steps[0].summary).toContain('timeout')
+  })
+
+  it('derives location from stack when JSON location missing', () => {
+    const last = {
+      status: 'failed',
+      errors: [
+        {
+          message: `Error: boom\n\n  at tests/e2e/login.spec.ts:42:10`,
+        },
+      ],
+      attachments: [],
+    }
+    const steps = buildFailureStepsList(last as any)
+    expect(steps[0].location?.file).toContain('login.spec.ts')
+    expect(steps[0].location?.line).toBe(42)
+  })
+
+  it('omits Call log from summary for long Playwright messages', () => {
+    const last = {
+      status: 'failed',
+      errors: [
+        {
+          message: `Error: expect(locator).toBeVisible() failed\n\nLocator: here\n\nCall log:\n  - timeout 5000ms`,
+        },
+      ],
+      attachments: [],
+    }
+    const steps = buildFailureStepsList(last as any)
+    expect(steps[0].summary).toContain('expect(locator)')
+    expect(steps[0].summary).not.toContain('timeout 5000ms')
+  })
+
+  it('fills assertionHints from Playwright-style message and matcherResult', () => {
+    const last = {
+      status: 'failed',
+      errors: [
+        {
+          message: `Error: expect failed
+
+Expected: 1
+Received: 2
+
+Call log:
+x`,
+          matcherResult: { expected: 9, actual: 9 },
+        },
+      ],
+      attachments: [],
+    }
+    const steps = buildFailureStepsList(last as any)
+    expect(steps[0].assertionHints?.expected).toContain('1')
+    expect(steps[0].assertionHints?.received).toContain('2')
+  })
+
+  it('uses matcherResult expected/actual when message has no Received', () => {
+    const last = {
+      status: 'failed',
+      errors: [{ message: 'Error: boom\n', matcherResult: { expected: 'a', actual: 'b' } }],
+      attachments: [],
+    }
+    const steps = buildFailureStepsList(last as any)
+    expect(steps[0].assertionHints?.expected).toBe('a')
+    expect(steps[0].assertionHints?.received).toBe('b')
   })
 })
 
@@ -295,5 +459,51 @@ describe('readReportJsonWithRetry', () => {
     const parsed = await readReportJsonWithRetry(file, { maxWaitMs: 5000, intervalMs: 30 })
     expect(Array.isArray(parsed.suites)).toBe(true)
     await fs.rm(dir, { recursive: true, force: true })
+  })
+})
+
+describe('mergeHbFullStepsFromDisk', () => {
+  it('overlays reportSteps from hb file by Playwright test id', () => {
+    const report = {
+      stats: { duration: 1, startTime: '2026-05-12T12:00:00.000Z' },
+      suites: [
+        {
+          specs: [
+            {
+              id: 'tid-hb-1',
+              title: 't',
+              file: 'a.spec.ts',
+              tests: [
+                {
+                  title: 't',
+                  projectName: 'chromium',
+                  results: [{ status: 'passed', duration: 10, steps: [] }],
+                },
+              ],
+            },
+          ],
+        },
+      ],
+    }
+    const parsed = parsePlaywrightReport(report as any)
+    const hb = path.join(os.tmpdir(), `hb-full-steps-merge-${Date.now()}.json`)
+    try {
+      writeFileSync(
+        hb,
+        JSON.stringify({
+          v: 1,
+          tests: { 'tid-hb-1': [{ title: 'Click me', depth: 0, durationMs: 12 }] },
+        }),
+        'utf8'
+      )
+      mergeHbFullStepsFromDisk(parsed, hb)
+      expect(parsed.results[0].reportSteps?.[0]?.title).toBe('Click me')
+    } finally {
+      try {
+        unlinkSync(hb)
+      } catch {
+        // ignore
+      }
+    }
   })
 })

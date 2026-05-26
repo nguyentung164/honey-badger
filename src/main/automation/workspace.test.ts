@@ -1,4 +1,5 @@
 import { mkdtempSync } from 'node:fs'
+import { promises as fsp } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { beforeAll, describe, expect, it, vi } from 'vitest'
@@ -54,6 +55,22 @@ describe('automation workspace paths', () => {
     expect(file.startsWith(workspace.getTestsDir('proj-1'))).toBe(true)
   })
 
+  it('removeCaseSpecArtifacts removes the spec file and Playwright snapshot dir', async () => {
+    const id = 'proj-ws-del-spec'
+    const testsDir = workspace.getTestsDir(id)
+    await fsp.mkdir(testsDir, { recursive: true })
+    const code = 'TC-99'
+    const stem = workspace.getSpecStemForCaseCode(code)
+    const specPath = workspace.getSpecFile(id, code)
+    const snapDir = path.join(testsDir, `${stem}.spec.ts-snapshots`)
+    await fsp.mkdir(snapDir, { recursive: true })
+    await fsp.writeFile(path.join(snapDir, 'x.png'), 'x')
+    await fsp.writeFile(specPath, '// spec')
+    await workspace.removeCaseSpecArtifacts(id, code)
+    await expect(fsp.access(specPath)).rejects.toThrow()
+    await expect(fsp.access(snapDir)).rejects.toThrow()
+  })
+
   it('renders playwright config with normalised paths and chosen browsers', () => {
     const cfg = workspace.renderPlaywrightConfig({
       id: 'proj-x',
@@ -81,10 +98,12 @@ describe('automation workspace paths', () => {
         browsers: ['chromium'],
         workspacePath: workspace.getWorkspacePath('proj-x'),
       } as never,
-      { reporterOutputs: { jsonFile: json, junitFile: junit } }
+      { reporterOutputs: { jsonFile: json, junitFile: junit, htmlOutputFolder: '/tmp/hb/playwright-report' } }
     )
     expect(cfg).toContain(`['json', { outputFile: ${JSON.stringify(json)} }]`)
     expect(cfg).toContain(`['junit', { outputFile: ${JSON.stringify(junit)} }]`)
+    expect(cfg).toContain(`'./hb-full-steps-reporter.ts'`)
+    expect(cfg).toContain('hb-full-steps.json')
     expect(cfg).not.toContain("'html'")
   })
 
@@ -106,9 +125,14 @@ describe('automation workspace paths', () => {
 
   it('hb-fixtures writes named highlight PNGs under outputDir and attaches by path', () => {
     const src = workspace.renderHbFailureFixtures()
+    expect(src).toContain('expectSoftVisible')
+    expect(src).toContain('expectVisibleWithOutline')
+    expect(src).toContain('hbDebugHighlight')
     expect(src).toContain('attachAllFailureHighlights')
-    expect(src).toContain('failure-highlight-${i + 1}.png')
-    expect(src).toContain('clearHbFailureMarks')
+    expect(src).toContain('failure-highlight-" + (i + 1) + ".png"')
+    expect(src).toContain('hbPaintLocatorDomOutline')
+    expect(src).toContain('clearHbFailureFrame')
+    expect(src).toContain('restoreHbDomOutlines')
     expect(src).toContain('testInfo.outputDir')
     expect(src).toContain('fs.writeFile')
     expect(src).toContain('path: outPath')

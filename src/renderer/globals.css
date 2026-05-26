@@ -1,4 +1,5 @@
 @import "tailwindcss";
+@import "./components/flow-inspector/flowCanvasTheme.css";
 @plugin "tailwindcss-animate";
 @plugin "@tailwindcss/typography";
 @custom-variant dark (&:is([data-theme-mode="dark"] *));
@@ -91,6 +92,8 @@
   --sidebar-accent-foreground: hsl(240 5.9% 10%);
   --sidebar-border: hsl(220 13% 91%);
   --sidebar-ring: hsl(217.2 91.2% 59.8%);
+  --page-map-path-highlight: oklch(58% 0.2 320);
+  --page-map-path-highlight-running: oklch(64% 0.18 320);
 }
 
 /* Font size: phải đặt ngoài @layer để override :root (unlayered > layered) */
@@ -143,6 +146,8 @@ html[data-font-size="large"] {
   --chart-18: oklch(76% 0.11 250);
   --chart-19: oklch(62% 0.09 320);
   --chart-20: oklch(45% 0.08 90);
+  --page-map-path-highlight: oklch(58% 0.2 320);
+  --page-map-path-highlight-running: oklch(64% 0.18 320);
   --sidebar: oklch(0.985 0 0);
   --sidebar-foreground: oklch(0.141 0.005 285.823);
   --sidebar-primary: oklch(0.21 0.006 285.885);
@@ -199,6 +204,8 @@ html[data-font-size="large"] {
   --chart-18: oklch(79% 0.14 190);
   --chart-19: oklch(64% 0.18 320);
   --chart-20: oklch(75% 0.13 95);
+  --page-map-path-highlight: oklch(72% 0.21 320);
+  --page-map-path-highlight-running: oklch(78% 0.19 320);
   --sidebar: oklch(0.25 0.006 285.885);
   --sidebar-foreground: oklch(0.985 0 0);
   --sidebar-primary: oklch(0.488 0.243 264.376);
@@ -2333,6 +2340,15 @@ html[data-font-size="large"] {
     filter: drop-shadow(0 0 12px rgba(249, 115, 22, 0.75));
   }
 }
+@keyframes achievementIconGlowStruggle {
+  0%,
+  100% {
+    filter: drop-shadow(0 0 4px rgba(239, 68, 68, 0.45));
+  }
+  50% {
+    filter: drop-shadow(0 0 12px rgba(239, 68, 68, 0.8));
+  }
+}
 
 /* Badge/emoji nhẹ nhàng nổi lên sau khi entrance kết thúc */
 @keyframes achievementBadgeFloat {
@@ -2343,6 +2359,22 @@ html[data-font-size="large"] {
   50% {
     transform: translateY(-7px);
   }
+}
+
+/* Unlock dialog — SVG stroke pulse along badge silhouette (per shape) */
+@keyframes badgePulseRing {
+  0% {
+    opacity: 0.82;
+    transform: scale(1);
+  }
+  100% {
+    opacity: 0;
+    transform: scale(1.14);
+  }
+}
+
+.animate-badge-pulse-ring {
+  animation: badgePulseRing 1.05s cubic-bezier(0.22, 1, 0.36, 1) forwards;
 }
 
 /* Sparkle particle nổi lên và fade out */
@@ -2527,12 +2559,15 @@ html[data-font-size="large"] {
   animation: achievementTextShimmerSilver 3s linear infinite;
 }
 .animate-achievement-text-shimmer-negative {
-  background: linear-gradient(90deg, #f97316, #fdba74, #fb923c, #f97316);
+  background: linear-gradient(90deg, #dc2626, #fca5a5, #ef4444, #dc2626);
   background-size: 200% auto;
   -webkit-background-clip: text;
   background-clip: text;
   -webkit-text-fill-color: transparent;
   animation: achievementTextShimmerNegative 3s linear infinite;
+}
+.animate-achievement-icon-glow-struggle {
+  animation: achievementIconGlowStruggle 2s ease-in-out 0.8s infinite;
 }
 .animate-achievement-icon-glow-bronze {
   animation: achievementIconGlowBronze 2s ease-in-out 0.8s infinite;
@@ -2561,6 +2596,7 @@ html[data-font-size="large"] {
   .animate-achievement-icon-glow-bronze,
   .animate-achievement-icon-glow-silver,
   .animate-achievement-icon-glow-orange,
+  .animate-achievement-icon-glow-struggle,
   .animate-achievement-rank-glow-gray,
   .animate-achievement-rank-glow-green,
   .animate-achievement-rank-glow-blue,

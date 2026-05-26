@@ -1,7 +1,18 @@
+import { existsSync, readFileSync } from 'node:fs'
 import { promises as fs } from 'node:fs'
 import path from 'node:path'
 import { randomUuidV7 } from 'shared/randomUuidV7'
-import type { AutomationBrowser, CaseResultStatus, RunStatus, TestCaseFailureStep, TestCaseResult, TestRunSummary } from 'shared/automation/types'
+import { derivePlaywrightFailureDisplay, extractPlaywrightStackLocation } from 'shared/automation/playwrightFailureSummary'
+import type {
+  AutomationBrowser,
+  CaseResultStatus,
+  RunStatus,
+  TestCaseFailureLocation,
+  TestCaseFailureStep,
+  TestCaseReportStep,
+  TestCaseResult,
+  TestRunSummary,
+} from 'shared/automation/types'
 import { isPlaywrightDefaultFailureScreenshotPath } from 'shared/automation/playwrightFailureScreenshots'
 
 interface PlaywrightAttachment {
@@ -10,13 +21,21 @@ interface PlaywrightAttachment {
   contentType?: string
 }
 
+/** Lỗi từ JSON reporter (expect / expect.soft); có thể có errorContext từ Playwright 1.60+; location theo JSONReportError; matcherResult khi reporter ghi. */
+interface PlaywrightTestError {
+  message?: string
+  errorContext?: string
+  location?: { file?: string; line?: number; column?: number }
+  matcherResult?: unknown
+}
+
 interface PlaywrightTestResult {
   status?: string
   duration?: number
   retry?: number
   attachments?: PlaywrightAttachment[]
-  errors?: Array<{ message?: string }>
-  error?: { message?: string }
+  errors?: PlaywrightTestError[]
+  error?: PlaywrightTestError
   stdout?: Array<{ text?: string } | string>
   stderr?: Array<{ text?: string } | string>
   /** test.step — có thể lồng nhau; từng step có thể có attachments riêng. */
@@ -26,10 +45,12 @@ interface PlaywrightTestResult {
 interface PlaywrightStep {
   title?: string
   category?: string
-  error?: { message?: string }
+  error?: PlaywrightTestError
   duration?: number
   attachments?: PlaywrightAttachment[]
   steps?: PlaywrightStep[]
+  /** Vị trí call site (expect, click…) — JSON reporter giống cột phải HTML report. */
+  location?: { file?: string; line?: number; column?: number }
 }
 
 interface PlaywrightTest {
@@ -43,6 +64,8 @@ interface PlaywrightTest {
 }
 
 interface PlaywrightSpec {
+  /** Playwright `test.id` — khớp file `hb-full-steps.json` từ custom reporter. */
+  id?: string
   title?: string
   file?: string
   tests?: PlaywrightTest[]
@@ -59,12 +82,20 @@ interface PlaywrightJsonReport {
   config?: { rootDir?: string; projects?: Array<{ name?: string }> }
   suites?: PlaywrightSuite[]
   stats?: { duration?: number; startTime?: string; expected?: number; unexpected?: number; flaky?: number; skipped?: number }
-  errors?: Array<{ message?: string }>
+  errors?: PlaywrightTestError[]
 }
 
 export interface ParsedRunReport {
   summary: Pick<TestRunSummary, 'total' | 'passed' | 'failed' | 'skipped' | 'flaky' | 'durationMs' | 'startedAt' | 'finishedAt'>
-  results: Array<Omit<TestCaseResult, 'id' | 'runId' | 'caseId'> & { caseCode?: string; title?: string; specFile?: string }>
+  results: Array<
+    Omit<TestCaseResult, 'id' | 'runId' | 'caseId'> & {
+      caseCode?: string
+      title?: string
+      specFile?: string
+      /** Chỉ dùng lúc merge hb-full-steps.json; bị xóa trước khi ghi DB. */
+      playwrightTestId?: string
+    }
+  >
 }
 
 function mapStatus(status?: string): CaseResultStatus {
@@ -220,6 +251,11 @@ function collectFailureHighlightPathsSorted(attachments: PlaywrightAttachment[] 
   return pairs.map(p => p.path)
 }
 
+function trimErrorContext(raw?: string): string | undefined {
+  const t = raw?.trim()
+  return t ? t : undefined
+}
+
 /** Ảnh / video / trace từ mảng attachments của một result hoặc một step (bỏ ảnh failure-highlight — xử lý riêng). */
 function collectMediaFromAttachments(attachments: PlaywrightAttachment[] | undefined): {
   screenshotPaths: string[]
@@ -240,6 +276,89 @@ function collectMediaFromAttachments(attachments: PlaywrightAttachment[] | undef
   return { screenshotPaths, videoPath, tracePath }
 }
 
+function pickFailureLocation(
+  message: string,
+  jsonLoc?: { file?: string; line?: number; column?: number }
+): TestCaseFailureLocation | undefined {
+  if (jsonLoc?.file) {
+    return { file: jsonLoc.file, line: jsonLoc.line, column: jsonLoc.column }
+  }
+  const fromStack = extractPlaywrightStackLocation(message)
+  if (fromStack) return fromStack
+  return undefined
+}
+
+function failureStepFromParts(
+  label: string,
+  message: string,
+  screenshotPaths: string[],
+  failureHighlightPaths: string[] | undefined,
+  errorContext: string | undefined,
+  jsonLocation?: { file?: string; line?: number; column?: number },
+  matcherResult?: unknown
+): TestCaseFailureStep {
+  const d = derivePlaywrightFailureDisplay(message, matcherResult)
+  return {
+    label,
+    message,
+    summary: d.summary,
+    assertionHints: d.assertionHints,
+    location: pickFailureLocation(message, jsonLocation),
+    screenshotPaths,
+    failureHighlightPaths,
+    errorContext,
+  }
+}
+
+const MAX_REPORT_STEPS = 500
+
+function pickReportStepLocation(
+  stepLoc: PlaywrightStep['location'],
+  errLoc: PlaywrightTestError['location']
+): TestCaseFailureLocation | undefined {
+  const loc = stepLoc?.file ? stepLoc : errLoc?.file ? errLoc : undefined
+  if (!loc?.file || typeof loc.file !== 'string') return undefined
+  const line = typeof loc.line === 'number' && Number.isFinite(loc.line) ? loc.line : undefined
+  const column = typeof loc.column === 'number' && Number.isFinite(loc.column) ? loc.column : undefined
+  return { file: loc.file, line, column }
+}
+
+/**
+ * Flatten cây `results[].steps` của JSON reporter (hook, expect, click…)
+ * để UI hiển thị giống panel “Test steps” của Playwright HTML report.
+ */
+export function buildReportStepsList(last: PlaywrightTestResult | undefined): TestCaseReportStep[] {
+  if (!last?.steps?.length) return []
+  const out: TestCaseReportStep[] = []
+  const walk = (steps: PlaywrightStep[] | undefined, depth: number): void => {
+    if (!steps?.length || out.length >= MAX_REPORT_STEPS) return
+    for (const s of steps) {
+      if (out.length >= MAX_REPORT_STEPS) break
+      const title = s.title?.trim() || (s.category === 'hook' ? 'Hook' : 'Step')
+      const err = s.error as PlaywrightTestError | undefined
+      const errMsg = err?.message?.trim()
+      const failed = Boolean(errMsg)
+      const snippet =
+        failed && errMsg ? (errMsg.length > 400 ? `${errMsg.slice(0, 400)}…` : errMsg) : undefined
+      const hasNested = Boolean(s.steps?.length)
+      const location = pickReportStepLocation(s.location, err?.location)
+      out.push({
+        title,
+        category: typeof s.category === 'string' && s.category.trim() ? s.category.trim() : undefined,
+        durationMs: roundMs(s.duration),
+        depth,
+        failed: failed || undefined,
+        errorSnippet: snippet,
+        location,
+        hasNestedSteps: hasNested || undefined,
+      })
+      walk(s.steps, depth + 1)
+    }
+  }
+  walk(last.steps, 0)
+  return out
+}
+
 /**
  * Tách từng lỗi để UI hiển thị: ưu tiên test.step có error; không thì tách errors[] / error đơn.
  * Media cấp test được gắn vào mỗi bước khi bước không có ảnh/video/trace riêng (Playwright thường attach một lần cuối).
@@ -249,18 +368,41 @@ export function buildFailureStepsList(last: PlaywrightTestResult | undefined): T
   const root = collectMediaFromAttachments(last.attachments)
   const hlRoot = collectFailureHighlightPathsSorted(last.attachments)
 
-  const errMsgs = last.errors?.map(e => e?.message?.trim()).filter(Boolean) ?? []
+  const errorEntries = (last.errors ?? [])
+    .map(e => {
+      const err = e as PlaywrightTestError
+      return {
+        message: typeof err?.message === 'string' ? err.message.trim() : '',
+        errorContext: trimErrorContext(err?.errorContext),
+        location: err?.location,
+        matcherResult: err.matcherResult,
+      }
+    })
+    .filter(e => e.message)
+
   /** Nhiều lỗi trong `errors[]` (expect.soft, …): luôn tách theo errors — không dùng `steps` lồng (Playwright hay có step nội bộ, làm lệch mapping ảnh highlight). */
-  if (errMsgs.length > 1) {
-    return errMsgs.map((message, i) => ({
-      label: `Failure ${i + 1}`,
-      message,
-      screenshotPaths: [...root.screenshotPaths],
-      failureHighlightPaths: hlRoot[i] ? [hlRoot[i]] : undefined,
-    }))
+  if (errorEntries.length > 1) {
+    return errorEntries.map((e, i) =>
+      failureStepFromParts(
+        `Failure ${i + 1}`,
+        e.message,
+        [...root.screenshotPaths],
+        hlRoot[i] ? [hlRoot[i]] : undefined,
+        e.errorContext,
+        e.location,
+        e.matcherResult
+      )
+    )
   }
 
-  const fromNested: TestCaseFailureStep[] = []
+  const fromNested: Array<{
+    label: string
+    message: string
+    screenshotPaths: string[]
+    errorContext?: string
+    location?: { file?: string; line?: number; column?: number }
+    matcherResult?: unknown
+  }> = []
   const walk = (steps: PlaywrightStep[] | undefined): void => {
     if (!steps?.length) return
     for (const s of steps) {
@@ -268,34 +410,105 @@ export function buildFailureStepsList(last: PlaywrightTestResult | undefined): T
       const msg = s.error?.message?.trim()
       if (!msg) continue
       const own = collectMediaFromAttachments(s.attachments)
+      const err = s.error as PlaywrightTestError | undefined
       fromNested.push({
         label: s.title?.trim() || 'Step',
         message: msg,
         screenshotPaths: own.screenshotPaths,
+        errorContext: trimErrorContext(s.error?.errorContext),
+        location: s.error?.location,
+        matcherResult: err?.matcherResult,
       })
     }
   }
   walk(last.steps)
 
   if (fromNested.length > 0) {
-    return fromNested.map((s, i) => ({
-      label: s.label,
-      message: s.message,
-      screenshotPaths: s.screenshotPaths.length > 0 ? s.screenshotPaths : [...root.screenshotPaths],
-      failureHighlightPaths: hlRoot[i] ? [hlRoot[i]] : undefined,
-    }))
+    return fromNested.map((s, i) =>
+      failureStepFromParts(
+        s.label,
+        s.message,
+        s.screenshotPaths.length > 0 ? s.screenshotPaths : [...root.screenshotPaths],
+        hlRoot[i] ? [hlRoot[i]] : undefined,
+        s.errorContext,
+        s.location,
+        s.matcherResult
+      )
+    )
   }
 
   const single = last.error?.message?.trim()
-  const messages = errMsgs.length === 1 ? [errMsgs[0]!] : single ? [single] : []
-  if (messages.length === 0) return []
+  let rows: Array<{
+    message: string
+    errorContext?: string
+    location?: { file?: string; line?: number; column?: number }
+    matcherResult?: unknown
+  }> = []
+  if (errorEntries.length === 1) {
+    const e0 = errorEntries[0]
+    if (e0)
+      rows = [
+        {
+          message: e0.message,
+          errorContext: e0.errorContext,
+          location: e0.location,
+          matcherResult: e0.matcherResult,
+        },
+      ]
+  } else if (single) {
+    const err = last.error as PlaywrightTestError | undefined
+    rows = [
+      {
+        message: single,
+        errorContext: trimErrorContext(last.error?.errorContext),
+        location: last.error?.location,
+        matcherResult: err?.matcherResult,
+      },
+    ]
+  }
+  if (rows.length === 0) return []
 
-  return messages.map((message, i) => ({
-    label: messages.length > 1 ? `Failure ${i + 1}` : 'Failure',
-    message,
-    screenshotPaths: [...root.screenshotPaths],
-    failureHighlightPaths: hlRoot[i] ? [hlRoot[i]] : undefined,
-  }))
+  return rows.map((row, i) =>
+    failureStepFromParts(
+      rows.length > 1 ? `Failure ${i + 1}` : 'Failure',
+      row.message,
+      [...root.screenshotPaths],
+      hlRoot[i] ? [hlRoot[i]] : undefined,
+      row.errorContext,
+      row.location,
+      row.matcherResult
+    )
+  )
+}
+
+/**
+ * JSON reporter Playwright chỉ giữ `test.step` (category `test.step`).
+ * Reporter `./hb-full-steps-reporter.ts` ghi `hb-full-steps.json` với đủ pw:api / expect / hook — merge vào `reportSteps`.
+ */
+export function mergeHbFullStepsFromDisk(parsed: ParsedRunReport, hbStepsPath: string): void {
+  try {
+    if (existsSync(hbStepsPath)) {
+      const raw = readFileSync(hbStepsPath, 'utf8').trim()
+      if (raw) {
+        const data = JSON.parse(raw) as { tests?: Record<string, TestCaseReportStep[]> }
+        const map = data.tests
+        if (map && typeof map === 'object') {
+          for (const row of parsed.results) {
+            const id = row.playwrightTestId
+            if (!id) continue
+            const steps = map[id]
+            if (!Array.isArray(steps) || steps.length === 0) continue
+            row.reportSteps = steps
+          }
+        }
+      }
+    }
+  } catch {
+    // ignore corrupt hb-full-steps.json
+  }
+  for (const row of parsed.results) {
+    delete row.playwrightTestId
+  }
 }
 
 /** Parse JSON reporter của Playwright thành dữ liệu ghi DB. */
@@ -338,8 +551,10 @@ export function parsePlaywrightReport(report: PlaywrightJsonReport): ParsedRunRe
       const errorMessage =
         last?.errors?.map(e => e?.message).filter(Boolean).join('\n---\n') ?? last?.error?.message ?? undefined
       const failureSteps = buildFailureStepsList(last)
+      const reportStepsFromJson = buildReportStepsList(last)
 
       out.results.push({
+        playwrightTestId: spec.id,
         caseCode: extractCaseCodeFromTitle(test.title) ?? extractCaseCodeFromTitle(spec.title) ?? extractCaseCodeFromFile(spec.file),
         title: test.title ?? spec.title,
         specFile: spec.file,
@@ -349,6 +564,7 @@ export function parsePlaywrightReport(report: PlaywrightJsonReport): ParsedRunRe
         attempts: test.results?.length ?? 1,
         errorMessage,
         failureSteps: failureSteps.length > 0 ? failureSteps : undefined,
+        reportSteps: reportStepsFromJson.length > 0 ? reportStepsFromJson : undefined,
         tracePath,
         screenshotPaths: screenshots,
         videoPath,

@@ -22,10 +22,8 @@ export function caretFromPoint(
       node: range.startContainer,
       offset: range.startOffset,
     }
-    // @ts-expect-error
   }
-  if (document.caretPositionFromPoint !== 'undefined') {
-    // @ts-expect-error FF - no types
+  if (typeof document.caretPositionFromPoint !== 'undefined') {
     const range = document.caretPositionFromPoint(x, y)
     if (range === null) {
       return null

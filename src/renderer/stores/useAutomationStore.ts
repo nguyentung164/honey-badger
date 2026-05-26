@@ -1,4 +1,5 @@
 import type {
+  AutomationBrowser,
   AutomationSettingsState,
   RunStreamEvent,
   TestCase,
@@ -38,7 +39,7 @@ interface AutomationState {
   settings: AutomationSettingsState | null
   current: CurrentRunState
   streamLog: string[]
-  installedBrowsers: string[]
+  installedBrowsers: AutomationBrowser[]
   setProjects: (p: TestProject[]) => void
   setProjectsLoading: (v: boolean) => void
   upsertProject: (p: TestProject) => void
@@ -48,8 +49,9 @@ interface AutomationState {
   setRuns: (projectId: string, runs: TestRunSummary[]) => void
   setResults: (runId: string, results: TestCaseResult[]) => void
   clearRunHistoryForProject: (projectId: string) => void
+  removeRunFromProjectHistory: (projectId: string, runId: string) => void
   setSettings: (s: AutomationSettingsState) => void
-  setInstalledBrowsers: (list: string[]) => void
+  setInstalledBrowsers: (list: AutomationBrowser[]) => void
   handleStreamEvent: (event: RunStreamEvent) => void
   resetCurrentRun: () => void
 }
@@ -112,6 +114,17 @@ export const useAutomationStore = create<AutomationState>(set => ({
         results: nextResults,
         current: resetThisProject,
         streamLog: state.current.projectId === projectId ? [] : state.streamLog,
+      }
+    }),
+  removeRunFromProjectHistory: (projectId, runId) =>
+    set(state => {
+      const prevRuns = state.runs[projectId] ?? []
+      const nextRuns = prevRuns.filter(r => r.id !== runId)
+      const nextResults = { ...state.results }
+      delete nextResults[runId]
+      return {
+        runs: { ...state.runs, [projectId]: nextRuns },
+        results: nextResults,
       }
     }),
   setSettings: settings => set({ settings }),

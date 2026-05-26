@@ -451,8 +451,18 @@ function hslToRgb(hsl: { h: number; s: number; l: number }, alpha = 1): ColorVal
 function parseColorString(value: string): ColorValue | null {
   const trimmed = value.trim()
 
-  // Parse hex colors
+  // Parse hex colors (#rgb, #rrggbb, #rrggbbaa)
   if (trimmed.startsWith('#')) {
+    const hex8 = trimmed.match(/^#([a-fA-F0-9]{8})$/)
+    if (hex8) {
+      const h = hex8[1]
+      return {
+        r: Number.parseInt(h.slice(0, 2), 16),
+        g: Number.parseInt(h.slice(2, 4), 16),
+        b: Number.parseInt(h.slice(4, 6), 16),
+        a: Number.parseInt(h.slice(6, 8), 16) / 255,
+      }
+    }
     const hexMatch = trimmed.match(/^#([a-fA-F0-9]{3}|[a-fA-F0-9]{6})$/)
     if (hexMatch) {
       return hexToRgb(trimmed)
@@ -794,11 +804,11 @@ function ColorPickerRootImpl(props: ColorPickerRootImplProps) {
 
   React.useEffect(() => {
     if (valueProp !== undefined) {
-      const currentState = store.getState()
-      const color = hexToRgb(valueProp, currentState.color.a)
-      const hsv = rgbToHsv(color)
-      store.setColor(color)
-      store.setHsv(hsv)
+      const parsed = parseColorString(valueProp)
+      if (parsed) {
+        store.setColor(parsed)
+        store.setHsv(rgbToHsv(parsed))
+      }
     }
   }, [valueProp, store])
 

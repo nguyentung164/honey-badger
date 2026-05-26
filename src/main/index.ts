@@ -10,6 +10,7 @@ import { registerAppLogsIpcHandlers } from './ipc/appLogs'
 import { registerCommitMessageHistoryIpcHandlers } from './ipc/commitMessageHistory'
 import { registerDailyReportIpcHandlers } from './ipc/dailyReport'
 import { registerDashboardIpcHandlers } from './ipc/dashboard'
+import { registerDevPipelinesIpcHandlers } from './ipc/devPipelines'
 import { registerEVMHandlers } from './ipc/evm'
 import { registerGitIpcHandlers } from './ipc/git'
 import { registerGitCommitQueueIpcHandlers } from './ipc/gitCommitQueue'
@@ -31,6 +32,7 @@ import configurationStore from './store/ConfigurationStore'
 import {
   migrateAchievementBooleanColumns,
   migrateAutomationTestTables,
+  migrateDevPipelineTables,
   migratePrAiAssistChatsTable,
   migratePrCheckpointGithubColumns,
   migratePrCheckpointTemplateHeaderGroup,
@@ -78,6 +80,7 @@ makeAppWithSingleInstanceLock(async () => {
   registerDailyReportIpcHandlers()
   registerAiAnalysisIpcHandlers()
   registerAutomationTestIpcHandlers()
+  registerDevPipelinesIpcHandlers()
   registerGitCommitQueueIpcHandlers()
   registerSvnIpcHandlers()
   registerVcsIpcHandlers()
@@ -133,6 +136,7 @@ makeAppWithSingleInstanceLock(async () => {
         await migrateTasksTicketIdNullable().catch(() => {})
         await migrateTasksStatusEnteredAt().catch(() => {})
         await migrateAutomationTestTables().catch(() => {})
+        await migrateDevPipelineTables().catch(() => {})
         const { startPrStatusSync } = await import('./scheduler/prStatusSync')
         startPrStatusSync()
       })()

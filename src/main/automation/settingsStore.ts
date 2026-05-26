@@ -17,7 +17,6 @@ const store = new Store<Schema>({
     defaultWorkers: 1,
     defaultRetries: 0,
     runRetention: 20,
-    aiProviderOverride: null,
     projectSecrets: {},
   },
 })
@@ -27,7 +26,6 @@ export function getAutomationSettings(): AutomationSettingsState {
     defaultWorkers: store.get('defaultWorkers'),
     defaultRetries: store.get('defaultRetries'),
     runRetention: store.get('runRetention'),
-    aiProviderOverride: store.get('aiProviderOverride') ?? null,
   }
 }
 
@@ -35,7 +33,6 @@ export function setAutomationSettings(patch: Partial<AutomationSettingsState>): 
   if (patch.defaultWorkers != null) store.set('defaultWorkers', patch.defaultWorkers)
   if (patch.defaultRetries != null) store.set('defaultRetries', patch.defaultRetries)
   if (patch.runRetention != null) store.set('runRetention', patch.runRetention)
-  if (patch.aiProviderOverride !== undefined) store.set('aiProviderOverride', patch.aiProviderOverride)
   return getAutomationSettings()
 }
 

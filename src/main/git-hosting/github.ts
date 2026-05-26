@@ -169,6 +169,84 @@ function githubPrMergePollDelayMs(attemptIndex: number): number {
   return Math.min(400 + attemptIndex * 280, 2200)
 }
 
+function openPrMergeStateIsUnset(data: any): boolean {
+  const ms = typeof data?.mergeable_state === 'string' ? data.mergeable_state.toLowerCase().trim() : ''
+  return data?.mergeable == null || ms === '' || ms === 'unknown'
+}
+
+/** GraphQL MergeStateStatus (UPPER) \u2192 REST mergeable_state (lower). */
+function graphQlMergeStateToRest(state: string): string | null {
+  const map: Record<string, string> = {
+    CLEAN: 'clean',
+    DIRTY: 'dirty',
+    BLOCKED: 'blocked',
+    BEHIND: 'behind',
+    UNKNOWN: 'unknown',
+    UNSTABLE: 'unstable',
+    HAS_HOOKS: 'has_hooks',
+    DRAFT: 'draft',
+  }
+  const u = state.trim().toUpperCase()
+  return map[u] ?? (u ? u.toLowerCase() : null)
+}
+
+/**
+ * GitHub web d\u00f9ng GraphQL mergeStateStatus; REST pulls.get \u0111\u00f4i khi k\u1eb9t unknown d\u00f9 UI \u0111\u00e3 bi\u1ebft behind/blocked.
+ */
+async function enrichOpenPrMergeableState(
+  octokit: InstanceType<typeof Octokit>,
+  owner: string,
+  repo: string,
+  pull_number: number,
+  data: any
+): Promise<void> {
+  if (String(data?.state ?? '') !== 'open' || data?.merged === true || !!data?.merged_at) return
+  if (!openPrMergeStateIsUnset(data)) return
+
+  try {
+    type Gql = { repository: { pullRequest: { mergeStateStatus: string } | null } | null }
+    const gql = await octokit.graphql<Gql>(
+      `query PrMergeStateStatus($owner: String!, $repo: String!, $n: Int!) {
+        repository(owner: $owner, name: $repo) {
+          pullRequest(number: $n) { mergeStateStatus }
+        }
+      }`,
+      { owner, repo, n: pull_number }
+    )
+    const rest = graphQlMergeStateToRest(gql?.repository?.pullRequest?.mergeStateStatus ?? '')
+    if (rest && rest !== 'unknown') {
+      data.mergeable_state = rest
+      if (data.mergeable == null) {
+        data.mergeable = rest === 'clean' || rest === 'has_hooks'
+      }
+      return
+    }
+  } catch (err: unknown) {
+    l.warn(
+      `GraphQL mergeStateStatus fallback failed for ${owner}/${repo}#${pull_number}:`,
+      err instanceof Error ? err.message : err
+    )
+  }
+
+  if (!openPrMergeStateIsUnset(data)) return
+  const baseSha = typeof data?.base?.sha === 'string' ? data.base.sha : ''
+  const headSha = typeof data?.head?.sha === 'string' ? data.head.sha : ''
+  if (!baseSha || !headSha) return
+  try {
+    const { data: cmp } = await octokit.repos.compareCommitsWithBasehead({
+      owner,
+      repo,
+      basehead: `${baseSha}...${headSha}`,
+    })
+    if (cmp.status === 'behind') {
+      data.mergeable_state = 'behind'
+      if (data.mergeable == null) data.mergeable = false
+    }
+  } catch (err: unknown) {
+    l.warn(`compareCommitsWithBasehead fallback failed for ${owner}/${repo}#${pull_number}:`, err instanceof Error ? err.message : err)
+  }
+}
+
 /**
  * `pulls.get` có thể trả `mergeable: null` hoặc `mergeable_state: "unknown"` trong lúc GitHub test-merge.
  * Theo tài liệu REST nên GET lại sau một nhịp — nếu không UI sẽ kẹt "Checking"/unknown dù thực tế conflict/behind.
@@ -187,17 +265,14 @@ async function pullsGetAwaitStableMergeability(
     const isOpen = String(data?.state ?? '') === 'open'
     const alreadyMerged = data?.merged === true || !!data?.merged_at
     if (!isOpen || alreadyMerged) break
-
-    const mergePending = data.mergeable == null
-    const ms = typeof data.mergeable_state === 'string' ? data.mergeable_state.toLowerCase() : ''
-    const stateUnknown = ms === 'unknown'
-    if (!mergePending && !stateUnknown) break
+    if (!openPrMergeStateIsUnset(data)) break
     if (i >= maxPasses - 1) break
     await new Promise<void>(r => setTimeout(r, githubPrMergePollDelayMs(i)))
   }
   if (data == null) {
     throw new Error('GitHub pulls.get returned no data')
   }
+  await enrichOpenPrMergeableState(octokit, owner, repo, pull_number, data)
   return data
 }
 

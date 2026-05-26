@@ -27,6 +27,7 @@ const PrManager = lazy(() => import('../pages/prmanager/PrManager').then(m => ({
 const AutomationPageStandalone = lazy(() =>
   import('../pages/automation/AutomationPage').then(m => ({ default: () => <m.AutomationPage mode="standalone" /> }))
 )
+const DevPipelinesPage = lazy(() => import('../pages/dev-pipelines/DevPipelinesPage').then(m => ({ default: m.default })))
 
 function PageFallback() {
   return (
@@ -82,6 +83,7 @@ export function AppRoutes() {
           <Route path="/report-manager" element={<ReportManagerPage />} />
           <Route path="/pr-manager" element={<PrManager />} />
           <Route path="/automation" element={<AutomationPageStandalone />} />
+          <Route path="/dev-pipelines" element={<DevPipelinesPage />} />
         </Routes>
       </Suspense>
     </Router>

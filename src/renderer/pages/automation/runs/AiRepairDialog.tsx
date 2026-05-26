@@ -70,7 +70,7 @@ export function AiRepairDialog({ caseResultId, open, onOpenChange, onApplied }: 
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-5xl">
+      <DialogContent className="max-w-5xl!">
         <DialogHeader>
           <DialogTitle>{t('automation.repair.title')}</DialogTitle>
         </DialogHeader>

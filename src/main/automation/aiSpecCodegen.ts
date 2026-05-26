@@ -24,7 +24,7 @@ function ensurePlaywrightImports(code: string): string {
       ? trimmed.endsWith('\n')
         ? trimmed
         : `${trimmed}\n`
-      : `import { test, expect, expectSoft } from './hb-fixtures.ts'\n\n${trimmed}\n`
+      : `import { test, expect, expectSoft, expectSoftVisible, expectVisibleWithOutline } from './hb-fixtures.ts'\n\n${trimmed}\n`
   /** Chuẩn hoá @playwright/test / import file:// cũ → `./hb-fixtures.ts` (cùng logic khi ghi file). */
   return patchSpecPlaywrightImport(withImport)
 }

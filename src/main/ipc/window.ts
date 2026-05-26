@@ -6,7 +6,7 @@ import { IPC } from 'main/constants'
 import { getMainWindowRef } from 'main/mainWindowRef'
 import { closeSingletonWindow, focusSingletonWindow, registerSingletonWindow } from 'main/utils/singletonWindow'
 import { getWindowBackgroundColor } from 'main/utils/windowBackground'
-import { AUTOMATION_RENDERER_CHANNELS, ENVIRONMENT, PR_MANAGER_RENDERER_CHANNELS, TASK_MANAGEMENT_RENDERER_CHANNELS } from 'shared/constants'
+import { AUTOMATION_RENDERER_CHANNELS, DEV_PIPELINE_RENDERER_CHANNELS, ENVIRONMENT, PR_MANAGER_RENDERER_CHANNELS, TASK_MANAGEMENT_RENDERER_CHANNELS } from 'shared/constants'
 import { getCommitDiff } from '../git/diff'
 import { onSpotBugs } from '../task/achievement/achievementService'
 import { getTokenFromStore, verifyToken } from '../task/auth'
@@ -1062,6 +1062,57 @@ export function registerWindowIpcHandlers() {
           protocol: 'file:',
           slashes: true,
           hash: '/automation',
+        })
+    window.loadURL(url)
+
+    window.webContents.on('did-finish-load', () => {
+      if (ENVIRONMENT.IS_DEV) {
+        window.webContents.openDevTools({ mode: 'bottom' })
+      }
+    })
+  })
+
+  ipcMain.on(IPC.WINDOW.DEV_PIPELINES_CLOSE, () => {
+    closeSingletonWindow('dev-pipelines')
+  })
+
+  ipcMain.on(IPC.WINDOW.DEV_PIPELINES, () => {
+    if (focusSingletonWindow('dev-pipelines')) return
+
+    const window = new BrowserWindow({
+      width: 1280,
+      height: 800,
+      minWidth: 960,
+      minHeight: 560,
+      center: true,
+      frame: false,
+      show: true,
+      backgroundColor: getWindowBackgroundColor(),
+      autoHideMenuBar: true,
+      title: 'Dev Pipelines',
+      webPreferences: {
+        contextIsolation: true,
+        nodeIntegration: false,
+        preload: join(__dirname, '../preload/index.js'),
+        sandbox: false,
+      },
+    })
+    registerSingletonWindow('dev-pipelines', window)
+
+    window.once('closed', () => {
+      const main = getMainWindowRef()
+      if (main && !main.isDestroyed()) {
+        main.webContents.send(DEV_PIPELINE_RENDERER_CHANNELS.WINDOW_CLOSED)
+      }
+    })
+
+    const url = ENVIRONMENT.IS_DEV
+      ? 'http://localhost:4927/#/dev-pipelines'
+      : format({
+          pathname: resolve(__dirname, '../renderer/index.html'),
+          protocol: 'file:',
+          slashes: true,
+          hash: '/dev-pipelines',
         })
     window.loadURL(url)
 

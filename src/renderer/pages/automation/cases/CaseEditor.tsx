@@ -1,9 +1,9 @@
 import { Editor } from '@monaco-editor/react'
-import { Loader2, Sparkles } from 'lucide-react'
+import { Loader2, Sparkles, Terminal } from 'lucide-react'
 import { useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { randomUuidV7 } from 'shared/randomUuidV7'
 import type { TestCase, TestCasePriority, TestStep, TestStepAction } from 'shared/automation/types'
+import { randomUuidV7 } from 'shared/randomUuidV7'
 import { Button } from '@/components/ui/button'
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { Input } from '@/components/ui/input'
@@ -17,6 +17,10 @@ import { useAppearanceStoreSelect } from '@/stores/useAppearanceStore'
 interface Props {
   projectId: string
   initial: TestCase | null
+  /** Flow mặc định khi tạo case mới. */
+  defaultFlowId?: string | null
+  /** Danh sách flow của page hiện tại (để đổi flow). */
+  flowOptions?: Array<{ id: string; name: string }>
   open: boolean
   onOpenChange: (v: boolean) => void
   onSaved: () => void
@@ -26,14 +30,13 @@ const PRIORITIES: TestCasePriority[] = ['low', 'medium', 'high', 'critical']
 const ACTIONS: TestStepAction[] = ['navigate', 'click', 'fill', 'select', 'expect', 'wait', 'custom']
 
 /** Shared with header row so column labels stay aligned with fields (SelectTrigger is w-fit by default and used to spill into the next grid track). */
-const STEP_GRID_CLASS =
-  'grid grid-cols-[2rem_minmax(4rem,8.5rem)_minmax(0,1fr)_minmax(0,1fr)_minmax(0,1fr)_2.5rem] items-center gap-x-3'
+const STEP_GRID_CLASS = 'grid grid-cols-[2rem_minmax(4rem,8.5rem)_minmax(0,1fr)_minmax(0,1fr)_minmax(0,1fr)_2.5rem] items-center gap-x-3'
 
 function emptyStep(order: number): TestStep {
   return { order, action: 'custom' }
 }
 
-export function CaseEditor({ projectId, initial, open, onOpenChange, onSaved }: Props) {
+export function CaseEditor({ projectId, initial, defaultFlowId, flowOptions, open, onOpenChange, onSaved }: Props) {
   const { t } = useTranslation()
   const themeMode = useAppearanceStoreSelect(s => s.themeMode)
   const [code, setCode] = useState('')
@@ -44,10 +47,14 @@ export function CaseEditor({ projectId, initial, open, onOpenChange, onSaved }: 
   const [expected, setExpected] = useState('')
   const [steps, setSteps] = useState<TestStep[]>([emptyStep(1)])
   const [spec, setSpec] = useState('')
+  const [codegenOpen, setCodegenOpen] = useState(false)
+  const [codegenUrl, setCodegenUrl] = useState('')
+  const [codegenBusy, setCodegenBusy] = useState(false)
   const [aiBusy, setAiBusy] = useState(false)
   const [aiProposal, setAiProposal] = useState<string | null>(null)
   const [aiRationale, setAiRationale] = useState<string | null>(null)
   const [saving, setSaving] = useState(false)
+  const [flowId, setFlowId] = useState<string>('')
 
   useEffect(() => {
     if (!open) return
@@ -60,13 +67,31 @@ export function CaseEditor({ projectId, initial, open, onOpenChange, onSaved }: 
     setSteps(initial?.steps && initial.steps.length > 0 ? initial.steps : [emptyStep(1)])
     setAiProposal(null)
     setAiRationale(null)
+    setCodegenOpen(false)
+    setCodegenUrl('')
     setSpec('')
+    setFlowId(initial?.flowId ?? defaultFlowId ?? '')
     if (initial) {
       void window.api.automation.case.readSpec({ projectId, code: initial.code }).then(res => {
         if (res.status === 'success' && typeof res.data === 'string') setSpec(res.data)
       })
     }
-  }, [open, initial, projectId])
+  }, [open, initial, projectId, defaultFlowId])
+
+  useEffect(() => {
+    if (!open || !codegenOpen) return
+    let cancelled = false
+    void window.api.automation.project.get(projectId).then(res => {
+      if (cancelled) return
+      if (res.status === 'success' && res.data?.baseUrl) {
+        const fromProject = res.data.baseUrl.trim()
+        setCodegenUrl(prev => (prev.trim() === '' ? fromProject : prev))
+      }
+    })
+    return () => {
+      cancelled = true
+    }
+  }, [open, codegenOpen, projectId])
 
   const handleStepChange = (idx: number, patch: Partial<TestStep>) => {
     setSteps(prev => prev.map((s, i) => (i === idx ? { ...s, ...patch } : s)))
@@ -79,6 +104,10 @@ export function CaseEditor({ projectId, initial, open, onOpenChange, onSaved }: 
       toast.error(t('automation.cases.errors.codeRequired'))
       return
     }
+    if (!flowId.trim()) {
+      toast.error(t('automation.cases.errors.flowRequired'))
+      return
+    }
     if (!title.trim()) {
       toast.error(t('automation.cases.errors.titleRequired'))
       return
@@ -88,6 +117,7 @@ export function CaseEditor({ projectId, initial, open, onOpenChange, onSaved }: 
       const payload: TestCase = {
         id: initial?.id ?? randomUuidV7(),
         projectId,
+        flowId,
         code: code.trim(),
         title: title.trim(),
         tags: tags
@@ -148,9 +178,23 @@ export function CaseEditor({ projectId, initial, open, onOpenChange, onSaved }: 
     }
   }
 
+  const launchCodegen = async () => {
+    setCodegenBusy(true)
+    try {
+      const res = await window.api.automation.case.launchCodegen({ projectId, url: codegenUrl })
+      if (res.status === 'success') {
+        toast.success(t('automation.cases.codegenStarted'))
+      } else {
+        toast.error(res.message ?? t('automation.cases.errors.codegenFailed'))
+      }
+    } finally {
+      setCodegenBusy(false)
+    }
+  }
+
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-4xl!">
+      <DialogContent className="max-w-5xl!">
         <DialogHeader>
           <DialogTitle>{initial ? t('automation.cases.edit') : t('automation.cases.new')}</DialogTitle>
         </DialogHeader>
@@ -190,6 +234,23 @@ export function CaseEditor({ projectId, initial, open, onOpenChange, onSaved }: 
               <Label htmlFor="c-title">{t('automation.cases.fields.title')}</Label>
               <Input id="c-title" value={title} onChange={e => setTitle(e.target.value)} />
             </div>
+            {flowOptions && flowOptions.length > 0 ? (
+              <div className="grid gap-1.5">
+                <Label htmlFor="c-flow">{t('automation.cases.fields.flow')}</Label>
+                <Select value={flowId || flowOptions[0]?.id} onValueChange={setFlowId}>
+                  <SelectTrigger id="c-flow">
+                    <SelectValue placeholder={t('automation.cases.fields.flow')} />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {flowOptions.map(f => (
+                      <SelectItem key={f.id} value={f.id}>
+                        {f.name}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            ) : null}
             <div className="grid gap-1.5">
               <Label htmlFor="c-pre">{t('automation.cases.fields.preconditions')}</Label>
               <Textarea id="c-pre" rows={2} value={preconditions} onChange={e => setPreconditions(e.target.value)} />
@@ -248,13 +309,43 @@ export function CaseEditor({ projectId, initial, open, onOpenChange, onSaved }: 
           </TabsContent>
 
           <TabsContent value="spec" className="flex flex-1 flex-col gap-2 overflow-hidden">
-            <div className="flex items-center justify-between gap-2">
-              <span className="text-xs text-muted-foreground">{t('automation.cases.specHint')}</span>
-              <Button size="sm" variant="outline" onClick={handleGenerateSpec} disabled={aiBusy}>
-                {aiBusy ? <Loader2 className="size-4 animate-spin" /> : <Sparkles className="size-4" />}
-                {t('automation.cases.generateSpec')}
-              </Button>
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <span className="min-w-0 flex-1 text-xs text-muted-foreground">{t('automation.cases.specHint')}</span>
+              <div className="flex flex-wrap items-center gap-2">
+                <Button size="sm" variant="outline" onClick={handleGenerateSpec} disabled={aiBusy}>
+                  {aiBusy ? <Loader2 className="size-4 animate-spin" /> : <Sparkles className="size-4" />}
+                  {t('automation.cases.generateSpec')}
+                </Button>
+                <Button size="sm" variant="outline" type="button" onClick={() => setCodegenOpen(o => !o)} aria-expanded={codegenOpen}>
+                  <Terminal className="size-4" />
+                  {t('automation.cases.codegenToggle')}
+                </Button>
+              </div>
             </div>
+            {codegenOpen ? (
+              <div className="flex flex-col gap-2 rounded-md border bg-muted/30 p-3 text-sm">
+                <div className="grid gap-1.5">
+                  <Label htmlFor="codegen-url">{t('automation.cases.codegenUrlLabel')}</Label>
+                  <Input
+                    id="codegen-url"
+                    value={codegenUrl}
+                    onChange={e => setCodegenUrl(e.target.value)}
+                    placeholder={t('automation.cases.codegenUrlPlaceholder')}
+                    autoComplete="url"
+                  />
+                </div>
+                <p className="text-xs text-muted-foreground">{t('automation.cases.codegenHint')}</p>
+                <div className="flex flex-wrap justify-end gap-2">
+                  <Button size="sm" variant="ghost" type="button" onClick={() => setCodegenOpen(false)}>
+                    {t('automation.common.close')}
+                  </Button>
+                  <Button size="sm" type="button" onClick={launchCodegen} disabled={codegenBusy}>
+                    {codegenBusy ? <Loader2 className="size-4 animate-spin" /> : <Terminal className="size-4" />}
+                    {t('automation.cases.codegenLaunch')}
+                  </Button>
+                </div>
+              </div>
+            ) : null}
             {aiProposal != null ? (
               <div className="flex flex-col gap-2 rounded-md border p-2">
                 <div className="text-xs text-muted-foreground">{aiRationale}</div>

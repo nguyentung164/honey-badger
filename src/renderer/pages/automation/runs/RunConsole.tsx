@@ -1,6 +1,7 @@
 import { useVirtualizer } from '@tanstack/react-virtual'
-import { Square, FileText } from 'lucide-react'
-import { useEffect, useRef } from 'react'
+import { FileText, Loader2, Square } from 'lucide-react'
+import { useEffect, useRef, useState } from 'react'
+import { flushSync } from 'react-dom'
 import { useTranslation } from 'react-i18next'
 import toast from '@/components/ui-elements/Toast'
 import { Button } from '@/components/ui/button'
@@ -17,6 +18,7 @@ export function RunConsole({ projectId }: Props) {
   const current = useAutomationStore(s => s.current)
   const parentRef = useRef<HTMLDivElement>(null)
   const lastDetailToastRef = useRef<string>('')
+  const [cancelling, setCancelling] = useState(false)
 
   useEffect(() => {
     const d = current.finishDetail?.trim()
@@ -31,6 +33,20 @@ export function RunConsole({ projectId }: Props) {
       lastDetailToastRef.current = ''
     }
   }, [current.runId, current.status])
+
+  /** Sau khi IPC cancel thành công, stream có thể đã đặt status ≠ running trước khi `finally` chạy — giữ spinner đến khi store khớp. */
+  useEffect(() => {
+    if (!cancelling) return
+    if (current.status !== 'running') {
+      setCancelling(false)
+    }
+  }, [cancelling, current.status])
+
+  useEffect(() => {
+    if (!cancelling || current.status !== 'running') return
+    const id = window.setTimeout(() => setCancelling(false), 120_000)
+    return () => window.clearTimeout(id)
+  }, [cancelling, current.status])
   const rowVirtualizer = useVirtualizer({
     count: log.length,
     getScrollElement: () => parentRef.current,
@@ -49,8 +65,26 @@ export function RunConsole({ projectId }: Props) {
   const percent = total > 0 ? Math.round((completed / total) * 100) : current.status === 'running' ? 5 : 0
 
   const handleCancel = async () => {
-    if (current.runId) {
-      await window.api.automation.run.cancel(current.runId)
+    if (!current.runId || cancelling) return
+    flushSync(() => {
+      setCancelling(true)
+    })
+    let keepLoadingUntilStream = false
+    try {
+      const res = await window.api.automation.run.cancel(current.runId)
+      if (res.status !== 'success') {
+        toast.error(res.message ?? t('automation.runs.cancelFailed'))
+        return
+      }
+      if (!res.data?.cancelled) {
+        toast.error(t('automation.runs.cancelNotActive'))
+        return
+      }
+      keepLoadingUntilStream = true
+    } finally {
+      if (!keepLoadingUntilStream) {
+        setCancelling(false)
+      }
     }
   }
 
@@ -70,7 +104,7 @@ export function RunConsole({ projectId }: Props) {
                 ? t('automation.runs.idle')
                 : t('automation.runs.status', { status: current.status })}
             </span>
-            <span className="font-mono">
+            <span>
               {current.tally.passed}P / {current.tally.failed}F / {current.tally.skipped}S {total ? `/ ${total}T` : ''}
             </span>
           </div>
@@ -90,13 +124,19 @@ export function RunConsole({ projectId }: Props) {
             <FileText className="size-4" />
             {t('automation.runs.openLog')}
           </Button>
-          <Button size="sm" variant="destructive" onClick={handleCancel} disabled={current.status !== 'running'}>
-            <Square className="size-4" />
+          <Button
+            size="sm"
+            variant="destructive"
+            className="gap-2"
+            onClick={() => void handleCancel()}
+            disabled={current.status !== 'running' || cancelling}
+          >
+            {cancelling ? <Loader2 className="size-4 shrink-0 animate-spin" /> : <Square className="size-4 shrink-0" />}
             {t('automation.runs.cancel')}
           </Button>
         </div>
       </div>
-      <div ref={parentRef} className="min-h-0 flex-1 overflow-auto rounded-md border bg-zinc-950 p-2 font-mono text-[11px] text-zinc-100">
+      <div ref={parentRef} className="min-h-0 flex-1 overflow-auto rounded-md border bg-zinc-950 p-2 text-[11px] text-zinc-100">
         <div style={{ height: rowVirtualizer.getTotalSize(), position: 'relative' }}>
           {rowVirtualizer.getVirtualItems().map(v => (
             <div

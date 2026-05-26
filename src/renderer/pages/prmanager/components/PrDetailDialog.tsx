@@ -57,6 +57,7 @@ import { cn } from '@/lib/utils'
 import type { PrRepo } from '../hooks/usePrData'
 import { usePrOperationLog } from '../PrOperationLogContext'
 import { PR_GH_STATUS_BADGE_CLASS, prSummaryToGhStatusKind } from '../prGhStatus'
+import { getMergeableUi } from '../prMergeableUi'
 import { PR_MANAGER_ACCENT_OUTLINE_BTN, PR_MANAGER_ACCENT_OUTLINE_SURFACE } from '../prManagerButtonStyles'
 import { MergePrDialog } from './MergePrDialog'
 import { githubMergeableBlocksMerge } from './prBoardBulkResolve'
@@ -197,28 +198,6 @@ function prMergeableIsConflict(mergeableState: string | null | undefined): boole
   return s === 'dirty' || s === 'conflict'
 }
 
-function mergeableStateForSubtitle(pr: PrSummary, t: TFunction): { label: string; title: string } {
-  const raw = pr.mergeableState
-  const tUnknown = t('prManager.detail.mergeableHelp')
-  if (raw == null) {
-    if (pr.merged || pr.state === 'closed') {
-      return { label: '—', title: tUnknown }
-    }
-    return { label: '—', title: t('prManager.detail.mergeableHelpNull', { help: tUnknown }) }
-  }
-  const lower = String(raw).toLowerCase()
-  if (lower === 'unknown') {
-    if (pr.merged || pr.state === 'closed') {
-      return { label: '—', title: tUnknown }
-    }
-    return {
-      label: t('prManager.detail.mergeableLabelUnknown'),
-      title: t('prManager.detail.mergeableHelpOpen', { help: tUnknown }),
-    }
-  }
-  return { label: String(raw), title: t('prManager.detail.mergeableCurrent', { help: tUnknown, value: String(raw) }) }
-}
-
 function prLifecycleBadge(pr: PrSummary, t: TFunction): { label: string; className: string; title: string } {
   const kind = prSummaryToGhStatusKind(pr)
   return {
@@ -228,29 +207,20 @@ function prLifecycleBadge(pr: PrSummary, t: TFunction): { label: string; classNa
   }
 }
 
-/** Mergeable badge (open PRs only, not draft). */
+/** Mergeable badge (open PRs only, not draft) — cùng nhãn/màu với cột PR trên PrBoard. */
 function mergeableBadgeForPr(pr: PrSummary, t: TFunction): { label: string; className: string; title: string } | null {
   if (pr.merged || pr.state === 'closed' || pr.draft) return null
-  const meta = mergeableStateForSubtitle(pr, t)
-  const raw = pr.mergeableState
-  const lower = raw == null ? '' : String(raw).toLowerCase()
-  let className = 'bg-muted/65 text-foreground/90'
-  if (lower === 'clean' || lower === 'has_hooks') {
-    className = 'bg-emerald-400/[0.2] dark:bg-emerald-400/[0.14] text-emerald-800 dark:text-emerald-100'
-  } else if (lower === 'dirty' || lower === 'conflict') {
-    className = 'bg-amber-400/16 text-amber-900 dark:text-amber-100'
-  } else if (lower === 'blocked') {
-    className = 'bg-rose-400/16 text-rose-900 dark:text-rose-100'
-  } else if (lower === 'behind') {
-    className = 'bg-sky-400/16 text-sky-900 dark:text-sky-100'
-  } else if (lower === 'unstable') {
-    className = 'bg-orange-400/14 text-orange-900 dark:text-orange-100'
-  } else if (lower === 'draft') {
-    className = 'bg-slate-500/16 text-slate-900 dark:text-slate-100'
-  } else if (lower === 'unknown') {
-    className = 'bg-cyan-400/14 text-cyan-950 dark:text-cyan-50'
+  if (pr.mergeableState == null) {
+    const help = t('prManager.detail.mergeableHelp')
+    return {
+      label: '—',
+      className: 'bg-muted/65 text-foreground/90',
+      title: t('prManager.detail.mergeableHelpNull', { help }),
+    }
   }
-  return { label: meta.label, className, title: meta.title }
+  const ui = getMergeableUi(pr.mergeableState, t)
+  const title = ui.mergeTitle || (ui.subLabel ? `${ui.shortLabel} — ${ui.subLabel}` : ui.shortLabel)
+  return { label: ui.shortLabel, className: ui.mergeBadge, title }
 }
 
 /** One-line summary when the reviewers block is collapsed. */

@@ -32,6 +32,7 @@ import {
   Lock,
   Moon,
   Package,
+  PartyPopper,
   PenLine,
   Scissors,
   ScrollText,
@@ -51,11 +52,14 @@ import {
   Waves,
   Zap,
 } from 'lucide-react'
+import { memo } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
 import { formatDateByLocale } from '@/lib/dateUtils'
 import { cn } from '@/lib/utils'
 import type { AchievementDef, UserAchievement } from '@/stores/useAchievementStore'
+import { BadgeFrameSvg } from './BadgeFrameSvg'
+import { BadgePulseRing } from './BadgePulseRing'
 
 const ICON_MAP: Record<string, LucideIcon> = {
   'alert-triangle': AlertTriangle,
@@ -89,6 +93,7 @@ const ICON_MAP: Record<string, LucideIcon> = {
   layers: Layers,
   moon: Moon,
   package: Package,
+  'party-popper': PartyPopper,
   'pen-line': PenLine,
   scissors: Scissors,
   'scroll-text': ScrollText,
@@ -168,12 +173,22 @@ const SIZE_CONFIG = {
 
 type BadgeSize = keyof typeof SIZE_CONFIG
 
+/** Count bubble when container is framed/asset (aligns to ~Figma base layer inset, not outer box corner). */
+const SIZE_CONFIG_LARGE_COUNT_BUBBLE: Record<BadgeSize, string> = {
+  '3xs': 'text-[5px] h-1.5 min-w-[6px] top-0 right-0',
+  '2xs': 'text-[7px] h-2.5 min-w-[10px] top-0.5 right-0.5',
+  xs: 'text-[8px] h-3 min-w-[12px] top-1 right-1',
+  sm: 'text-[9px] h-3.5 min-w-[14px] top-[13%] right-[13%]',
+  md: 'text-xs h-4 min-w-[16px] top-[13%] right-[13%]',
+  lg: 'text-xs h-5 min-w-[20px] top-[14%] right-[14%]',
+}
+
 /** Ô chứa ảnh achievement (`img:`) — lớn hơn bản Lucide cùng `size` (3xs: trùng khung icon, dùng TitleBar). */
 const SIZE_CONFIG_ASSET_CONTAINER: Record<BadgeSize, string> = {
   '3xs': 'h-4.5 w-4.5 min-w-[1.125rem] min-h-[1.125rem] max-w-[1.125rem] max-h-[1.125rem] flex-none',
   '2xs': 'h-11 w-11',
   xs: 'h-14 w-14',
-  sm: 'h-[5.5rem] w-[5.5rem]',
+  sm: 'h-[6rem] w-[6rem]',
   md: 'h-[8rem] w-[8rem]',
   lg: 'h-48 w-48',
 }
@@ -194,6 +209,69 @@ const TIER_SELECTED_RING: Record<string, string> = {
   gold: 'ring-yellow-500',
   special: 'ring-violet-500',
   negative: 'ring-orange-500',
+}
+
+/** Kích thước icon Lucide (px) bên trong frame Figma theo size badge. */
+const SIZE_CONFIG_FRAMED_ICON: Record<BadgeSize, number> = {
+  '3xs': 6,
+  '2xs': 10,
+  xs: 12,
+  sm: 20,
+  md: 30,
+  lg: 36,
+}
+
+/** Container cho framed Lucide badge — nhỏ hơn asset container ~15% để khung không chiếm quá nhiều. */
+const SIZE_CONFIG_FRAMED_CONTAINER: Record<BadgeSize, string> = {
+  // 3xs: slightly smaller than the 18px title bar wrapper for a compact look
+  '3xs': 'h-6 w-6 min-w-[18px] min-h-[18px] max-w-[18px] max-h-[18px] flex-none',
+  '2xs': 'h-9 w-9',
+  xs: 'h-12 w-12',
+  sm: 'h-[5rem] w-[5rem]',
+  md: 'h-[6.75rem] w-[6.75rem]',
+  lg: 'h-40 w-40',
+}
+
+/** Màu + embossed filter + soft tier glow cho icon Lucide trong frame Figma. */
+const FRAMED_ICON_STYLE: Record<string, { color: string; filter: string; glowFilter: string }> = {
+  bronze: {
+    color: 'text-white',
+    filter: 'drop-shadow(-0.5px -0.5px 0 rgba(255,255,255,0.32)) drop-shadow(0 1px 2px rgba(80,30,0,0.55))',
+    glowFilter: 'drop-shadow(0 0 3px rgba(255,180,80,0.42))',
+  },
+  silver: {
+    color: 'text-white',
+    filter: 'drop-shadow(-0.5px -0.5px 0 rgba(255,255,255,0.35)) drop-shadow(0 1px 2px rgba(30,40,60,0.5))',
+    glowFilter: 'drop-shadow(0 0 3px rgba(180,200,220,0.4))',
+  },
+  gold: {
+    color: 'text-white',
+    filter: 'drop-shadow(-0.5px -0.5px 0 rgba(255,255,255,0.35)) drop-shadow(0 1px 2px rgba(90,60,0,0.55))',
+    glowFilter: 'drop-shadow(0 0 3px rgba(255,215,0,0.45))',
+  },
+  special: {
+    color: 'text-white',
+    filter: 'drop-shadow(-0.5px -0.5px 0 rgba(255,255,255,0.32)) drop-shadow(0 1px 2px rgba(50,20,90,0.55))',
+    glowFilter: 'drop-shadow(0 0 3px rgba(167,139,250,0.45))',
+  },
+  negative: {
+    color: 'text-white',
+    filter: 'drop-shadow(-0.5px -0.5px 0 rgba(255,255,255,0.28)) drop-shadow(0 1px 2px rgba(120,30,0,0.55))',
+    glowFilter: 'drop-shadow(0 0 3px rgba(249,115,22,0.4))',
+  },
+}
+
+/** Icon Lucide trong frame — nhỏ hơn box một chút để nằm gọn vùng inner Figma. */
+function framedIconRenderPx(sizePx: number): number {
+  return Math.round(sizePx * 0.9)
+}
+
+/** Stroke đậm hơn mặc định Lucide — đọc rõ trên khung kim loại, scale theo kích thước badge. */
+function framedIconStrokeWidth(sizePx: number): number {
+  if (sizePx <= 6) return 1.75
+  if (sizePx <= 12) return 2
+  if (sizePx <= 18) return 2.25
+  return 2.5
 }
 
 /** Khoảng tràn bụi (px) quanh ảnh theo size. */
@@ -380,6 +458,47 @@ function achievementIconToImageSrc(icon: string): string | null {
   return webPath
 }
 
+/** Icon Lucide embossed + tier glow — render bên trong SVG frame (frame được vẽ riêng). */
+function FramedLucideCenter({
+  icon,
+  tier,
+  sizePx,
+  plain = false,
+}: {
+  icon: string
+  tier: string
+  sizePx: number
+  /** Grid/lite: embossed only, skip tier glow for scroll perf. */
+  plain?: boolean
+}) {
+  const IconComp = ICON_MAP[icon] ?? Award
+  const s = FRAMED_ICON_STYLE[tier] ?? FRAMED_ICON_STYLE.bronze
+  const renderPx = framedIconRenderPx(sizePx)
+  const filter = plain ? s.filter : `${s.glowFilter} ${s.filter}`
+
+  return (
+    <span
+      className="inline-flex shrink-0 items-center justify-center"
+      style={{ width: renderPx, height: renderPx, minWidth: renderPx, minHeight: renderPx }}
+    >
+      <IconComp
+        size={renderPx}
+        strokeWidth={framedIconStrokeWidth(sizePx)}
+        absoluteStrokeWidth
+        className={s.color}
+        style={{
+          width: renderPx,
+          height: renderPx,
+          minWidth: renderPx,
+          minHeight: renderPx,
+          flexShrink: 0,
+          filter,
+        }}
+      />
+    </span>
+  )
+}
+
 function BadgeGraphic({
   icon,
   sizePx,
@@ -425,8 +544,14 @@ interface BadgeCardProps {
   showSelectedRing?: boolean
   /** % users đã earn achievement này (0-100). Hiển thị trong tooltip. */
   rarity?: number
-  /** Dialog unlock: bụi quỹ đạo 3D quanh ảnh, rõ và dày hơn. */
+  /** Dialog unlock: SVG stroke pulse aligned to badge shape (replaces dust). */
+  pulseRing?: boolean
+  /** @deprecated Use pulseRing instead */
   dustEmphasis?: boolean
+  /** Dense badge grid: no hover transition, plain icon (scroll perf). */
+  inGrid?: boolean
+  /** When false, ancestor must provide TooltipProvider (grid dialogs). Default true. */
+  embedTooltip?: boolean
 }
 
 function getRarityLabel(pct: number): { label: string; color: string } {
@@ -436,7 +561,7 @@ function getRarityLabel(pct: number): { label: string; color: string } {
   return { label: 'Phổ biến', color: 'text-muted-foreground' }
 }
 
-export function BadgeCard({
+export const BadgeCard = memo(function BadgeCard({
   def,
   earned,
   size = 'md',
@@ -448,7 +573,10 @@ export function BadgeCard({
   variant = 'default',
   showSelectedRing = true,
   rarity,
+  pulseRing = false,
   dustEmphasis = false,
+  inGrid = false,
+  embedTooltip = true,
 }: BadgeCardProps) {
   const { t, i18n } = useTranslation()
   const tierCfg = TIER_CONFIG[def.tier as keyof typeof TIER_CONFIG] ?? TIER_CONFIG.bronze
@@ -457,12 +585,27 @@ export function BadgeCard({
   const earnedCount = earned?.earned_count ?? 0
   const isFilled = variant === 'filled'
   const usesAssetIcon = achievementIconToImageSrc(def.icon) !== null
+  /** All Lucide icons (non-img:) use the SVG frame — including 3xs (title bar, lite mode). */
+  const usesFramedIcon = !usesAssetIcon
   const isInlineTinyAsset = usesAssetIcon && size === '3xs'
-  const badgeBoxClass = usesAssetIcon ? SIZE_CONFIG_ASSET_CONTAINER[size] : sizeCfg.container
-  const lockIconPx = usesAssetIcon ? Math.round(sizeCfg.icon * 1.65) : sizeCfg.icon
+  const badgeBoxClass = usesAssetIcon
+    ? SIZE_CONFIG_ASSET_CONTAINER[size]
+    : usesFramedIcon
+      ? SIZE_CONFIG_FRAMED_CONTAINER[size]
+      : sizeCfg.container
+  const lockIconPx = usesAssetIcon
+    ? Math.round(sizeCfg.icon * 1.65)
+    : usesFramedIcon
+      ? framedIconRenderPx(SIZE_CONFIG_FRAMED_ICON[size])
+      : sizeCfg.icon
+  const countBubbleClass =
+    usesAssetIcon || usesFramedIcon ? SIZE_CONFIG_LARGE_COUNT_BUBBLE[size] : sizeCfg.countBubble
+  const frameLite = size !== 'md' && size !== 'lg'
+  const plainIcon = inGrid || frameLite
 
   const cardClassName = cn(
     'relative inline-flex min-w-0 min-h-0 flex-col items-center gap-1 bg-transparent border-none p-0',
+    inGrid && 'w-full max-w-[5.5rem]',
     isInlineTinyAsset && 'shrink-0 overflow-hidden',
     onClick ? 'cursor-pointer' : 'cursor-default',
     className
@@ -471,32 +614,66 @@ export function BadgeCard({
     <>
       <div
         className={cn(
-          'relative box-border flex items-center justify-center transition-all duration-200',
+          'relative box-border flex items-center justify-center',
+          !inGrid && 'transition-all duration-200',
           badgeBoxClass,
           usesAssetIcon && !isLocked && (isInlineTinyAsset ? 'overflow-hidden rounded-md' : 'overflow-visible'),
           usesAssetIcon
-            ? cn('border-0 bg-transparent shadow-none', isLocked && 'opacity-45 grayscale', !isLocked && (isInlineTinyAsset ? 'hover:scale-100' : 'hover:scale-105'))
-            : cn(
+            ? cn(
+              'border-0 bg-transparent shadow-none',
+              isLocked && 'opacity-45 grayscale',
+              !isLocked && !inGrid && (isInlineTinyAsset ? 'hover:scale-100' : 'hover:scale-105')
+            )
+            : usesFramedIcon
+              ? cn(
+                'border-0 bg-transparent shadow-none shrink-0',
+                pulseRing ? 'overflow-visible' : 'overflow-hidden rounded-sm',
+                isLocked && 'opacity-45 grayscale',
+                !isLocked && !inGrid && size !== '3xs' && 'hover:scale-105'
+              )
+              : cn(
                 'rounded-xl',
                 isFilled ? 'border-0' : 'border-2',
                 isFilled && !isLocked ? tierCfg.bgFilled : isFilled && isLocked ? 'bg-gray-200 dark:bg-gray-700 opacity-50' : tierCfg.bg,
                 !isFilled && (isLocked ? 'border-gray-300 dark:border-gray-700 opacity-40 grayscale' : tierCfg.border),
-                !isLocked && def.tier === 'gold' && 'hover:shadow-yellow-400/40 hover:shadow-md',
-                !isLocked && 'hover:scale-110'
+                !inGrid && !isLocked && def.tier === 'gold' && 'hover:shadow-yellow-400/40 hover:shadow-md',
+                !inGrid && !isLocked && 'hover:scale-110'
               ),
           selected && showSelectedRing && cn('ring-2 ring-offset-1 ring-offset-background', TIER_SELECTED_RING[def.tier] ?? TIER_SELECTED_RING.bronze)
         )}
       >
-        {usesAssetIcon && !isLocked && !isInlineTinyAsset && <AchievementAssetDust tier={def.tier} size={size} emphasis={dustEmphasis} />}
+        {/* Figma frame — lite = base only (no inner SVG filters) */}
+        {usesFramedIcon && (
+          <BadgeFrameSvg
+            tier={def.tier}
+            className="absolute inset-0 w-full h-full z-0 pointer-events-none"
+            lite={false}
+          />
+        )}
+        {usesFramedIcon && pulseRing && !isLocked && (
+          <BadgePulseRing tier={def.tier} className="z-[2]" />
+        )}
+        {/* Particle dust — md/lg grid only (not unlock dialog) */}
+        {(usesAssetIcon || usesFramedIcon) && !isLocked && !isInlineTinyAsset && !pulseRing
+          && (size === 'md' || size === 'lg' || dustEmphasis) && (
+            <AchievementAssetDust tier={def.tier} size={size} emphasis={dustEmphasis} />
+          )}
         <div className={cn('relative z-[1] box-border flex h-full w-full min-h-0 min-w-0 items-center justify-center', isInlineTinyAsset && 'overflow-hidden')}>
           {isLocked ? (
-            <Lock
-              size={lockIconPx}
-              width={lockIconPx}
-              height={lockIconPx}
-              className="text-gray-400"
-              style={{ width: lockIconPx, height: lockIconPx, minWidth: lockIconPx, minHeight: lockIconPx, flexShrink: 0 }}
-            />
+            <span
+              className="inline-flex shrink-0 items-center justify-center"
+              style={{ width: lockIconPx, height: lockIconPx, minWidth: lockIconPx, minHeight: lockIconPx }}
+            >
+              <Lock
+                size={lockIconPx}
+                width={lockIconPx}
+                height={lockIconPx}
+                className="text-gray-400"
+                style={{ width: lockIconPx, height: lockIconPx, minWidth: lockIconPx, minHeight: lockIconPx, flexShrink: 0 }}
+              />
+            </span>
+          ) : usesFramedIcon ? (
+            <FramedLucideCenter icon={def.icon} tier={def.tier} sizePx={SIZE_CONFIG_FRAMED_ICON[size]} plain={plainIcon} />
           ) : (
             <BadgeGraphic icon={def.icon} sizePx={sizeCfg.icon} lucideColorClass={isFilled ? tierCfg.iconColorFilled : tierCfg.iconColor} assetTinyInline={isInlineTinyAsset} />
           )}
@@ -507,7 +684,7 @@ export function BadgeCard({
           <span
             className={cn(
               'absolute z-[2] flex items-center justify-center rounded-full bg-red-500 text-white font-bold px-1 leading-none',
-              sizeCfg.countBubble,
+              countBubbleClass,
               'animate-bounce-once'
             )}
           >
@@ -519,7 +696,8 @@ export function BadgeCard({
       {showName && (
         <span
           className={cn(
-            'text-center leading-tight max-w-full truncate',
+            'w-full text-center leading-tight truncate',
+            inGrid && size === 'sm' && 'min-h-[2.5em] px-0.5',
             size === '2xs' ? 'text-[8px]' : size === 'xs' ? 'text-[9px]' : size === 'sm' ? 'text-[10px]' : 'text-xs',
             isLocked ? 'text-muted-foreground' : 'text-foreground font-medium'
           )}
@@ -544,33 +722,35 @@ export function BadgeCard({
     <div className={cardClassName}>{innerContent}</div>
   )
 
-  return (
-    <TooltipProvider>
-      <Tooltip>
-        <TooltipTrigger asChild>{card}</TooltipTrigger>
-        <TooltipContent side="top" className="max-w-[220px] space-y-1 text-xs">
-          <div className="font-semibold">{t(`achievement.def.${def.code}.name`, { defaultValue: def.name })}</div>
-          <div className={cn('text-[10px] font-medium uppercase tracking-wide', tierCfg.labelColor)}>{tierCfg.label}</div>
-          <div className="text-muted-foreground">{t(`achievement.def.${def.code}.description`, { defaultValue: def.description })}</div>
-          {!isLocked && def.xp_reward > 0 && <div className="text-yellow-500 font-medium">+{def.xp_reward} XP</div>}
-          {!isLocked && earned && (
-            <div className="text-muted-foreground">
-              First earned: {formatDateByLocale(earned.first_earned_at, i18n.language)}
-              {earnedCount > 1 && <span> · Count: {earnedCount}</span>}
-            </div>
-          )}
-          {isLocked && <div className="text-muted-foreground italic">Not yet earned</div>}
-          {rarity !== undefined && (
-            <div className="flex items-center gap-1.5 pt-0.5 border-t border-border/50">
-              <span className={cn('font-semibold', getRarityLabel(rarity).color)}>{getRarityLabel(rarity).label}</span>
-              <span className="text-muted-foreground">· {rarity}% người dùng đã đạt</span>
-            </div>
-          )}
-        </TooltipContent>
-      </Tooltip>
-    </TooltipProvider>
+  const tooltip = (
+    <Tooltip>
+      <TooltipTrigger asChild>{card}</TooltipTrigger>
+      <TooltipContent side="top" className="max-w-[220px] space-y-1 text-xs">
+        <div className="font-semibold">{t(`achievement.def.${def.code}.name`, { defaultValue: def.name })}</div>
+        <div className={cn('text-[10px] font-medium uppercase tracking-wide', tierCfg.labelColor)}>{tierCfg.label}</div>
+        <div className="text-muted-foreground">{t(`achievement.def.${def.code}.description`, { defaultValue: def.description })}</div>
+        {!isLocked && def.xp_reward > 0 && <div className="text-yellow-500 font-medium">+{def.xp_reward} XP</div>}
+        {!isLocked && earned && (
+          <div className="text-muted-foreground">
+            First earned: {formatDateByLocale(earned.first_earned_at, i18n.language)}
+            {earnedCount > 1 && <span> · Count: {earnedCount}</span>}
+          </div>
+        )}
+        {isLocked && <div className="text-muted-foreground italic">Not yet earned</div>}
+        {rarity !== undefined && (
+          <div className="flex items-center gap-1.5 pt-0.5 border-t border-border/50">
+            <span className={cn('font-semibold', getRarityLabel(rarity).color)}>{getRarityLabel(rarity).label}</span>
+            <span className="text-muted-foreground">· {rarity}% người dùng đã đạt</span>
+          </div>
+        )}
+      </TooltipContent>
+    </Tooltip>
   )
-}
+
+  if (!embedTooltip) return tooltip
+
+  return <TooltipProvider delayDuration={300}>{tooltip}</TooltipProvider>
+})
 
 interface BadgeProgressProps {
   def: AchievementDef
@@ -580,6 +760,8 @@ interface BadgeProgressProps {
   /** Khi true, luôn hiện icon achievement thay vì ổ khóa (cho locked badges) */
   forceUnlocked?: boolean
   rarity?: number
+  inGrid?: boolean
+  embedTooltip?: boolean
 }
 
 // Map condition_type values that don't directly match a stats field
@@ -604,7 +786,16 @@ const NO_PROGRESS_TYPES = new Set([
   'commit_files_gt200_neg',
 ])
 
-export function BadgeWithProgress({ def, stats, size = 'md', variant = 'default', forceUnlocked = false, rarity }: BadgeProgressProps) {
+export function BadgeWithProgress({
+  def,
+  stats,
+  size = 'md',
+  variant = 'default',
+  forceUnlocked = false,
+  rarity,
+  inGrid = false,
+  embedTooltip = true,
+}: BadgeProgressProps) {
   const getProgress = (): number => {
     if (!def.condition_threshold) return 0
     if (NO_PROGRESS_TYPES.has(def.condition_type)) return 0
@@ -625,10 +816,19 @@ export function BadgeWithProgress({ def, stats, size = 'md', variant = 'default'
   const currentValue = getCurrentValue()
 
   return (
-    <div className="flex flex-col items-center gap-1">
-      <BadgeCard def={def} size={size} showName variant={variant} forceUnlocked={forceUnlocked} rarity={rarity} />
+    <div className="flex w-full max-w-[5.5rem] flex-col items-center gap-1">
+      <BadgeCard
+        def={def}
+        size={size}
+        showName
+        variant={variant}
+        forceUnlocked={forceUnlocked}
+        rarity={rarity}
+        inGrid={inGrid}
+        embedTooltip={embedTooltip}
+      />
       {showProgressBar && (
-        <div className={cn('w-full', size === 'sm' ? 'max-w-[40px]' : 'max-w-[56px]')}>
+        <div className={cn('w-full', size === 'sm' ? 'max-w-[48px]' : 'max-w-[56px]')}>
           <div className="h-1 rounded-full bg-muted overflow-hidden">
             <div className="h-full rounded-full bg-violet-400 transition-all duration-500" style={{ width: `${progress}%` }} />
           </div>

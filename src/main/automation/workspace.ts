@@ -131,6 +131,50 @@ export function getSpecFile(projectId: string, code: string): string {
   return getWorkspaceSubPath(projectId, 'tests', `${safe}.spec.ts`)
 }
 
+/** Stem dùng cho tên file spec (trùng `getSpecFile`). */
+export function getSpecStemForCaseCode(caseCode: string): string {
+  return caseCode.replace(/[^A-Za-z0-9._-]/g, '_')
+}
+
+/**
+ * Gỡ toàn bộ file test Playwright gắn với một mã case trong workspace:
+ * file `.spec.ts` chuẩn, thư mục snapshot Playwright kề cận, và mọi `*.spec.ts` trong `tests/`
+ * có stem trùng stem chuẩn (trường hợp tên file lệch thời kỳ).
+ */
+export async function removeCaseSpecArtifacts(projectId: string, caseCode: string): Promise<void> {
+  const testsDir = getTestsDir(projectId)
+  const stem = getSpecStemForCaseCode(caseCode)
+  const primary = getSpecFile(projectId, caseCode)
+  const snapshotDir = path.join(testsDir, `${stem}.spec.ts-snapshots`)
+
+  const quietUnlink = async (p: string) => {
+    await fs.unlink(p).catch((err: NodeJS.ErrnoException) => {
+      if (err.code !== 'ENOENT') l.warn('[automation] removeCaseSpecArtifacts unlink', p, err)
+    })
+  }
+
+  await quietUnlink(primary)
+
+  await fs.rm(snapshotDir, { recursive: true, force: true }).catch((err: NodeJS.ErrnoException) => {
+    if (err.code !== 'ENOENT') l.warn('[automation] removeCaseSpecArtifacts rm snapshots', snapshotDir, err)
+  })
+
+  let names: string[]
+  try {
+    names = await fs.readdir(testsDir)
+  } catch {
+    return
+  }
+
+  for (const name of names) {
+    if (!name.endsWith('.spec.ts')) continue
+    const fileStem = name.slice(0, -'.spec.ts'.length)
+    if (fileStem !== stem) continue
+    const full = path.join(testsDir, name)
+    if (full !== primary) await quietUnlink(full)
+  }
+}
+
 const SUPPORTED_BROWSERS: ReadonlySet<AutomationBrowser> = new Set(['chromium', 'firefox', 'webkit'])
 
 function browsersOrDefault(input?: AutomationBrowser[]): AutomationBrowser[] {
@@ -166,7 +210,8 @@ export function renderHbFailureFixtures(): string {
     '//',
     '// Run scope: playwright.config has maxFailures: 0 → all test() / files in the run execute; the runner does not stop the whole suite after the first failed test.',
     '// Inside ONE test(): hard expect() throws on first failure → later lines in that test do not run. Use await expectSoft(...).matcher() to continue, or split into multiple test() blocks.',
-    '// Specs should use: import { test, expect, expectSoft } from "./hb-fixtures.ts"',
+    '// For visibility with on-screen outline while the Locator is known: await expectSoftVisible(loc) or await expectVisibleWithOutline(loc) (see exports below).',
+    '// Specs should use: import { test, expect, expectSoft, expectSoftVisible, expectVisibleWithOutline } from "./hb-fixtures.ts" (add hbDebugHighlight to the import only if used).',
     `import { test as base, expect } from ${pw}`,
     `import type { Locator, Page, TestInfo } from ${pw}`,
     "import fs from 'node:fs/promises'",
@@ -178,8 +223,8 @@ export function renderHbFailureFixtures(): string {
     '}',
     '',
     '/**',
-    ' * text= trong testcase lệch với trang (vd text=1開発 nhưng UI chỉ có ỦE) → thử nới chuỗi,',
-    ' * bôi phần tử text thật trên DOM (không thể bôi "cái đang sai trong test" vì nó không tồn tại).',
+    ' * text= trong testcase lệch với trang (vd text=1開発 nhưng UI chỉ có 開発) → thử bỏ chữ số thừa.',
+    ' * KHÔNG bỏ ký tự đầu bừa bãi: với CJK 2 ký tự (vd 開発) slice(1) thành 発 hay khớp nhầm vào chuỗi khác trên trang.',
     ' */',
     'function relaxTextEngineInner(raw: string): string[] {',
     '  const out: string[] = []',
@@ -187,24 +232,18 @@ export function renderHbFailureFixtures(): string {
     '  if (stripLead && stripLead !== raw) out.push(stripLead)',
     '  const stripAllNum = raw.replace(/[0-9]+/g, "")',
     '  if (stripAllNum && stripAllNum !== raw && stripAllNum.length > 0) out.push(stripAllNum)',
-    '  if (raw.length > 1) {',
-    '    const rest = raw.slice(1)',
-    '    if (rest) out.push(rest)',
-    '  }',
     '  return [...new Set(out)]',
     '}',
     '',
-    '/**',
-    ' * Khoanh đúng phần tử đang fail (text/button/…) từ message Playwright.',
-    ' * Thứ tự: Call log "waiting for …" (gần thất bại nhất) → dòng Locator: → getByText.',
-    ' */',
-    'async function tryHighlightFailingElement(page: Page, msg: string): Promise<boolean> {',
-    '  const outline =',
-    '    ";outline:3px solid #f87171 !important"',
-    '  const paint = async (loc: Locator) => {',
-    '    await loc.waitFor({ state: "attached", timeout: 2200 })',
-    '    await loc.scrollIntoViewIfNeeded().catch(() => {})',
-    '    await loc.evaluate(',
+    'const hbDomOutlineCss = ";outline:3px solid #f87171 !important"',
+    '',
+    '/** Viền đỏ trên DOM thật — page.screenshot() thường KHÔNG bắt được overlay locator.highlight(). */',
+    'async function hbPaintLocatorDomOutline(loc: Locator): Promise<boolean> {',
+    '  try {',
+    '    const target = loc.first()',
+    '    await target.waitFor({ state: "attached", timeout: 2200 })',
+    '    await target.scrollIntoViewIfNeeded().catch(() => {})',
+    '    await target.evaluate(',
     '      (el, outlineCss) => {',
     '        if (!(el instanceof HTMLElement)) return',
     '        const prev = el.getAttribute("style") || ""',
@@ -212,17 +251,21 @@ export function renderHbFailureFixtures(): string {
     '        el.setAttribute("style", prev + outlineCss)',
     '        el.setAttribute("data-hb-outlined", "1")',
     '      },',
-    '      outline,',
+    '      hbDomOutlineCss,',
     '    )',
+    '    return true',
+    '  } catch {',
+    '    return false',
     '  }',
-    '  const tryOne = async (loc: Locator) => {',
-    '    try {',
-    '      await paint(loc.first())',
-    '      return true',
-    '    } catch {',
-    '      return false',
-    '    }',
-    '  }',
+    '}',
+    '',
+    '/**',
+    ' * Khoanh đúng phần tử đang fail (text/button/…) từ message Playwright.',
+    ' * Call log thường lặp cùng một locator; dòng "waiting for …" **cuối** gần lúc timeout nhất — thử từ cuối lên đầu.',
+    ' * (Thử từ đầu dễ bôi nhầm locator cũ vẫn match DOM.) Sau đó getByText / Locator: / getByRole / relax text=.',
+    ' */',
+    'async function tryHighlightFailingElement(page: Page, msg: string): Promise<boolean> {',
+    '  const tryOne = async (loc: Locator) => hbPaintLocatorDomOutline(loc)',
     '  const seen = new Set<string>()',
     '  const dedupe = (s: string) => {',
     '    const k = s.trim()',
@@ -234,8 +277,12 @@ export function renderHbFailureFixtures(): string {
     '  // 1) Call log: waiting for locator(…)',
     '  const waitLoc: string[] = []',
     '  const reWait = /waiting for locator\\(([\\`\'"])([\\s\\S]*?)\\1\\)/gi',
+    '  const reWaitQuoted = /waiting for ["\']locator\\(([\\`\'"])([\\s\\S]*?)\\1\\)["\']/gi',
     '  let m: RegExpExecArray | null',
     '  while ((m = reWait.exec(msg)) !== null) {',
+    '    if (m[2] && dedupe(m[2])) waitLoc.push(m[2])',
+    '  }',
+    '  while ((m = reWaitQuoted.exec(msg)) !== null) {',
     '    if (m[2] && dedupe(m[2])) waitLoc.push(m[2])',
     '  }',
     '  for (let i = waitLoc.length - 1; i >= 0; i--) {',
@@ -243,7 +290,7 @@ export function renderHbFailureFixtures(): string {
     '  }',
     '',
     '  // 2) getByText trong Call log / Locator',
-    '  const reGbt = /(?:waiting for |Locator:\\s*)getByText\\(([\\`\'"])([\\s\\S]*?)\\1\\)/gi',
+    '  const reGbt = /(?:waiting for |Locator:\\s*)["\']?getByText\\(([\\`\'"])([\\s\\S]*?)\\1\\)["\']?/gi',
     '  const gtx: string[] = []',
     '  while ((m = reGbt.exec(msg)) !== null) {',
     '    if (m[2] && dedupe("gbt:" + m[2])) gtx.push(m[2])',
@@ -265,19 +312,31 @@ export function renderHbFailureFixtures(): string {
     '    if (await tryOne(page.locator(locs[i]))) return true',
     '  }',
     '',
-    '  // 4) getByRole(\'button\', { name: \'…\' })',
-    '  const reRole = /getByRole\\(\\s*[\'"]([a-zA-Z]+)[\'"]\\s*,\\s*\\{\\s*name:\\s*([\'"])([\\s\\S]*?)\\2\\s*\\}/gi',
+    '  // 4) getByRole(\'button\', { name: \'…\' [, exact: true] })',
+    '  const reRole = /getByRole\\(\\s*[\'"]([a-zA-Z]+)[\'"]\\s*,\\s*\\{([\\s\\S]*?)\\}\\s*\\)/gi',
+    '  const reRoleName = /name:\\s*([\'"])([\\s\\S]*?)\\1/',
+    '  const roles: { role: string; name: string }[] = []',
     '  while ((m = reRole.exec(msg)) !== null) {',
     '    const role = m[1]',
-    '    const name = m[3]',
-    '    if (name && dedupe("role:" + role + ":" + name)) {',
-    '      try {',
-    '        await paint(page.getByRole(role as any, { name, exact: true }).first())',
-    '        return true',
-    '      } catch {',
-    '        /* fall through */',
-    '      }',
-    '    }',
+    '    const inner = m[2] ?? ""',
+    '    const nm = reRoleName.exec(inner)',
+    '    const name = nm?.[2]',
+    '    if (role && name && dedupe("role:" + role + ":" + name)) roles.push({ role, name })',
+    '  }',
+    '  for (let i = roles.length - 1; i >= 0; i--) {',
+    '    const { role, name } = roles[i]',
+    '    if (await tryOne(page.getByRole(role as any, { name, exact: true }))) return true',
+    '    if (await tryOne(page.getByRole(role as any, { name }))) return true',
+    '  }',
+    '',
+    '  // 4b) getByTestId(\'…\')',
+    '  const reTid = /getByTestId\\(\\s*([\'"])([\\s\\S]*?)\\1\\s*\\)/gi',
+    '  const tids: string[] = []',
+    '  while ((m = reTid.exec(msg)) !== null) {',
+    '    if (m[2] && dedupe("tid:" + m[2])) tids.push(m[2])',
+    '  }',
+    '  for (let i = tids.length - 1; i >= 0; i--) {',
+    '    if (await tryOne(page.getByTestId(tids[i]))) return true',
     '  }',
     '',
     '  // 5) text=… không khớp DOM (thừa ký tự / số trong case): thử nới → khoanh text thật trên trang',
@@ -302,9 +361,12 @@ export function renderHbFailureFixtures(): string {
     '  return false',
     '}',
     '',
-    'async function clearHbFailureMarks(page: Page) {',
+    'async function clearHbFailureFrame(page: Page) {',
+    '  await page.evaluate(() => document.getElementById("__hb_failure_frame")?.remove())',
+    '}',
+    '',
+    'async function restoreHbDomOutlines(page: Page) {',
     '  await page.evaluate(() => {',
-    '    document.getElementById("__hb_failure_frame")?.remove()',
     '    for (const el of Array.from(document.querySelectorAll("[data-hb-outlined]"))) {',
     '      if (!(el instanceof HTMLElement)) continue',
     '      const prev = el.getAttribute("data-hb-fail-prev") ?? ""',
@@ -321,9 +383,14 @@ export function renderHbFailureFixtures(): string {
     '  if (list.length === 0 && testInfo.error?.message) list.push({ message: testInfo.error.message })',
     '  if (list.length === 0) return',
     '  for (let i = 0; i < list.length; i++) {',
-    '    await clearHbFailureMarks(page)',
+    '    await clearHbFailureFrame(page)',
+    '    if (i > 0) await restoreHbDomOutlines(page)',
     '    const msg = stripAnsi(String(list[i].message ?? ""))',
-    '    let focused = await tryHighlightFailingElement(page, msg)',
+    '    const hadHelperOutline = await page.evaluate(() => document.querySelector("[data-hb-outlined]") !== null)',
+    '    let focused = hadHelperOutline ? true : await tryHighlightFailingElement(page, msg)',
+    '    if (!focused) {',
+    '      focused = await page.evaluate(() => document.querySelector("[data-hb-outlined]") !== null)',
+    '    }',
     '    if (!focused) {',
     '      await page.evaluate(() => {',
     '        let div = document.getElementById("__hb_failure_frame")',
@@ -338,7 +405,7 @@ export function renderHbFailureFixtures(): string {
     '      })',
     '    }',
     '    const png = await page.screenshot({ fullPage: true, type: "png" })',
-    '    const fileName = `failure-highlight-${i + 1}.png`',
+    '    const fileName = "failure-highlight-" + (i + 1) + ".png"',
     '    const outPath = path.join(testInfo.outputDir, fileName)',
     '    await fs.writeFile(outPath, png)',
     '    await testInfo.attach(fileName, { path: outPath, contentType: "image/png" })',
@@ -359,6 +426,38 @@ export function renderHbFailureFixtures(): string {
     '    }',
     '  },',
     '})',
+    '',
+    '/** Optional: gọi trước/sau expect khi debug — DOM outline + overlay Playwright. */',
+    'export async function hbDebugHighlight(loc: Locator) {',
+    '  await hbPaintLocatorDomOutline(loc)',
+    '  await loc.highlight({ style: "outline: 3px dashed #f87171" }).catch(() => {})',
+    '}',
+    '',
+    '/**',
+    ' * expect.soft + toBeVisible: viền DOM (chắc chắn vào PNG) + locator.highlight cho trace; trước assert.',
+    ' * Tắt: HB_OUTLINE_SOFT_VIS=0 hoặc false.',
+    ' */',
+    'export async function expectSoftVisible(loc: Locator, options?: { timeout?: number }) {',
+    '  const off = process.env.HB_OUTLINE_SOFT_VIS === "0" || process.env.HB_OUTLINE_SOFT_VIS === "false"',
+    '  if (!off) {',
+    '    await hbPaintLocatorDomOutline(loc)',
+    '    await loc.highlight({ style: "outline: 3px solid #f87171" }).catch(() => {})',
+    '  }',
+    '  await expect.soft(loc).toBeVisible(options)',
+    '}',
+    '',
+    '/**',
+    ' * expect cứng toBeVisible: khi fail — viền DOM + highlight rồi throw.',
+    ' */',
+    'export async function expectVisibleWithOutline(loc: Locator, options?: { timeout?: number }) {',
+    '  try {',
+    '    await expect(loc).toBeVisible(options)',
+    '  } catch (err) {',
+    '    await hbPaintLocatorDomOutline(loc)',
+    '    await loc.highlight({ style: "outline: 3px solid #f87171" }).catch(() => {})',
+    '    throw err',
+    '  }',
+    '}',
     '',
     '/** expect.soft — nhiều assert trong một test() không dừng giữa chừng. */',
     'export const expectSoft = expect.soft',
@@ -405,10 +504,12 @@ export function renderPlaywrightConfig(
   const ro = opts?.reporterOutputs
   const reporterLiteral = ro
     ? (() => {
+        const hbStepsFile = path.join(path.dirname(ro.jsonFile), 'hb-full-steps.json').replace(/\\/g, '/')
         const lines = [
           `    ['list']`,
           `    ['json', { outputFile: ${JSON.stringify(ro.jsonFile)} }]`,
           `    ['junit', { outputFile: ${JSON.stringify(ro.junitFile)} }]`,
+          `    ['./hb-full-steps-reporter.ts', { outputFile: ${JSON.stringify(hbStepsFile)} }]`,
         ]
         if (ro.htmlOutputFolder) {
           lines.push(`    ['html', { outputFolder: ${JSON.stringify(ro.htmlOutputFolder)}, open: 'never' }]`)
@@ -434,6 +535,7 @@ export default defineConfig({
   reporter: ${reporterLiteral},
   use: {
     baseURL: ${JSON.stringify(baseUrl)},
+    // Built-in artifacts. page.screencast / action-annotation receipts are separate (heavier); not enabled here.
     trace: 'retain-on-failure',
     screenshot: 'only-on-failure',
     video: 'retain-on-failure',
@@ -443,6 +545,101 @@ export default defineConfig({
 ${projectsBlock}
   ],
 })
+`
+}
+
+/** Reporter tùy chỉnh: ghi mọi bước (pw:api, expect, hook…) — bổ sung cho JSON reporter chỉ lưu `test.step`. */
+export function renderHbFullStepsReporter(): string {
+  return `import fs from 'node:fs/promises'
+import path from 'node:path'
+import type { FullConfig, Location, Reporter, TestCase, TestResult, TestStep } from '@playwright/test/reporter'
+
+const MAX_STEPS = 500
+
+function relLoc(rootDir: string, loc: Location | undefined) {
+  if (!loc?.file) return undefined
+  try {
+    const file = path.relative(rootDir, loc.file).split(path.sep).join('/')
+    return {
+      file,
+      line: typeof loc.line === 'number' && Number.isFinite(loc.line) ? loc.line : undefined,
+      column: typeof loc.column === 'number' && Number.isFinite(loc.column) ? loc.column : undefined,
+    }
+  } catch {
+    return {
+      file: loc.file,
+      line: typeof loc.line === 'number' && Number.isFinite(loc.line) ? loc.line : undefined,
+      column: typeof loc.column === 'number' && Number.isFinite(loc.column) ? loc.column : undefined,
+    }
+  }
+}
+
+function flattenSteps(rootDir: string, steps: readonly TestStep[] | undefined, depth: number, out: unknown[], counter: { n: number }) {
+  if (!steps?.length) return
+  for (const s of steps) {
+    if (counter.n >= MAX_STEPS) return
+    const err = s.error
+    const errMsg = typeof err?.message === 'string' ? err.message.trim() : ''
+    const failed = Boolean(errMsg)
+    const loc = err?.location?.file ? err.location : s.location
+    const location = relLoc(rootDir, loc)
+    const durationMs = Math.round(Number(s.duration) || 0)
+    const title = (typeof s.title === 'string' && s.title.trim()) || (s.category === 'hook' ? 'Hook' : 'Step')
+    const category = typeof s.category === 'string' && s.category.trim() ? s.category.trim() : undefined
+    const hasNested = Boolean(s.steps?.length)
+    out.push({
+      title,
+      category,
+      durationMs,
+      depth,
+      failed: failed || undefined,
+      errorSnippet:
+        failed && errMsg
+          ? errMsg.length > 400
+            ? errMsg.slice(0, 400) + '…'
+            : errMsg
+          : undefined,
+      location,
+      hasNestedSteps: hasNested || undefined,
+    })
+    counter.n += 1
+    flattenSteps(rootDir, s.steps, depth + 1, out, counter)
+  }
+}
+
+export default class HbFullStepsReporter implements Reporter {
+  private readonly outputFile: string
+  private rootDir = ''
+  private readonly byTest = new Map<string, unknown[]>()
+
+  constructor(options: { outputFile: string }) {
+    this.outputFile = options.outputFile
+  }
+
+  printsToStdio() {
+    return false
+  }
+
+  version(): 'v2' {
+    return 'v2'
+  }
+
+  onBegin(config: FullConfig) {
+    this.rootDir = config.rootDir
+  }
+
+  onTestEnd(test: TestCase, result: TestResult) {
+    const out: unknown[] = []
+    flattenSteps(this.rootDir, result.steps, 0, out, { n: 0 })
+    if (out.length) this.byTest.set(test.id, out)
+  }
+
+  async onEnd() {
+    const payload = { v: 1, tests: Object.fromEntries(this.byTest) }
+    await fs.mkdir(path.dirname(this.outputFile), { recursive: true })
+    await fs.writeFile(this.outputFile, JSON.stringify(payload, null, 2), 'utf8')
+  }
+}
 `
 }
 
@@ -494,6 +691,8 @@ export async function bootstrapWorkspace(project: TestProject, reporterOutputs?:
     renderPlaywrightConfig(project, reporterOutputs ? { reporterOutputs } : undefined),
     'utf8'
   )
+
+  await fs.writeFile(path.join(workspacePath, 'hb-full-steps-reporter.ts'), renderHbFullStepsReporter(), 'utf8')
 
   // .gitignore (cho user có lỡ commit từ workspace).
   await writeFileIfMissing(
@@ -590,5 +789,33 @@ export async function detectInstalledBrowsers(): Promise<AutomationBrowser[]> {
     return Array.from(new Set(installed))
   } catch {
     return []
+  }
+}
+
+const BROWSER_CACHE_PREFIX: Record<AutomationBrowser, string> = {
+  chromium: 'chromium',
+  firefox: 'firefox',
+  webkit: 'webkit',
+}
+
+/**
+ * Gỡ một engine khỏi cache Playwright (thư mục con trong PLAYWRIGHT_BROWSERS_PATH).
+ * CLI `playwright uninstall` không hỗ trợ từng browser; xóa thư mục theo prefix giống `detectInstalledBrowsers`.
+ */
+export async function removePlaywrightBrowserFromCache(browser: AutomationBrowser): Promise<void> {
+  const cache = getBrowsersCachePath()
+  const prefix = BROWSER_CACHE_PREFIX[browser]
+  let dirents: import('node:fs').Dirent[]
+  try {
+    dirents = await fs.readdir(cache, { withFileTypes: true })
+  } catch {
+    return
+  }
+  for (const d of dirents) {
+    if (!d.isDirectory()) continue
+    if (!d.name.startsWith(prefix)) continue
+    const full = path.join(cache, d.name)
+    await fs.rm(full, { recursive: true, force: true })
+    l.info(`[automation] removed browser cache dir: ${full}`)
   }
 }

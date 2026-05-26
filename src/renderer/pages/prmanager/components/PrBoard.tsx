@@ -3,11 +3,8 @@
 import { formatDistanceToNow } from 'date-fns'
 import type { TFunction } from 'i18next'
 import {
-  AlertCircle,
   ArrowDownToLine,
-  Ban,
   BrushCleaning,
-  CheckCircle2,
   ChevronDown,
   ChevronLeft,
   ChevronRight,
@@ -18,18 +15,14 @@ import {
   CloudCheck,
   ExternalLink,
   FileWarning,
-  GitBranch,
   GitMerge,
-  GitMergeConflict,
   GitPullRequestArrow,
   GitPullRequestClosed,
   GitPullRequestCreate,
   GitPullRequestCreateArrow,
   GitPullRequestDraft,
-  HelpCircle,
   Hourglass,
   Loader2,
-  type LucideIcon,
   Search,
   ShieldAlert,
   Sparkles,
@@ -69,6 +62,7 @@ import { usePrOperationLog } from '../PrOperationLogContext'
 import { branchNameMatchesSkipList, hydratePrBoardSkippedBranchesFromApi, readSkippedBranchesSnapshotText, subscribePrBoardSkippedBranches } from '../prBoardSkippedBranches'
 import type { PrGhStatusKind } from '../prGhStatus'
 import { PR_GH_STATUS_IDS, PR_GH_STATUS_TEXT_CLASS } from '../prGhStatus'
+import { getMergeableUi } from '../prMergeableUi'
 import { PR_MANAGER_REPO_GROUP_VISUAL } from '../prManagerRepoGroupVisual'
 import { CreatePrDialog } from './CreatePrDialog'
 import { MergePrDialog } from './MergePrDialog'
@@ -640,122 +634,6 @@ function openUrlInDefaultBrowser(url: string): void {
 function githubBranchUrl(row: TrackedBranchRow): string {
   const branchPath = encodeURIComponent(row.branchName).replace(/%2F/g, '/')
   return `https://github.com/${row.repoOwner}/${row.repoRepo}/tree/${branchPath}`
-}
-
-/** Trạng thái mergeable từ GitHub REST `mergeable_state` (mirror GraphQL MergeStateStatus, chữ thường). */
-type MergeableUi = {
-  prText: string
-  prIcon: string
-  /** merge_ column: nền + chữ; rỗng nếu không hiển thị cảnh báo. */
-  mergeCell: string
-  shortLabel: string
-  subLabel: string
-  blockMerge: boolean
-  icon: LucideIcon
-  mergeTitle: string
-}
-
-function getMergeableUi(mergeable: string | null | undefined, t: TFunction): MergeableUi {
-  const s = (mergeable || '').toLowerCase().trim()
-  // conflict: một số luồng tự map; GitHub dùng dirty cho merge conflict
-  if (s === 'dirty' || s === 'conflict') {
-    return {
-      prText: 'text-amber-700 dark:text-amber-300',
-      prIcon: 'text-amber-500 dark:text-amber-300',
-      mergeCell: 'bg-amber-400/16 text-amber-900 dark:text-amber-100',
-      shortLabel: t('prManager.mergeableUi.conflict'),
-      subLabel: t('prManager.mergeableUi.conflictSub'),
-      blockMerge: true,
-      icon: GitMergeConflict,
-      mergeTitle: t('prManager.mergeableUi.conflictTitle'),
-    }
-  }
-  if (s === 'blocked') {
-    return {
-      prText: 'text-rose-700 dark:text-rose-300',
-      prIcon: 'text-rose-500 dark:text-rose-300',
-      mergeCell: 'bg-rose-400/16 text-rose-900 dark:text-rose-100',
-      shortLabel: t('prManager.mergeableUi.blocked'),
-      subLabel: t('prManager.mergeableUi.blockedSub'),
-      blockMerge: true,
-      icon: Ban,
-      mergeTitle: t('prManager.mergeableUi.blockedTitle'),
-    }
-  }
-  if (s === 'behind') {
-    return {
-      prText: 'text-sky-700 dark:text-sky-300',
-      prIcon: 'text-sky-500 dark:text-sky-300',
-      mergeCell: 'bg-sky-400/16 text-sky-900 dark:text-sky-100',
-      shortLabel: t('prManager.mergeableUi.behind'),
-      subLabel: t('prManager.mergeableUi.behindSub'),
-      blockMerge: true,
-      icon: GitBranch,
-      mergeTitle: t('prManager.mergeableUi.behindTitle'),
-    }
-  }
-  // MergeStateStatus UNSTABLE (GraphQL: có thể merge nhưng có check chưa pass — app vẫn chặn merge hàng loạt)
-  if (s === 'unstable') {
-    return {
-      prText: 'text-orange-700 dark:text-orange-300',
-      prIcon: 'text-orange-500 dark:text-orange-300',
-      mergeCell: 'bg-orange-400/14 text-orange-900 dark:text-orange-100',
-      shortLabel: t('prManager.mergeableUi.ciFailing'),
-      subLabel: t('prManager.mergeableUi.ciFailingSub'),
-      blockMerge: true,
-      icon: AlertCircle,
-      mergeTitle: t('prManager.mergeableUi.ciFailingTitle'),
-    }
-  }
-  // MergeStateStatus DRAFT — merge blocked (thường trùng ghPrDraft nhưng API vẫn có trường hợp chỉ báo qua đây)
-  if (s === 'draft') {
-    return {
-      prText: 'text-slate-600 dark:text-slate-300',
-      prIcon: 'text-slate-400 dark:text-slate-300',
-      mergeCell: 'bg-slate-400/16 text-slate-900 dark:text-slate-100',
-      shortLabel: t('prManager.mergeableUi.mergeStateDraft'),
-      subLabel: t('prManager.mergeableUi.mergeStateDraftSub'),
-      blockMerge: true,
-      icon: GitPullRequestDraft,
-      mergeTitle: t('prManager.mergeableUi.mergeStateDraftTitle'),
-    }
-  }
-  // MergeStateStatus CLEAN / HAS_HOOKS (Enterprise: có pre-receive hooks nhưng vẫn merge được)
-  if (s === 'clean' || s === 'has_hooks') {
-    return {
-      prText: 'text-emerald-700 dark:text-emerald-300',
-      prIcon: 'text-emerald-500 dark:text-emerald-300',
-      mergeCell: '',
-      shortLabel: t('prManager.mergeableUi.ready'),
-      subLabel: s === 'has_hooks' ? t('prManager.mergeableUi.mergeStateHooksSub') : '',
-      blockMerge: false,
-      icon: CheckCircle2,
-      mergeTitle: '',
-    }
-  }
-  if (s === 'unknown') {
-    return {
-      prText: 'text-lime-700 dark:text-lime-300',
-      prIcon: 'text-lime-600 dark:text-lime-300',
-      mergeCell: 'bg-lime-400/14 text-lime-950 dark:text-lime-50',
-      shortLabel: t('prManager.mergeableUi.checking'),
-      subLabel: t('prManager.mergeableUi.checkingSub'),
-      blockMerge: true,
-      icon: HelpCircle,
-      mergeTitle: t('prManager.mergeableUi.checkingTitle'),
-    }
-  }
-  // Giá trị API mới / chưa ánh xạ: coi sẵn sàng để không chặn merge oan (chuỗi "unknown" đã xử lý ở trên).
-  return {
-    prText: 'text-emerald-700 dark:text-emerald-300',
-    prIcon: 'text-emerald-500 dark:text-emerald-300',
-    mergeCell: '',
-    shortLabel: t('prManager.mergeableUi.ready'),
-    subLabel: '',
-    blockMerge: false,
-    icon: CheckCircle2,
-    mergeTitle: '',
-  }
 }
 
 /**

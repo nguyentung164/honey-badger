@@ -15,6 +15,15 @@ function getElectronAppIsPackaged(): boolean {
 import { AI_FEATURE_SPOTBUGS_CHAT, IPC, PROMPT } from 'main/constants'
 import type { CommitActivityRepo } from 'main/ipc/dashboard'
 import type { Configuration, MailServerConfig, SupportFeedback, SVNResponse } from 'main/types/types'
+import type {
+  DevPipelineFlow,
+  DevPipelineFlowSummary,
+  DevPipelineGraphJson,
+  DevPipelineLogStreamPayload,
+  DevPipelineRunScope,
+  DevPipelineRunStreamPayload,
+  DevPipelineRunSummary,
+} from 'shared/devPipelines/types'
 
 /** IPC dùng structured clone; snapshot Zustand/React có thể là Proxy → lỗi "An object could not be cloned". */
 function toStructuredCloneable<T>(value: T): T {
@@ -346,7 +355,7 @@ declare global {
 
       system: {
         select_folder: () => Promise<string>
-        open_folder_in_explorer: (folderPath: string) => Promise<void>
+        open_folder_in_explorer: (folderPath: string) => Promise<{ ok: boolean; error?: string }>
         reveal_in_file_explorer: (filePath: string) => Promise<void>
         open_external_url: (url: string) => Promise<void>
         read_file: (filePath: string, options?: { cwd?: string }) => Promise<string>
@@ -358,6 +367,8 @@ declare global {
         select_audio_file: () => Promise<string>
         get_notification_sound_url: (filePath: string) => Promise<string | null>
         get_default_notification_sound_url: () => Promise<string | null>
+        /** Repo-relative path under cwd/sourceFolder; used for context menu labels. */
+        get_path_entry_kind: (payload: { relativePath: string; cwd?: string }) => Promise<'file' | 'directory' | 'missing'>
       }
 
       sourcefolder: {
@@ -1007,6 +1018,7 @@ declare global {
         requestDock: () => void
       }
       automation: AutomationApi
+      devPipelines: DevPipelinesApi
     }
   }
 }
@@ -1018,10 +1030,17 @@ import type {
   AutomationSettingsState,
   ImportLayout,
   ImportPreview,
+  PageMapLastRunStatus,
   RunRequest,
+  RunScopeResolution,
   RunStreamEvent,
   TestCase,
   TestCaseResult,
+  TestCatalogGroup,
+  TestCatalogPage,
+  TestPageMapAnnotation,
+  TestFlow,
+  TestPageNavEdge,
   TestProject,
   TestRunSummary,
   TestSuite,
@@ -1055,13 +1074,87 @@ export interface AutomationApi {
     delete: (id: string) => Promise<AutomationEnvelope<{ deleted: boolean }>>
     readSpec: (args: { projectId: string; code: string }) => Promise<AutomationEnvelope<string>>
     writeSpec: (args: { projectId: string; code: string; content: string; markSaved?: boolean }) => Promise<AutomationEnvelope<{ file: string }>>
+    launchCodegen: (args: { projectId: string; url: string }) => Promise<AutomationEnvelope<{ opened: boolean }>>
   }
+  catalogPage: {
+    list: (projectId: string) => Promise<AutomationEnvelope<TestCatalogPage[]>>
+    caseCounts: (projectId: string) => Promise<AutomationEnvelope<Record<string, number>>>
+    create: (input: {
+      projectId: string
+      name: string
+      slug?: string
+      description?: string
+      sortOrder?: number
+      groupId?: string | null
+    }) => Promise<AutomationEnvelope<TestCatalogPage>>
+    update: (args: {
+      id: string
+      patch: Partial<Pick<TestCatalogPage, 'name' | 'slug' | 'description' | 'sortOrder' | 'groupId' | 'diagramX' | 'diagramY' | 'diagramStyle'>>
+    }) => Promise<AutomationEnvelope<TestCatalogPage | null>>
+    delete: (id: string) => Promise<AutomationEnvelope<{ deleted: boolean }>>
+    duplicateDeep: (input: { sourcePageId: string; name?: string; slug?: string | null; description?: string | null }) => Promise<AutomationEnvelope<{ newPageId: string }>>
+  }
+  catalogGroup: {
+    list: (projectId: string) => Promise<AutomationEnvelope<TestCatalogGroup[]>>
+    listGraph: (projectId: string) =>
+      Promise<AutomationEnvelope<{ groups: TestCatalogGroup[]; pages: TestCatalogPage[]; groupCaseCounts: Record<string, number>; annotations: TestPageMapAnnotation[] }>>
+    create: (input: {
+      projectId: string
+      name: string
+      parentGroupId?: string | null
+      description?: string
+      sortOrder?: number
+    }) => Promise<AutomationEnvelope<TestCatalogGroup>>
+    update: (args: {
+      id: string
+      patch: Partial<
+        Pick<
+          TestCatalogGroup,
+          'name' | 'description' | 'sortOrder' | 'parentGroupId' | 'diagramX' | 'diagramY' | 'diagramWidth' | 'diagramHeight' | 'diagramStyle'
+        >
+      >
+    }) => Promise<AutomationEnvelope<TestCatalogGroup | null>>
+    delete: (id: string) => Promise<AutomationEnvelope<{ deleted: boolean }>>
+    move: (args: { id: string; parentGroupId: string | null }) => Promise<AutomationEnvelope<TestCatalogGroup | null>>
+  }
+  mapAnnotation: {
+    create: (input: {
+      projectId: string
+      content: string
+      labelNumber?: number
+      diagramX?: number
+      diagramY?: number
+      diagramWidth?: number
+      diagramHeight?: number
+      style?: TestPageMapAnnotation['style']
+      sortOrder?: number
+    }) => Promise<AutomationEnvelope<TestPageMapAnnotation>>
+    update: (args: {
+      id: string
+      patch: Partial<
+        Pick<TestPageMapAnnotation, 'content' | 'labelNumber' | 'diagramX' | 'diagramY' | 'diagramWidth' | 'diagramHeight' | 'style' | 'sortOrder'>
+      >
+    }) => Promise<AutomationEnvelope<TestPageMapAnnotation | null>>
+    delete: (id: string) => Promise<AutomationEnvelope<{ deleted: boolean }>>
+    duplicate: (id: string) => Promise<AutomationEnvelope<TestPageMapAnnotation | null>>
+  }
+  flow: {
+    list: (pageId: string) => Promise<AutomationEnvelope<TestFlow[]>>
+    create: (input: { pageId: string; name: string; sortOrder?: number }) => Promise<AutomationEnvelope<TestFlow>>
+    update: (args: { id: string; patch: Partial<Pick<TestFlow, 'name' | 'sortOrder'>> }) => Promise<AutomationEnvelope<TestFlow | null>>
+    delete: (id: string) => Promise<AutomationEnvelope<{ deleted: boolean }>>
+  }
+  navEdge: {
+    list: (projectId: string) => Promise<AutomationEnvelope<TestPageNavEdge[]>>
+    create: (input: { projectId: string; sourcePageId: string; targetPageId: string; label?: string }) => Promise<AutomationEnvelope<TestPageNavEdge>>
+    update: (args: { id: string; patch: { label?: string | null; styleJson?: string | null } }) => Promise<AutomationEnvelope<TestPageNavEdge | null>>
+    delete: (id: string) => Promise<AutomationEnvelope<{ deleted: boolean }>>
+  }
+  exportCasesByPage: (projectId: string) => Promise<AutomationEnvelope<{ cancelled: boolean; files: string[] }>>
   importPickFile: () => Promise<AutomationEnvelope<{ filePath: string | null }>>
   importParse: (args: { projectId: string; filePath: string; layout: ImportLayout }) => Promise<AutomationEnvelope<ImportPreview>>
-  importExcelListSheets: (filePath: string) => Promise<
-    AutomationEnvelope<{ sheets: Array<{ name: string }>; warnings: string[] }>
-  >
-  importExcelMarkdown: (args: {
+  importExcelListSheets: (filePath: string) => Promise<AutomationEnvelope<{ sheets: Array<{ name: string }>; warnings: string[] }>>
+  importExcelJson: (args: {
     filePath: string
     sheetNames: string[]
     headerRow: number
@@ -1069,14 +1162,21 @@ export interface AutomationApi {
     lastRow?: number
     firstCol?: number
     lastCol?: number
-  }) => Promise<AutomationEnvelope<{ markdown: string; warnings: string[] }>>
+  }) => Promise<AutomationEnvelope<{ json: string; warnings: string[] }>>
+  importExcelPlainText: (args: {
+    filePath: string
+    sheetNames: string[]
+    headerRow: number
+    firstDataRow?: number
+    lastRow?: number
+    firstCol?: number
+    lastCol?: number
+  }) => Promise<AutomationEnvelope<{ text: string; warnings: string[] }>>
   ai: {
     pickScreenshots: () => Promise<AutomationEnvelope<{ filePaths: string[] }>>
-    generateCases: (args: {
-      projectId: string
-      inputText: string
-      imagePaths?: string[]
-    }) => Promise<AutomationEnvelope<ImportPreview>>
+    saveImportImage: (args?: { bytes?: ArrayBuffer }) => Promise<AutomationEnvelope<{ filePath: string }>>
+    readImportImagePreview: (filePath: string) => Promise<AutomationEnvelope<{ dataUrl: string }>>
+    generateCases: (args: { projectId: string; inputText: string; imagePaths?: string[] }) => Promise<AutomationEnvelope<ImportPreview>>
     generateSpec: (args: { caseId: string }) => Promise<AutomationEnvelope<{ code: string; rationale: string; helpers: string[] }>>
     repair: (args: { caseResultId: string }) => Promise<AutomationEnvelope<AiRepairProposal>>
     repairApply: (args: { proposalId: string }) => Promise<AutomationEnvelope<{ applied: boolean }>>
@@ -1085,6 +1185,7 @@ export interface AutomationApi {
   }
   run: {
     start: (req: RunRequest) => Promise<AutomationEnvelope<{ runId: string }>>
+    resolveScope: (args: { projectId: string; pageIds?: string[]; groupIds?: string[] }) => Promise<AutomationEnvelope<RunScopeResolution>>
     cancel: (runId: string) => Promise<AutomationEnvelope<{ cancelled: boolean }>>
     list: (args: { projectId: string; limit?: number }) => Promise<AutomationEnvelope<TestRunSummary[]>>
     get: (runId: string) => Promise<AutomationEnvelope<TestRunSummary | null>>
@@ -1094,21 +1195,24 @@ export interface AutomationApi {
     openTrace: (args: { tracePath: string; projectId?: string; runId?: string }) => Promise<AutomationEnvelope<{ opened: boolean }>>
     openScreenshot: (args: { screenshotPath: string; projectId: string; runId: string }) => Promise<AutomationEnvelope<{ opened: boolean }>>
     openVideo: (args: { videoPath: string; projectId: string; runId: string }) => Promise<AutomationEnvelope<{ opened: boolean }>>
-    readScreenshotPreview: (args: {
-      screenshotPath: string
-      projectId: string
-      runId: string
-    }) => Promise<AutomationEnvelope<{ dataUrl: string }>>
+    readScreenshotPreview: (args: { screenshotPath: string; projectId: string; runId: string }) => Promise<AutomationEnvelope<{ dataUrl: string }>>
     openWorkspace: (projectId: string) => Promise<AutomationEnvelope<{ opened: boolean }>>
     clearHistory: (projectId: string) => Promise<AutomationEnvelope<{ cleared: boolean }>>
+    deleteRun: (args: { projectId: string; runId: string }) => Promise<AutomationEnvelope<{ deleted: boolean }>>
+    pageMapStatus: (projectId: string) => Promise<AutomationEnvelope<PageMapLastRunStatus>>
   }
   browsers: {
     install: (args: { browsers?: AutomationBrowser[] }) => Promise<AutomationEnvelope<{ installed: AutomationBrowser[] }>>
+    uninstall: (args: { browser: AutomationBrowser }) => Promise<AutomationEnvelope<{ installed: AutomationBrowser[] }>>
     status: () => Promise<AutomationEnvelope<{ installed: AutomationBrowser[] }>>
     onInstallStream: (cb: (chunk: string) => void) => () => void
   }
   dashboard: {
-    summary: (projectId: string) => Promise<AutomationEnvelope<{ runs: TestRunSummary[]; last?: TestRunSummary; lastResults: TestCaseResult[]; flaky: Array<{ caseId: string; passes: number; fails: number }> }>>
+    summary: (
+      projectId: string
+    ) => Promise<
+      AutomationEnvelope<{ runs: TestRunSummary[]; last?: TestRunSummary; lastResults: TestCaseResult[]; flaky: Array<{ caseId: string; passes: number; fails: number }> }>
+    >
   }
   settings: {
     get: () => Promise<AutomationEnvelope<AutomationSettingsState>>
@@ -1120,6 +1224,34 @@ export interface AutomationApi {
   }
   authReset: () => Promise<AutomationEnvelope<{ ok: boolean }>>
   onRunStream: (cb: (event: RunStreamEvent) => void) => () => void
+}
+
+type DevPipelineEnvelope<T = unknown> = { status: 'success' | 'error'; data?: T; message?: string }
+
+export interface DevPipelinesApi {
+  openWindow: () => void
+  closeWindow: () => void
+  flow: {
+    list: () => Promise<DevPipelineEnvelope<DevPipelineFlowSummary[]>>
+    get: (id: string) => Promise<DevPipelineEnvelope<DevPipelineFlow | null>>
+    create: (input: { name: string; description?: string | null }) => Promise<DevPipelineEnvelope<DevPipelineFlow>>
+    upsert: (input: {
+      id?: string | null
+      name: string
+      description?: string | null
+      graph: DevPipelineGraphJson
+      schemaVersion?: number
+    }) => Promise<DevPipelineEnvelope<DevPipelineFlow>>
+    delete: (id: string) => Promise<DevPipelineEnvelope<{ deleted: boolean }>>
+  }
+  run: {
+    start: (flowId: string, scope?: DevPipelineRunScope) => Promise<DevPipelineEnvelope<{ started: boolean; flowId: string; runId: string }>>
+    cancel: (runId: string) => Promise<DevPipelineEnvelope<{ cancelled: boolean }>>
+    get: (runId: string) => Promise<DevPipelineEnvelope<DevPipelineRunSummary | null>>
+    approvalRespond: (input: { runId: string; nodeId: string; approved: boolean }) => Promise<DevPipelineEnvelope<{ handled: boolean }>>
+  }
+  onRunStream: (cb: (payload: DevPipelineRunStreamPayload) => void) => () => void
+  onLogStream: (cb: (payload: DevPipelineLogStreamPayload) => void) => () => void
 }
 
 // Expose APIs to the renderer process
@@ -1431,6 +1563,7 @@ contextBridge.exposeInMainWorld('api', {
     select_audio_file: () => ipcRenderer.invoke(IPC.SYSTEM.SELECT_AUDIO_FILE),
     get_notification_sound_url: (filePath: string) => ipcRenderer.invoke(IPC.SYSTEM.GET_NOTIFICATION_SOUND_URL, filePath),
     get_default_notification_sound_url: () => ipcRenderer.invoke(IPC.SYSTEM.GET_DEFAULT_NOTIFICATION_SOUND_URL),
+    get_path_entry_kind: (payload: { relativePath: string; cwd?: string }) => ipcRenderer.invoke(IPC.SYSTEM.GET_PATH_ENTRY_KIND, payload),
   },
 
   sourcefolder: {
@@ -1773,8 +1906,7 @@ contextBridge.exposeInMainWorld('api', {
       ipcRenderer.invoke(IPC.PR.PR_REVIEW_APPROVE, toStructuredCloneable(input)),
     prMarkReady: (input: { owner: string; repo: string; number: number }) => ipcRenderer.invoke(IPC.PR.PR_MARK_READY, toStructuredCloneable(input)),
     prMarkDraft: (input: { owner: string; repo: string; number: number }) => ipcRenderer.invoke(IPC.PR.PR_MARK_DRAFT, toStructuredCloneable(input)),
-    prUpdateTitle: (input: { owner: string; repo: string; number: number; title: string }) =>
-      ipcRenderer.invoke(IPC.PR.PR_UPDATE_TITLE, toStructuredCloneable(input)),
+    prUpdateTitle: (input: { owner: string; repo: string; number: number; title: string }) => ipcRenderer.invoke(IPC.PR.PR_UPDATE_TITLE, toStructuredCloneable(input)),
     prClose: (input: { owner: string; repo: string; number: number }) => ipcRenderer.invoke(IPC.PR.PR_CLOSE, toStructuredCloneable(input)),
     prReopen: (input: { owner: string; repo: string; number: number }) => ipcRenderer.invoke(IPC.PR.PR_REOPEN, toStructuredCloneable(input)),
     prRequestReviewers: (input: { owner: string; repo: string; number: number; reviewers: string[] }) =>
@@ -1892,14 +2024,52 @@ contextBridge.exposeInMainWorld('api', {
       delete: (id: string) => ipcRenderer.invoke(IPC.AUTOMATION.CASE_DELETE, id),
       readSpec: (args: any) => ipcRenderer.invoke(IPC.AUTOMATION.CASE_READ_SPEC, toStructuredCloneable(args)),
       writeSpec: (args: any) => ipcRenderer.invoke(IPC.AUTOMATION.CASE_WRITE_SPEC, toStructuredCloneable(args)),
+      launchCodegen: (args: any) => ipcRenderer.invoke(IPC.AUTOMATION.CASE_LAUNCH_CODEGEN, toStructuredCloneable(args)),
     },
+    catalogPage: {
+      list: (projectId: string) => ipcRenderer.invoke(IPC.AUTOMATION.CATALOG_PAGE_LIST, projectId),
+      caseCounts: (projectId: string) => ipcRenderer.invoke(IPC.AUTOMATION.CATALOG_PAGE_CASE_COUNTS, projectId),
+      create: (input: any) => ipcRenderer.invoke(IPC.AUTOMATION.CATALOG_PAGE_CREATE, toStructuredCloneable(input)),
+      update: (args: any) => ipcRenderer.invoke(IPC.AUTOMATION.CATALOG_PAGE_UPDATE, toStructuredCloneable(args)),
+      delete: (id: string) => ipcRenderer.invoke(IPC.AUTOMATION.CATALOG_PAGE_DELETE, id),
+      duplicateDeep: (input: any) => ipcRenderer.invoke(IPC.AUTOMATION.CATALOG_PAGE_DUPLICATE_DEEP, toStructuredCloneable(input)),
+    },
+    catalogGroup: {
+      list: (projectId: string) => ipcRenderer.invoke(IPC.AUTOMATION.CATALOG_GROUP_LIST, projectId),
+      listGraph: (projectId: string) => ipcRenderer.invoke(IPC.AUTOMATION.CATALOG_GROUP_LIST_GRAPH, projectId),
+      create: (input: any) => ipcRenderer.invoke(IPC.AUTOMATION.CATALOG_GROUP_CREATE, toStructuredCloneable(input)),
+      update: (args: any) => ipcRenderer.invoke(IPC.AUTOMATION.CATALOG_GROUP_UPDATE, toStructuredCloneable(args)),
+      delete: (id: string) => ipcRenderer.invoke(IPC.AUTOMATION.CATALOG_GROUP_DELETE, id),
+      move: (args: any) => ipcRenderer.invoke(IPC.AUTOMATION.CATALOG_GROUP_MOVE, toStructuredCloneable(args)),
+    },
+    mapAnnotation: {
+      create: (input: any) => ipcRenderer.invoke(IPC.AUTOMATION.MAP_ANNOTATION_CREATE, toStructuredCloneable(input)),
+      update: (args: any) => ipcRenderer.invoke(IPC.AUTOMATION.MAP_ANNOTATION_UPDATE, toStructuredCloneable(args)),
+      delete: (id: string) => ipcRenderer.invoke(IPC.AUTOMATION.MAP_ANNOTATION_DELETE, id),
+      duplicate: (id: string) => ipcRenderer.invoke(IPC.AUTOMATION.MAP_ANNOTATION_DUPLICATE, id),
+    },
+    flow: {
+      list: (pageId: string) => ipcRenderer.invoke(IPC.AUTOMATION.FLOW_LIST, pageId),
+      create: (input: any) => ipcRenderer.invoke(IPC.AUTOMATION.FLOW_CREATE, toStructuredCloneable(input)),
+      update: (args: any) => ipcRenderer.invoke(IPC.AUTOMATION.FLOW_UPDATE, toStructuredCloneable(args)),
+      delete: (id: string) => ipcRenderer.invoke(IPC.AUTOMATION.FLOW_DELETE, id),
+    },
+    navEdge: {
+      list: (projectId: string) => ipcRenderer.invoke(IPC.AUTOMATION.NAV_EDGE_LIST, projectId),
+      create: (input: any) => ipcRenderer.invoke(IPC.AUTOMATION.NAV_EDGE_CREATE, toStructuredCloneable(input)),
+      update: (args: any) => ipcRenderer.invoke(IPC.AUTOMATION.NAV_EDGE_UPDATE, toStructuredCloneable(args)),
+      delete: (id: string) => ipcRenderer.invoke(IPC.AUTOMATION.NAV_EDGE_DELETE, id),
+    },
+    exportCasesByPage: (projectId: string) => ipcRenderer.invoke(IPC.AUTOMATION.EXPORT_CASES_BY_PAGE, projectId),
     importPickFile: () => ipcRenderer.invoke(IPC.AUTOMATION.IMPORT_PICK_FILE),
     importParse: (args: any) => ipcRenderer.invoke(IPC.AUTOMATION.IMPORT_PARSE, toStructuredCloneable(args)),
     importExcelListSheets: (filePath: string) => ipcRenderer.invoke(IPC.AUTOMATION.IMPORT_EXCEL_LIST_SHEETS, filePath),
-    importExcelMarkdown: (args: any) =>
-      ipcRenderer.invoke(IPC.AUTOMATION.IMPORT_EXCEL_MARKDOWN, toStructuredCloneable(args)),
+    importExcelJson: (args: any) => ipcRenderer.invoke(IPC.AUTOMATION.IMPORT_EXCEL_JSON, toStructuredCloneable(args)),
+    importExcelPlainText: (args: any) => ipcRenderer.invoke(IPC.AUTOMATION.IMPORT_EXCEL_PLAIN_TEXT, toStructuredCloneable(args)),
     ai: {
       pickScreenshots: () => ipcRenderer.invoke(IPC.AUTOMATION.AI_PICK_SCREENSHOTS),
+      saveImportImage: (args?: { bytes?: ArrayBuffer }) => ipcRenderer.invoke(IPC.AUTOMATION.AI_SAVE_IMPORT_IMAGE, args?.bytes != null ? { bytes: args.bytes } : {}),
+      readImportImagePreview: (filePath: string) => ipcRenderer.invoke(IPC.AUTOMATION.AI_READ_IMPORT_IMAGE_PREVIEW, filePath),
       generateCases: (args: any) => ipcRenderer.invoke(IPC.AUTOMATION.AI_GEN_CASES, toStructuredCloneable(args)),
       generateSpec: (args: any) => ipcRenderer.invoke(IPC.AUTOMATION.AI_GEN_SPEC, toStructuredCloneable(args)),
       repair: (args: any) => ipcRenderer.invoke(IPC.AUTOMATION.AI_REPAIR, toStructuredCloneable(args)),
@@ -1909,6 +2079,7 @@ contextBridge.exposeInMainWorld('api', {
     },
     run: {
       start: (req: any) => ipcRenderer.invoke(IPC.AUTOMATION.RUN_START, toStructuredCloneable(req)),
+      resolveScope: (args: any) => ipcRenderer.invoke(IPC.AUTOMATION.RUN_RESOLVE_SCOPE, toStructuredCloneable(args)),
       cancel: (runId: string) => ipcRenderer.invoke(IPC.AUTOMATION.RUN_CANCEL, runId),
       list: (args: any) => ipcRenderer.invoke(IPC.AUTOMATION.RUN_LIST, toStructuredCloneable(args)),
       get: (runId: string) => ipcRenderer.invoke(IPC.AUTOMATION.RUN_GET, runId),
@@ -1918,13 +2089,15 @@ contextBridge.exposeInMainWorld('api', {
       openTrace: (args: any) => ipcRenderer.invoke(IPC.AUTOMATION.RUN_OPEN_TRACE, toStructuredCloneable(args)),
       openScreenshot: (args: any) => ipcRenderer.invoke(IPC.AUTOMATION.RUN_OPEN_SCREENSHOT, toStructuredCloneable(args)),
       openVideo: (args: any) => ipcRenderer.invoke(IPC.AUTOMATION.RUN_OPEN_VIDEO, toStructuredCloneable(args)),
-      readScreenshotPreview: (args: any) =>
-        ipcRenderer.invoke(IPC.AUTOMATION.RUN_READ_SCREENSHOT_PREVIEW, toStructuredCloneable(args)),
+      readScreenshotPreview: (args: any) => ipcRenderer.invoke(IPC.AUTOMATION.RUN_READ_SCREENSHOT_PREVIEW, toStructuredCloneable(args)),
       openWorkspace: (projectId: string) => ipcRenderer.invoke(IPC.AUTOMATION.RUN_OPEN_WORKSPACE, projectId),
       clearHistory: (projectId: string) => ipcRenderer.invoke(IPC.AUTOMATION.RUN_CLEAR_HISTORY, projectId),
+      deleteRun: (args: { projectId: string; runId: string }) => ipcRenderer.invoke(IPC.AUTOMATION.RUN_DELETE, toStructuredCloneable(args)),
+      pageMapStatus: (projectId: string) => ipcRenderer.invoke(IPC.AUTOMATION.RUN_PAGE_MAP_STATUS, projectId),
     },
     browsers: {
       install: (args: any) => ipcRenderer.invoke(IPC.AUTOMATION.BROWSERS_INSTALL, toStructuredCloneable(args)),
+      uninstall: (args: any) => ipcRenderer.invoke(IPC.AUTOMATION.BROWSERS_UNINSTALL, toStructuredCloneable(args)),
       status: () => ipcRenderer.invoke(IPC.AUTOMATION.BROWSERS_STATUS),
       onInstallStream: (cb: (chunk: string) => void) => {
         const handler = (_: unknown, chunk: string) => cb(chunk)
@@ -1953,6 +2126,37 @@ contextBridge.exposeInMainWorld('api', {
         ipcRenderer.removeListener(IPC.AUTOMATION.STREAM_LOG, logHandler)
         ipcRenderer.removeListener(IPC.AUTOMATION.STREAM_PROGRESS, progressHandler)
       }
+    },
+  },
+
+  devPipelines: {
+    openWindow: () => ipcRenderer.send(IPC.WINDOW.DEV_PIPELINES),
+    closeWindow: () => ipcRenderer.send(IPC.WINDOW.DEV_PIPELINES_CLOSE),
+    flow: {
+      list: () => ipcRenderer.invoke(IPC.DEV_PIPELINE.FLOW_LIST),
+      get: (id: string) => ipcRenderer.invoke(IPC.DEV_PIPELINE.FLOW_GET, id),
+      create: (input: { name: string; description?: string | null }) => ipcRenderer.invoke(IPC.DEV_PIPELINE.FLOW_CREATE, toStructuredCloneable(input)),
+      upsert: (input: { id?: string | null; name: string; description?: string | null; graph: DevPipelineGraphJson; schemaVersion?: number }) =>
+        ipcRenderer.invoke(IPC.DEV_PIPELINE.FLOW_UPSERT, toStructuredCloneable(input)),
+      delete: (id: string) => ipcRenderer.invoke(IPC.DEV_PIPELINE.FLOW_DELETE, id),
+    },
+    run: {
+      start: (flowId: string, scope?: DevPipelineRunScope) =>
+      ipcRenderer.invoke(IPC.DEV_PIPELINE.RUN_START, scope ? { flowId, scope } : flowId),
+      cancel: (runId: string) => ipcRenderer.invoke(IPC.DEV_PIPELINE.RUN_CANCEL, runId),
+      get: (runId: string) => ipcRenderer.invoke(IPC.DEV_PIPELINE.RUN_GET, runId),
+      approvalRespond: (input: { runId: string; nodeId: string; approved: boolean }) =>
+        ipcRenderer.invoke(IPC.DEV_PIPELINE.APPROVAL_RESPOND, toStructuredCloneable(input)),
+    },
+    onRunStream: (cb: (payload: DevPipelineRunStreamPayload) => void) => {
+      const handler = (_: unknown, payload: DevPipelineRunStreamPayload) => cb(payload)
+      ipcRenderer.on(IPC.DEV_PIPELINE.STREAM_RUN, handler)
+      return () => ipcRenderer.removeListener(IPC.DEV_PIPELINE.STREAM_RUN, handler)
+    },
+    onLogStream: (cb: (payload: DevPipelineLogStreamPayload) => void) => {
+      const handler = (_: unknown, payload: DevPipelineLogStreamPayload) => cb(payload)
+      ipcRenderer.on(IPC.DEV_PIPELINE.STREAM_LOG, handler)
+      return () => ipcRenderer.removeListener(IPC.DEV_PIPELINE.STREAM_LOG, handler)
     },
   },
 

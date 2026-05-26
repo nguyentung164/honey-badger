@@ -32,7 +32,7 @@ const TIER_STYLES = {
   silver: { border: 'border-slate-400/60', badge: 'bg-slate-500/15 border-slate-400/40 text-slate-600 dark:text-slate-300' },
   gold: { border: 'border-yellow-500/70', badge: 'bg-yellow-500/20 border-yellow-500/50 text-yellow-600 dark:text-yellow-400' },
   special: { border: 'border-violet-500/60', badge: 'bg-violet-500/15 border-violet-500/40 text-violet-600 dark:text-violet-400' },
-  negative: { border: 'border-orange-400/60', badge: 'bg-orange-500/15 border-orange-400/40 text-orange-600 dark:text-orange-400' },
+  negative: { border: 'border-red-500/60', badge: 'bg-red-500/15 border-red-500/45 text-red-600 dark:text-red-400' },
 } as const
 
 /** Halo + góc blur dialog — theo tier badge (không cố định tím). */
@@ -41,7 +41,7 @@ const TIER_DIALOG_HALO: Record<string, string> = {
   silver: 'bg-slate-400/14',
   gold: 'bg-yellow-400/14',
   special: 'bg-violet-500/14',
-  negative: 'bg-orange-500/14',
+  negative: 'bg-red-500/14',
 }
 
 const TIER_DIALOG_CORNER_TR: Record<string, string> = {
@@ -49,7 +49,7 @@ const TIER_DIALOG_CORNER_TR: Record<string, string> = {
   silver: 'from-slate-400/22',
   gold: 'from-yellow-400/22',
   special: 'from-violet-500/22',
-  negative: 'from-orange-500/22',
+  negative: 'from-red-500/22',
 }
 
 const TIER_DIALOG_CORNER_BL: Record<string, string> = {
@@ -57,7 +57,7 @@ const TIER_DIALOG_CORNER_BL: Record<string, string> = {
   silver: 'from-slate-500/14',
   gold: 'from-amber-300/14',
   special: 'from-fuchsia-500/14',
-  negative: 'from-red-500/14',
+  negative: 'from-rose-600/16',
 }
 
 /** Màu confetti riêng theo tier – thay vì dùng màu generic */
@@ -66,7 +66,7 @@ const TIER_CONFETTI_COLORS: Record<string, string[]> = {
   silver: ['#C0C0C0', '#E8E8F4', '#A8A8B8', '#D8D8E8', '#F0F0F8'],
   gold: ['#FFD700', '#FFC200', '#FFEC6E', '#FF8C00', '#FFA500'],
   special: ['#8B5CF6', '#A78BFA', '#C084FC', '#E879F9', '#7C3AED'],
-  negative: ['#F97316', '#FB923C', '#FDBA74', '#EA580C', '#FF6B35'],
+  negative: ['#EF4444', '#F87171', '#FCA5A5', '#DC2626', '#FF4444'],
 }
 
 const RANK_CONFETTI_COLORS: Record<string, string[]> = {
@@ -107,9 +107,9 @@ const TIER_LABEL_CONFIG = {
     shimmer: 'animate-achievement-text-shimmer-violet',
   },
   negative: {
-    pill: 'bg-orange-500/10',
-    icon: 'text-orange-500 dark:text-orange-400',
-    iconGlow: 'animate-achievement-icon-glow-orange',
+    pill: 'bg-red-500/10',
+    icon: 'text-red-500 dark:text-red-400',
+    iconGlow: 'animate-achievement-icon-glow-struggle',
     shimmer: 'animate-achievement-text-shimmer-negative',
   },
 } as const
@@ -120,7 +120,7 @@ const TIER_SPARKLE_COLOR: Record<string, string> = {
   silver: 'rgba(192,192,210,0.55)',
   gold: 'rgba(255,215,0,0.65)',
   special: 'rgba(139,92,246,0.55)',
-  negative: 'rgba(249,115,22,0.55)',
+  negative: 'rgba(239,68,68,0.58)',
   rank_up: 'rgba(245,158,11,0.60)',
 }
 
@@ -199,8 +199,9 @@ function DialogContentInner({ item }: { item: AchievementToastItem }) {
   const rankCfg = newRank ? RANK_CONFIG[newRank as keyof typeof RANK_CONFIG] : null
 
   const tier = isRankUp ? 'gold' : (def?.tier ?? 'bronze')
+  const isStruggle = Boolean(def?.is_negative || def?.tier === 'negative')
   const tierStyle = TIER_STYLES[tier as keyof typeof TIER_STYLES] ?? TIER_STYLES.bronze
-  const labelCfg = TIER_LABEL_CONFIG[tier as keyof typeof TIER_LABEL_CONFIG] ?? TIER_LABEL_CONFIG.special
+  const labelCfg = TIER_LABEL_CONFIG[tier as keyof typeof TIER_LABEL_CONFIG] ?? TIER_LABEL_CONFIG.bronze
 
   const xpCount = useCountUp(def?.xp_reward ?? 0)
   const sparkleKey = isRankUp ? 'rank_up' : tier
@@ -264,19 +265,23 @@ function DialogContentInner({ item }: { item: AchievementToastItem }) {
           </div>
         ) : def ? (
           <>
-            <div className="relative">
+            <div className="relative overflow-visible">
               <div className={cn('absolute -inset-4 rounded-full blur-2xl', TIER_DIALOG_HALO[tier] ?? TIER_DIALOG_HALO.bronze)} />
               {/* Outer handles entrance pop scale, inner handles continuous float Y */}
-              <div className="relative animate-achievement-badge">
+              <div className="relative animate-achievement-badge overflow-visible">
                 <div className="animate-achievement-badge-float">
-                  <BadgeCard def={def} earned={earnedItem ?? undefined} size="lg" forceUnlocked dustEmphasis />
+                  <BadgeCard def={def} earned={earnedItem ?? undefined} size="lg" forceUnlocked pulseRing />
                 </div>
               </div>
             </div>
             <div className="flex flex-col items-center gap-3 text-center">
               <div className={cn('flex items-center justify-center gap-2 rounded-full px-4 py-1.5 animate-achievement-label', labelCfg.pill)}>
                 <Sparkles size={14} className={cn('animate-achievement-icon-shine', labelCfg.icon, labelCfg.iconGlow)} />
-                <span className={cn('text-xs font-bold uppercase tracking-[0.2em]', labelCfg.shimmer)}>Achievement Unlocked!</span>
+                <span className={cn('text-xs font-bold uppercase tracking-[0.2em]', labelCfg.shimmer)}>
+                  {isStruggle
+                    ? t('achievement.unlockDialog.struggleUnlocked', 'Struggle Badge')
+                    : t('achievement.unlockDialog.achievementUnlocked', 'Achievement Unlocked!')}
+                </span>
               </div>
               <h3 className="text-2xl font-extrabold tracking-tight text-foreground animate-achievement-title">
                 {t(`achievement.def.${def.code}.name`, { defaultValue: def.name })}
@@ -287,7 +292,11 @@ function DialogContentInner({ item }: { item: AchievementToastItem }) {
                 </p>
               )}
               <div className="flex flex-wrap items-center justify-center gap-2 animate-achievement-desc">
-                <span className={cn('rounded-full border px-3 py-1 text-[10px] font-bold uppercase tracking-wider', tierStyle.badge)}>{def.tier} Tier</span>
+                <span className={cn('rounded-full border px-3 py-1 text-[10px] font-bold uppercase tracking-wider', tierStyle.badge)}>
+                  {isStruggle
+                    ? t('achievement.unlockDialog.struggleTier', 'Struggle')
+                    : t('achievement.unlockDialog.tierLabel', { tier: def.tier, defaultValue: `${def.tier} Tier` })}
+                </span>
                 {(def.xp_reward ?? 0) > 0 && (
                   <span className="flex items-center gap-1.5 rounded-full bg-amber-500/20 px-3 py-1 text-xs font-bold text-amber-600 dark:text-amber-400 ring-1 ring-amber-500/30 tabular-nums">
                     <Zap size={12} />+{xpCount} XP

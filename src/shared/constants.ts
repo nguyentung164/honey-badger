@@ -30,3 +30,8 @@ export const AUTOMATION_RENDERER_CHANNELS = {
   DOCKED_TO_MAIN: 'automation:docked-to-main',
   WINDOW_CLOSED: 'automation:window-closed',
 } as const
+
+/** Main process → renderer (cửa sổ chính): Dev Pipelines window đóng. */
+export const DEV_PIPELINE_RENDERER_CHANNELS = {
+  WINDOW_CLOSED: 'dev-pipeline:window-closed',
+} as const

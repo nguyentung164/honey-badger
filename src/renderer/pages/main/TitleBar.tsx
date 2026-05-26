@@ -36,7 +36,6 @@ import {
   Sparkles,
   Square,
   SquareArrowDown,
-  SquareArrowOutDownLeft,
   SquareArrowOutUpRight,
   Terminal,
   Turtle,
@@ -56,6 +55,7 @@ import { BadgeCard } from '@/components/achievement/BadgeCard'
 import { LeaderboardDialog } from '@/components/achievement/LeaderboardDialog'
 import { RANK_CONFIG as RANK_CONFIG_ACH, RankBadge } from '@/components/achievement/RankBadge'
 import { UserProfilePanel } from '@/components/achievement/UserProfilePanel'
+import { DevPipelinesTitleBarButton } from '@/pages/main/DevPipelinesTitleBarButton'
 import { HolidayCalendarDialog } from '@/components/calendar/HolidayCalendarDialog'
 import { AiUsageStatsDialog } from '@/components/dialogs/app/AiUsageStatsDialog'
 import { SettingsDialog } from '@/components/dialogs/app/SettingsDialog'
@@ -2294,8 +2294,14 @@ export const TitleBar = ({
             {enableShellSwitcher && automationDetached && onAutomationDock && (
               <Tooltip>
                 <TooltipTrigger asChild>
-                  <Button type="button" variant="ghost" size="icon" className="h-[25px] w-[25px] shrink-0 rounded-sm" onClick={onAutomationDock}>
-                    <SquareArrowOutDownLeft strokeWidth={1.25} absoluteStrokeWidth className="h-4 w-4" />
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="icon"
+                    className="h-[25px] w-[25px] shrink-0 rounded-sm text-emerald-600 hover:bg-muted hover:text-emerald-700 dark:text-emerald-400 dark:hover:text-emerald-300"
+                    onClick={onAutomationDock}
+                  >
+                    <Bot strokeWidth={1.25} absoluteStrokeWidth className="h-3.5 w-3.5" />
                   </Button>
                 </TooltipTrigger>
                 <TooltipContent side="bottom">{t('mainShell.automationDockTooltip', 'Dock Automation back to main window')}</TooltipContent>
@@ -2304,8 +2310,14 @@ export const TitleBar = ({
             {enableShellSwitcher && prManagerDetached && onPrManagerDock && (
               <Tooltip>
                 <TooltipTrigger asChild>
-                  <Button type="button" variant="ghost" size="icon" className="h-[25px] w-[25px] shrink-0 rounded-sm" onClick={onPrManagerDock}>
-                    <SquareArrowOutDownLeft strokeWidth={1.25} absoluteStrokeWidth className="h-4 w-4" />
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="icon"
+                    className="h-[25px] w-[25px] shrink-0 rounded-sm text-emerald-600 hover:bg-muted hover:text-emerald-700 dark:text-emerald-400 dark:hover:text-emerald-300"
+                    onClick={onPrManagerDock}
+                  >
+                    <GitPullRequest strokeWidth={1.25} absoluteStrokeWidth className="h-3.5 w-3.5" />
                   </Button>
                 </TooltipTrigger>
                 <TooltipContent side="bottom">{t('mainShell.prManagerDockTooltip')}</TooltipContent>
@@ -2314,8 +2326,14 @@ export const TitleBar = ({
             {enableShellSwitcher && tasksDetached && onTasksDock && (
               <Tooltip>
                 <TooltipTrigger asChild>
-                  <Button type="button" variant="ghost" size="icon" className="h-[25px] w-[25px] shrink-0 rounded-sm" onClick={onTasksDock}>
-                    <SquareArrowOutDownLeft strokeWidth={1.25} absoluteStrokeWidth className="h-4 w-4" />
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="icon"
+                    className="h-[25px] w-[25px] shrink-0 rounded-sm text-emerald-600 hover:bg-muted hover:text-emerald-700 dark:text-emerald-400 dark:hover:text-emerald-300"
+                    onClick={onTasksDock}
+                  >
+                    <CheckSquare strokeWidth={1.25} absoluteStrokeWidth className="h-3.5 w-3.5" />
                   </Button>
                 </TooltipTrigger>
                 <TooltipContent side="bottom">{t('mainShell.tasksDockTooltip')}</TooltipContent>
@@ -2344,6 +2362,7 @@ export const TitleBar = ({
                   </TooltipTrigger>
                   <TooltipContent>{isOpeningReportDialog ? t('common.loading', 'Đang tải ...') : t('dailyReport.open')}</TooltipContent>
                 </Tooltip>
+                <DevPipelinesTitleBarButton />
               </>
             )}
             {/* Settings trên bar khi guest */}
@@ -2542,7 +2561,7 @@ export const TitleBar = ({
 
         <div className="flex shrink-0 gap-1 items-center h-full" style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties}>
           {showVcsChrome && (
-            <div className="flex gap-1 items-center justify-center h-full" style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties}>
+            <div className="flex gap-1 items-center justify-center h-full px-2" style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties}>
               {/* Terminal Button - single-repo: current folder; multi-repo: repo của tab active */}
               {((!isMultiRepo && sourceFolders.length > 0 && currentFolder) || (isMultiRepo && gitContextPath)) && (
                 <Tooltip>

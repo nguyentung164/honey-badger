@@ -18,12 +18,20 @@ import {
   getRunLogFile,
   resolvePlaywrightCliPath,
 } from './workspace'
+import { resolveCaseIdsToExistingSpecRelPaths } from './runCasePaths'
 import {
+  mergeHbFullStepsFromDisk,
   overallStatusFromSummary,
   parsePlaywrightReport,
   readReportJsonWithRetry,
   type ParsedRunReport,
 } from './reportParser'
+import {
+  drainReporterBuffer,
+  flushReporterTail,
+  type ProgressTally,
+  tallyCompleted,
+} from './listReporterProgress'
 
 interface ActiveRun {
   runId: string
@@ -67,14 +75,6 @@ export function broadcastAutomationRunEvent(event: RunStreamEvent): void {
   broadcast(event)
 }
 
-interface ProgressTally {
-  total: number
-  passed: number
-  failed: number
-  skipped: number
-  currentTest?: string
-}
-
 async function readLogTailString(file: string, maxChars: number): Promise<string | undefined> {
   try {
     const buf = await fs.readFile(file)
@@ -106,9 +106,10 @@ export function extractPlaywrightFailureSnippet(
 
 /** Khi `report.json` không tạo được (reporter lỗi / thoát sớm) nhưng list reporter đã đếm dòng. */
 function parsedFromListTally(tally: ProgressTally, startedAt: string, finishedAt: string): ParsedRunReport {
+  const total = tallyCompleted(tally)
   return {
     summary: {
-      total: tally.total,
+      total,
       passed: tally.passed,
       failed: tally.failed,
       skipped: tally.skipped,
@@ -121,36 +122,7 @@ function parsedFromListTally(tally: ProgressTally, startedAt: string, finishedAt
   }
 }
 
-function parseListReporterLine(line: string, tally: ProgressTally): boolean {
-  let changed = false
-  // Playwright `list` reporter prints lines like:  "  ok  1 [chromium] › example.spec.ts:5:1 › sample"
-  //                                                "  x   2 [chromium] › example.spec.ts:5:1 › fails"
-  //                                                "  -   3 [chromium] › skipped"
-  const m = /^\s*(ok|x|-)\s+\d+\s+(.*)$/.exec(line)
-  if (m) {
-    const mark = m[1]
-    tally.total += 1
-    if (mark === 'ok') tally.passed += 1
-    else if (mark === 'x') tally.failed += 1
-    else tally.skipped += 1
-    tally.currentTest = m[2]
-    changed = true
-  } else {
-    // Total summary line ("  5 passed (3.2s)")
-    const totals = /(\d+)\s+passed/.exec(line)
-    if (totals) {
-      // best-effort sync (in case mark parsing missed)
-      const n = Number(totals[1])
-      if (!Number.isNaN(n) && n > tally.passed) {
-        tally.passed = n
-        changed = true
-      }
-    }
-  }
-  return changed
-}
-
-function buildArgs(req: RunRequest, workspacePath: string, runId: string): string[] {
+function buildArgs(req: RunRequest, workspacePath: string, runId: string, specRelPaths?: string[]): string[] {
   const args: string[] = ['test']
   for (const b of req.browsers) {
     args.push(`--project=${b}`)
@@ -163,6 +135,12 @@ function buildArgs(req: RunRequest, workspacePath: string, runId: string): strin
   // Không trùng thư mục với Playwright `--output` (artifacts): tránh bị dọn/ghi đè cùng cây thư mục.
   args.push(`--output=${getRunArtifactsDir(req.projectId, runId)}`)
   args.push(`--config=${path.join(workspacePath, 'playwright.config.ts')}`)
+
+  if (specRelPaths?.length) {
+    for (const rel of specRelPaths) {
+      args.push(rel)
+    }
+  }
 
   return args
 }
@@ -235,6 +213,19 @@ export async function startRun(args: StartRunArgs): Promise<{ start: StartRunRes
     htmlOutputFolder: reportDir,
   })
 
+  let specRelPaths: string[] | undefined
+  const scopedCaseIds = request.caseIds?.filter(Boolean) ?? []
+  if (scopedCaseIds.length > 0) {
+    const resolved = await resolveCaseIdsToExistingSpecRelPaths(project.id, workspacePath, scopedCaseIds)
+    if (resolved.relPaths.length === 0) {
+      throw new Error('NO_SPECS_FOR_CASES')
+    }
+    if (resolved.missingSpecCodes.length > 0) {
+      l.warn('[automation] cases without spec file on disk (skipped)', resolved.missingSpecCodes)
+    }
+    specRelPaths = resolved.relPaths
+  }
+
   const baseEnv = buildPlaywrightSpawnEnv({
     ...buildReporterEnv(jsonFile, junitFile),
     HB_RUN_ID: runId,
@@ -243,7 +234,7 @@ export async function startRun(args: StartRunArgs): Promise<{ start: StartRunRes
   })
 
   const cliPath = resolvePlaywrightCliPath()
-  const spawnArgs = buildArgs(request, workspacePath, runId)
+  const spawnArgs = buildArgs(request, workspacePath, runId, specRelPaths)
 
   l.info(`[automation] start run ${runId} project=${project.id} cli=${cliPath} args=`, spawnArgs)
   const proc = spawn(process.execPath, [cliPath, ...spawnArgs], {
@@ -254,13 +245,14 @@ export async function startRun(args: StartRunArgs): Promise<{ start: StartRunRes
   let logStream: WriteStream | null = createWriteStream(logFile, { flags: 'w' })
   let cancelled = false
   let killTimer: NodeJS.Timeout | null = null
-  const tally: ProgressTally = { total: 0, passed: 0, failed: 0, skipped: 0 }
+  const tally: ProgressTally = { plannedTotal: 0, passed: 0, failed: 0, skipped: 0 }
 
   const emitProgress = _.throttle(() => {
+    const completed = tallyCompleted(tally)
     const event: RunStreamEvent = {
       kind: 'progress',
       runId,
-      total: tally.total,
+      total: Math.max(tally.plannedTotal, completed),
       passed: tally.passed,
       failed: tally.failed,
       skipped: tally.skipped,
@@ -281,22 +273,19 @@ export async function startRun(args: StartRunArgs): Promise<{ start: StartRunRes
   proc.stdout.setEncoding('utf8')
   proc.stderr.setEncoding('utf8')
 
-  let stdoutBuffer = ''
+  const stdoutBuffer = { s: '' }
+  const stderrBuffer = { s: '' }
+
   proc.stdout.on('data', (data: string) => {
-    stdoutBuffer += data
-    for (;;) {
-      const idx = stdoutBuffer.indexOf('\n')
-      if (idx === -1) break
-      const line = stdoutBuffer.slice(0, idx)
-      stdoutBuffer = stdoutBuffer.slice(idx + 1)
-      const changed = parseListReporterLine(line, tally)
-      if (changed) emitProgress()
-    }
+    stdoutBuffer.s += data
+    drainReporterBuffer(stdoutBuffer, tally, emitProgress)
     if (logStream) logStream.write(data)
     flushLog(data, 'stdout')
   })
 
   proc.stderr.on('data', (data: string) => {
+    stderrBuffer.s += data
+    drainReporterBuffer(stderrBuffer, tally, emitProgress)
     if (logStream) logStream.write(data)
     flushLog(data, 'stderr')
   })
@@ -331,6 +320,10 @@ export async function startRun(args: StartRunArgs): Promise<{ start: StartRunRes
       }
       const finishedAt = new Date().toISOString()
 
+      flushReporterTail(stdoutBuffer, tally, emitProgress)
+      flushReporterTail(stderrBuffer, tally, emitProgress)
+      emitProgress.flush()
+
       let parsed: ParsedRunReport | undefined
       let logTailForFailure: string | undefined
       try {
@@ -340,10 +333,11 @@ export async function startRun(args: StartRunArgs): Promise<{ start: StartRunRes
         const report = await readReportJsonWithRetry(jsonFile, { maxWaitMs: 25000, intervalMs: 120 })
         try {
           parsed = parsePlaywrightReport(report)
+          mergeHbFullStepsFromDisk(parsed, path.join(path.dirname(jsonFile), 'hb-full-steps.json'))
         } catch (parseErr) {
           l.warn('[automation] parsePlaywrightReport failed', parseErr)
           logTailForFailure = await readLogTailString(logFile, 12000)
-          if (tally.total > 0) {
+          if (tallyCompleted(tally) > 0) {
             parsed = parsedFromListTally(tally, startedAt, finishedAt)
             l.info('[automation] using list-reporter tally fallback (report.json parse failed)')
           }
@@ -354,7 +348,7 @@ export async function startRun(args: StartRunArgs): Promise<{ start: StartRunRes
         if (logTailForFailure?.trim()) {
           l.warn('[automation] playwright run.log (tail)', logTailForFailure)
         }
-        if (tally.total > 0) {
+        if (tallyCompleted(tally) > 0) {
           parsed = parsedFromListTally(tally, startedAt, finishedAt)
           l.info('[automation] using list-reporter tally fallback (report.json missing)')
         }
@@ -381,7 +375,7 @@ export async function startRun(args: StartRunArgs): Promise<{ start: StartRunRes
           workers: request.workers,
           retries: request.retries,
           grep: request.grep,
-          total: parsed?.summary.total ?? tally.total,
+          total: parsed?.summary.total ?? tallyCompleted(tally),
           passed: parsed?.summary.passed ?? tally.passed,
           failed: parsed?.summary.failed ?? tally.failed,
           skipped: parsed?.summary.skipped ?? tally.skipped,

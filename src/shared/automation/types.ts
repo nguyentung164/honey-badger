@@ -3,6 +3,8 @@
  * Import được cả main lẫn renderer — KHÔNG đưa Node API vào file này.
  */
 
+import type { FlowConnectionStyle, FlowNodeVisualStyle } from '../flowDiagramStyle'
+
 export type TestCaseSource = 'manual' | 'excel' | 'pdf' | 'csv' | 'markdown' | 'ai'
 
 export type TestCasePriority = 'low' | 'medium' | 'high' | 'critical'
@@ -21,9 +23,83 @@ export interface TestStep {
   note?: string
 }
 
+/** Nhóm catalog (module / suite) — có thể lồng nhau; page gán tối đa một group. */
+export interface TestCatalogGroup {
+  id: string
+  projectId: string
+  parentGroupId?: string | null
+  name: string
+  description?: string
+  sortOrder: number
+  diagramX?: number
+  diagramY?: number
+  diagramWidth?: number
+  diagramHeight?: number
+  /** Giao diện node group trên page map. */
+  diagramStyle?: FlowNodeVisualStyle
+  createdAt?: string
+  updatedAt?: string
+}
+
+/** Ghi chú trên page map (React Flow) — không gắn test case. */
+export interface TestPageMapAnnotation {
+  id: string
+  projectId: string
+  content: string
+  labelNumber: number
+  diagramX?: number
+  diagramY?: number
+  diagramWidth?: number
+  diagramHeight?: number
+  style?: import('../pageMapAnnotationStyle').PageMapAnnotationStyle
+  sortOrder: number
+  createdAt?: string
+  updatedAt?: string
+}
+
+/** Trang (Page) trong catalog test — tránh tên `AutomationPage` (component shell). */
+export interface TestCatalogPage {
+  id: string
+  projectId: string
+  name: string
+  slug?: string
+  description?: string
+  sortOrder: number
+  /** Thuộc nhóm catalog (map + run theo group); null = ở root canvas. */
+  groupId?: string | null
+  diagramX?: number
+  diagramY?: number
+  /** Giao diện node trên page map (JSON FlowNodeVisualStyle). */
+  diagramStyle?: FlowNodeVisualStyle
+  createdAt?: string
+  updatedAt?: string
+}
+
+export interface TestFlow {
+  id: string
+  pageId: string
+  name: string
+  sortOrder: number
+  createdAt?: string
+  updatedAt?: string
+}
+
+export interface TestPageNavEdge {
+  id: string
+  projectId: string
+  sourcePageId: string
+  targetPageId: string
+  label?: string
+  /** Kiểu cạnh trên diagram — map từ cột style_json. */
+  connectionStyle?: FlowConnectionStyle
+  createdAt?: string
+}
+
 export interface TestCase {
   id: string
   projectId: string
+  /** Thuộc flow trong catalog; có thể null khi dữ liệu cũ / import tạm. */
+  flowId?: string | null
   code: string
   title: string
   tags: string[]
@@ -62,16 +138,65 @@ export interface TestSuite {
 
 export type RunStatus = 'queued' | 'running' | 'passed' | 'failed' | 'cancelled' | 'error'
 
+/** Page map node run indicator — shared between renderer map and DB hydration. */
+export type PageMapNodeStatus = 'idle' | 'queued' | 'running' | 'done' | 'error' | 'cancelled'
+
+/** Latest completed run mapped to catalog page statuses (from `test_case_results`). */
+export interface PageMapLastRunStatus {
+  runId: string | null
+  runStatus: RunStatus | null
+  finishedAt: string | null
+  pageStatus: Record<string, PageMapNodeStatus>
+}
+
 export type CaseResultStatus = 'passed' | 'failed' | 'skipped' | 'flaky' | 'timedOut' | 'interrupted'
+
+/** `error.location` từ JSON reporter Playwright khi có; bổ sung stack parse khi thiếu. */
+export interface TestCaseFailureLocation {
+  file: string
+  line?: number
+  column?: number
+}
 
 /** Một bước / một assertion lỗi (từ test.step hoặc tách errors[]) — dùng cho UI + DB JSON. */
 export interface TestCaseFailureStep {
   /** Tiêu đề hiển thị (Playwright step title hoặc "Failure 1", …). */
   label: string
   message: string
+  /** Vài dòng đầu (bỏ Call log) — điền lúc parse report; bản cũ có thể thiếu. */
+  summary?: string
+  /** Vị trí trong spec (JSON `location` hoặc trích từ stack). */
+  location?: TestCaseFailureLocation
   screenshotPaths: string[]
   /** Ảnh failure-highlight-*.png từ hb-fixtures (một lỗi ↔ một ảnh khi có). */
   failureHighlightPaths?: string[]
+  /** Playwright 1.60+ TestInfoError.errorContext (vd aria snapshot receiver khi matcher fail). */
+  errorContext?: string
+  /** Trích từ message (Locator / Expected / Received) + bổ sung từ `matcherResult` JSON khi có. */
+  assertionHints?: TestCaseFailureAssertionHints
+}
+
+/** Gợi ý assertion từ format message Playwright hoặc matcherResult. */
+export interface TestCaseFailureAssertionHints {
+  locator?: string
+  expected?: string
+  received?: string
+}
+
+/** Một bước trong cây `results[].steps` của JSON reporter (flatten, có depth). */
+export interface TestCaseReportStep {
+  title: string
+  category?: string
+  durationMs?: number
+  /** 0 = bước gốc trong `results[].steps` của lần chạy cuối. */
+  depth: number
+  /** Bước có `error` trong JSON. */
+  failed?: boolean
+  /** Rút gọn `error.message` khi failed. */
+  errorSnippet?: string
+  location?: TestCaseFailureLocation
+  /** JSON step có `steps` con — icon › giống HTML report. */
+  hasNestedSteps?: boolean
 }
 
 export interface TestRunSummary {
@@ -115,16 +240,38 @@ export interface TestCaseResult {
   errorMessage?: string
   /** Chi tiết từng lỗi (soft nhiều assert, hoặc test.step); rỗng nếu dữ liệu cũ. */
   failureSteps?: TestCaseFailureStep[]
+  /** Cây bước Playwright (hook / expect / click …) từ JSON reporter; rỗng nếu dữ liệu cũ hoặc reporter không ghi steps. */
+  reportSteps?: TestCaseReportStep[]
   tracePath?: string
   screenshotPaths: string[]
   videoPath?: string
   stdoutPath?: string
 }
 
+/** Kết quả resolve phạm vi chạy theo catalog page (dùng cho Page map + IPC). */
+export interface RunScopeResolution {
+  caseIds: string[]
+  /** pageId → danh sách case id (chỉ các page hợp lệ có ít nhất một flow/case). */
+  caseIdsByPageId: Record<string, string[]>
+  /** pageId → số case (trùng với độ dài caseIdsByPageId[pageId]). */
+  caseCountByPageId: Record<string, number>
+  /** Danh sách page id sau khi gộp pageIds + expand groupIds (thứ tự ổn định). */
+  pageIdsExpanded: string[]
+  /** groupId gốc (từ request) → case id thuộc cây group đó (Phase 1: optional UI). */
+  caseIdsByGroupId?: Record<string, string[]>
+  caseCountByGroupId?: Record<string, number>
+  /** Cảnh báo (vd page id không thuộc project, page không có case). */
+  warnings: string[]
+}
+
 /** Tham số khi tạo run từ renderer. */
 export interface RunRequest {
   projectId: string
   caseIds?: string[]
+  /** Khi có: main gộp thành `caseIds` trước khi spawn (union với `caseIds` nếu có). */
+  pageIds?: string[]
+  /** Expand cây con → page → case; union với `pageIds`. */
+  groupIds?: string[]
   suiteId?: string
   browsers: AutomationBrowser[]
   workers: number
@@ -149,6 +296,8 @@ export type RunStreamEvent =
     }
   /** Ghi DB sau run thất bại (finalize / insert results). */
   | { kind: 'persist_failed'; runId: string; projectId: string; message: string }
+  /** Ghi DB sau run thành công — dùng để hydrate page map từ run history. */
+  | { kind: 'persisted'; runId: string; projectId: string }
 
 /** Output từ parser khi import file -> preview ở renderer. */
 export interface ImportPreview {
@@ -173,6 +322,4 @@ export interface AutomationSettingsState {
   defaultWorkers: number
   defaultRetries: number
   runRetention: number
-  /** Override provider AI cho tính năng automation (null = dùng activeApiProvider global). */
-  aiProviderOverride?: 'openai' | 'claude' | 'google' | null
 }

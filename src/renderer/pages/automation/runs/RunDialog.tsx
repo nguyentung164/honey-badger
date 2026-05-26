@@ -9,6 +9,7 @@ import { Label } from '@/components/ui/label'
 import { Switch } from '@/components/ui/switch'
 import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group'
 import toast from '@/components/ui-elements/Toast'
+import { cn } from '@/lib/utils'
 import { useAutomationStore } from '@/stores/useAutomationStore'
 
 interface Props {
@@ -16,9 +17,15 @@ interface Props {
   open: boolean
   onOpenChange: (v: boolean) => void
   onStarted: (runId: string) => void
+  /** Chạy theo phạm vi page map: gửi `pageIds` lên main (gộp case). */
+  pageIdsForRun?: string[]
+  /** Chạy theo nhóm catalog (expand cây con); merge với `pageIdsForRun`. */
+  groupIdsForRun?: string[]
+  /** Một dòng mô tả phạm vi (vd "3 màn hình · 12 test"). */
+  scopeSummaryHint?: string
 }
 
-export function RunDialog({ project, open, onOpenChange, onStarted }: Props) {
+export function RunDialog({ project, open, onOpenChange, onStarted, pageIdsForRun, groupIdsForRun, scopeSummaryHint }: Props) {
   const { t } = useTranslation()
   const settings = useAutomationStore(s => s.settings)
   const [browsers, setBrowsers] = useState<AutomationBrowser[]>(project.browsers)
@@ -50,6 +57,8 @@ export function RunDialog({ project, open, onOpenChange, onStarted }: Props) {
       retries: Math.max(0, retries),
       grep: grep.trim() || undefined,
       headed,
+      ...(pageIdsForRun?.length ? { pageIds: pageIdsForRun } : {}),
+      ...(groupIdsForRun?.length ? { groupIds: groupIdsForRun } : {}),
     }
     try {
       const res = await window.api.automation.run.start(req)
@@ -58,7 +67,16 @@ export function RunDialog({ project, open, onOpenChange, onStarted }: Props) {
         onStarted(res.data.runId)
         onOpenChange(false)
       } else {
-        toast.error(res.message ?? 'Run failed to start')
+        const code = res.message ?? ''
+        const msg =
+          code === 'NO_CASES_FOR_SELECTED_PAGES'
+            ? t('automation.runs.errors.noCasesForPages')
+            : code === 'NO_CASES_FOR_SELECTED_GROUPS'
+              ? t('automation.runs.errors.noCasesForGroups')
+              : code === 'NO_SPECS_FOR_CASES'
+                ? t('automation.runs.errors.noSpecsForCases')
+                : (res.message ?? 'Run failed to start')
+        toast.error(msg)
       }
     } finally {
       setStarting(false)
@@ -72,16 +90,10 @@ export function RunDialog({ project, open, onOpenChange, onStarted }: Props) {
           <DialogTitle>{t('automation.runs.start')}</DialogTitle>
         </DialogHeader>
         <div className="grid gap-3">
+          {scopeSummaryHint ? <p className="rounded-md border border-primary/25 bg-primary/5 px-2.5 py-2 text-xs leading-relaxed text-foreground">{scopeSummaryHint}</p> : null}
           <div className="grid gap-1.5">
             <Label>{t('automation.runs.fields.browsers')}</Label>
-            <ToggleGroup
-              type="multiple"
-              value={browsers}
-              onValueChange={v => setBrowsers(v as AutomationBrowser[])}
-              variant="outline"
-              size="sm"
-              className="justify-start"
-            >
+            <ToggleGroup type="multiple" value={browsers} onValueChange={v => setBrowsers(v as AutomationBrowser[])} variant="outline" size="sm" className="justify-start">
               {(['chromium', 'firefox', 'webkit'] as AutomationBrowser[]).map(b => (
                 <ToggleGroupItem key={b} value={b} className="uppercase">
                   {b}
@@ -111,11 +123,21 @@ export function RunDialog({ project, open, onOpenChange, onStarted }: Props) {
           </div>
         </div>
         <DialogFooter>
-          <Button variant="ghost" onClick={() => onOpenChange(false)} disabled={starting}>
+          <Button type="button" variant="ghost" size="sm" onClick={() => onOpenChange(false)} disabled={starting}>
             {t('automation.common.cancel')}
           </Button>
-          <Button onClick={handleStart} disabled={starting}>
-            {starting ? <Loader2 className="size-4 animate-spin" /> : <Play className="size-4" />}
+          <Button
+            type="button"
+            size="sm"
+            variant="outline"
+            disabled={starting}
+            onClick={handleStart}
+            className={cn(
+              'gap-2 border-emerald-600/55 text-emerald-700 hover:border-emerald-600 hover:bg-emerald-500/10 hover:text-emerald-900',
+              'dark:border-emerald-500/50 dark:text-emerald-400 dark:hover:border-emerald-400 dark:hover:bg-emerald-500/15 dark:hover:text-emerald-200'
+            )}
+          >
+            {starting ? <Loader2 className="size-4 shrink-0 animate-spin" /> : <Play className="size-4 shrink-0" />}
             {t('automation.runs.start')}
           </Button>
         </DialogFooter>
