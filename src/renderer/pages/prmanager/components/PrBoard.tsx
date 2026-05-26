@@ -41,6 +41,7 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog'
+import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Checkbox } from '@/components/ui/checkbox'
 import { Collapsible, CollapsibleContent } from '@/components/ui/collapsible'
@@ -55,6 +56,15 @@ import { GlowLoader } from '@/components/ui-elements/GlowLoader'
 import toast from '@/components/ui-elements/Toast'
 import { getDateFnsLocale } from '@/lib/dateUtils'
 import { cn } from '@/lib/utils'
+import {
+  buildPrCheckpointStatusSnapshot,
+  countPrStatusChangesForBranch,
+  countPrStatusChangesForRepo,
+  diffPrCheckpointStatusSnapshot,
+  formatPrCheckpointStatusFingerprint,
+  prCheckpointCellKey,
+  type PrCheckpointStatusChangeDetail,
+} from '../checkpointStatusChange'
 import { checkpointTableHeadGroupClass } from '../checkpointHeaderGroup'
 import { collectOpenPrsForFileOverlap } from '../collectPrFileOverlapCandidates'
 import type { PrBranchCheckpoint, PrCheckpointTemplate, PrRepo, TrackedBranchRow } from '../hooks/usePrData'
@@ -64,6 +74,13 @@ import type { PrGhStatusKind } from '../prGhStatus'
 import { PR_GH_STATUS_IDS, PR_GH_STATUS_TEXT_CLASS } from '../prGhStatus'
 import { getMergeableUi } from '../prMergeableUi'
 import { PR_MANAGER_REPO_GROUP_VISUAL } from '../prManagerRepoGroupVisual'
+import {
+  baseBranchInsightKey,
+  collectProjectBaseBranches,
+  githubCommitUrl,
+  type BaseBranchInsightDto,
+  type RepoBaseInsightsMap,
+} from '../repoBaseBranchInsights'
 import { CreatePrDialog } from './CreatePrDialog'
 import { MergePrDialog } from './MergePrDialog'
 import { PrAiAssistSheet } from './PrAiAssistSheet'
@@ -432,6 +449,17 @@ function GithubScopedSyncIdleGlyph({ visual }: { visual: GithubScopedSyncIdleVis
   return <CloudCheck className="h-3 w-3 text-muted-foreground" />
 }
 
+function PrSyncStatusChangeDot({ title }: { title: string }) {
+  return (
+    <span
+      role="img"
+      aria-label={title}
+      title={title}
+      className="pointer-events-none absolute -right-0.5 -top-0.5 z-[1] h-2 w-2 rounded-full bg-amber-400 ring-2 ring-background dark:bg-amber-300"
+    />
+  )
+}
+
 function formatScopedSyncTooltip(ms: number | null, lang: string, t: TFunction): string {
   if (ms == null) return t('prManager.board.lastScopedSyncNever')
   const loc = getDateFnsLocale(lang)
@@ -744,6 +772,11 @@ export function PrBoard({ projectId, userId, repos, templates, tracked, loading,
   const syncLogActiveRef = useRef(false)
   const lastSyncLogAtRef = useRef(0)
   const lastLoggedPercentRef = useRef(-1)
+  /** Snapshot trạng thái ô pr_* ngay trước sync thủ công — so sánh sau khi refresh tracked. */
+  const preSyncStatusSnapshotRef = useRef<Map<string, string> | null>(null)
+  const postSyncStatusComparePendingRef = useRef(false)
+  const [statusChangedKeys, setStatusChangedKeys] = useState<Set<string>>(() => new Set())
+  const statusChangeDetailsRef = useRef<Map<string, PrCheckpointStatusChangeDetail>>(new Map())
   const [prBoardHoveredRowId, setPrBoardHoveredRowId] = useState<string | null>(null)
   const [search, setSearch] = useState('')
   const [createPrOpen, setCreatePrOpen] = useState(false)
@@ -803,6 +836,10 @@ export function PrBoard({ projectId, userId, repos, templates, tracked, loading,
   const [branchProtectedMap, setBranchProtectedMap] = useState<Record<string, boolean> | null>(null)
   const [remoteExistLoading, setRemoteExistLoading] = useState(false)
   const remoteExistKeyRef = useRef<string | null>(null)
+  const [repoBaseInsights, setRepoBaseInsights] = useState<RepoBaseInsightsMap>({})
+  const [repoBaseInsightsLoading, setRepoBaseInsightsLoading] = useState(false)
+  const repoBaseInsightsKeyRef = useRef<string | null>(null)
+  const [repoBaseInsightsTick, setRepoBaseInsightsTick] = useState(0)
   const [selectedRowIds, setSelectedRowIds] = useState<Set<string>>(() => new Set())
   const [bulkDlgOpen, setBulkDlgOpen] = useState(false)
   const [bulkKind, setBulkKind] = useState<BulkActionKind | null>(null)
@@ -911,6 +948,15 @@ export function PrBoard({ projectId, userId, repos, templates, tracked, loading,
 
   const activeTemplates = useMemo(() => templates.filter(t => t.isActive).sort((a, b) => a.sortOrder - b.sortOrder), [templates])
   const orderedPrCheckpointTemplates = useMemo(() => activePrTemplates(activeTemplates), [activeTemplates])
+  const projectBaseBranches = useMemo(() => collectProjectBaseBranches(activeTemplates), [activeTemplates])
+  const repoBaseInsightsFetchKey = useMemo(() => {
+    if (!projectBaseBranches.length || !repos.length) return ''
+    const repoPart = repos
+      .map(r => `${r.id}\0${r.owner}\0${r.repo}`)
+      .sort()
+      .join('\n')
+    return `${projectBaseBranches.join('\x1f')}\n${repoPart}`
+  }, [projectBaseBranches, repos])
 
   /** Thêm mục lọc cho template pr_* mới (copy theo bộ lọc đơn hiện tại). */
   useEffect(() => {
@@ -1018,6 +1064,48 @@ export function PrBoard({ projectId, userId, repos, templates, tracked, loading,
       cancelled = true
     }
   }, [trackedExistenceKey, loading, t])
+
+  /** Tip commit + PR merge cuối vào dev/stage/main (theo template targetBranch). */
+  useEffect(() => {
+    if (loading || !githubTokenOk || !projectBaseBranches.length || !repos.length) {
+      if (!githubTokenOk || !projectBaseBranches.length) {
+        setRepoBaseInsights({})
+        setRepoBaseInsightsLoading(false)
+        repoBaseInsightsKeyRef.current = null
+      }
+      return
+    }
+    if (repoBaseInsightsKeyRef.current === repoBaseInsightsFetchKey) {
+      setRepoBaseInsightsLoading(false)
+      return
+    }
+
+    let cancelled = false
+    const run = async () => {
+      setRepoBaseInsightsLoading(true)
+      const requests = repos.map(r => ({
+        repoId: r.id,
+        owner: r.owner,
+        repo: r.repo,
+        baseBranches: projectBaseBranches,
+      }))
+      const res = await window.api.pr.githubRepoBaseBranchInsights(requests)
+      if (cancelled) return
+      if (res.status === 'success' && res.data) {
+        repoBaseInsightsKeyRef.current = repoBaseInsightsFetchKey
+        setRepoBaseInsights(res.data)
+      } else if (res.message) {
+        toast.error(res.message)
+        repoBaseInsightsKeyRef.current = null
+        setRepoBaseInsights({})
+      }
+      setRepoBaseInsightsLoading(false)
+    }
+    void run()
+    return () => {
+      cancelled = true
+    }
+  }, [githubTokenOk, loading, projectBaseBranches, repoBaseInsightsFetchKey, repoBaseInsightsTick, repos])
 
   const needRemoteBranchCheck = onlyExistingOnRemote || onlyBranchesWithoutPr
   const existenceCheckPending = needRemoteBranchCheck && (remoteExistLoading || remoteExistMap === null)
@@ -1389,6 +1477,10 @@ export function PrBoard({ projectId, userId, repos, templates, tracked, loading,
 
       if (!isIdle) {
         if (!opLog.startOperation('prManager.operationLog.titleSyncGithub', undefined, { silent: true })) return
+        preSyncStatusSnapshotRef.current = buildPrCheckpointStatusSnapshot(tracked, activeTemplates)
+        postSyncStatusComparePendingRef.current = false
+        setStatusChangedKeys(new Set())
+        statusChangeDetailsRef.current = new Map()
       }
 
       syncLogActiveRef.current = !isIdle
@@ -1469,6 +1561,11 @@ export function PrBoard({ projectId, userId, repos, templates, tracked, loading,
             await Promise.resolve(onRefresh())
             setSelectedRowIds(new Set())
           }
+          if (!isIdle && preSyncStatusSnapshotRef.current) {
+            postSyncStatusComparePendingRef.current = true
+          }
+          repoBaseInsightsKeyRef.current = null
+          setRepoBaseInsightsTick(v => v + 1)
           if (!isIdle) {
             opLog.finishSuccess()
           }
@@ -1491,8 +1588,19 @@ export function PrBoard({ projectId, userId, repos, templates, tracked, loading,
         setSyncProgress(0)
       }
     },
-    [bumpUserActivity, onRefresh, onRefreshTracked, opLog, projectId, repos, setSelectedRowIds, t, userId]
+    [activeTemplates, bumpUserActivity, onRefresh, onRefreshTracked, opLog, projectId, repos, setSelectedRowIds, t, tracked, userId]
   )
+
+  useEffect(() => {
+    if (!postSyncStatusComparePendingRef.current) return
+    const baseline = preSyncStatusSnapshotRef.current
+    if (!baseline) return
+    postSyncStatusComparePendingRef.current = false
+    preSyncStatusSnapshotRef.current = null
+    const { changedKeys, details } = diffPrCheckpointStatusSnapshot(baseline, tracked, activeTemplates)
+    statusChangeDetailsRef.current = details
+    setStatusChangedKeys(changedKeys)
+  }, [activeTemplates, tracked])
 
   const handlePruneStaleDryRun = useCallback(async () => {
     if (!userId?.trim()) {
@@ -2472,6 +2580,10 @@ export function PrBoard({ projectId, userId, repos, templates, tracked, loading,
                     const repoCellHover = cn(REPO_GROUP_ROW_HOVER_TRANSITION, isAnyRowInGroupHovered && REPO_GROUP_ROW_HOVER_SHADOW)
                     const rowInteractionLocked = rowGithubSyncInteractionDisabled(row)
                     const repoKeyId = rows[0].repoId
+                    const repoStatusChangeCount = countPrStatusChangesForRepo(statusChangedKeys, tracked, repoKeyId)
+                    const repoHasStatusChange = repoStatusChangeCount > 0
+                    const branchStatusChangeCount = countPrStatusChangesForBranch(statusChangedKeys, row.id)
+                    const branchHasStatusChange = branchStatusChangeCount > 0
                     return (
                       <TableRow
                         key={row.id}
@@ -2513,31 +2625,47 @@ export function PrBoard({ projectId, userId, repos, templates, tracked, loading,
                                 <div className="flex min-w-0 items-center gap-0">
                                   <Tooltip>
                                     <TooltipTrigger asChild>
-                                      <Button
-                                        type="button"
-                                        variant="ghost"
-                                        size="icon"
-                                        className="h-6 w-6 shrink-0 justify-start p-0 hover:bg-accent/60"
-                                        disabled={isAnyGithubSync || !githubTokenOk || !userId?.trim()}
-                                        aria-label={t('prManager.board.syncRepoFromGithubTitle')}
-                                        onClick={e => {
-                                          e.stopPropagation()
-                                          void handleSyncFromGithub('manual', { repoId: rows[0].repoId })
-                                        }}
-                                      >
-                                        {githubSyncUi.kind === 'repo' && githubSyncUi.repoId === repoKeyId ? (
-                                          <GlowLoader className="h-3 w-3 animate-spin" />
-                                        ) : (
-                                          (() => {
-                                            void scopedSyncStaleClock
-                                            const visual = githubScopedSyncIdleVisual(readLastGithubSyncRepoMs(projectId, rows[0].repoId), Date.now())
-                                            return <GithubScopedSyncIdleGlyph visual={visual} />
-                                          })()
-                                        )}
-                                      </Button>
+                                      <div className="relative shrink-0">
+                                        <Button
+                                          type="button"
+                                          variant="ghost"
+                                          size="icon"
+                                          className="h-6 w-6 shrink-0 justify-start p-0 hover:bg-accent/60"
+                                          disabled={isAnyGithubSync || !githubTokenOk || !userId?.trim()}
+                                          aria-label={
+                                            repoHasStatusChange
+                                              ? t('prManager.board.syncRepoStatusChangedAria', { count: repoStatusChangeCount })
+                                              : t('prManager.board.syncRepoFromGithubTitle')
+                                          }
+                                          onClick={e => {
+                                            e.stopPropagation()
+                                            void handleSyncFromGithub('manual', { repoId: rows[0].repoId })
+                                          }}
+                                        >
+                                          {githubSyncUi.kind === 'repo' && githubSyncUi.repoId === repoKeyId ? (
+                                            <GlowLoader className="h-3 w-3 animate-spin" />
+                                          ) : (
+                                            (() => {
+                                              void scopedSyncStaleClock
+                                              const visual = githubScopedSyncIdleVisual(readLastGithubSyncRepoMs(projectId, rows[0].repoId), Date.now())
+                                              return <GithubScopedSyncIdleGlyph visual={visual} />
+                                            })()
+                                          )}
+                                        </Button>
+                                        {repoHasStatusChange ? (
+                                          <PrSyncStatusChangeDot
+                                            title={t('prManager.board.syncRepoStatusChangedHint', { count: repoStatusChangeCount })}
+                                          />
+                                        ) : null}
+                                      </div>
                                     </TooltipTrigger>
-                                    <TooltipContent side="right" className="max-w-xs text-xs">
-                                      {t('prManager.board.syncRepoFromGithubTitle')}
+                                    <TooltipContent side="right" className="max-w-xs space-y-1 text-xs">
+                                      <p>{t('prManager.board.syncRepoFromGithubTitle')}</p>
+                                      {repoHasStatusChange ? (
+                                        <p className="text-amber-800 dark:text-amber-200">
+                                          {t('prManager.board.syncRepoStatusChangedHint', { count: repoStatusChangeCount })}
+                                        </p>
+                                      ) : null}
                                     </TooltipContent>
                                   </Tooltip>
                                   <Tooltip>
@@ -2550,38 +2678,23 @@ export function PrBoard({ projectId, userId, repos, templates, tracked, loading,
                                   </Tooltip>
                                 </div>
                                 <div className="mt-1 space-y-1">
-                                  <div className="text-[10px] font-normal tabular-nums leading-none text-muted-foreground">
+                                  <div className="flex flex-wrap items-center gap-x-1 gap-y-0.5 text-[10px] font-normal tabular-nums leading-none text-muted-foreground">
                                     <span>{t('prManager.board.branchCount', { count: repoTotalBranches })}</span>
                                     {repoTotalPrs > 0 ? <span> · {t('prManager.board.prCount', { count: repoTotalPrs })}</span> : null}
+                                    {repoBaseInsightsLoading && projectBaseBranches.length > 0 ? (
+                                      <Loader2 className="ml-0.5 inline h-3 w-3 shrink-0 animate-spin opacity-70" aria-hidden />
+                                    ) : null}
                                   </div>
-                                  {repoTotalPrs > 0 ? (
-                                    <div className="flex flex-col gap-0.5 text-[10px] font-medium leading-tight">
-                                      {orderedPrCheckpointTemplates.map(tpl => {
-                                        const col = prByTpl?.[tpl.id]
-                                        if (!col) return null
-                                        const colTotal = PR_GH_FILTER_IDS.reduce((s, id) => s + col[id], 0)
-                                        if (colTotal === 0) return null
-                                        return (
-                                          <div key={tpl.id} className="flex min-w-0 flex-wrap items-baseline gap-x-2 gap-y-0.5">
-                                            <span className="max-w-[8rem] shrink-0 truncate font-semibold text-muted-foreground" title={tpl.label}>
-                                              {tpl.label}
-                                            </span>
-                                            <span className="flex flex-wrap gap-x-2 gap-y-0.5">
-                                              {PR_GH_FILTER_IDS.map(id => {
-                                                const n = col[id]
-                                                if (n === 0) return null
-                                                return (
-                                                  <span key={id} className={cn('whitespace-nowrap tabular-nums', PR_GH_FILTER_STYLE[id].label)}>
-                                                    {t(`prManager.ghStatus.${id}`)} {n}
-                                                  </span>
-                                                )
-                                              })}
-                                            </span>
-                                          </div>
-                                        )
-                                      })}
-                                    </div>
-                                  ) : null}
+                                  <RepoColumnPrGroups
+                                    templates={orderedPrCheckpointTemplates}
+                                    insights={repoBaseInsights[repoKeyId]}
+                                    prByTpl={prByTpl}
+                                    owner={rows[0].repoOwner}
+                                    repo={rows[0].repoRepo}
+                                    loading={repoBaseInsightsLoading}
+                                    dateLoc={getDateFnsLocale(i18n.language)}
+                                    t={t}
+                                  />
                                 </div>
                               </div>
                             </div>
@@ -2591,34 +2704,50 @@ export function PrBoard({ projectId, userId, repos, templates, tracked, loading,
                           <div className="flex min-w-0 items-center gap-0.5">
                             <Tooltip>
                               <TooltipTrigger asChild>
-                                <Button
-                                  type="button"
-                                  variant="ghost"
-                                  size="icon"
-                                  className="h-6 w-6 shrink-0 justify-start hover:bg-accent/60"
-                                  disabled={isAnyGithubSync || !githubTokenOk || !userId?.trim()}
-                                  aria-label={t('prManager.board.syncBranchFromGithubTitle')}
-                                  onClick={e => {
-                                    e.stopPropagation()
-                                    void handleSyncFromGithub('manual', { trackedBranchId: row.id })
-                                  }}
-                                >
-                                  {githubSyncUi.kind === 'branch' && githubSyncUi.rowId === row.id ? (
-                                    <GlowLoader className="h-3 w-3 animate-spin" />
-                                  ) : (
-                                    (() => {
-                                      void scopedSyncStaleClock
-                                      const visual = githubScopedSyncIdleVisual(
-                                        effectiveGithubSyncMsForBranchRow(readLastGithubSyncRepoMs(projectId, row.repoId), readLastGithubSyncBranchMs(projectId, row.id)),
-                                        Date.now()
-                                      )
-                                      return <GithubScopedSyncIdleGlyph visual={visual} />
-                                    })()
-                                  )}
-                                </Button>
+                                <div className="relative shrink-0">
+                                  <Button
+                                    type="button"
+                                    variant="ghost"
+                                    size="icon"
+                                    className="h-6 w-6 shrink-0 justify-start hover:bg-accent/60"
+                                    disabled={isAnyGithubSync || !githubTokenOk || !userId?.trim()}
+                                    aria-label={
+                                      branchHasStatusChange
+                                        ? t('prManager.board.syncBranchStatusChangedAria', { count: branchStatusChangeCount })
+                                        : t('prManager.board.syncBranchFromGithubTitle')
+                                    }
+                                    onClick={e => {
+                                      e.stopPropagation()
+                                      void handleSyncFromGithub('manual', { trackedBranchId: row.id })
+                                    }}
+                                  >
+                                    {githubSyncUi.kind === 'branch' && githubSyncUi.rowId === row.id ? (
+                                      <GlowLoader className="h-3 w-3 animate-spin" />
+                                    ) : (
+                                      (() => {
+                                        void scopedSyncStaleClock
+                                        const visual = githubScopedSyncIdleVisual(
+                                          effectiveGithubSyncMsForBranchRow(readLastGithubSyncRepoMs(projectId, row.repoId), readLastGithubSyncBranchMs(projectId, row.id)),
+                                          Date.now()
+                                        )
+                                        return <GithubScopedSyncIdleGlyph visual={visual} />
+                                      })()
+                                    )}
+                                  </Button>
+                                  {branchHasStatusChange ? (
+                                    <PrSyncStatusChangeDot
+                                      title={t('prManager.board.syncBranchStatusChangedHint', { count: branchStatusChangeCount })}
+                                    />
+                                  ) : null}
+                                </div>
                               </TooltipTrigger>
-                              <TooltipContent side="top" className="max-w-xs text-xs">
-                                {t('prManager.board.syncBranchFromGithubTitle')}
+                              <TooltipContent side="top" className="max-w-xs space-y-1 text-xs">
+                                <p>{t('prManager.board.syncBranchFromGithubTitle')}</p>
+                                {branchHasStatusChange ? (
+                                  <p className="text-amber-800 dark:text-amber-200">
+                                    {t('prManager.board.syncBranchStatusChangedHint', { count: branchStatusChangeCount })}
+                                  </p>
+                                ) : null}
                               </TooltipContent>
                             </Tooltip>
                             <div className="flex min-w-0 flex-1 items-center gap-1">
@@ -2659,7 +2788,10 @@ export function PrBoard({ projectId, userId, repos, templates, tracked, loading,
                         {activeTemplates.map(tpl => {
                           const cp = getCheckpoint(row, tpl)
                           const isMergeKind = tpl.code.toLowerCase().startsWith('merge_')
+                          const isPrKind = tpl.code.toLowerCase().startsWith('pr_')
                           const companionPrCp = isMergeKind ? findCompanionPrCheckpoint(row, tpl) : null
+                          const cellKey = prCheckpointCellKey(row.id, tpl.id)
+                          const statusChangeDetail = isPrKind ? statusChangeDetailsRef.current.get(cellKey) : undefined
                           return (
                             <TableCell
                               key={tpl.id}
@@ -2676,6 +2808,8 @@ export function PrBoard({ projectId, userId, repos, templates, tracked, loading,
                                 tpl={tpl}
                                 cp={cp}
                                 companionPrCp={companionPrCp}
+                                hasStatusChange={isPrKind && statusChangedKeys.has(cellKey)}
+                                statusChangeDetail={statusChangeDetail}
                                 cellVisualStyle={prMergeCellStyle}
                                 rowPrRepo={repos.find(r => r.id === row.repoId) ?? null}
                                 onOpenPrInApp={n => {
@@ -3027,10 +3161,197 @@ export function PrBoard({ projectId, userId, repos, templates, tracked, loading,
   )
 }
 
+function RepoColumnPrGroups({
+  templates,
+  insights,
+  prByTpl,
+  owner,
+  repo,
+  loading,
+  dateLoc,
+  t,
+}: {
+  templates: PrCheckpointTemplate[]
+  insights: Record<string, BaseBranchInsightDto> | undefined
+  prByTpl: Record<string, Record<PrGhFilterId, number>> | undefined
+  owner: string
+  repo: string
+  loading: boolean
+  dateLoc: ReturnType<typeof getDateFnsLocale>
+  t: TFunction
+}) {
+  const [detailsOpen, setDetailsOpen] = useState(false)
+  const prTemplates = templates.filter(tpl => tpl.code.toLowerCase().startsWith('pr_'))
+  const groups = prTemplates
+    .map(tpl => {
+      const col = prByTpl?.[tpl.id]
+      const trackedTotal = col ? PR_GH_FILTER_IDS.reduce((s, id) => s + col[id], 0) : 0
+      const base = (tpl.targetBranch ?? '').trim()
+      const insight = base ? insights?.[baseBranchInsightKey(base)] : undefined
+      if (!base && trackedTotal === 0) return null
+      return { tpl, col, trackedTotal, base, insight }
+    })
+    .filter(Boolean) as Array<{
+    tpl: PrCheckpointTemplate
+    col: Record<PrGhFilterId, number> | undefined
+    trackedTotal: number
+    base: string
+    insight: BaseBranchInsightDto | undefined
+  }>
+
+  if (!groups.length) return null
+
+  const collapsedHint = groups.map(g => g.tpl.label || g.base).join(', ')
+
+  return (
+    <Collapsible open={detailsOpen} onOpenChange={setDetailsOpen} className="border-t border-border/40 pt-1">
+      <button
+        type="button"
+        className="flex w-full min-w-0 items-center gap-1 rounded-sm py-0.5 text-left text-[10px] font-medium text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
+        aria-expanded={detailsOpen}
+        onClick={e => {
+          e.stopPropagation()
+          setDetailsOpen(v => !v)
+        }}
+      >
+        <ChevronDown
+          className={cn('h-3.5 w-3.5 shrink-0 transition-transform duration-300 ease-out', detailsOpen && '-rotate-180')}
+          aria-hidden
+        />
+        <span className="shrink-0">{detailsOpen ? t('prManager.board.repoPrDetailsCollapse') : t('prManager.board.repoPrDetailsExpand')}</span>
+        {!detailsOpen && collapsedHint ? (
+          <span className="min-w-0 truncate font-normal opacity-80" title={collapsedHint}>
+            ({collapsedHint})
+          </span>
+        ) : null}
+      </button>
+      <CollapsibleContent
+        className={cn(
+          'overflow-hidden text-[10px] leading-snug',
+          'data-[state=closed]:animate-accordion-up data-[state=open]:animate-accordion-down motion-reduce:animate-none'
+        )}
+      >
+        <div className="flex flex-col gap-1 pt-1">
+      {groups.map(({ tpl, col, trackedTotal, base, insight }) => {
+        const label = tpl.label || base || tpl.code
+        const commitRel =
+          insight?.tipCommitAt != null
+            ? formatDistanceToNow(new Date(insight.tipCommitAt), { addSuffix: true, locale: dateLoc })
+            : loading && base
+              ? '…'
+              : base
+                ? '—'
+                : null
+        const commitUrl =
+          insight?.tipCommitSha && owner && repo ? githubCommitUrl(owner, repo, insight.tipCommitSha) : ''
+        const mergeRel = insight?.lastMergedPr
+          ? formatDistanceToNow(new Date(insight.lastMergedPr.mergedAt), { addSuffix: true, locale: dateLoc })
+          : loading && base
+            ? '…'
+            : base
+              ? '—'
+              : null
+        const mergeTitle = insight?.lastMergedPr?.title?.trim() || undefined
+        const mergePrUrl = insight?.lastMergedPr?.htmlUrl ?? ''
+        const dot = <span className="px-0.5 opacity-45">·</span>
+
+        return (
+          <div
+            key={tpl.id}
+            className="min-w-0 space-y-0.5 rounded-md border border-border/35 bg-muted/25 px-1.5 py-1 dark:bg-muted/15"
+          >
+            <div className="truncate font-semibold text-foreground/80" title={label}>
+              {label}
+              {base ? <span className="ml-1 font-normal text-muted-foreground">→ {base}</span> : null}
+            </div>
+            {base ? (
+              <div className="space-y-0.5 text-muted-foreground">
+                <div className="flex min-w-0 flex-wrap items-baseline" title={insight?.tipSubject ?? undefined}>
+                  <span className="shrink-0 text-foreground/70">{t('prManager.board.repoBaseLastCommitLabel')}</span>
+                  {dot}
+                  {insight?.tipShortSha && commitUrl ? (
+                    <button
+                      type="button"
+                      className="shrink-0 font-mono text-inherit text-sky-700 underline-offset-2 hover:underline dark:text-sky-300"
+                      title={insight.tipSubject ?? commitUrl}
+                      onClick={e => {
+                        e.stopPropagation()
+                        openUrlInDefaultBrowser(commitUrl)
+                      }}
+                    >
+                      {insight.tipShortSha}
+                    </button>
+                  ) : (
+                    <span className="font-mono text-inherit opacity-80">{insight?.tipShortSha ?? '—'}</span>
+                  )}
+                  {commitRel != null ? (
+                    <>
+                      {dot}
+                      <span className="tabular-nums">{commitRel}</span>
+                    </>
+                  ) : null}
+                </div>
+                <div
+                  className="flex min-w-0 flex-wrap items-baseline"
+                  title={mergeTitle ? `${t('prManager.board.repoBaseLastMergedLabel')} — ${mergeTitle}` : undefined}
+                >
+                  <span className="shrink-0 text-foreground/70">{t('prManager.board.repoBaseLastMergedLabel')}</span>
+                  {dot}
+                  {insight?.lastMergedPr ? (
+                    mergePrUrl ? (
+                      <button
+                        type="button"
+                        className="shrink-0 font-medium text-sky-700 underline-offset-2 hover:underline dark:text-sky-300"
+                        onClick={e => {
+                          e.stopPropagation()
+                          openUrlInDefaultBrowser(mergePrUrl)
+                        }}
+                      >
+                        #{insight.lastMergedPr.number}
+                      </button>
+                    ) : (
+                      <span>#{insight.lastMergedPr.number}</span>
+                    )
+                  ) : (
+                    <span>—</span>
+                  )}
+                  {mergeRel != null ? (
+                    <>
+                      {dot}
+                      <span className="tabular-nums">{mergeRel}</span>
+                    </>
+                  ) : null}
+                </div>
+              </div>
+            ) : null}
+            {trackedTotal > 0 && col ? (
+              <div className="flex flex-wrap gap-x-2 gap-y-0.5 pt-0.5 font-medium tabular-nums">
+                {PR_GH_FILTER_IDS.map(id => {
+                  const n = col[id]
+                  if (n === 0) return null
+                  return (
+                    <span key={id} className={cn('whitespace-nowrap', PR_GH_FILTER_STYLE[id].label)}>
+                      {t(`prManager.ghStatus.${id}`)} {n}
+                    </span>
+                  )
+                })}
+              </div>
+            ) : null}
+          </div>
+        )
+      })}
+        </div>
+      </CollapsibleContent>
+    </Collapsible>
+  )
+}
+
 function CheckpointCell({
   tpl,
   cp,
   companionPrCp,
+  hasStatusChange = false,
+  statusChangeDetail,
   cellVisualStyle,
   rowPrRepo,
   onOpenPrInApp,
@@ -3040,6 +3361,8 @@ function CheckpointCell({
   tpl: PrCheckpointTemplate
   cp: PrBranchCheckpoint | null
   companionPrCp: PrBranchCheckpoint | null
+  hasStatusChange?: boolean
+  statusChangeDetail?: PrCheckpointStatusChangeDetail
   cellVisualStyle: PrMergeCellVisualStyle
   rowPrRepo: PrRepo | null
   onOpenPrInApp?: (prNumber: number) => void
@@ -3239,8 +3562,17 @@ function CheckpointCell({
     const surface = ghPrSurfaceClasses(cp)
     const openMergeText = ghPrContentTextClass(cp, t)
     const canOpenInApp = Boolean(onOpenPrInApp && rowPrRepo)
+    const statusChangeTitle =
+      hasStatusChange && statusChangeDetail
+        ? t('prManager.board.statusChangedTooltip', {
+            before: formatPrCheckpointStatusFingerprint(statusChangeDetail.before, t),
+            after: formatPrCheckpointStatusFingerprint(statusChangeDetail.after, t),
+          })
+        : hasStatusChange
+          ? t('prManager.board.statusChangedBadge')
+          : undefined
     return (
-      <div className="flex w-full min-w-0 items-stretch">
+      <div className="relative flex w-full min-w-0 items-stretch">
         <Tooltip>
           <TooltipTrigger asChild>
             <div
@@ -3251,7 +3583,8 @@ function CheckpointCell({
                   CELL_TXT,
                   'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/60',
                   surface,
-                  openMergeText
+                  openMergeText,
+                  hasStatusChange && 'ring-1 ring-amber-400/55 dark:ring-amber-300/40'
                 )
               )}
               title={titleText}
@@ -3287,7 +3620,24 @@ function CheckpointCell({
               )}
             </div>
           </TooltipTrigger>
+          {hasStatusChange ? (
+            <Badge
+              variant="outline"
+              title={statusChangeTitle}
+              className="pointer-events-none absolute -right-0.5 -top-1 z-[1] h-4 border-amber-400/70 bg-amber-400/20 px-1 py-0 text-[9px] font-semibold leading-none text-amber-950 dark:border-amber-300/50 dark:bg-amber-400/25 dark:text-amber-50"
+            >
+              {t('prManager.board.statusChangedBadge')}
+            </Badge>
+          ) : null}
           <TooltipContent side="top" className="max-w-[340px] space-y-1 text-xs">
+            {hasStatusChange && statusChangeDetail ? (
+              <div className="rounded border border-amber-400/40 bg-amber-400/10 px-2 py-1 text-amber-950 dark:text-amber-50">
+                {t('prManager.board.statusChangedTooltip', {
+                  before: formatPrCheckpointStatusFingerprint(statusChangeDetail.before, t),
+                  after: formatPrCheckpointStatusFingerprint(statusChangeDetail.after, t),
+                })}
+              </div>
+            ) : null}
             <div className="flex items-center gap-1.5 font-medium leading-snug">
               <PrStatusIcon cp={cp} className="h-3.5 w-3.5 shrink-0" />
               {cp.ghPrMerged === true
@@ -3359,26 +3709,47 @@ function CheckpointCell({
       </div>
     )
   }
+  const statusChangeTitleEmpty =
+    hasStatusChange && statusChangeDetail
+      ? t('prManager.board.statusChangedTooltip', {
+          before: formatPrCheckpointStatusFingerprint(statusChangeDetail.before, t),
+          after: formatPrCheckpointStatusFingerprint(statusChangeDetail.after, t),
+        })
+      : hasStatusChange
+        ? t('prManager.board.statusChangedBadge')
+        : undefined
   return (
-    <Button
-      type="button"
-      variant="ghost"
-      size="xs"
-      onClick={onCreatePR}
-      className={cn(
-        vs(
-          stripBtn(
-            cn(
-              'w-full rounded-md border-0 bg-zinc-400/10 text-zinc-700 shadow-none hover:bg-zinc-400/14 dark:bg-zinc-500/12 dark:text-zinc-200 dark:hover:bg-zinc-500/18',
-              CELL_CTRL_H,
-              CELL_TXT
+    <div className="relative w-full min-w-0">
+      <Button
+        type="button"
+        variant="ghost"
+        size="xs"
+        onClick={onCreatePR}
+        className={cn(
+          vs(
+            stripBtn(
+              cn(
+                'w-full rounded-md border-0 bg-zinc-400/10 text-zinc-700 shadow-none hover:bg-zinc-400/14 dark:bg-zinc-500/12 dark:text-zinc-200 dark:hover:bg-zinc-500/18',
+                CELL_CTRL_H,
+                CELL_TXT,
+                hasStatusChange && 'ring-1 ring-amber-400/55 dark:ring-amber-300/40'
+              )
             )
-          )
-        ),
-        ghostNoDefaultHover
-      )}
-    >
-      <GitPullRequestCreate className="h-3.5 w-3.5 shrink-0 text-zinc-500 dark:text-zinc-400" /> {t('prManager.board.createPrCell')}
-    </Button>
+          ),
+          ghostNoDefaultHover
+        )}
+      >
+        <GitPullRequestCreate className="h-3.5 w-3.5 shrink-0 text-zinc-500 dark:text-zinc-400" /> {t('prManager.board.createPrCell')}
+      </Button>
+      {hasStatusChange ? (
+        <Badge
+          variant="outline"
+          title={statusChangeTitleEmpty}
+          className="pointer-events-none absolute -right-0.5 -top-1 z-[1] h-4 border-amber-400/70 bg-amber-400/20 px-1 py-0 text-[9px] font-semibold leading-none text-amber-950 dark:border-amber-300/50 dark:bg-amber-400/25 dark:text-amber-50"
+        >
+          {t('prManager.board.statusChangedBadge')}
+        </Badge>
+      ) : null}
+    </div>
   )
 }

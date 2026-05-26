@@ -10,6 +10,8 @@ export {
   githubRemoteBranchExists,
   githubRemoteBranchesExistenceAndProtectionMap,
   githubRemoteBranchesExistenceMap,
+  githubRepoBaseBranchesInsights,
+  baseBranchInsightKey,
   listPullRequestConversation,
   listPullRequestFileNames,
   listPullRequestFiles,

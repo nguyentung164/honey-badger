@@ -938,6 +938,30 @@ declare global {
           }
           message?: string
         }>
+        githubRepoBaseBranchInsights: (requests: { repoId: string; owner: string; repo: string; baseBranches: string[] }[]) => Promise<{
+          status: string
+          data?: Record<
+            string,
+            Record<
+              string,
+              {
+                branch: string
+                tipCommitAt: string | null
+                tipCommitSha: string | null
+                tipShortSha: string | null
+                tipSubject: string | null
+                lastMergedPr: {
+                  number: number
+                  title: string
+                  mergedAt: string
+                  mergedBy: string | null
+                  htmlUrl: string
+                } | null
+              }
+            >
+          >
+          message?: string
+        }>
         githubDeleteRemoteBranch: (input: { owner: string; repo: string; branch: string; repoId: string; trackedBranchId?: string }) => Promise<{
           status: string
           message?: string
@@ -1917,6 +1941,8 @@ contextBridge.exposeInMainWorld('api', {
     branchListRemote: (input: { owner: string; repo: string }) => ipcRenderer.invoke(IPC.PR.BRANCH_LIST_REMOTE, toStructuredCloneable(input)),
     githubRemoteBranchesExist: (items: { id: string; owner: string; repo: string; branch: string }[]) =>
       ipcRenderer.invoke(IPC.PR.GITHUB_REMOTE_BRANCHES_EXIST, toStructuredCloneable(items)),
+    githubRepoBaseBranchInsights: (requests: { repoId: string; owner: string; repo: string; baseBranches: string[] }[]) =>
+      ipcRenderer.invoke(IPC.PR.GITHUB_REPO_BASE_BRANCH_INSIGHTS, toStructuredCloneable(requests)),
     githubDeleteRemoteBranch: (input: { owner: string; repo: string; branch: string; repoId: string; trackedBranchId?: string }) =>
       ipcRenderer.invoke(IPC.PR.GITHUB_DELETE_REMOTE_BRANCH, toStructuredCloneable(input)),
     refCommitMessages: (input: { owner: string; repo: string; ref: string; maxCommits?: number }) => ipcRenderer.invoke(IPC.PR.REF_COMMIT_MESSAGES, toStructuredCloneable(input)),

@@ -156,6 +156,29 @@ export interface ListPRsOptions {
   page?: number
 }
 
+/** Tip commit + PR merge gần nhất vào một nhánh base (dev/stage/main). */
+export interface BaseBranchInsight {
+  branch: string
+  tipCommitAt: string | null
+  tipCommitSha: string | null
+  tipShortSha: string | null
+  tipSubject: string | null
+  lastMergedPr: {
+    number: number
+    title: string
+    mergedAt: string
+    mergedBy: string | null
+    htmlUrl: string
+  } | null
+}
+
+export interface RepoBaseBranchesInsightRequest {
+  repoId: string
+  owner: string
+  repo: string
+  baseBranches: string[]
+}
+
 export interface IHostingClient {
   getType(): HostingType
   createPR(input: CreatePRInput): Promise<PullRequestSummary>

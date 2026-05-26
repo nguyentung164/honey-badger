@@ -468,6 +468,7 @@ export const IPC = {
     /** owner/repo từ git remote (github.com) của worktree — không cần đăng ký PR Manager */
     GITHUB_OWNER_REPO_FROM_CWD: 'pr:github-owner-repo-from-cwd',
     GITHUB_REMOTE_BRANCHES_EXIST: 'pr:github-remote-branches-exist',
+    GITHUB_REPO_BASE_BRANCH_INSIGHTS: 'pr:github-repo-base-branch-insights',
     GITHUB_DELETE_REMOTE_BRANCH: 'pr:github-delete-remote-branch',
     REF_COMMIT_MESSAGES: 'pr:ref-commit-messages',
     BRANCH_LAST_COMMIT_MESSAGE: 'pr:branch-last-commit-message',

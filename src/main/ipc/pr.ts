@@ -14,6 +14,7 @@ import {
   githubDeleteRemoteBranch,
   githubListRefCommitMessages,
   githubRemoteBranchesExistenceAndProtectionMap,
+  githubRepoBaseBranchesInsights,
   hasGithubToken,
   listPullRequestConversation,
   listPullRequestFiles,
@@ -1073,6 +1074,24 @@ export function registerPrIpcHandlers(): void {
       return errResp(err)
     }
   })
+
+  ipcMain.handle(
+    IPC.PR.GITHUB_REPO_BASE_BRANCH_INSIGHTS,
+    async (_e, requests: { repoId: string; owner: string; repo: string; baseBranches: string[] }[]) => {
+      try {
+        if (!getGithubToken()) {
+          return { status: 'error' as const, message: 'GitHub token ch\u01b0a c\u1ea5u h\u00ecnh.' }
+        }
+        if (!Array.isArray(requests) || requests.length === 0) {
+          return { status: 'success' as const, data: {} as Record<string, Record<string, import('../git-hosting/types').BaseBranchInsight>> }
+        }
+        const out = await githubRepoBaseBranchesInsights(requests)
+        return { status: 'success' as const, data: out }
+      } catch (err) {
+        return errResp(err)
+      }
+    }
+  )
 
   ipcMain.handle(IPC.PR.GITHUB_DELETE_REMOTE_BRANCH, async (_e, input: { owner: string; repo: string; branch: string; repoId: string; trackedBranchId?: string }) => {
     try {

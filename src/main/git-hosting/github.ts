@@ -4,12 +4,14 @@ import l from 'electron-log'
 import { IPC } from '../constants'
 import { getGithubToken } from './tokenStore'
 import type {
+  BaseBranchInsight,
   BranchCommit,
   CreatePRInput,
   IHostingClient,
   ListPRsOptions,
   MergePRInput,
   ParsedRemote,
+  RepoBaseBranchesInsightRequest,
   PrAssignee,
   PrChangedFile,
   PrConversationEntry,
@@ -1297,6 +1299,126 @@ export async function githubRemoteBranchesExistenceAndProtectionMap(
   }
 
   return { existence, branchProtected }
+}
+
+const REPO_BASE_INSIGHT_REPO_CONCURRENCY = 2
+const REPO_BASE_INSIGHT_BRANCH_CONCURRENCY = 3
+const LAST_MERGED_PR_MAX_PAGES = 5
+
+export function baseBranchInsightKey(branch: string): string {
+  return normalizeGithubBranchRefName(branch).toLowerCase()
+}
+
+async function githubBranchTipCommit(
+  owner: string,
+  repo: string,
+  branch: string
+): Promise<Pick<BaseBranchInsight, 'tipCommitAt' | 'tipCommitSha' | 'tipShortSha' | 'tipSubject'>> {
+  const b = normalizeGithubBranchRefName(branch)
+  if (!b) return { tipCommitAt: null, tipCommitSha: null, tipShortSha: null, tipSubject: null }
+  const octokit = getClient()
+  try {
+    const { data } = await withGithubRateLimitRetry(() => octokit.repos.getBranch({ owner, repo, branch: b }), {
+      label: `getBranch tip ${owner}/${repo}/${b}`,
+    })
+    const sha = typeof data.commit?.sha === 'string' ? data.commit.sha : ''
+    const msg = data.commit?.commit?.message ?? ''
+    const at = data.commit?.commit?.committer?.date ?? data.commit?.commit?.author?.date ?? null
+    return {
+      tipCommitAt: typeof at === 'string' ? at : null,
+      tipCommitSha: sha || null,
+      tipShortSha: sha ? sha.slice(0, 7) : null,
+      tipSubject: msg ? String(msg).split('\n')[0]?.trim().slice(0, 120) || null : null,
+    }
+  } catch (err: unknown) {
+    const status = (err as { status?: number })?.status ?? (err as { response?: { status?: number } })?.response?.status
+    if (status === 404) return { tipCommitAt: null, tipCommitSha: null, tipShortSha: null, tipSubject: null }
+    throw wrapError(err, `Không lấy được commit đầu nhánh ${b}`)
+  }
+}
+
+async function githubLastMergedPrIntoBase(
+  owner: string,
+  repo: string,
+  baseBranch: string
+): Promise<BaseBranchInsight['lastMergedPr']> {
+  const b = normalizeGithubBranchRefName(baseBranch)
+  if (!b) return null
+  const octokit = getClient()
+  let best: { number: number; title: string; merged_at: string; merged_by?: { login?: string } | null; html_url: string } | null = null
+  let page = 0
+  try {
+    for await (const { data } of octokit.paginate.iterator(octokit.pulls.list, {
+      owner,
+      repo,
+      state: 'closed',
+      base: b,
+      per_page: 100,
+      sort: 'updated',
+      direction: 'desc',
+    })) {
+      page++
+      for (const pr of data) {
+        const mergedAt = typeof pr.merged_at === 'string' ? pr.merged_at : null
+        if (!mergedAt) continue
+        const mergedBy = (pr as { merged_by?: { login?: string } | null }).merged_by ?? null
+        if (!best || new Date(mergedAt).getTime() > new Date(best.merged_at).getTime()) {
+          best = {
+            number: pr.number,
+            title: String(pr.title ?? ''),
+            merged_at: mergedAt,
+            merged_by: mergedBy,
+            html_url: String(pr.html_url ?? ''),
+          }
+        }
+      }
+      if (page >= LAST_MERGED_PR_MAX_PAGES) break
+    }
+  } catch (err: unknown) {
+    throw wrapError(err, `Không lấy được PR merged vào ${b}`)
+  }
+  if (!best) return null
+  return {
+    number: best.number,
+    title: best.title,
+    mergedAt: best.merged_at,
+    mergedBy: best.merged_by?.login ?? null,
+    htmlUrl: best.html_url,
+  }
+}
+
+async function githubBaseBranchInsight(owner: string, repo: string, branch: string): Promise<BaseBranchInsight> {
+  const b = normalizeGithubBranchRefName(branch)
+  const [tip, lastMergedPr] = await Promise.all([githubBranchTipCommit(owner, repo, b), githubLastMergedPrIntoBase(owner, repo, b)])
+  return { branch: b, ...tip, lastMergedPr }
+}
+
+/**
+ * Tip commit + PR merge gần nhất cho từng nhánh base (dev/stage/main) trên từng repo đăng ký.
+ */
+export async function githubRepoBaseBranchesInsights(
+  requests: RepoBaseBranchesInsightRequest[]
+): Promise<Record<string, Record<string, BaseBranchInsight>>> {
+  const out: Record<string, Record<string, BaseBranchInsight>> = {}
+  if (!requests.length) return out
+
+  await batchAsyncVoid(requests, REPO_BASE_INSIGHT_REPO_CONCURRENCY, async req => {
+    const o = (req.owner ?? '').trim()
+    const r = (req.repo ?? '').trim()
+    const branches = [...new Set(req.baseBranches.map(b => normalizeGithubBranchRefName(b)).filter(Boolean))]
+    const byBranch: Record<string, BaseBranchInsight> = {}
+    if (!o || !r || !branches.length) {
+      out[req.repoId] = byBranch
+      return
+    }
+    await batchAsyncVoid(branches, REPO_BASE_INSIGHT_BRANCH_CONCURRENCY, async branch => {
+      const insight = await githubBaseBranchInsight(o, r, branch)
+      byBranch[baseBranchInsightKey(branch)] = insight
+    })
+    out[req.repoId] = byBranch
+  })
+
+  return out
 }
 
 /**
