@@ -320,7 +320,7 @@ interface AddOrEditTaskDialogProps {
     actualStartDate?: string
     actualEndDate?: string
   }) => void | Promise<void>
-  onUpdate?: (id: string, data: Record<string, unknown>) => Promise<{ success: boolean }>
+  onUpdate?: (id: string, data: Record<string, unknown>) => Promise<{ success: boolean; version?: number }>
   onDelete?: (id: string, version?: number) => Promise<{ success: boolean; closeDialog?: boolean }>
 }
 
@@ -1461,8 +1461,16 @@ export function AddOrEditTaskDialog({
                                         size="sm"
                                         className="h-8 min-h-8 min-w-8 w-8 shrink-0 p-0 text-destructive hover:text-destructive"
                                         onClick={async () => {
-                                          const res = await window.api.task.deleteTaskLink(task.id, l.id)
+                                          const res = await window.api.task.deleteTaskLink(
+                                            task.id,
+                                            l.id,
+                                            l.version !== undefined ? l.version : undefined
+                                          )
                                           if (res.status === 'success') {
+                                            loadRelations()
+                                            onRelationsChange?.()
+                                          } else if ((res as { code?: string }).code === 'VERSION_CONFLICT') {
+                                            toast.error(t('taskManagement.versionConflictError'))
                                             loadRelations()
                                             onRelationsChange?.()
                                           } else {

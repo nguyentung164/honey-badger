@@ -573,17 +573,17 @@ declare global {
         getTask: (id: string) => Promise<{ status: string; data?: any; code?: string; message?: string }>
         create: (input: any) => Promise<{ status: string; data?: any; message?: string }>
         canCreateMilestone: (projectId: string) => Promise<{ status: string; data?: { ok: boolean }; message?: string }>
-        updateStatus: (id: string, status: string, version?: number) => Promise<{ status: string; message?: string; code?: string }>
-        updateProgress: (id: string, progress: number, version?: number) => Promise<{ status: string; message?: string; code?: string }>
+        updateStatus: (id: string, status: string, version?: number) => Promise<{ status: string; data?: { version: number }; message?: string; code?: string }>
+        updateProgress: (id: string, progress: number, version?: number) => Promise<{ status: string; data?: { version: number }; message?: string; code?: string }>
         updateDates: (
           id: string,
           dates: { planStartDate?: string; planEndDate?: string; actualStartDate?: string; actualEndDate?: string },
           version?: number
-        ) => Promise<{ status: string; message?: string; code?: string }>
-        updateTask: (id: string, data: Record<string, unknown>) => Promise<{ status: string; code?: string; message?: string }>
+        ) => Promise<{ status: string; data?: { version: number }; message?: string; code?: string }>
+        updateTask: (id: string, data: Record<string, unknown>) => Promise<{ status: string; data?: { version: number }; code?: string; message?: string }>
         deleteTask: (id: string, version?: number) => Promise<{ status: string; code?: string; message?: string }>
         canEditTask: (taskId: string) => Promise<{ status: string; data?: { canEdit: boolean; canDelete: boolean }; message?: string }>
-        assign: (id: string, assigneeUserId: string | null, version?: number) => Promise<{ status: string; message?: string }>
+        assign: (id: string, assigneeUserId: string | null, version?: number) => Promise<{ status: string; data?: { version: number }; message?: string; code?: string }>
         listTaskChangeHistory: (
           taskId: string,
           limit?: number
@@ -602,7 +602,12 @@ declare global {
         bulkUpdateTasks: (payload: {
           items: { id: string; version: number }[]
           patch: { status?: string; priority?: string; assigneeUserId?: string | null }
-        }) => Promise<{ status: string; data?: { updatedIds: string[]; skippedIds: string[]; updatedCount: number }; message?: string }>
+        }) => Promise<{
+          status: string
+          data?: { updatedIds: string[]; skippedIds: string[]; versionConflictIds: string[]; updatedCount: number }
+          message?: string
+          code?: string
+        }>
         checkOnedrive: () => Promise<{ ok: boolean; code?: string }>
         checkTaskApi: () => Promise<{ ok: boolean; code?: string; error?: string }>
         checkTaskSchemaApplied: () => Promise<{ ok: true; applied: boolean } | { ok: false; code: 'APP_DB_NOT_CONFIGURED' | 'APP_DB_CHECK_FAILED'; error?: string }>
@@ -624,16 +629,16 @@ declare global {
         getProjectIdByUserAndPath: (sourceFolderPath: string) => Promise<{ status: string; data?: string | null; message?: string }>
         hasPlRole: (userId: string) => Promise<{ status: string; data?: boolean; message?: string }>
         createProject: (name: string, pmUserId?: string | null) => Promise<{ status: string; data?: any; message?: string }>
-        updateProject: (id: string, name: string, version?: number) => Promise<{ status: string; data?: any; message?: string }>
+        updateProject: (id: string, name: string, version?: number) => Promise<{ status: string; data?: any; message?: string; code?: string }>
         getProjectReminderTime: (projectId: string) => Promise<{ status: string; data?: string | null; message?: string }>
         updateProjectReminderTime: (projectId: string, time: string | null) => Promise<{ status: string; message?: string }>
-        deleteProject: (id: string, version?: number) => Promise<{ status: string; message?: string }>
+        deleteProject: (id: string, version?: number) => Promise<{ status: string; message?: string; code?: string }>
         getTaskChildren: (taskId: string) => Promise<{ status: string; data?: any; message?: string }>
         createTaskChild: (taskId: string, input: any) => Promise<{ status: string; data?: any; message?: string }>
         getTaskLinks: (taskId: string) => Promise<{ status: string; data?: any; message?: string }>
         getTaskLinksBulk: (taskIds: string[]) => Promise<{ status: string; data?: { id: string; fromTaskId: string; toTaskId: string; linkType: string }[]; message?: string }>
         createTaskLink: (taskId: string, toTaskId: string, linkType: string) => Promise<{ status: string; data?: any; message?: string }>
-        deleteTaskLink: (taskId: string, linkId: string, version?: number) => Promise<{ status: string; message?: string }>
+        deleteTaskLink: (taskId: string, linkId: string, version?: number) => Promise<{ status: string; message?: string; code?: string }>
         getFavoriteTaskIds: () => Promise<{ status: string; data?: string[]; message?: string }>
         addTaskFavorite: (taskId: string) => Promise<{ status: string; message?: string }>
         removeTaskFavorite: (taskId: string) => Promise<{ status: string; message?: string }>

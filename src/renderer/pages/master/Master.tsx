@@ -314,6 +314,9 @@ export function Master() {
       toast.success(t('taskManagement.projectDeleteSuccess'))
       setProjectToDelete(null)
       loadData()
+    } else if ((res as { code?: string }).code === 'VERSION_CONFLICT') {
+      toast.error(t('taskManagement.versionConflictError'))
+      loadData()
     } else {
       toast.error(res.message || t('taskManagement.projectDeleteError'))
     }

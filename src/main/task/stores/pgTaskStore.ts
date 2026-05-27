@@ -9,8 +9,8 @@ import { collectRedmineCsvProjectRefsForAuthorization, createTasksFromCsv, creat
 import { getNextTicketId } from '../ticketSequence'
 import { isBooleanColumn, toDbBoolValue } from './pgPrTrackingStore'
 
-function throwVersionConflict(): never {
-  const e = new Error('Task not found or was modified by another user')
+function throwVersionConflict(message = 'Task not found or was modified by another user'): never {
+  const e = new Error(message)
   ;(e as Error & { code: string }).code = 'VERSION_CONFLICT'
   throw e
 }
@@ -188,7 +188,7 @@ function mapTask(row: any): Task {
     updatedByName: updatedByDisplay,
     updatedByAvatarUrl: avatarDataToUrl(row.updated_by_avatar_data),
     parentId: row.parent_id ?? null,
-    version: row.version ?? 1,
+    version: Number(row.version ?? 1),
   }
 }
 
@@ -1210,7 +1210,7 @@ async function persistTaskChangeHistory(taskId: string, before: any, after: any,
   }
 }
 
-export async function updateTaskStatus(id: string, status: TaskStatus, version?: number, updatedByUserId?: string): Promise<void> {
+export async function updateTaskStatus(id: string, status: TaskStatus, version?: number, updatedByUserId?: string): Promise<number> {
   const before = await fetchTaskRowById(id)
   if (!before) throw new Error('Task not found')
   const doneDates = status === 'done' ? ', actual_end_date = COALESCE(actual_end_date, CURRENT_DATE)' : ''
@@ -1224,10 +1224,12 @@ export async function updateTaskStatus(id: string, status: TaskStatus, version?:
   const result = await exec(sql, params)
   if (result.affectedRows === 0) throwVersionConflict()
   const after = await fetchTaskRowById(id)
-  if (after) await persistTaskChangeHistory(id, before, after, updatedByUserId, 'status')
+  if (!after) throw new Error('Task not found')
+  await persistTaskChangeHistory(id, before, after, updatedByUserId, 'status')
+  return after.version ?? 1
 }
 
-export async function updateTaskProgress(id: string, progress: number, version?: number, updatedByUserId?: string): Promise<void> {
+export async function updateTaskProgress(id: string, progress: number, version?: number, updatedByUserId?: string): Promise<number> {
   const before = await fetchTaskRowById(id)
   if (!before) throw new Error('Task not found')
   const clamped = Math.min(100, Math.max(0, Number(progress) ?? 0))
@@ -1241,7 +1243,9 @@ export async function updateTaskProgress(id: string, progress: number, version?:
   const result = await exec(sql, params)
   if (result.affectedRows === 0) throwVersionConflict()
   const after = await fetchTaskRowById(id)
-  if (after) await persistTaskChangeHistory(id, before, after, updatedByUserId, 'progress')
+  if (!after) throw new Error('Task not found')
+  await persistTaskChangeHistory(id, before, after, updatedByUserId, 'progress')
+  return after.version ?? 1
 }
 
 export async function updateTaskDates(
@@ -1249,7 +1253,7 @@ export async function updateTaskDates(
   dates: { planStartDate?: string; planEndDate?: string; actualStartDate?: string; actualEndDate?: string },
   version?: number,
   updatedByUserId?: string
-): Promise<void> {
+): Promise<number> {
   const updates: string[] = []
   const params: unknown[] = []
   if (dates.planStartDate !== undefined) {
@@ -1268,9 +1272,9 @@ export async function updateTaskDates(
     updates.push('actual_end_date = ?')
     params.push(dates.actualEndDate ? calendarInputToPgTimestamptzSql(dates.actualEndDate) : null)
   }
-  if (updates.length === 0) return
   const before = await fetchTaskRowById(id)
   if (!before) throw new Error('Task not found')
+  if (updates.length === 0) return Number(before.version ?? 1)
   const up = updatedByUserId?.trim()
   if (up) {
     updates.push('updated_by = ?')
@@ -1283,10 +1287,12 @@ export async function updateTaskDates(
   const result = await exec(`UPDATE tasks SET ${updates.join(', ')} ${whereClause}`, params)
   if (result.affectedRows === 0) throwVersionConflict()
   const after = await fetchTaskRowById(id)
-  if (after) await persistTaskChangeHistory(id, before, after, updatedByUserId, 'dates')
+  if (!after) throw new Error('Task not found')
+  await persistTaskChangeHistory(id, before, after, updatedByUserId, 'dates')
+  return after.version ?? 1
 }
 
-export async function assignTask(id: string, assigneeUserId: string | null, version?: number, updatedByUserId?: string): Promise<void> {
+export async function assignTask(id: string, assigneeUserId: string | null, version?: number, updatedByUserId?: string): Promise<number> {
   const before = await fetchTaskRowById(id)
   if (!before) throw new Error('Task not found')
   await ensureUserExists(assigneeUserId)
@@ -1307,10 +1313,12 @@ export async function assignTask(id: string, assigneeUserId: string | null, vers
   const result = await exec(sql, params)
   if (result.affectedRows === 0) throwVersionConflict()
   const after = await fetchTaskRowById(id)
-  if (after) await persistTaskChangeHistory(id, before, after, updatedByUserId, 'assign')
+  if (!after) throw new Error('Task not found')
+  await persistTaskChangeHistory(id, before, after, updatedByUserId, 'assign')
+  return after.version ?? 1
 }
 
-export async function updateTask(id: string, input: UpdateTaskInput, updatedByUserId?: string): Promise<void> {
+export async function updateTask(id: string, input: UpdateTaskInput, updatedByUserId?: string): Promise<number> {
   const rows = await query<any>('SELECT * FROM tasks WHERE id = ?', [id])
   if (!rows?.length) throw new Error('Task not found')
   const beforeRow = rows[0]
@@ -1399,7 +1407,7 @@ export async function updateTask(id: string, input: UpdateTaskInput, updatedByUs
   if (updates.some(u => /^status = \?/.test(u))) {
     updates.push('status_entered_at = NOW()')
   }
-  if (updates.length === 0) return
+  if (updates.length === 0) return Number(beforeRow.version ?? 1)
   const actor = updatedByUserId?.trim()
   if (actor) {
     updates.push('updated_by = ?')
@@ -1412,7 +1420,9 @@ export async function updateTask(id: string, input: UpdateTaskInput, updatedByUs
   const result = await exec(`UPDATE tasks SET ${updates.join(', ')} ${whereClause}`, params)
   if (result.affectedRows === 0) throwVersionConflict()
   const afterRow = await fetchTaskRowById(id)
-  if (afterRow) await persistTaskChangeHistory(id, beforeRow, afterRow, updatedByUserId, 'update')
+  if (!afterRow) throw new Error('Task not found')
+  await persistTaskChangeHistory(id, beforeRow, afterRow, updatedByUserId, 'update')
+  return afterRow.version ?? 1
 }
 
 export type TaskBulkFieldPatch = {
@@ -1702,7 +1712,7 @@ export async function createTaskLink(taskId: string, toTaskId: string, linkType:
     fromTaskId: row.from_task_id,
     toTaskId: row.to_task_id,
     linkType: row.link_type,
-    version: row.version ?? 1,
+    version: Number(row.version ?? 1),
   }
 }
 
@@ -1713,7 +1723,7 @@ export async function deleteTaskLink(taskId: string, linkId: string, version?: n
       : 'DELETE FROM task_links WHERE id = ? AND (from_task_id = ? OR to_task_id = ?)'
   const params = version !== undefined ? [linkId, taskId, taskId, version] : [linkId, taskId, taskId]
   const result = await exec(sql, params)
-  if (result.affectedRows === 0) throw new Error('Link not found or was modified by another user')
+  if (result.affectedRows === 0) throwVersionConflict('Link not found or was modified by another user')
 }
 
 function mapRowToUser(r: Record<string, unknown>): User {
@@ -2003,7 +2013,7 @@ export async function updateProject(id: string, name: string, version?: number):
     version !== undefined ? 'UPDATE projects SET name = ?, version = version + 1 WHERE id = ? AND version = ?' : 'UPDATE projects SET name = ?, version = version + 1 WHERE id = ?'
   const params = version !== undefined ? [name.trim(), id, version] : [name.trim(), id]
   const result = await exec(sql, params)
-  if (result.affectedRows === 0) throw new Error('Project not found or was modified by another user')
+  if (result.affectedRows === 0) throwVersionConflict('Project not found or was modified by another user')
   const rows = await query<any>('SELECT id, name, created_at, version FROM projects WHERE id = ?', [id])
   const row = rows?.[0]
   if (!row) throw new Error('Project not found')
@@ -2049,7 +2059,7 @@ export async function deleteProject(id: string, version?: number): Promise<void>
     const sql = version !== undefined ? 'DELETE FROM projects WHERE id = ? AND version = ?' : 'DELETE FROM projects WHERE id = ?'
     const params = version !== undefined ? [id, version] : [id]
     const result = await txExec(sql, params)
-    if (result.affectedRows === 0) throw new Error('Project not found or was modified by another user')
+    if (result.affectedRows === 0) throwVersionConflict('Project not found or was modified by another user')
   })
 }
 
@@ -2322,7 +2332,7 @@ export async function saveCommitReview(record: {
       record.sourceFolderPath,
       record.commitId,
     ])
-    if (result.affectedRows === 0) throw new Error('Commit review was modified by another user')
+    if (result.affectedRows === 0) throwVersionConflict('Commit review was modified by another user')
   } else {
     const id = randomUuidV7()
     await query(
@@ -2343,7 +2353,7 @@ export async function deleteCommitReview(sourceFolderPath: string, commitId: str
       : 'DELETE FROM commit_reviews WHERE source_folder_path = ? AND commit_id = ?'
   const params = version !== undefined ? [sourceFolderPath, commitId, version] : [sourceFolderPath, commitId]
   const result = await exec(sql, params)
-  if (result.affectedRows === 0) throw new Error('Commit review not found or was modified by another user')
+  if (result.affectedRows === 0) throwVersionConflict('Commit review not found or was modified by another user')
 }
 
 export async function getCommitReviewsBySourceFolder(sourceFolderPath: string): Promise<CommitReviewRecord[]> {

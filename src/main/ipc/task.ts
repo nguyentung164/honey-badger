@@ -160,6 +160,14 @@ function requireAdminOrPl<T extends unknown[]>(handler: (event: IpcMainInvokeEve
   })
 }
 
+function taskIpcError(error: unknown): { status: 'error'; message: string; code?: string } {
+  const e = error as { code?: string; message?: string }
+  if (e?.code === 'VERSION_CONFLICT') {
+    return { status: 'error', code: 'VERSION_CONFLICT', message: e.message ?? 'VERSION_CONFLICT' }
+  }
+  return { status: 'error', message: e?.message ?? String(error) }
+}
+
 export function registerTaskIpcHandlers() {
   l.info('Registering Task IPC Handlers...')
 
@@ -565,7 +573,7 @@ export function registerTaskIpcHandlers() {
             ? await canUserUpdateOrDeleteDoneTask(session.userId, projectId, session.role === 'admin')
             : await canUserUpdateTask(session.userId, projectId, task.assigneeUserId ?? null, session.role === 'admin')
         if (!canUpdate) return { status: 'error' as const, code: 'FORBIDDEN', message: 'Không có quyền sửa task' }
-        await updateTaskStatus(id, status, version, session.userId)
+        const newVersion = await updateTaskStatus(id, status, version, session.userId)
         const updatedTask = await getTask(id)
         if (!updatedTask) return { status: 'error' as const, message: 'Task not found' }
         const updatedProjectId = updatedTask.projectId
@@ -592,10 +600,10 @@ export function registerTaskIpcHandlers() {
             actualEndDate: updatedTask.actualEndDate,
           }).catch(() => {})
         }
-        return { status: 'success' as const }
+        return { status: 'success' as const, data: { version: newVersion } }
       } catch (error: any) {
         l.error('task:update-status error:', error)
-        return { status: 'error' as const, message: error?.message ?? String(error) }
+        return taskIpcError(error)
       }
     })
   )
@@ -613,11 +621,11 @@ export function registerTaskIpcHandlers() {
             ? await canUserUpdateOrDeleteDoneTask(session.userId, projectId, session.role === 'admin')
             : await canUserUpdateTask(session.userId, projectId, task.assigneeUserId ?? null, session.role === 'admin')
         if (!canUpdate) return { status: 'error' as const, code: 'FORBIDDEN', message: 'Không có quyền sửa task' }
-        await updateTaskProgress(id, progress, version, session.userId)
-        return { status: 'success' as const }
+        const newVersion = await updateTaskProgress(id, progress, version, session.userId)
+        return { status: 'success' as const, data: { version: newVersion } }
       } catch (error: any) {
         l.error('task:update-progress error:', error)
-        return { status: 'error' as const, message: error?.message ?? String(error) }
+        return taskIpcError(error)
       }
     })
   )
@@ -636,14 +644,11 @@ export function registerTaskIpcHandlers() {
               ? await canUserUpdateOrDeleteDoneTask(session.userId, projectId, session.role === 'admin')
               : await canUserUpdateTask(session.userId, projectId, task.assigneeUserId ?? null, session.role === 'admin')
           if (!canUpdate) return { status: 'error' as const, code: 'FORBIDDEN', message: 'Không có quyền sửa task' }
-          await updateTaskDates(id, dates, version, session.userId)
-          return { status: 'success' as const }
+          const newVersion = await updateTaskDates(id, dates, version, session.userId)
+          return { status: 'success' as const, data: { version: newVersion } }
         } catch (error: any) {
           l.error('task:update-dates error:', error)
-          if (error?.code === 'VERSION_CONFLICT') {
-            return { status: 'error' as const, code: 'VERSION_CONFLICT' as const, message: error?.message ?? 'VERSION_CONFLICT' }
-          }
-          return { status: 'error' as const, message: error?.message ?? String(error) }
+          return taskIpcError(error)
         }
       }
     )
@@ -687,7 +692,7 @@ export function registerTaskIpcHandlers() {
             }
           }
         }
-        await updateTask(id, data, session.userId)
+        const newVersion = await updateTask(id, data, session.userId)
         const after = await getTask(id)
         if (!after) return { status: 'error' as const, message: 'Task not found' }
         const updatedProjectId = after.projectId
@@ -717,13 +722,10 @@ export function registerTaskIpcHandlers() {
         if (data.assigneeUserId !== undefined && data.assigneeUserId !== before?.assigneeUserId && data.assigneeUserId) {
           await persistAndSendTaskNotification(data.assigneeUserId, 'assign', 'Task được assign', `Bạn được assign task: "${title}"`, id, session.userId)
         }
-        return { status: 'success' as const }
+        return { status: 'success' as const, data: { version: after.version ?? newVersion } }
       } catch (error: any) {
         l.error('task:update-task error:', error)
-        if (error?.code === 'VERSION_CONFLICT') {
-          return { status: 'error' as const, code: 'VERSION_CONFLICT', message: error?.message ?? String(error) }
-        }
-        return { status: 'error' as const, message: error?.message ?? String(error) }
+        return taskIpcError(error)
       }
     })
   )
@@ -754,6 +756,7 @@ export function registerTaskIpcHandlers() {
           const patch = payload.patch ?? {}
           const allowed: { id: string; version: number }[] = []
           const skippedEarly: string[] = []
+          const versionConflictIds: string[] = []
           for (const item of items) {
             const task = await getTask(item.id)
             if (!task) {
@@ -769,8 +772,9 @@ export function registerTaskIpcHandlers() {
               skippedEarly.push(item.id)
               continue
             }
-            if (task.version !== item.version) {
+            if (Number(task.version ?? 1) !== Number(item.version)) {
               skippedEarly.push(item.id)
+              versionConflictIds.push(item.id)
               continue
             }
             const canUpdate =
@@ -783,14 +787,22 @@ export function registerTaskIpcHandlers() {
             }
             allowed.push({ id: item.id, version: item.version })
           }
-          const { updatedIds, skippedIds } = await bulkUpdateTasksWithPatch(allowed, patch, session.userId)
+          const { updatedIds, skippedIds: bulkSkipped } = await bulkUpdateTasksWithPatch(allowed, patch, session.userId)
+          for (const id of bulkSkipped) {
+            if (!versionConflictIds.includes(id)) versionConflictIds.push(id)
+          }
           return {
             status: 'success' as const,
-            data: { updatedIds, skippedIds: [...skippedEarly, ...skippedIds], updatedCount: updatedIds.length },
+            data: {
+              updatedIds,
+              skippedIds: [...skippedEarly, ...bulkSkipped],
+              versionConflictIds,
+              updatedCount: updatedIds.length,
+            },
           }
         } catch (error: any) {
           l.error('task:bulk-update error:', error)
-          return { status: 'error' as const, message: error?.message ?? String(error) }
+          return taskIpcError(error)
         }
       }
     )
@@ -815,10 +827,7 @@ export function registerTaskIpcHandlers() {
         return { status: 'success' as const }
       } catch (error: any) {
         l.error('task:delete-task error:', error)
-        if (error?.code === 'VERSION_CONFLICT') {
-          return { status: 'error' as const, code: 'VERSION_CONFLICT', message: error?.message ?? String(error) }
-        }
-        return { status: 'error' as const, message: error?.message ?? String(error) }
+        return taskIpcError(error)
       }
     })
   )
@@ -928,17 +937,17 @@ export function registerTaskIpcHandlers() {
             ? await canUserUpdateOrDeleteDoneTask(session.userId, projectId, session.role === 'admin')
             : await canUserUpdateTask(session.userId, projectId, task.assigneeUserId ?? null, session.role === 'admin')
         if (!canUpdate) return { status: 'error' as const, code: 'FORBIDDEN', message: 'Không có quyền sửa task' }
-        await assignTask(id, assigneeUserId, version, session.userId)
+        const newVersion = await assignTask(id, assigneeUserId, version, session.userId)
         if (assigneeUserId) {
           const task = await getTask(id)
           if (task?.title) {
             await persistAndSendTaskNotification(assigneeUserId, 'assign', 'Task được assign', `Bạn được assign task: "${task.title}"`, id, session.userId)
           }
         }
-        return { status: 'success' as const }
+        return { status: 'success' as const, data: { version: newVersion } }
       } catch (error: any) {
         l.error('task:assign error:', error)
-        return { status: 'error' as const, message: error?.message ?? String(error) }
+        return taskIpcError(error)
       }
     })
   )
@@ -1035,7 +1044,7 @@ export function registerTaskIpcHandlers() {
         return { status: 'success' as const, data: project }
       } catch (error: any) {
         l.error('task:update-project error:', error)
-        return { status: 'error' as const, message: error?.message ?? String(error) }
+        return taskIpcError(error)
       }
     })
   )
@@ -1074,7 +1083,7 @@ export function registerTaskIpcHandlers() {
         return { status: 'success' as const }
       } catch (error: any) {
         l.error('task:delete-project error:', error)
-        return { status: 'error' as const, message: error?.message ?? String(error) }
+        return taskIpcError(error)
       }
     })
   )
@@ -1425,7 +1434,7 @@ export function registerTaskIpcHandlers() {
         return { status: 'success' as const }
       } catch (error: any) {
         l.error('task:delete-task-link error:', error)
-        return { status: 'error' as const, message: error?.message ?? String(error) }
+        return taskIpcError(error)
       }
     })
   )
@@ -1453,7 +1462,7 @@ export function registerTaskIpcHandlers() {
           return { status: 'success' as const }
         } catch (error: any) {
           l.error('task:commit-review:save error:', error)
-          return { status: 'error' as const, message: error?.message ?? String(error) }
+          return taskIpcError(error)
         }
       }
     )
@@ -1467,7 +1476,7 @@ export function registerTaskIpcHandlers() {
         return { status: 'success' as const }
       } catch (error: any) {
         l.error('task:commit-review:delete error:', error)
-        return { status: 'error' as const, message: error?.message ?? String(error) }
+        return taskIpcError(error)
       }
     })
   )

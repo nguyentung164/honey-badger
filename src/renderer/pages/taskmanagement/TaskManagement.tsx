@@ -87,6 +87,12 @@ import { TaskSavedViewsPopover } from './TaskSavedViewsPopover'
 import { isTaskBulkSelectable, TaskTableRow, type TaskTableRowTask } from './TaskTableRow'
 import { Z_GANTT_BOARD_LOADING_OVERLAY } from './taskGanttZIndex'
 import {
+  type KanbanMoveTaskResult,
+  TASK_SAVE_IN_PROGRESS_CODE,
+  updateTaskPlanDatesWithRetry,
+  updateTaskStatusWithRetry,
+} from './taskMutationWithRetry'
+import {
   buildSavedViewSnapshot,
   coerceTaskManagementPageSize,
   isPersistedTaskView,
@@ -677,6 +683,9 @@ export function TaskManagement({ embedded = false }: { embedded?: boolean }) {
   const [boardTotal, setBoardTotal] = useState(0)
   const [boardTruncated, setBoardTruncated] = useState(false)
   const [boardLoading, setBoardLoading] = useState(false)
+  const statusSaveTaskIdsRef = useRef<Set<string>>(new Set())
+  const [statusSaveLockRevision, setStatusSaveLockRevision] = useState(0)
+  const lockedKanbanTaskIds = useMemo(() => new Set(statusSaveTaskIdsRef.current), [statusSaveLockRevision])
   const [ganttTaskLinks, setGanttTaskLinks] = useState<GanttTaskLink[]>([])
   /** Workload Gantt: nhiều project — mỗi project một segment (batch fetch). */
   const [workloadSegments, setWorkloadSegments] = useState<WorkloadBoardSegment[]>([])
@@ -1200,12 +1209,16 @@ export function TaskManagement({ embedded = false }: { embedded?: boolean }) {
     }
   }
 
-  const handleUpdateTask = async (id: string, data: Record<string, unknown>): Promise<{ success: boolean }> => {
+  const handleUpdateTask = async (id: string, data: Record<string, unknown>): Promise<{ success: boolean; version?: number }> => {
     const res = await window.api.task.updateTask(id, data)
     if (res.status === 'success') {
+      const nextVersion = res.data?.version
+      if (typeof nextVersion === 'number') {
+        setEditingTaskInDialog(prev => (prev?.id === id ? { ...prev, ...data, version: nextVersion } as Task : prev))
+      }
       toast.success(t('taskManagement.updateSuccess'))
       loadData()
-      return { success: true }
+      return { success: true, version: nextVersion }
     }
     if ((res as { code?: string }).code === 'VERSION_CONFLICT') {
       toastVersionConflict()
@@ -1291,34 +1304,62 @@ export function TaskManagement({ embedded = false }: { embedded?: boolean }) {
     }
   }
 
+  const taskMutationApi = useMemo(
+    () => ({
+      updateStatus: (id: string, status: string, v?: number) => window.api.task.updateStatus(id, status, v),
+      updateDates: (id: string, dates: { planStartDate?: string; planEndDate?: string }, v?: number) =>
+        window.api.task.updateDates(id, dates, v),
+      getTask: (id: string) => window.api.task.getTask(id),
+    }),
+    []
+  )
+
   const handleBoardMoveStatus = useCallback(
-    async (taskId: string, newStatus: string, version?: number): Promise<boolean> => {
+    async (taskId: string, newStatus: string, version?: number): Promise<KanbanMoveTaskResult> => {
+      if (statusSaveTaskIdsRef.current.has(taskId)) return { ok: false, code: TASK_SAVE_IN_PROGRESS_CODE }
+
       const can = await window.api.task.canEditTask(taskId)
       if (can.status !== 'success' || !can.data?.canEdit) {
         toast.error(t('taskManagement.taskReadOnlyNoPermission'))
-        return false
+        return { ok: false }
       }
+
+      statusSaveTaskIdsRef.current.add(taskId)
+      setStatusSaveLockRevision(v => v + 1)
+
       let previousSnapshot: Task[] = []
       setBoardTasks(prev => {
         previousSnapshot = prev
         return prev.map(x => (x.id === taskId ? { ...x, status: newStatus } : x))
       })
-      const res = await window.api.task.updateStatus(taskId, newStatus, version)
-      if (res.status === 'success') {
-        skipBoardFullPageLoadingRef.current = true
-        setListRevision(r => r + 1)
-        return true
+
+      try {
+        const result = await updateTaskStatusWithRetry(taskMutationApi, taskId, newStatus, version)
+        if (result.ok) {
+          if (typeof result.version === 'number') {
+            setBoardTasks(prev =>
+              prev.map(x => (x.id === taskId ? { ...x, status: newStatus, version: result.version } : x))
+            )
+          }
+          skipBoardFullPageLoadingRef.current = true
+          setListRevision(r => r + 1)
+          return result
+        }
+        setBoardTasks(previousSnapshot)
+        if (result.code === 'VERSION_CONFLICT') toastVersionConflict()
+        else toast.error(result.message || t('taskManagement.updateError'))
+        return result
+      } finally {
+        statusSaveTaskIdsRef.current.delete(taskId)
+        setStatusSaveLockRevision(v => v + 1)
       }
-      setBoardTasks(previousSnapshot)
-      if ((res as { code?: string }).code === 'VERSION_CONFLICT') toastVersionConflict()
-      else toast.error(res.message || t('taskManagement.updateError'))
-      return false
     },
-    [t, toastVersionConflict]
+    [t, toastVersionConflict, taskMutationApi]
   )
 
   const handleUpdatePlanDates = useCallback(
     async (taskId: string, planStartDate: string, planEndDate: string, version?: number) => {
+      if (statusSaveTaskIdsRef.current.has(taskId)) return false
       const can = await window.api.task.canEditTask(taskId)
       if (can.status !== 'success' || !can.data?.canEdit) {
         toast.error(t('taskManagement.taskReadOnlyNoPermission'))
@@ -1326,22 +1367,37 @@ export function TaskManagement({ embedded = false }: { embedded?: boolean }) {
       }
       const psNorm = planStartDate.trim() ? (toYyyyMmDd(planStartDate) ?? planStartDate.trim().slice(0, 10)) : ''
       const peNorm = planEndDate.trim() ? (toYyyyMmDd(planEndDate) ?? planEndDate.trim().slice(0, 10)) : ''
+      statusSaveTaskIdsRef.current.add(taskId)
+      setStatusSaveLockRevision(v => v + 1)
       let previousSnapshot: Task[] = []
       setBoardTasks(prev => {
         previousSnapshot = prev
         return prev.map(x => (x.id === taskId ? { ...x, planStartDate: psNorm, planEndDate: peNorm } : x))
       })
-      const res = await window.api.task.updateDates(taskId, { planStartDate: psNorm, planEndDate: peNorm }, version)
-      if (res.status === 'success') {
-        setListRevision(r => r + 1)
-        return true
+      try {
+        const result = await updateTaskPlanDatesWithRetry(taskMutationApi, taskId, psNorm, peNorm, version)
+        if (result.ok) {
+          if (typeof result.version === 'number') {
+            setBoardTasks(prev =>
+              prev.map(x =>
+                x.id === taskId ? { ...x, planStartDate: psNorm, planEndDate: peNorm, version: result.version } : x
+              )
+            )
+          }
+          skipBoardFullPageLoadingRef.current = true
+          setListRevision(r => r + 1)
+          return true
+        }
+        setBoardTasks(previousSnapshot)
+        if (result.code === 'VERSION_CONFLICT') toastVersionConflict()
+        else toast.error(result.message || t('taskManagement.updateError'))
+        return false
+      } finally {
+        statusSaveTaskIdsRef.current.delete(taskId)
+        setStatusSaveLockRevision(v => v + 1)
       }
-      setBoardTasks(previousSnapshot)
-      if ((res as { code?: string }).code === 'VERSION_CONFLICT') toastVersionConflict()
-      else toast.error(res.message || t('taskManagement.updateError'))
-      return false
     },
-    [t, toastVersionConflict]
+    [t, toastVersionConflict, taskMutationApi]
   )
 
   const toggleBulkTaskSelection = useCallback((taskId: string) => {
@@ -1370,7 +1426,7 @@ export function TaskManagement({ embedded = false }: { embedded?: boolean }) {
       const items: { id: string; version: number }[] = []
       for (const id of selectedTaskIds) {
         const row = sourceRows.find(t => t.id === id)
-        if (row && isTaskBulkSelectable(row)) items.push({ id: row.id, version: Number(row.version ?? 0) })
+        if (row && isTaskBulkSelectable(row)) items.push({ id: row.id, version: Number(row.version ?? 1) })
       }
       if (items.length === 0) {
         toast.error(t('taskManagement.bulkNothingToApply'))
@@ -1385,36 +1441,40 @@ export function TaskManagement({ embedded = false }: { embedded?: boolean }) {
         })
       const res = await window.api.task.bulkUpdateTasks({ items, patch })
       if (res.status === 'success' && res.data) {
-        const { updatedCount, skippedIds } = res.data
+        const { updatedCount, skippedIds, versionConflictIds = [] } = res.data
+        const conflictCount = versionConflictIds.length
         const lines = summarizeSkipped(skippedIds)
-        if (updatedCount > 0) {
-          toast.success(t('taskManagement.bulkSuccess', { count: updatedCount }))
-          setListRevision(r => r + 1)
+        const nonConflictSkipped = skippedIds.filter(id => !versionConflictIds.includes(id))
+        const skipDetailAction = {
+          label: t('taskManagement.bulkSkippedDetails'),
+          onClick: () => setBulkSkipDetail({ open: true, lines }),
         }
-        if (skippedIds.length > 0 && updatedCount === 0) {
-          toast.error(t('taskManagement.bulkAllSkipped'), {
-            actions: [
-              {
-                label: t('taskManagement.bulkSkippedDetails'),
-                onClick: () => setBulkSkipDetail({ open: true, lines }),
-              },
-            ],
+
+        setListRevision(r => r + 1)
+
+        if (updatedCount > 0 && conflictCount > 0) {
+          toast.warning(t('taskManagement.bulkSuccessWithConflict', { updated: updatedCount, conflict: conflictCount }), {
+            actions: [{ label: t('taskManagement.toastReloadList'), onClick: () => reloadManagementLists() }],
           })
-        } else if (skippedIds.length > 0) {
-          toast.warning(t('taskManagement.bulkPartialSkip', { count: skippedIds.length }), {
-            actions: [
-              {
-                label: t('taskManagement.bulkSkippedDetails'),
-                onClick: () => setBulkSkipDetail({ open: true, lines }),
-              },
-            ],
+        } else if (conflictCount > 0) {
+          toastVersionConflict()
+        } else if (updatedCount > 0) {
+          toast.success(t('taskManagement.bulkSuccess', { count: updatedCount }))
+        }
+
+        if (nonConflictSkipped.length > 0 && updatedCount === 0 && conflictCount === 0) {
+          toast.error(t('taskManagement.bulkAllSkipped'), { actions: [skipDetailAction] })
+        } else if (nonConflictSkipped.length > 0 && !(updatedCount > 0 && conflictCount > 0)) {
+          toast.warning(t('taskManagement.bulkPartialSkip', { count: nonConflictSkipped.length }), {
+            actions: [skipDetailAction],
           })
         }
         return
       }
-      toast.error((res as { message?: string }).message || t('taskManagement.updateError'))
+      if ((res as { code?: string }).code === 'VERSION_CONFLICT') toastVersionConflict()
+      else toast.error((res as { message?: string }).message || t('taskManagement.updateError'))
     },
-    [taskView, tableTasks, boardTasks, selectedTaskIds, t]
+    [taskView, tableTasks, boardTasks, selectedTaskIds, t, toastVersionConflict, reloadManagementLists]
   )
 
   const getAssigneeDisplay = useCallback(
@@ -3222,6 +3282,7 @@ export function TaskManagement({ embedded = false }: { embedded?: boolean }) {
                               statuses={statuses}
                               statusColorMap={statusColorMap}
                               onMoveTask={handleBoardMoveStatus}
+                              lockedTaskIds={lockedKanbanTaskIds}
                               onOpenTask={handleOpenTaskRow}
                               getAssigneeDisplay={getAssigneeDisplay}
                               selectedTaskIds={selectedTaskIds}

@@ -26,6 +26,7 @@ import { TaskBoardCard, type TaskBoardCardProps } from './TaskBoardCard'
 import type { TaskTableRowTask } from './TaskTableRow'
 import { taskStatusIconEl } from './taskStatusIcons'
 import { taskStatusKanbanColumnBodyStyle, taskStatusKanbanHeaderStyle } from './taskStatusVisual'
+import { TASK_SAVE_IN_PROGRESS_CODE, type KanbanMoveTaskResult } from './taskMutationWithRetry'
 
 /** Kích hoạt kéo sau khi di chuyển (px) — tránh nhầm với click. */
 const DRAG_ACTIVATION_PX = 8
@@ -172,6 +173,7 @@ function segmentedBySwimlane(sorted: TaskTableRowTask[], swim: KanbanSwimlaneMod
 
 type KanbanDragContextValue = {
   draggingTaskId: string | null
+  isTaskLocked: (taskId: string) => boolean
   onCardPointerDown: (task: TaskTableRowTask, event: ReactPointerEvent<HTMLDivElement>) => void
 }
 
@@ -225,9 +227,11 @@ const DraggableKanbanCard = memo(function DraggableKanbanCard({
   const { t } = useTranslation()
   const ctx = useContext(KanbanDragContext)
   const dragging = ctx?.draggingTaskId === task.id
+  const saving = ctx?.isTaskLocked(task.id) ?? false
 
   const onPointerDown = (e: ReactPointerEvent<HTMLDivElement>) => {
     if (e.button !== 0) return
+    if (saving) return
     ctx?.onCardPointerDown(task, e)
   }
 
@@ -235,7 +239,11 @@ const DraggableKanbanCard = memo(function DraggableKanbanCard({
     <div
       data-kanban-task-id={task.id}
       onPointerDown={onPointerDown}
-      className={cn('rounded-md bg-card touch-none cursor-grab active:cursor-grabbing select-none', dragging && 'opacity-0')}
+      className={cn(
+        'rounded-md bg-card touch-none select-none',
+        saving ? 'cursor-wait opacity-70' : 'cursor-grab active:cursor-grabbing',
+        dragging && 'opacity-0'
+      )}
       style={{ touchAction: 'none' }}
     >
       <TaskBoardCard
@@ -646,6 +654,7 @@ export function TaskKanbanBoard({
   statuses,
   statusColorMap,
   onMoveTask,
+  lockedTaskIds,
   onOpenTask,
   cardPropsBase,
   getAssigneeDisplay,
@@ -657,7 +666,8 @@ export function TaskKanbanBoard({
   tasks: TaskTableRowTask[]
   statuses: KanbanMasterStatus[]
   statusColorMap?: Record<string, string>
-  onMoveTask: (taskId: string, newStatus: string, version?: number) => Promise<boolean>
+  onMoveTask: (taskId: string, newStatus: string, version?: number) => Promise<KanbanMoveTaskResult>
+  lockedTaskIds?: ReadonlySet<string>
   onOpenTask: (task: TaskTableRowTask) => void
   cardPropsBase: Omit<TaskBoardCardProps, 'task' | 'assigneeDisplay'>
   getAssigneeDisplay: (assigneeUserId: string | null) => string
@@ -712,6 +722,11 @@ export function TaskKanbanBoard({
   const persistOrderColRef = useRef<(code: string, ids: string[]) => void>(() => { })
   const wipMapRef = useRef(wipMap)
   const statusesRef = useRef(statuses)
+  const lockedTaskIdsRef = useRef(lockedTaskIds ?? new Set<string>())
+
+  useEffect(() => {
+    lockedTaskIdsRef.current = lockedTaskIds ?? new Set()
+  }, [lockedTaskIds])
 
   useEffect(() => {
     saveJsonLs(LS_ONLY_MINE_KEY, onlyMine)
@@ -828,17 +843,20 @@ export function TaskKanbanBoard({
     })
   }, [])
 
+  const toastTaskSaving = useCallback(() => {
+    toast.error(t('taskManagement.kanbanTaskSaving'))
+  }, [t])
+
   const offerUndoToast = useCallback(
-    (taskId: string, fromStatus: string, versionAtMoveStart: number | undefined) => {
-      const undoV = typeof versionAtMoveStart === 'number' ? versionAtMoveStart + 1 : undefined
+    (taskId: string, fromStatus: string, versionAfterMove: number | undefined) => {
       toast.success(t('taskManagement.kanbanMoveDoneToast'), {
         actions: [
           {
             label: t('taskManagement.kanbanUndoMove'),
             onClick: () => {
               void (async () => {
-                const ok = await onMoveTaskRef.current(taskId, fromStatus, undoV)
-                if (ok) toast.success(t('taskManagement.kanbanUndoMoveToast'))
+                const result = await onMoveTaskRef.current(taskId, fromStatus, versionAfterMove)
+                if (result.ok) toast.success(t('taskManagement.kanbanUndoMoveToast'))
               })()
             },
           },
@@ -862,6 +880,10 @@ export function TaskKanbanBoard({
     const byCol = sortedByColumnRef.current
     const activeRow = visible.find(x => x.id === taskId)
     if (!activeRow) return
+    if (lockedTaskIdsRef.current.has(taskId)) {
+      toastTaskSaving()
+      return
+    }
 
     const moveTask = onMoveTaskRef.current
 
@@ -880,8 +902,9 @@ export function TaskKanbanBoard({
         })
         return
       }
-      const ok = await moveTask(taskId, destStatus, activeRow.version)
-      if (ok) offerUndoToast(taskId, activeRow.status, activeRow.version)
+      const result = await moveTask(taskId, destStatus, activeRow.version)
+      if (result.ok) offerUndoToast(taskId, activeRow.status, result.version)
+      else if (result.code === TASK_SAVE_IN_PROGRESS_CODE) toastTaskSaving()
     }
 
     if (overTaskId && overTaskId !== taskId) {
@@ -912,7 +935,7 @@ export function TaskKanbanBoard({
     if (activeRow.status !== columnCode) {
       await tryCrossColumnMove(columnCode)
     }
-  }, [offerUndoToast])
+  }, [offerUndoToast, toastTaskSaving])
 
   const scheduleOverlayMove = useCallback((clientX: number, clientY: number) => {
     const el = overlayRef.current
@@ -940,6 +963,10 @@ export function TaskKanbanBoard({
     (task: TaskTableRowTask, event: ReactPointerEvent<HTMLDivElement>) => {
       if (event.button !== 0) return
       if (draggingTaskIdRef.current) return
+      if (lockedTaskIdsRef.current.has(task.id)) {
+        toastTaskSaving()
+        return
+      }
 
       const target = event.target as HTMLElement | null
       if (target?.closest?.('button, a, input, textarea, [role="checkbox"], [data-no-kanban-drag]')) return
@@ -1033,15 +1060,18 @@ export function TaskKanbanBoard({
       window.addEventListener('pointerup', onUp)
       window.addEventListener('pointercancel', onUp)
     },
-    [commitDrop, scheduleOverlayMove, updateHighlightFromPoint]
+    [commitDrop, scheduleOverlayMove, updateHighlightFromPoint, toastTaskSaving]
   )
+
+  const isTaskLocked = useCallback((taskId: string) => lockedTaskIdsRef.current.has(taskId), [lockedTaskIds])
 
   const dragCtx = useMemo<KanbanDragContextValue>(
     () => ({
       draggingTaskId,
+      isTaskLocked,
       onCardPointerDown,
     }),
-    [draggingTaskId, onCardPointerDown]
+    [draggingTaskId, isTaskLocked, onCardPointerDown]
   )
 
   return (
@@ -1178,8 +1208,9 @@ export function TaskKanbanBoard({
                   if (!p) return
                   setWipConfirm(null)
                   void (async () => {
-                    const ok = await onMoveTaskRef.current(p.taskId, p.destStatus, p.version)
-                    if (ok) offerUndoToast(p.taskId, p.fromStatus, p.version)
+                    const result = await onMoveTaskRef.current(p.taskId, p.destStatus, p.version)
+                    if (result.ok) offerUndoToast(p.taskId, p.fromStatus, result.version)
+                    else if (result.code === TASK_SAVE_IN_PROGRESS_CODE) toastTaskSaving()
                   })()
                 }}
               >

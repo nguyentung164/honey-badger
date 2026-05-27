@@ -40,6 +40,7 @@ export const useCommitReviewStore = create<CommitReviewState>(() => ({
         const err = res as { code?: string; message?: string }
         if (err.code === 'UNAUTHORIZED') throw new Error('Vui lòng đăng nhập để thực hiện thao tác này')
         if (err.code === 'FORBIDDEN') throw new Error('Chỉ PL hoặc Admin mới được đánh dấu review')
+        if (err.code === 'VERSION_CONFLICT') throw new Error('Dữ liệu đã bị thay đổi bởi người khác. Vui lòng tải lại và thử lại.')
         throw new Error(err.message)
       }
       logger.success('Đã đánh dấu đã review')
@@ -58,6 +59,7 @@ export const useCommitReviewStore = create<CommitReviewState>(() => ({
         const err = res as { code?: string; message?: string }
         if (err.code === 'UNAUTHORIZED') throw new Error('Vui lòng đăng nhập để thực hiện thao tác này')
         if (err.code === 'FORBIDDEN') throw new Error('Chỉ PL hoặc Admin mới được bỏ đánh dấu review')
+        if (err.code === 'VERSION_CONFLICT') throw new Error('Dữ liệu đã bị thay đổi bởi người khác. Vui lòng tải lại và thử lại.')
         throw new Error(err.message)
       }
       logger.success('Đã bỏ đánh dấu review')
