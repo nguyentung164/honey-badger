@@ -6,17 +6,11 @@ alwaysApply: true
 When writing or modifying code, always prioritize:
 
 1. **High performance** — Avoid unnecessary re-renders; use memoization/cache appropriately; lazy load when needed; optimize large data processing and bundle size.
-
 2. **Modern best practices** — Use up-to-date patterns and APIs; write type-safe, maintainable, scalable code; avoid deprecated approaches.
-
 3. **Consistent and polished UI** — Follow the existing design system; keep spacing, colors, typography, borders, and shadows consistent; avoid mismatched styles.
-
 4. **Thoughtful UX** — Make flows intuitive; provide loading, error, and empty states; give clear feedback; keep primary actions easy to discover.
-
 5. **Clean code quality** — Keep components and functions well-structured; use clear naming; avoid over-engineering; briefly explain important technical decisions when necessary.
-
 6. **Follow proven ecosystem best practices** — Prefer official framework/library recommendations, widely adopted community standards, and battle-tested architectural patterns. Avoid anti-patterns, outdated techniques, and unnecessary custom solutions when established standards already exist.
-
 7. **Accessibility and reliability** — Ensure accessibility best practices (semantic HTML, keyboard navigation, proper contrast, ARIA when needed), responsive behavior across screen sizes, solid error handling, and resilient edge-case handling.
 
 Before finishing, review all changes against the requirements above and refine anything that does not meet the standard.
