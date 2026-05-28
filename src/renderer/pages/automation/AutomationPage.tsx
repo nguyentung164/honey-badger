@@ -299,6 +299,7 @@ export function AutomationPage({ mode = 'standalone' }: AutomationPageProps) {
         {selectedProject ? (
           <CasesWorkspace
             projectId={selectedProject.id}
+            projectName={selectedProject.name}
             initialCatalogPageId={casesIntentPageId}
             initialCatalogGroupId={casesIntentGroupId}
             onInitialCatalogIntentConsumed={clearCasesIntent}

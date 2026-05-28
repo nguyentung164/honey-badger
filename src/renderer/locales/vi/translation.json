@@ -4034,7 +4034,10 @@
       "waitingForPr": "Chờ PR",
       "created": "Đã tạo",
       "statusChangedBadge": "Đã đổi",
-      "statusChangedTooltip": "Trạng thái thay đổi sau sync: {{before}} → {{after}}",
+      "statusChangedTooltip": "Trạng thái thay đổi kể từ lần xem gần nhất: {{before}} → {{after}}",
+      "statusChangesDismiss": "Đã xem",
+      "statusChangesDismissAria": "Đánh dấu đã xem {{count}} thay đổi trạng thái",
+      "statusChangesDismissHelp": "Lưu trạng thái PR hiện tại làm mốc và ẩn {{count}} highlight cho đến khi có thay đổi mới.",
       "statusFpNoPr": "Chưa có PR",
       "syncRepoStatusChangedHint": "{{count}} cột PR trong repo đã đổi trạng thái sau lần sync gần nhất.",
       "syncRepoStatusChangedAria": "Sync repo — {{count}} thay đổi trạng thái PR kể từ sync trước",
@@ -4336,6 +4339,8 @@
     },
     "catalog": {
       "title": "Danh mục",
+      "flowCount": "{{count}} luồng",
+      "emptyFlows": "Chưa có luồng. Thêm luồng để nhóm case.",
       "railAria": "Trang và luồng",
       "breadcrumbAria": "Vị trí case",
       "breadcrumbProject": "Dự án",
@@ -4361,6 +4366,7 @@
       "deleteFailed": "Không xoá được",
       "filterByGroup": "Theo nhóm",
       "allGroups": "Tất cả nhóm",
+      "ungroupedPages": "Chưa nhóm",
       "emptyPagesInGroup": "Không có trang trong nhóm này.",
       "errors": {
         "pageName": "Nhập tên trang",

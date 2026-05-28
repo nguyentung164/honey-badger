@@ -1,4 +1,4 @@
-import { Pencil, Plus, Trash2, Upload } from 'lucide-react'
+import { FileDown, Pencil, Plus, Trash2, Upload } from 'lucide-react'
 import { useEffect, useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import type { TestCase } from 'shared/automation/types'
@@ -20,9 +20,11 @@ interface Props {
   /** Gán cho case mới / import khi chưa có trong payload. */
   defaultFlowId: string | null
   flowOptions: Array<{ id: string; name: string }>
+  /** Cho phép export khi project có ít nhất một page. */
+  canExport?: boolean
 }
 
-export function CaseTable({ projectId, flowId, defaultFlowId, flowOptions }: Props) {
+export function CaseTable({ projectId, flowId, defaultFlowId, flowOptions, canExport = true }: Props) {
   const { t } = useTranslation()
   const cases = useAutomationStore(s => s.cases[projectId] ?? automationEmptyCases)
   const setCases = useAutomationStore(s => s.setCases)
@@ -32,6 +34,7 @@ export function CaseTable({ projectId, flowId, defaultFlowId, flowOptions }: Pro
   const [editing, setEditing] = useState<TestCase | null>(null)
   const [editorOpen, setEditorOpen] = useState(false)
   const [importOpen, setImportOpen] = useState(false)
+  const [exportBusy, setExportBusy] = useState(false)
 
   const refresh = async () => {
     setCasesLoading(true)
@@ -64,29 +67,62 @@ export function CaseTable({ projectId, flowId, defaultFlowId, flowOptions }: Pro
     }
   }
 
+  const handleExport = async () => {
+    setExportBusy(true)
+    try {
+      const res = await window.api.automation.exportCasesByPage(projectId)
+      if (res.status !== 'success') {
+        toast.error(res.message ?? t('automation.export.failed'))
+        return
+      }
+      const data = res.data
+      if (!data) return
+      if (data.cancelled) {
+        toast.info(t('automation.export.cancelled'))
+        return
+      }
+      toast.success(t('automation.export.done', { count: data.files.length }))
+    } finally {
+      setExportBusy(false)
+    }
+  }
+
   return (
     <div className="flex h-full min-h-0 flex-col gap-3">
       <div className="flex flex-wrap items-center gap-2">
-        <Input className="max-w-xs" placeholder={t('automation.cases.filterPlaceholder')} value={filter} onChange={e => setFilter(e.target.value)} />
-        <div className="ml-auto flex gap-2">
-          <Button size="sm" variant="outline" disabled={!flowId} onClick={() => setImportOpen(true)}>
-            <Upload className="size-4" />
-            {t('automation.cases.importLabel')}
-          </Button>
-          <Button
-            size="sm"
-            variant="outline"
-            className={cn(PR_MANAGER_ACCENT_OUTLINE_BTN, PR_MANAGER_ACCENT_OUTLINE_SURFACE, 'shadow-none')}
-            disabled={!flowId}
-            onClick={() => {
-              setEditing(null)
-              setEditorOpen(true)
-            }}
-          >
-            <Plus className="size-4" />
-            {t('automation.cases.new')}
-          </Button>
-        </div>
+        <Input
+          className="h-8 min-w-[10rem] flex-1 max-w-sm"
+          placeholder={t('automation.cases.filterPlaceholder')}
+          value={filter}
+          onChange={e => setFilter(e.target.value)}
+        />
+        <Button size="sm" variant="outline" className="shrink-0" disabled={!flowId} onClick={() => setImportOpen(true)}>
+          <Upload className="size-4" />
+          {t('automation.cases.importLabel')}
+        </Button>
+        <Button
+          size="sm"
+          variant="outline"
+          className="shrink-0 gap-1.5"
+          disabled={!canExport || exportBusy}
+          onClick={() => void handleExport()}
+        >
+          <FileDown className="size-4" />
+          {exportBusy ? t('automation.common.saving') : t('automation.export.byPage')}
+        </Button>
+        <Button
+          size="sm"
+          variant="outline"
+          className={cn('shrink-0', PR_MANAGER_ACCENT_OUTLINE_BTN, PR_MANAGER_ACCENT_OUTLINE_SURFACE, 'shadow-none')}
+          disabled={!flowId}
+          onClick={() => {
+            setEditing(null)
+            setEditorOpen(true)
+          }}
+        >
+          <Plus className="size-4" />
+          {t('automation.cases.new')}
+        </Button>
       </div>
 
       <div className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-md border">

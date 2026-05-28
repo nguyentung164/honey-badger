@@ -4040,7 +4040,10 @@
       "waitingForPr": "PR待ち",
       "created": "作成済み",
       "statusChangedBadge": "変更あり",
-      "statusChangedTooltip": "同期後にステータスが変わりました: {{before}} → {{after}}",
+      "statusChangedTooltip": "前回の確認以降ステータスが変わりました: {{before}} → {{after}}",
+      "statusChangesDismiss": "確認済み",
+      "statusChangesDismissAria": "{{count}} 件のステータス変更を確認済みにする",
+      "statusChangesDismissHelp": "現在の PR ステータスを基準として保存し、{{count}} 件のハイライトを非表示にします（再び差分が出るまで）。",
       "statusFpNoPr": "PRなし",
       "syncRepoStatusChangedHint": "前回の同期後、このリポジトリで {{count}} 件の PR 列のステータスが変わりました。",
       "syncRepoStatusChangedAria": "このリポジトリを同期 — 前回の同期以降 {{count}} 件の PR ステータス変更",
@@ -4343,6 +4346,8 @@
     },
     "catalog": {
       "title": "カタログ",
+      "flowCount": "{{count}} フロー",
+      "emptyFlows": "フローがありません。追加してケースを整理してください。",
       "railAria": "ページとフロー",
       "breadcrumbAria": "ケースの場所",
       "breadcrumbProject": "プロジェクト",
@@ -4368,6 +4373,7 @@
       "deleteFailed": "削除できませんでした",
       "filterByGroup": "グループで絞り込み",
       "allGroups": "すべてのグループ",
+      "ungroupedPages": "グループなし",
       "emptyPagesInGroup": "このグループにページがありません。",
       "errors": {
         "pageName": "ページ名を入力してください",

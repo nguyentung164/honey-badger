@@ -4,6 +4,7 @@ import { formatDistanceToNow } from 'date-fns'
 import type { TFunction } from 'i18next'
 import {
   ArrowDownToLine,
+  ArrowRightLeft,
   BrushCleaning,
   ChevronDown,
   ChevronLeft,
@@ -11,6 +12,7 @@ import {
   ChevronsLeft,
   ChevronsRight,
   CircleCheckBig,
+  ListChecks,
   CloudAlert,
   CloudCheck,
   ExternalLink,
@@ -69,6 +71,7 @@ import { checkpointTableHeadGroupClass } from '../checkpointHeaderGroup'
 import { collectOpenPrsForFileOverlap } from '../collectPrFileOverlapCandidates'
 import type { PrBranchCheckpoint, PrCheckpointTemplate, PrRepo, TrackedBranchRow } from '../hooks/usePrData'
 import { usePrOperationLog } from '../PrOperationLogContext'
+import { readPrBoardStatusBaseline, writePrBoardStatusBaseline } from '../prBoardStatusBaseline'
 import { branchNameMatchesSkipList, hydratePrBoardSkippedBranchesFromApi, readSkippedBranchesSnapshotText, subscribePrBoardSkippedBranches } from '../prBoardSkippedBranches'
 import type { PrGhStatusKind } from '../prGhStatus'
 import { PR_GH_STATUS_IDS, PR_GH_STATUS_TEXT_CLASS } from '../prGhStatus'
@@ -455,8 +458,53 @@ function PrSyncStatusChangeDot({ title }: { title: string }) {
       role="img"
       aria-label={title}
       title={title}
-      className="pointer-events-none absolute -right-0.5 -top-0.5 z-[1] h-2 w-2 rounded-full bg-amber-400 ring-2 ring-background dark:bg-amber-300"
+      className="pointer-events-none absolute -right-0.5 -top-0.5 z-[1] h-2 w-2 rounded-full bg-emerald-500 ring-2 ring-background dark:bg-emerald-400"
     />
+  )
+}
+
+const MERGE_STATUS_CHANGE_FRAME_CLASS = 'rounded-md border border-dashed border-emerald-500/70 dark:border-emerald-400/55'
+
+const MERGE_STATUS_CHANGE_BADGE_CLASS =
+  'absolute -right-0.5 -top-1 z-[1] h-4 gap-0.5 border-0 bg-emerald-500/12 px-1 py-0 text-[9px] font-semibold leading-none text-emerald-700 shadow-none dark:bg-emerald-400/15 dark:text-emerald-50'
+
+function MergeStatusChangeChrome({
+  hasStatusChange,
+  statusChangeDetail,
+  children,
+}: {
+  hasStatusChange: boolean
+  statusChangeDetail?: PrCheckpointStatusChangeDetail
+  children: React.ReactNode
+}) {
+  const { t } = useTranslation()
+  if (!hasStatusChange) {
+    return <>{children}</>
+  }
+  const statusTooltip =
+    statusChangeDetail != null
+      ? t('prManager.board.statusChangedTooltip', {
+          before: formatPrCheckpointStatusFingerprint(statusChangeDetail.before, t),
+          after: formatPrCheckpointStatusFingerprint(statusChangeDetail.after, t),
+        })
+      : t('prManager.board.statusChangedBadge')
+  return (
+    <div className="relative w-full min-w-0">
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <div className="relative w-full min-w-0 cursor-default">
+            <div className={cn('w-full min-w-0', MERGE_STATUS_CHANGE_FRAME_CLASS)}>{children}</div>
+            <Badge variant="secondary" className={MERGE_STATUS_CHANGE_BADGE_CLASS}>
+              <ArrowRightLeft className="h-2.5 w-2.5 shrink-0" aria-hidden />
+              {t('prManager.board.statusChangedBadge')}
+            </Badge>
+          </div>
+        </TooltipTrigger>
+        <TooltipContent side="top" className="max-w-[320px] text-xs">
+          <p className="leading-snug">{statusTooltip}</p>
+        </TooltipContent>
+      </Tooltip>
+    </div>
   )
 }
 
@@ -772,9 +820,8 @@ export function PrBoard({ projectId, userId, repos, templates, tracked, loading,
   const syncLogActiveRef = useRef(false)
   const lastSyncLogAtRef = useRef(0)
   const lastLoggedPercentRef = useRef(-1)
-  /** Snapshot trạng thái ô pr_* ngay trước sync thủ công — so sánh sau khi refresh tracked. */
-  const preSyncStatusSnapshotRef = useRef<Map<string, string> | null>(null)
-  const postSyncStatusComparePendingRef = useRef(false)
+  /** Sync thủ công lần đầu (chưa có baseline): ghi mốc ban đầu sau khi `tracked` refresh. */
+  const pendingSeedBaselineIfMissingRef = useRef(false)
   const [statusChangedKeys, setStatusChangedKeys] = useState<Set<string>>(() => new Set())
   const statusChangeDetailsRef = useRef<Map<string, PrCheckpointStatusChangeDetail>>(new Map())
   const [prBoardHoveredRowId, setPrBoardHoveredRowId] = useState<string | null>(null)
@@ -1477,10 +1524,6 @@ export function PrBoard({ projectId, userId, repos, templates, tracked, loading,
 
       if (!isIdle) {
         if (!opLog.startOperation('prManager.operationLog.titleSyncGithub', undefined, { silent: true })) return
-        preSyncStatusSnapshotRef.current = buildPrCheckpointStatusSnapshot(tracked, activeTemplates)
-        postSyncStatusComparePendingRef.current = false
-        setStatusChangedKeys(new Set())
-        statusChangeDetailsRef.current = new Map()
       }
 
       syncLogActiveRef.current = !isIdle
@@ -1561,8 +1604,8 @@ export function PrBoard({ projectId, userId, repos, templates, tracked, loading,
             await Promise.resolve(onRefresh())
             setSelectedRowIds(new Set())
           }
-          if (!isIdle && preSyncStatusSnapshotRef.current) {
-            postSyncStatusComparePendingRef.current = true
+          if (!isIdle && !readPrBoardStatusBaseline(uid, projectId)) {
+            pendingSeedBaselineIfMissingRef.current = true
           }
           repoBaseInsightsKeyRef.current = null
           setRepoBaseInsightsTick(v => v + 1)
@@ -1592,15 +1635,35 @@ export function PrBoard({ projectId, userId, repos, templates, tracked, loading,
   )
 
   useEffect(() => {
-    if (!postSyncStatusComparePendingRef.current) return
-    const baseline = preSyncStatusSnapshotRef.current
-    if (!baseline) return
-    postSyncStatusComparePendingRef.current = false
-    preSyncStatusSnapshotRef.current = null
+    const uid = userId?.trim()
+    if (!uid || !projectId) return
+    if (activeTemplates.length === 0) return
+
+    if (pendingSeedBaselineIfMissingRef.current) {
+      pendingSeedBaselineIfMissingRef.current = false
+      if (!readPrBoardStatusBaseline(uid, projectId)) {
+        writePrBoardStatusBaseline(uid, projectId, buildPrCheckpointStatusSnapshot(tracked, activeTemplates))
+      }
+    }
+
+    const baseline = readPrBoardStatusBaseline(uid, projectId)
+    if (!baseline) {
+      setStatusChangedKeys(new Set())
+      statusChangeDetailsRef.current = new Map()
+      return
+    }
     const { changedKeys, details } = diffPrCheckpointStatusSnapshot(baseline, tracked, activeTemplates)
     statusChangeDetailsRef.current = details
     setStatusChangedKeys(changedKeys)
-  }, [activeTemplates, tracked])
+  }, [activeTemplates, projectId, tracked, userId])
+
+  const handleDismissStatusChanges = useCallback(() => {
+    const uid = userId?.trim()
+    if (!uid || !projectId) return
+    writePrBoardStatusBaseline(uid, projectId, buildPrCheckpointStatusSnapshot(tracked, activeTemplates))
+    setStatusChangedKeys(new Set())
+    statusChangeDetailsRef.current = new Map()
+  }, [activeTemplates, projectId, tracked, userId])
 
   const handlePruneStaleDryRun = useCallback(async () => {
     if (!userId?.trim()) {
@@ -1815,6 +1878,26 @@ export function PrBoard({ projectId, userId, repos, templates, tracked, loading,
               ) : null}
             </TooltipContent>
           </Tooltip>
+          {statusChangedKeys.size > 0 ? (
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="outline"
+                  className="h-8 gap-1 border-emerald-500/60 bg-emerald-50/80 text-emerald-800 shadow-none hover:bg-emerald-100/90 hover:text-emerald-900 dark:border-emerald-500/45 dark:bg-emerald-950/30 dark:text-emerald-100 dark:hover:bg-emerald-950/50"
+                  onClick={handleDismissStatusChanges}
+                  aria-label={t('prManager.board.statusChangesDismissAria', { count: statusChangedKeys.size })}
+                >
+                  <ListChecks className="h-3.5 w-3.5 shrink-0" />
+                  <span className="text-xs font-medium">{t('prManager.board.statusChangesDismiss')}</span>
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent side="bottom" className="max-w-xs text-xs">
+                {t('prManager.board.statusChangesDismissHelp', { count: statusChangedKeys.size })}
+              </TooltipContent>
+            </Tooltip>
+          ) : null}
           <div className="border-l border-border/60 pl-2">
             <Tooltip>
               <TooltipTrigger asChild>
@@ -2662,7 +2745,7 @@ export function PrBoard({ projectId, userId, repos, templates, tracked, loading,
                                     <TooltipContent side="right" className="max-w-xs space-y-1 text-xs">
                                       <p>{t('prManager.board.syncRepoFromGithubTitle')}</p>
                                       {repoHasStatusChange ? (
-                                        <p className="text-amber-800 dark:text-amber-200">
+                                        <p className="text-emerald-800 dark:text-emerald-200">
                                           {t('prManager.board.syncRepoStatusChangedHint', { count: repoStatusChangeCount })}
                                         </p>
                                       ) : null}
@@ -2744,7 +2827,7 @@ export function PrBoard({ projectId, userId, repos, templates, tracked, loading,
                               <TooltipContent side="top" className="max-w-xs space-y-1 text-xs">
                                 <p>{t('prManager.board.syncBranchFromGithubTitle')}</p>
                                 {branchHasStatusChange ? (
-                                  <p className="text-amber-800 dark:text-amber-200">
+                                  <p className="text-emerald-800 dark:text-emerald-200">
                                     {t('prManager.board.syncBranchStatusChangedHint', { count: branchStatusChangeCount })}
                                   </p>
                                 ) : null}
@@ -2788,10 +2871,22 @@ export function PrBoard({ projectId, userId, repos, templates, tracked, loading,
                         {activeTemplates.map(tpl => {
                           const cp = getCheckpoint(row, tpl)
                           const isMergeKind = tpl.code.toLowerCase().startsWith('merge_')
-                          const isPrKind = tpl.code.toLowerCase().startsWith('pr_')
                           const companionPrCp = isMergeKind ? findCompanionPrCheckpoint(row, tpl) : null
-                          const cellKey = prCheckpointCellKey(row.id, tpl.id)
-                          const statusChangeDetail = isPrKind ? statusChangeDetailsRef.current.get(cellKey) : undefined
+                          const companionPrTplForMerge = isMergeKind
+                            ? activeTemplates.find(
+                                activeTpl =>
+                                  activeTpl.code.toLowerCase().startsWith('pr_') && activeTpl.targetBranch === tpl.targetBranch
+                              )
+                            : null
+                          const statusChangePrCellKey =
+                            companionPrTplForMerge != null ? prCheckpointCellKey(row.id, companionPrTplForMerge.id) : null
+                          const mergeHasStatusChange = Boolean(
+                            isMergeKind && statusChangePrCellKey != null && statusChangedKeys.has(statusChangePrCellKey)
+                          )
+                          const statusChangeDetail =
+                            mergeHasStatusChange && statusChangePrCellKey != null
+                              ? statusChangeDetailsRef.current.get(statusChangePrCellKey)
+                              : undefined
                           return (
                             <TableCell
                               key={tpl.id}
@@ -2808,7 +2903,7 @@ export function PrBoard({ projectId, userId, repos, templates, tracked, loading,
                                 tpl={tpl}
                                 cp={cp}
                                 companionPrCp={companionPrCp}
-                                hasStatusChange={isPrKind && statusChangedKeys.has(cellKey)}
+                                hasStatusChange={mergeHasStatusChange}
                                 statusChangeDetail={statusChangeDetail}
                                 cellVisualStyle={prMergeCellStyle}
                                 rowPrRepo={repos.find(r => r.id === row.repoId) ?? null}
@@ -3378,6 +3473,11 @@ function CheckpointCell({
   const ghostNoDefaultHover = cellVisualStyle >= 3 ? 'bg-transparent dark:bg-transparent hover:!bg-transparent dark:hover:!bg-transparent' : undefined
 
   if (isMergeKind) {
+    const wrapMerge = (node: React.ReactNode) => (
+      <MergeStatusChangeChrome hasStatusChange={hasStatusChange} statusChangeDetail={statusChangeDetail}>
+        {node}
+      </MergeStatusChangeChrome>
+    )
     const mergedOnRecord = Boolean(cp?.mergedAt)
     const mergedOnGithub = companionPrCp?.ghPrMerged === true
     const showMergedCell = mergedOnRecord || mergedOnGithub
@@ -3392,7 +3492,7 @@ function CheckpointCell({
             ? formatDistanceToNow(new Date(companionPrCp.ghPrUpdatedAt), { addSuffix: true, locale: dateLoc })
             : null
       const detail = [when, cp?.mergedBy ? t('prManager.board.mergedBy', { name: cp.mergedBy }) : null].filter(Boolean).join(' · ')
-      return (
+      return wrapMerge(
         <div className="flex w-full min-w-0 items-stretch gap-0.5">
           <div
             className={vs(
@@ -3426,7 +3526,7 @@ function CheckpointCell({
     if (companionPrCp?.prNumber != null && companionPrCp.ghPrDraft === true && companionPrCp.ghPrMerged !== true && companionPrCp.ghPrState !== 'closed') {
       const draftN = companionPrCp.prNumber
       const canOpen = Boolean(onOpenPrInApp && rowPrRepo)
-      return (
+      return wrapMerge(
         <div className="flex w-full min-w-0 items-stretch gap-0.5">
           <button
             type="button"
@@ -3458,7 +3558,7 @@ function CheckpointCell({
       const MIcon = mergeUi.icon
       const blockN = companionPrCp.prNumber
       const canOpen = Boolean(onOpenPrInApp && rowPrRepo && blockN != null)
-      return (
+      return wrapMerge(
         <div className="flex w-full min-w-0 items-stretch gap-0.5">
           <button
             type="button"
@@ -3494,7 +3594,7 @@ function CheckpointCell({
     // C\u00f3 PR \u0111ang m\u1edf (s\u1eb5n s\u00e0ng merge) \u2192 n\u00fat Merge
     const canMerge = Boolean(hasCompanionForMerge && mergeUi && !mergeUi.blockMerge)
     if (canMerge) {
-      return (
+      return wrapMerge(
         <div className="flex w-full min-w-0 items-stretch gap-0.5">
           <div className={vs(cn('flex min-w-0 flex-1 items-center justify-center rounded-md', GH_PR_SURFACE_BG.ready, CELL_CTRL_H))}>
             <Button
@@ -3523,7 +3623,7 @@ function CheckpointCell({
     if (companionPrCp?.prNumber != null && companionPrCp.ghPrState === 'closed' && companionPrCp.ghPrMerged !== true) {
       const closedN = companionPrCp.prNumber
       const canOpen = Boolean(onOpenPrInApp && rowPrRepo)
-      return (
+      return wrapMerge(
         <div className="flex w-full min-w-0 items-stretch gap-0.5">
           <button
             type="button"
@@ -3546,7 +3646,7 @@ function CheckpointCell({
       )
     }
     // Ch\u01b0a c\u00f3 PR c\u00f9ng target \u2192 hi\u1ec3n \u201cCh\u1edd PR\u201d
-    return (
+    return wrapMerge(
       <div
         className={vs(cn('flex w-full items-center justify-center gap-1 rounded-md bg-zinc-400/10 text-zinc-700 dark:bg-zinc-500/12 dark:text-zinc-200', CELL_CTRL_H, CELL_TXT))}
       >
@@ -3562,15 +3662,6 @@ function CheckpointCell({
     const surface = ghPrSurfaceClasses(cp)
     const openMergeText = ghPrContentTextClass(cp, t)
     const canOpenInApp = Boolean(onOpenPrInApp && rowPrRepo)
-    const statusChangeTitle =
-      hasStatusChange && statusChangeDetail
-        ? t('prManager.board.statusChangedTooltip', {
-            before: formatPrCheckpointStatusFingerprint(statusChangeDetail.before, t),
-            after: formatPrCheckpointStatusFingerprint(statusChangeDetail.after, t),
-          })
-        : hasStatusChange
-          ? t('prManager.board.statusChangedBadge')
-          : undefined
     return (
       <div className="relative flex w-full min-w-0 items-stretch">
         <Tooltip>
@@ -3583,8 +3674,7 @@ function CheckpointCell({
                   CELL_TXT,
                   'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/60',
                   surface,
-                  openMergeText,
-                  hasStatusChange && 'ring-1 ring-amber-400/55 dark:ring-amber-300/40'
+                  openMergeText
                 )
               )}
               title={titleText}
@@ -3620,24 +3710,7 @@ function CheckpointCell({
               )}
             </div>
           </TooltipTrigger>
-          {hasStatusChange ? (
-            <Badge
-              variant="outline"
-              title={statusChangeTitle}
-              className="pointer-events-none absolute -right-0.5 -top-1 z-[1] h-4 border-amber-400/70 bg-amber-400/20 px-1 py-0 text-[9px] font-semibold leading-none text-amber-950 dark:border-amber-300/50 dark:bg-amber-400/25 dark:text-amber-50"
-            >
-              {t('prManager.board.statusChangedBadge')}
-            </Badge>
-          ) : null}
           <TooltipContent side="top" className="max-w-[340px] space-y-1 text-xs">
-            {hasStatusChange && statusChangeDetail ? (
-              <div className="rounded border border-amber-400/40 bg-amber-400/10 px-2 py-1 text-amber-950 dark:text-amber-50">
-                {t('prManager.board.statusChangedTooltip', {
-                  before: formatPrCheckpointStatusFingerprint(statusChangeDetail.before, t),
-                  after: formatPrCheckpointStatusFingerprint(statusChangeDetail.after, t),
-                })}
-              </div>
-            ) : null}
             <div className="flex items-center gap-1.5 font-medium leading-snug">
               <PrStatusIcon cp={cp} className="h-3.5 w-3.5 shrink-0" />
               {cp.ghPrMerged === true
@@ -3709,47 +3782,26 @@ function CheckpointCell({
       </div>
     )
   }
-  const statusChangeTitleEmpty =
-    hasStatusChange && statusChangeDetail
-      ? t('prManager.board.statusChangedTooltip', {
-          before: formatPrCheckpointStatusFingerprint(statusChangeDetail.before, t),
-          after: formatPrCheckpointStatusFingerprint(statusChangeDetail.after, t),
-        })
-      : hasStatusChange
-        ? t('prManager.board.statusChangedBadge')
-        : undefined
   return (
-    <div className="relative w-full min-w-0">
-      <Button
-        type="button"
-        variant="ghost"
-        size="xs"
-        onClick={onCreatePR}
-        className={cn(
-          vs(
-            stripBtn(
-              cn(
-                'w-full rounded-md border-0 bg-zinc-400/10 text-zinc-700 shadow-none hover:bg-zinc-400/14 dark:bg-zinc-500/12 dark:text-zinc-200 dark:hover:bg-zinc-500/18',
-                CELL_CTRL_H,
-                CELL_TXT,
-                hasStatusChange && 'ring-1 ring-amber-400/55 dark:ring-amber-300/40'
-              )
+    <Button
+      type="button"
+      variant="ghost"
+      size="xs"
+      onClick={onCreatePR}
+      className={cn(
+        vs(
+          stripBtn(
+            cn(
+              'w-full rounded-md border-0 bg-zinc-400/10 text-zinc-700 shadow-none hover:bg-zinc-400/14 dark:bg-zinc-500/12 dark:text-zinc-200 dark:hover:bg-zinc-500/18',
+              CELL_CTRL_H,
+              CELL_TXT
             )
-          ),
-          ghostNoDefaultHover
-        )}
-      >
-        <GitPullRequestCreate className="h-3.5 w-3.5 shrink-0 text-zinc-500 dark:text-zinc-400" /> {t('prManager.board.createPrCell')}
-      </Button>
-      {hasStatusChange ? (
-        <Badge
-          variant="outline"
-          title={statusChangeTitleEmpty}
-          className="pointer-events-none absolute -right-0.5 -top-1 z-[1] h-4 border-amber-400/70 bg-amber-400/20 px-1 py-0 text-[9px] font-semibold leading-none text-amber-950 dark:border-amber-300/50 dark:bg-amber-400/25 dark:text-amber-50"
-        >
-          {t('prManager.board.statusChangedBadge')}
-        </Badge>
-      ) : null}
-    </div>
+          )
+        ),
+        ghostNoDefaultHover
+      )}
+    >
+      <GitPullRequestCreate className="h-3.5 w-3.5 shrink-0 text-zinc-500 dark:text-zinc-400" /> {t('prManager.board.createPrCell')}
+    </Button>
   )
 }

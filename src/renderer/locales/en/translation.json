@@ -4043,7 +4043,10 @@
       "waitingForPr": "Waiting for PR",
       "created": "Created",
       "statusChangedBadge": "Changed",
-      "statusChangedTooltip": "Status changed after sync: {{before}} → {{after}}",
+      "statusChangedTooltip": "Status changed since last review: {{before}} → {{after}}",
+      "statusChangesDismiss": "Mark reviewed",
+      "statusChangesDismissAria": "Mark {{count}} status change(s) as reviewed",
+      "statusChangesDismissHelp": "Save current PR statuses as the baseline and hide {{count}} change highlight(s) until they differ again.",
       "statusFpNoPr": "No PR",
       "syncRepoStatusChangedHint": "{{count}} PR column(s) changed in this repo after the last sync.",
       "syncRepoStatusChangedAria": "Sync this repo — {{count}} PR status change(s) since last sync",
@@ -4345,6 +4348,8 @@
     },
     "catalog": {
       "title": "Catalog",
+      "flowCount": "{{count}} flow(s)",
+      "emptyFlows": "No flows yet. Add one to organize cases.",
       "railAria": "Pages and flows",
       "breadcrumbAria": "Case location",
       "breadcrumbProject": "Project",
@@ -4370,6 +4375,7 @@
       "deleteFailed": "Could not delete",
       "filterByGroup": "Group scope",
       "allGroups": "All groups",
+      "ungroupedPages": "Ungrouped",
       "emptyPagesInGroup": "No pages in this group.",
       "errors": {
         "pageName": "Enter a page name",

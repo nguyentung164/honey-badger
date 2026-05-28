@@ -189,7 +189,7 @@ export function RunsView({ project }: Props) {
       </div>
 
       <div className="grid min-h-0 flex-1 grid-cols-[minmax(240px,280px)_1fr] gap-3">
-        <div className="flex min-h-0 flex-col overflow-hidden rounded-md bg-muted/10 shadow-sm dark:bg-muted/5">
+        <div className="flex min-h-0 flex-col overflow-hidden rounded-md border border-border bg-muted/10 shadow-sm dark:bg-muted/5">
           <div className="flex shrink-0 items-center justify-between gap-2 border-b border-border/50 bg-muted/85 px-2.5 py-2 dark:bg-muted/55">
             <span className="text-xs font-semibold uppercase tracking-wide text-foreground/90">{t('automation.runs.history')}</span>
             <Tooltip delayDuration={300}>
