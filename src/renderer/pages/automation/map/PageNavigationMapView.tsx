@@ -748,11 +748,10 @@ export function PageNavigationMapView({ projectId, project, onOpenCasesForPage, 
   const [addGroupName, setAddGroupName] = useState('')
   const [deleteGroupTarget, setDeleteGroupTarget] = useState<string | null>(null)
 
-  const [renameOpen, setRenameOpen] = useState(false)
-  const [renameName, setRenameName] = useState('')
-  const [metaOpen, setMetaOpen] = useState(false)
-  const [metaSlug, setMetaSlug] = useState('')
-  const [metaDesc, setMetaDesc] = useState('')
+  const [editPageOpen, setEditPageOpen] = useState(false)
+  const [editPageName, setEditPageName] = useState('')
+  const [editPageSlug, setEditPageSlug] = useState('')
+  const [editPageDesc, setEditPageDesc] = useState('')
   const [ctxPageId, setCtxPageId] = useState<string | null>(null)
 
   const [deleteOpen, setDeleteOpen] = useState(false)
@@ -2646,24 +2645,14 @@ export function PageNavigationMapView({ projectId, project, onOpenCasesForPage, 
               type="button"
               className="flex w-full px-3 py-1.5 text-left hover:bg-accent"
               onClick={() => {
-                setRenameName(ctxPage.name)
-                setRenameOpen(true)
+                setEditPageName(ctxPage.name)
+                setEditPageSlug(ctxPage.slug ?? '')
+                setEditPageDesc(ctxPage.description ?? '')
+                setEditPageOpen(true)
                 setFloatMenu(null)
               }}
             >
-              {t('automation.pageMap.renamePage')}
-            </button>
-            <button
-              type="button"
-              className="flex w-full px-3 py-1.5 text-left hover:bg-accent"
-              onClick={() => {
-                setMetaSlug(ctxPage.slug ?? '')
-                setMetaDesc(ctxPage.description ?? '')
-                setMetaOpen(true)
-                setFloatMenu(null)
-              }}
-            >
-              {t('automation.pageMap.editPageMeta')}
+              {t('automation.pageMap.editPage')}
             </button>
             {ctxPage.groupId ? (
               <button
@@ -2987,70 +2976,49 @@ export function PageNavigationMapView({ projectId, project, onOpenCasesForPage, 
         </AlertDialogContent>
       </AlertDialog>
 
-      <Dialog open={renameOpen} onOpenChange={setRenameOpen}>
-        <DialogContent className="max-w-sm">
-          <DialogHeader>
-            <DialogTitle>{t('automation.pageMap.renamePageTitle')}</DialogTitle>
-          </DialogHeader>
-          <Input value={renameName} onChange={e => setRenameName(e.target.value)} />
-          <DialogFooter>
-            <Button variant="ghost" size="sm" onClick={() => setRenameOpen(false)}>
-              {t('automation.common.cancel')}
-            </Button>
-            <Button
-              size="sm"
-              onClick={() => {
-                if (!ctxPageId || !renameName.trim()) return
-                void trackPageMapPersist(async () => {
-                  const res = await window.api.automation.catalogPage.update({ id: ctxPageId, patch: { name: renameName.trim() } })
-                  if (res.status === 'success') {
-                    setRenameOpen(false)
-                    await loadGraph()
-                  } else toast.error(res.message ?? '')
-                  return res
-                })()
-              }}
-            >
-              {t('automation.common.save')}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-
-      <Dialog open={metaOpen} onOpenChange={setMetaOpen}>
+      <Dialog open={editPageOpen} onOpenChange={setEditPageOpen}>
         <DialogContent className="max-w-md">
           <DialogHeader>
-            <DialogTitle>{t('automation.pageMap.editPageMetaTitle')}</DialogTitle>
+            <DialogTitle>{t('automation.pageMap.editPageTitle')}</DialogTitle>
           </DialogHeader>
           <div className="grid gap-2">
             <div className="grid gap-1">
-              <Label>{t('automation.pageMap.fieldSlug')}</Label>
-              <Input value={metaSlug} onChange={e => setMetaSlug(e.target.value)} />
+              <Label htmlFor="edit-page-map-name">{t('automation.pageMap.fieldName')}</Label>
+              <Input id="edit-page-map-name" value={editPageName} onChange={e => setEditPageName(e.target.value)} />
             </div>
             <div className="grid gap-1">
-              <Label>{t('automation.pageMap.fieldDescription')}</Label>
-              <Textarea rows={3} value={metaDesc} onChange={e => setMetaDesc(e.target.value)} />
+              <Label htmlFor="edit-page-map-slug">{t('automation.pageMap.fieldSlug')}</Label>
+              <Input id="edit-page-map-slug" value={editPageSlug} onChange={e => setEditPageSlug(e.target.value)} />
+            </div>
+            <div className="grid gap-1">
+              <Label htmlFor="edit-page-map-desc">{t('automation.pageMap.fieldDescription')}</Label>
+              <Textarea id="edit-page-map-desc" rows={3} value={editPageDesc} onChange={e => setEditPageDesc(e.target.value)} />
             </div>
           </div>
           <DialogFooter>
-            <Button variant="ghost" size="sm" onClick={() => setMetaOpen(false)}>
+            <Button variant="ghost" size="sm" onClick={() => setEditPageOpen(false)}>
               {t('automation.common.cancel')}
             </Button>
             <Button
               size="sm"
+              disabled={!editPageName.trim()}
               onClick={() => {
-                if (!ctxPageId) return
-                if (metaSlug.trim() && !isValidCatalogSlug(metaSlug)) {
+                if (!ctxPageId || !editPageName.trim()) return
+                if (editPageSlug.trim() && !isValidCatalogSlug(editPageSlug)) {
                   toast.error(t('automation.pageMap.slugInvalid'))
                   return
                 }
                 void trackPageMapPersist(async () => {
                   const res = await window.api.automation.catalogPage.update({
                     id: ctxPageId,
-                    patch: { slug: metaSlug.trim() || undefined, description: metaDesc.trim() || undefined },
+                    patch: {
+                      name: editPageName.trim(),
+                      slug: editPageSlug.trim() || undefined,
+                      description: editPageDesc.trim() || undefined,
+                    },
                   })
                   if (res.status === 'success') {
-                    setMetaOpen(false)
+                    setEditPageOpen(false)
                     await loadGraph()
                   } else toast.error(res.message ?? '')
                   return res

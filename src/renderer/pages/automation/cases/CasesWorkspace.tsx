@@ -1,6 +1,6 @@
 'use client'
 
-import { ChevronRight, FileText, FolderTree, GitBranch, Plus, Trash2 } from 'lucide-react'
+import { ChevronRight, FileText, FolderTree, GitBranch, Pencil, Plus, Trash2 } from 'lucide-react'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import type { TestCatalogGroup, TestCatalogPage, TestFlow } from 'shared/automation/types'
@@ -27,10 +27,12 @@ import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from '
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { ScrollArea } from '@/components/ui/scroll-area'
+import { Textarea } from '@/components/ui/textarea'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import toast from '@/components/ui-elements/Toast'
 import { cn } from '@/lib/utils'
 import { filterPagesByCatalogGroupSubtree } from '@/pages/automation/map/pageMapGraph'
+import { isValidCatalogSlug } from '@/pages/automation/map/pageMapLayout'
 import { catalogHierarchyBadgeClass, catalogHierarchyIconClass, catalogBreadcrumbAnimateClass, catalogHierarchyTone } from './catalogHierarchyStyles'
 import { CaseTable } from './CaseTable'
 
@@ -105,6 +107,13 @@ export function CasesWorkspace({ projectId, projectName, initialCatalogPageId, i
   const [loading, setLoading] = useState(true)
   const [newPageOpen, setNewPageOpen] = useState(false)
   const [newPageName, setNewPageName] = useState('')
+  const [newPageSlug, setNewPageSlug] = useState('')
+  const [newPageDesc, setNewPageDesc] = useState('')
+  const [editPageOpen, setEditPageOpen] = useState(false)
+  const [editPageTarget, setEditPageTarget] = useState<TestCatalogPage | null>(null)
+  const [editPageName, setEditPageName] = useState('')
+  const [editPageSlug, setEditPageSlug] = useState('')
+  const [editPageDesc, setEditPageDesc] = useState('')
   const [newFlowOpen, setNewFlowOpen] = useState(false)
   const [newFlowName, setNewFlowName] = useState('')
   const [deletePageTarget, setDeletePageTarget] = useState<TestCatalogPage | null>(null)
@@ -219,15 +228,35 @@ export function CasesWorkspace({ projectId, projectName, initialCatalogPageId, i
     }
   }, [catalogGroupFilterId, loading, filteredPages, pageId, selectPage])
 
+  const resetNewPageForm = () => {
+    setNewPageName('')
+    setNewPageSlug('')
+    setNewPageDesc('')
+  }
+
+  const openEditPage = (p: TestCatalogPage) => {
+    setEditPageTarget(p)
+    setEditPageName(p.name)
+    setEditPageSlug(p.slug ?? '')
+    setEditPageDesc(p.description ?? '')
+    setEditPageOpen(true)
+  }
+
   const handleCreatePage = async () => {
     const name = newPageName.trim()
     if (!name) {
       toast.error(t('automation.catalog.errors.pageName'))
       return
     }
+    if (newPageSlug.trim() && !isValidCatalogSlug(newPageSlug)) {
+      toast.error(t('automation.pageMap.slugInvalid'))
+      return
+    }
     const res = await window.api.automation.catalogPage.create({
       projectId,
       name,
+      slug: newPageSlug.trim() || undefined,
+      description: newPageDesc.trim() || undefined,
       sortOrder: pages.length,
     })
     if (res.status !== 'success' || !res.data) {
@@ -236,9 +265,38 @@ export function CasesWorkspace({ projectId, projectName, initialCatalogPageId, i
     }
     toast.success(t('automation.catalog.pageCreated'))
     setNewPageOpen(false)
-    setNewPageName('')
+    resetNewPageForm()
     pageIdRef.current = res.data.id
     flowIdRef.current = null
+    await refreshCatalog()
+  }
+
+  const handleUpdatePage = async () => {
+    if (!editPageTarget) return
+    const name = editPageName.trim()
+    if (!name) {
+      toast.error(t('automation.catalog.errors.pageName'))
+      return
+    }
+    if (editPageSlug.trim() && !isValidCatalogSlug(editPageSlug)) {
+      toast.error(t('automation.pageMap.slugInvalid'))
+      return
+    }
+    const res = await window.api.automation.catalogPage.update({
+      id: editPageTarget.id,
+      patch: {
+        name,
+        slug: editPageSlug.trim() || undefined,
+        description: editPageDesc.trim() || undefined,
+      },
+    })
+    if (res.status !== 'success') {
+      toast.error(res.message ?? t('automation.catalog.pageUpdateFailed'))
+      return
+    }
+    toast.success(t('automation.catalog.pageUpdated'))
+    setEditPageOpen(false)
+    setEditPageTarget(null)
     await refreshCatalog()
   }
 
@@ -330,6 +388,16 @@ export function CasesWorkspace({ projectId, projectName, initialCatalogPageId, i
                 </span>
               </button>
             </CollapsibleTrigger>
+            <Button
+              type="button"
+              variant="ghost"
+              size="sm"
+              className="mr-0.5 h-7 w-7 shrink-0 p-0 text-muted-foreground opacity-0 transition-opacity hover:bg-muted hover:text-foreground group-hover:opacity-100 group-focus-within:opacity-100"
+              onClick={() => openEditPage(p)}
+              aria-label={t('automation.catalog.editPage')}
+            >
+              <Pencil className="size-3.5" />
+            </Button>
             <Button
               type="button"
               variant="ghost"
@@ -538,20 +606,72 @@ export function CasesWorkspace({ projectId, projectName, initialCatalogPageId, i
         </div>
       </div>
 
-      <Dialog open={newPageOpen} onOpenChange={setNewPageOpen}>
-        <DialogContent className="max-w-sm">
+      <Dialog
+        open={newPageOpen}
+        onOpenChange={open => {
+          setNewPageOpen(open)
+          if (!open) resetNewPageForm()
+        }}
+      >
+        <DialogContent className="max-w-md">
           <DialogHeader>
             <DialogTitle>{t('automation.catalog.newPageTitle')}</DialogTitle>
           </DialogHeader>
           <div className="grid gap-2">
-            <Label htmlFor="new-page-name">{t('common.name')}</Label>
-            <Input id="new-page-name" value={newPageName} onChange={e => setNewPageName(e.target.value)} placeholder={t('automation.catalog.pageNamePlaceholder')} />
+            <div className="grid gap-1">
+              <Label htmlFor="new-page-name">{t('automation.pageMap.fieldName')}</Label>
+              <Input id="new-page-name" value={newPageName} onChange={e => setNewPageName(e.target.value)} placeholder={t('automation.catalog.pageNamePlaceholder')} />
+            </div>
+            <div className="grid gap-1">
+              <Label htmlFor="new-page-slug">{t('automation.pageMap.fieldSlug')}</Label>
+              <Input id="new-page-slug" value={newPageSlug} onChange={e => setNewPageSlug(e.target.value)} />
+            </div>
+            <div className="grid gap-1">
+              <Label htmlFor="new-page-desc">{t('automation.pageMap.fieldDescription')}</Label>
+              <Textarea id="new-page-desc" rows={3} value={newPageDesc} onChange={e => setNewPageDesc(e.target.value)} />
+            </div>
           </div>
           <DialogFooter>
             <Button type="button" variant="outline" onClick={() => setNewPageOpen(false)}>
               {t('automation.common.cancel')}
             </Button>
-            <Button type="button" onClick={() => void handleCreatePage()}>
+            <Button type="button" onClick={() => void handleCreatePage()} disabled={!newPageName.trim()}>
+              {t('automation.common.save')}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog
+        open={editPageOpen}
+        onOpenChange={open => {
+          setEditPageOpen(open)
+          if (!open) setEditPageTarget(null)
+        }}
+      >
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>{t('automation.catalog.editPageTitle')}</DialogTitle>
+          </DialogHeader>
+          <div className="grid gap-2">
+            <div className="grid gap-1">
+              <Label htmlFor="edit-page-name">{t('automation.pageMap.fieldName')}</Label>
+              <Input id="edit-page-name" value={editPageName} onChange={e => setEditPageName(e.target.value)} />
+            </div>
+            <div className="grid gap-1">
+              <Label htmlFor="edit-page-slug">{t('automation.pageMap.fieldSlug')}</Label>
+              <Input id="edit-page-slug" value={editPageSlug} onChange={e => setEditPageSlug(e.target.value)} />
+            </div>
+            <div className="grid gap-1">
+              <Label htmlFor="edit-page-desc">{t('automation.pageMap.fieldDescription')}</Label>
+              <Textarea id="edit-page-desc" rows={3} value={editPageDesc} onChange={e => setEditPageDesc(e.target.value)} />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button type="button" variant="outline" onClick={() => setEditPageOpen(false)}>
+              {t('automation.common.cancel')}
+            </Button>
+            <Button type="button" onClick={() => void handleUpdatePage()} disabled={!editPageName.trim()}>
               {t('automation.common.save')}
             </Button>
           </DialogFooter>

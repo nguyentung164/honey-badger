@@ -4,7 +4,6 @@ import { formatDistanceToNow } from 'date-fns'
 import type { TFunction } from 'i18next'
 import {
   ArrowDownToLine,
-  ArrowRightLeft,
   BrushCleaning,
   ChevronDown,
   ChevronLeft,
@@ -30,6 +29,7 @@ import {
   Sparkles,
   Trash2,
   UserPlus,
+  CircleAlert,
 } from 'lucide-react'
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react'
 import { useTranslation } from 'react-i18next'
@@ -458,15 +458,15 @@ function PrSyncStatusChangeDot({ title }: { title: string }) {
       role="img"
       aria-label={title}
       title={title}
-      className="pointer-events-none absolute -right-0.5 -top-0.5 z-[1] h-2 w-2 rounded-full bg-emerald-500 ring-2 ring-background dark:bg-emerald-400"
+      className="pointer-events-none absolute right-0.5 top-0.5 z-[1] h-2 w-2 rounded-full bg-lime-500 ring-2 ring-background dark:bg-lime-400"
     />
   )
 }
 
-const MERGE_STATUS_CHANGE_FRAME_CLASS = 'rounded-md border border-dashed border-emerald-500/70 dark:border-emerald-400/55'
+const MERGE_STATUS_CHANGE_FRAME_CLASS = 'rounded-md border border-dashed border-lime-500/70 dark:border-lime-400/55'
 
 const MERGE_STATUS_CHANGE_BADGE_CLASS =
-  'absolute -right-0.5 -top-1 z-[1] h-4 gap-0.5 border-0 bg-emerald-500/12 px-1 py-0 text-[9px] font-semibold leading-none text-emerald-700 shadow-none dark:bg-emerald-400/15 dark:text-emerald-50'
+  'absolute -right-1 -top-1 z-[1] w-5 h-5 border-0 px-0! py-0! text-lime-700 shadow-none dark:text-lime-500'
 
 function MergeStatusChangeChrome({
   hasStatusChange,
@@ -495,8 +495,7 @@ function MergeStatusChangeChrome({
           <div className="relative w-full min-w-0 cursor-default">
             <div className={cn('w-full min-w-0', MERGE_STATUS_CHANGE_FRAME_CLASS)}>{children}</div>
             <Badge variant="secondary" className={MERGE_STATUS_CHANGE_BADGE_CLASS}>
-              <ArrowRightLeft className="h-2.5 w-2.5 shrink-0" aria-hidden />
-              {t('prManager.board.statusChangedBadge')}
+              <CircleAlert size={20} strokeWidth={2.25} className="shrink-0" aria-hidden />
             </Badge>
           </div>
         </TooltipTrigger>
