@@ -5,6 +5,8 @@ export type DevPipelineNodeToolbarActions = {
   duplicateStep: (id: string) => void
   deleteStep: (id: string) => void
   runThisStep: (stepId: string) => void
+  runFlowFromStep: (stepId: string) => void
+  toggleExecutionDisabled: (stepId: string) => void
   canRunStep: boolean
   canDeleteStep: boolean
 }

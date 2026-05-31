@@ -49,6 +49,15 @@ import type { CSSProperties } from 'react'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import type { PanelImperativeHandle } from 'react-resizable-panels'
+import {
+  assignRunOrderForNewEdge,
+  normalizeAllRunOrders,
+  normalizeRunOrdersForSource,
+  resolvedRunOrderByEdgeId,
+  swapRunOrderForEdge,
+  type FlowExecEdge,
+} from 'shared/flowExecution'
+import { runOrderFanPlacementForEdge } from 'shared/flowEdgeRunOrderLayout'
 import { buildNodeDataFromSnippetNode, buildNodeDataFromTemplate } from 'shared/devPipelines/applyNodeTemplate'
 import {
   PIPELINE_GROUP_DEFAULT_H,
@@ -191,6 +200,7 @@ function graphToRf(graph: DevPipelineGraphJson): { nodes: Node[]; edges: Edge[] 
         label: e.data?.label ?? '',
         connectionStyle: e.data?.connectionStyle,
         condition: e.data?.condition,
+        runOrder: e.data?.runOrder,
       },
     }
   })
@@ -213,7 +223,12 @@ function rfToGraph(nodes: Node[], edges: Edge[], viewport?: { x: number; y: numb
     }
   })
   const outEdges: DevPipelinePersistedEdge[] = edges.map(e => {
-    const d = (e.data ?? {}) as { connectionStyle?: Partial<FlowConnectionStyle>; label?: string; condition?: DevPipelineEdgeCondition }
+    const d = (e.data ?? {}) as {
+      connectionStyle?: Partial<FlowConnectionStyle>
+      label?: string
+      condition?: DevPipelineEdgeCondition
+      runOrder?: number
+    }
     const row: DevPipelinePersistedEdge = {
       id: e.id,
       source: e.source,
@@ -222,8 +237,8 @@ function rfToGraph(nodes: Node[], edges: Edge[], viewport?: { x: number; y: numb
     }
     if (e.sourceHandle) row.sourceHandle = e.sourceHandle
     if (e.targetHandle) row.targetHandle = e.targetHandle
-    if (d.connectionStyle || d.label || d.condition) {
-      row.data = { connectionStyle: d.connectionStyle, label: d.label, condition: d.condition }
+    if (d.connectionStyle || d.label || d.condition || d.runOrder != null) {
+      row.data = { connectionStyle: d.connectionStyle, label: d.label, condition: d.condition, runOrder: d.runOrder }
     }
     return row
   })
@@ -304,6 +319,8 @@ function DevPipelinesEditorInner({
   const [noteDraft, setNoteDraft] = useState<PageMapAnnotationDraft | null>(null)
   const [edgeDraft, setEdgeDraft] = useState<FlowConnectionStyle>(() => mergeConnectionStyle())
   const [edgeConditionDraft, setEdgeConditionDraft] = useState<DevPipelineEdgeCondition>('always')
+  const [edgeRunOrderDraft, setEdgeRunOrderDraft] = useState(1)
+  const [executionDisabledDraft, setExecutionDisabledDraft] = useState(false)
   const [nodeVisualDraft, setNodeVisualDraft] = useState<FlowNodeVisualStyle>(() => mergeNodeVisualStyle())
   const [nodeNameDraft, setNodeNameDraft] = useState('')
   const [boardLayoutDefaultChecked, setBoardLayoutDefaultChecked] = useState(false)
@@ -370,15 +387,74 @@ function DevPipelinesEditorInner({
     return nodes.filter(n => n.type === 'pipelineStep' && sel.has(n.id) && n.parentId).length
   }, [nodes, selectedIds])
 
-  const flowEdges = useMemo(
-    () =>
-      applyPipelineEdgePresentation(edges, {
-        pathEdgeIds,
-        pathRunPulse: running && pathEdgeIds.size > 0,
-        activeEdgeId: activeRunEdgeId,
-      }),
-    [activeRunEdgeId, edges, pathEdgeIds, running],
+  const handleEdgeRunOrderChange = useCallback(
+    (edgeId: string, next: number) => {
+      onDirty()
+      setEdges(eds => {
+        const edge = eds.find(e => e.id === edgeId)
+        if (!edge) return eds
+        const flowExec = normalizeAllRunOrders(
+          eds.map(e => ({
+            id: e.id,
+            source: e.source,
+            target: e.target,
+            runOrder: (e.data as { runOrder?: number } | undefined)?.runOrder,
+          })),
+        )
+        const swapped = swapRunOrderForEdge(edgeId, next, flowExec)
+        const orderById = new Map(swapped.map(x => [x.id, x.runOrder]))
+        return eds.map(e => {
+          const ro = orderById.get(e.id)
+          if (ro == null) return e
+          const prevData = (e.data ?? {}) as Record<string, unknown>
+          if (prevData.runOrder === ro) return e
+          return { ...e, data: { ...prevData, runOrder: ro } }
+        })
+      })
+    },
+    [onDirty, setEdges],
   )
+
+  const flowEdges = useMemo(() => {
+    const presented = applyPipelineEdgePresentation(edges, {
+      pathEdgeIds,
+      pathRunPulse: running && pathEdgeIds.size > 0,
+      activeEdgeId: activeRunEdgeId,
+    })
+    const flowExec: FlowExecEdge[] = edges.map(e => ({
+      id: e.id,
+      source: e.source,
+      target: e.target,
+      runOrder: (e.data as { runOrder?: number } | undefined)?.runOrder,
+    }))
+    const resolvedOrder = resolvedRunOrderByEdgeId(flowExec)
+    const fanEdges = edges.map(e => ({ id: e.id, source: e.source, target: e.target }))
+    const fanByEdgeId = new Map(
+      edges.map(e => {
+        const fan = runOrderFanPlacementForEdge({ id: e.id, source: e.source, target: e.target }, fanEdges, resolvedOrder)
+        return [e.id, fan] as const
+      }),
+    )
+    return presented.map(e => {
+      const d = (e.data ?? {}) as { runOrder?: number; onRunOrderChange?: (n: number) => void }
+      const siblingCount = edges.filter(x => x.source === e.source).length
+      if (siblingCount === 0) return e
+      const runOrder = resolvedOrder.get(e.id) ?? 1
+      const fan = fanByEdgeId.get(e.id)
+      return {
+        ...e,
+        data: {
+          ...d,
+          runOrder,
+          runOrderMax: siblingCount,
+          runOrderFanMax: fan?.fanMax ?? 1,
+          runOrderFanIndex: fan?.fanIndex ?? 1,
+          runOrderEditable: true,
+          onRunOrderChange: (n: number) => handleEdgeRunOrderChange(e.id, n),
+        },
+      }
+    })
+  }, [activeRunEdgeId, edges, handleEdgeRunOrderChange, pathEdgeIds, running])
 
   const pathHighlightActive = pathEdgeIds.size > 0
   const pathHighlightToggleLabel = pathHighlightActive
@@ -472,6 +548,39 @@ function DevPipelinesEditorInner({
       }
     },
     [isDirtySuppressed, onEdgesChange, onDirty]
+  )
+
+  const onEdgesDelete = useCallback(
+    (deleted: Edge[]) => {
+      if (!deleted.length) return
+      onDirty()
+      const deletedIds = new Set(deleted.map(d => d.id))
+      const affectedSources = new Set<string>()
+      for (const e of edges) {
+        if (deletedIds.has(e.id)) affectedSources.add(e.source)
+      }
+      setEdges(eds => {
+        let next = eds.filter(e => !deletedIds.has(e.id))
+        for (const src of affectedSources) {
+          const flowExec: FlowExecEdge[] = next.map(e => ({
+            id: e.id,
+            source: e.source,
+            target: e.target,
+            runOrder: (e.data as { runOrder?: number } | undefined)?.runOrder,
+          }))
+          const normalized = normalizeRunOrdersForSource(src, flowExec)
+          const orderById = new Map(normalized.map(e => [e.id, e.runOrder]))
+          next = next.map(e => {
+            if (e.source !== src) return e
+            const ro = orderById.get(e.id)
+            const prev = (e.data as { runOrder?: number } | undefined)?.runOrder
+            return ro != null && ro !== prev ? { ...e, data: { ...(e.data ?? {}), runOrder: ro } } : e
+          })
+        }
+        return next
+      })
+    },
+    [edges, onDirty, setEdges]
   )
 
   const resetFromFlow = useCallback(
@@ -593,6 +702,9 @@ function DevPipelinesEditorInner({
       },
       runThisStep: stepId => {
         void onStartRun({ mode: 'node', nodeId: stepId })
+      },
+      runFlowFromStep: stepId => {
+        void onStartRun({ mode: 'flow', startNodeId: stepId })
       },
       persistGroupSize: (groupId, size) => {
         if (canvasLocked) return
@@ -793,15 +905,26 @@ function DevPipelinesEditorInner({
     if (!flowInspector) return
     if (flowInspector.kind === 'edge') {
       const e = edges.find(x => x.id === flowInspector.id)
-      const d = (e?.data ?? {}) as { connectionStyle?: Partial<FlowConnectionStyle>; label?: string; condition?: DevPipelineEdgeCondition }
+      const d = (e?.data ?? {}) as { connectionStyle?: Partial<FlowConnectionStyle>; label?: string; condition?: DevPipelineEdgeCondition; runOrder?: number }
       const m = mergeConnectionStyle(d.connectionStyle)
       if (typeof d.label === 'string') m.label = d.label
       setEdgeDraft(m)
       setEdgeConditionDraft(d.condition ?? 'always')
+      setEdgeRunOrderDraft(
+        resolvedRunOrderByEdgeId(
+          edges.map(x => ({
+            id: x.id,
+            source: x.source,
+            target: x.target,
+            runOrder: (x.data as { runOrder?: number } | undefined)?.runOrder,
+          })),
+        ).get(flowInspector.id) ?? 1,
+      )
     } else if (flowInspector.kind === 'node') {
       const n = nodes.find(x => x.id === flowInspector.ids[0])
       const dd = n?.data as DevPipelineNodeData | undefined
       setNodeVisualDraft(mergeNodeVisualStyle(dd?.diagramVisual))
+      setExecutionDisabledDraft(dd?.executionDisabled === true)
       if (flowInspector.ids.length === 1) {
         setNodeNameDraft(dd?.label ?? '')
       } else {
@@ -831,21 +954,41 @@ function DevPipelinesEditorInner({
   const applyEdgeInspector = useCallback(() => {
     if (!flowInspector || flowInspector.kind !== 'edge') return
     const hid = edgeHandleIds(edgeDraft)
+    const edgeId = flowInspector.id
     onDirty()
-    setEdges(eds =>
-      eds.map(e =>
-        e.id === flowInspector.id
-          ? {
+    setEdges(eds => {
+      const edge = eds.find(e => e.id === edgeId)
+      if (!edge) return eds
+      const flowEdges = normalizeAllRunOrders(
+        eds.map(e => ({
+          id: e.id,
+          source: e.source,
+          target: e.target,
+          runOrder: (e.data as { runOrder?: number } | undefined)?.runOrder,
+        })),
+      )
+      const swapped = swapRunOrderForEdge(edgeId, edgeRunOrderDraft, flowEdges)
+      const orderById = new Map(swapped.map(e => [e.id, e.runOrder]))
+      return eds.map(e => {
+        if (e.id !== edgeId && e.source !== edge.source) return e
+        const ro = orderById.get(e.id)
+        const prevData = (e.data ?? {}) as Record<string, unknown>
+        if (e.id === edgeId) {
+          return {
             ...e,
             sourceHandle: hid.sourceHandle,
             targetHandle: hid.targetHandle,
-            data: { label: edgeDraft.label, connectionStyle: edgeDraft, condition: edgeConditionDraft },
+            data: { ...prevData, label: edgeDraft.label, connectionStyle: edgeDraft, condition: edgeConditionDraft, runOrder: ro ?? edgeRunOrderDraft },
           }
-          : e
-      )
-    )
+        }
+        if (ro != null && ro !== prevData.runOrder) {
+          return { ...e, data: { ...prevData, runOrder: ro } }
+        }
+        return e
+      })
+    })
     setFlowInspector(null)
-  }, [flowInspector, edgeDraft, edgeConditionDraft, onDirty, setEdges])
+  }, [flowInspector, edgeDraft, edgeConditionDraft, edgeRunOrderDraft, onDirty, setEdges])
 
   const applyContentLayoutToAllSteps = useCallback(() => {
     const defaults = readBoardContentDefaults('devPipelines')
@@ -916,7 +1059,7 @@ function DevPipelinesEditorInner({
       const n = nodes.find(x => x.id === id)
       const prevLabel = (n?.data as DevPipelineNodeData | undefined)?.label ?? ''
       const nextLabel = nodeNameDraft.trim() || prevLabel
-      patchNodeData(id, { diagramVisual: nodeVisualDraft, label: nextLabel })
+      patchNodeData(id, { diagramVisual: nodeVisualDraft, label: nextLabel, executionDisabled: executionDisabledDraft || undefined })
       setFlowInspector(null)
       return
     }
@@ -929,7 +1072,7 @@ function DevPipelinesEditorInner({
       })
     )
     setFlowInspector(null)
-  }, [flowInspector, nodeVisualDraft, nodeNameDraft, noteDraft, nodes, patchNodeData, onDirty, setNodes, boardLayoutDefaultChecked])
+  }, [flowInspector, nodeVisualDraft, nodeNameDraft, noteDraft, nodes, patchNodeData, onDirty, setNodes, boardLayoutDefaultChecked, executionDisabledDraft])
 
   const onConnect: OnConnect = useCallback(
     params => {
@@ -941,8 +1084,17 @@ function DevPipelinesEditorInner({
       const sourceSide = params.sourceHandle?.startsWith('s-') ? params.sourceHandle.slice(2) : 'bottom'
       const targetSide = params.targetHandle?.startsWith('t-') ? params.targetHandle.slice(2) : 'top'
       const cs = mergeConnectionStyle({ sourceSide, targetSide } as Parameters<typeof mergeConnectionStyle>[0])
-      setEdges(eds =>
-        addEdge(
+      setEdges(eds => {
+        const runOrder = assignRunOrderForNewEdge(
+          params.source!,
+          eds.map(e => ({
+            id: e.id,
+            source: e.source,
+            target: e.target,
+            runOrder: (e.data as { runOrder?: number } | undefined)?.runOrder,
+          })),
+        )
+        return addEdge(
           {
             ...params,
             type: 'labeled',
@@ -950,11 +1102,11 @@ function DevPipelinesEditorInner({
             targetHandle: params.targetHandle ?? `t-${targetSide}`,
             markerEnd: flowDiagramArrowMarkerEnd(cs.color),
             markerStart: cs.bidirectional ? flowDiagramArrowMarkerStart(cs.color) : undefined,
-            data: { label: '', connectionStyle: cs },
+            data: { label: '', connectionStyle: cs, runOrder },
           },
-          eds
+          eds,
         )
-      )
+      })
     },
     [nodes, onDirty, setEdges]
   )
@@ -1006,7 +1158,7 @@ function DevPipelinesEditorInner({
           data,
         }
       })
-      const newEdges: Edge[] = snip.edges.flatMap(e => {
+      const rawEdges: Edge[] = snip.edges.flatMap(e => {
         const source = idMap.get(e.source)
         const target = idMap.get(e.target)
         if (!source || !target) return []
@@ -1029,7 +1181,20 @@ function DevPipelinesEditorInner({
         ]
       })
       setNodes(nds => [...nds, ...newNodes])
-      setEdges(eds => [...eds, ...newEdges])
+      setEdges(eds => {
+        const acc: FlowExecEdge[] = eds.map(e => ({
+          id: e.id,
+          source: e.source,
+          target: e.target,
+          runOrder: (e.data as { runOrder?: number } | undefined)?.runOrder,
+        }))
+        const withOrder = rawEdges.map(edge => {
+          const runOrder = assignRunOrderForNewEdge(edge.source, acc)
+          acc.push({ id: edge.id, source: edge.source, target: edge.target, runOrder })
+          return { ...edge, data: { ...(edge.data ?? {}), runOrder } }
+        })
+        return [...eds, ...withOrder]
+      })
     },
     [onDirty, setEdges, setNodes, t]
   )
@@ -1132,7 +1297,27 @@ function DevPipelinesEditorInner({
         setStepDialogOpen(true)
       },
       runThisStep: (id: string) => {
+        const node = nodes.find(n => n.id === id)
+        const data = node?.data as DevPipelineNodeData | undefined
+        if (data?.executionDisabled) {
+          toast.info(t('flowInspector.executionDisabledRunBlocked'))
+          return
+        }
         void onStartRun({ mode: 'node', nodeId: id })
+      },
+      runFlowFromStep: (id: string) => {
+        void onStartRun({ mode: 'flow', startNodeId: id })
+      },
+      toggleExecutionDisabled: (id: string) => {
+        onDirty()
+        setNodes(nds =>
+          nds.map(n => {
+            if (n.id !== id) return n
+            const prev = n.data as DevPipelineNodeData
+            const next = !prev.executionDisabled
+            return { ...n, data: { ...prev, executionDisabled: next || undefined } }
+          }),
+        )
       },
       canRunStep: !running,
       duplicateStep: (id: string) => {
@@ -1156,7 +1341,7 @@ function DevPipelinesEditorInner({
       deleteStep: removeNodeById,
       canDeleteStep: true,
     }
-  }, [onDirty, onStartRun, removeNodeById, running, setNodes])
+  }, [nodes, onDirty, onStartRun, removeNodeById, running, setNodes, t])
 
   const pipelineSearchNodes = useMemo(() => nodes.map(n => ({ id: n.id, label: (n.data as { label?: string }).label ?? n.id })), [nodes])
 
@@ -1323,6 +1508,7 @@ function DevPipelinesEditorInner({
                     edges={flowEdges}
                     onNodesChange={onNodesChange}
                     onEdgesChange={onEdgesChangeWithDirty}
+                    onEdgesDelete={canvasLocked ? undefined : onEdgesDelete}
                     onConnect={onConnect}
                     onNodeDragStop={onNodeDragStop}
                     onSelectionChange={onSelectionChange}
@@ -1481,7 +1667,22 @@ function DevPipelinesEditorInner({
           </SheetHeader>
           <div className="px-4 pb-6">
             {flowInspector?.kind === 'edge' ? (
-              <FlowConnectionPropertiesPanel value={edgeDraft} onChange={setEdgeDraft} edgeCondition={edgeConditionDraft} onEdgeConditionChange={setEdgeConditionDraft} />
+              <FlowConnectionPropertiesPanel
+                value={edgeDraft}
+                onChange={setEdgeDraft}
+                edgeCondition={edgeConditionDraft}
+                onEdgeConditionChange={setEdgeConditionDraft}
+                runOrder={edgeRunOrderDraft}
+                runOrderMax={
+                  flowInspector?.kind === 'edge'
+                    ? Math.max(
+                        1,
+                        edges.filter(e => e.source === edges.find(x => x.id === flowInspector.id)?.source).length,
+                      )
+                    : 1
+                }
+                onRunOrderChange={setEdgeRunOrderDraft}
+              />
             ) : null}
             {flowInspector?.kind === 'node' ? (
               <div className="grid gap-3">
@@ -1498,6 +1699,8 @@ function DevPipelinesEditorInner({
                     setBoardLayoutDefaultChecked(false)
                   }}
                   hasBoardDefaultLayout={hasBoardLayoutDefault}
+                  executionDisabled={executionDisabledDraft}
+                  onExecutionDisabledChange={setExecutionDisabledDraft}
                   {...(flowInspector.ids.length === 1 ? { nodeDisplayName: nodeNameDraft, onNodeDisplayNameChange: setNodeNameDraft } : {})}
                 />
               </div>

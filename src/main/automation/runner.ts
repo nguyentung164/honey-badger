@@ -19,6 +19,8 @@ import {
   resolvePlaywrightCliPath,
 } from './workspace'
 import { resolveCaseIdsToExistingSpecRelPaths } from './runCasePaths'
+import { listNavEdges } from './db'
+import type { TestPageNavEdge } from 'shared/automation/types'
 import {
   mergeHbFullStepsFromDisk,
   overallStatusFromSummary,
@@ -194,6 +196,10 @@ export async function startRun(args: StartRunArgs): Promise<{ start: StartRunRes
   const { project, request, secretEnv } = args
   if (isRunBusy(project.id)) {
     throw new Error(`Project ${project.name} already has an active run.`)
+  }
+
+  if (request.pageSequence?.length && request.caseIdsByPageId) {
+    return startPageSequenceRun(args)
   }
 
   const runId = randomUuidV7()
@@ -437,6 +443,281 @@ export async function startRun(args: StartRunArgs): Promise<{ start: StartRunRes
     start: { runId, startedAt, workspacePath },
     outcome: outcomeP,
   }
+}
+
+async function spawnAndAwaitPlaywrightBatch(opts: {
+  project: TestProject
+  request: RunRequest
+  secretEnv?: Record<string, string>
+  runId: string
+  workspacePath: string
+  logFile: string
+  jsonFile: string
+  junitFile: string
+  reportDir: string
+  specRelPaths: string[]
+  activePageId?: string
+  activeEdgeId?: string
+  tally: ProgressTally
+  logAppend?: boolean
+  cancelRef: { cancelled: boolean; proc: ChildProcessWithoutNullStreams | null; killTimer: NodeJS.Timeout | null }
+}): Promise<{ exitCode: number | null; signal: NodeJS.Signals | null }> {
+  const { project, request, secretEnv, runId, workspacePath, logFile, jsonFile, junitFile, reportDir, specRelPaths, tally, cancelRef } = opts
+  const baseEnv = buildPlaywrightSpawnEnv({
+    ...buildReporterEnv(jsonFile, junitFile),
+    HB_RUN_ID: runId,
+    HB_PROJECT_ID: project.id,
+    ...(secretEnv ?? {}),
+  })
+  const cliPath = resolvePlaywrightCliPath()
+  const spawnArgs = buildArgs({ ...request, workers: 1 }, workspacePath, runId, specRelPaths)
+  const proc = spawn(process.execPath, [cliPath, ...spawnArgs], { cwd: workspacePath, env: baseEnv }) as ChildProcessWithoutNullStreams
+  cancelRef.proc = proc
+  let logStream: WriteStream | null = createWriteStream(logFile, { flags: opts.logAppend ? 'a' : 'w' })
+
+  const emitProgress = _.throttle(() => {
+    const completed = tallyCompleted(tally)
+    const event: RunStreamEvent = {
+      kind: 'progress',
+      runId,
+      total: Math.max(tally.plannedTotal, completed),
+      passed: tally.passed,
+      failed: tally.failed,
+      skipped: tally.skipped,
+      currentTest: tally.currentTest,
+      activePageId: opts.activePageId,
+      activeEdgeId: opts.activeEdgeId,
+    }
+    broadcast(event)
+  }, 250)
+
+  const flushLog = _.throttle(
+    (chunk: string, stream: 'stdout' | 'stderr') => {
+      broadcast({ kind: 'log', runId, chunk, stream })
+    },
+    100,
+    { leading: true, trailing: true },
+  )
+
+  proc.stdout.setEncoding('utf8')
+  proc.stderr.setEncoding('utf8')
+  const stdoutBuffer = { s: '' }
+  const stderrBuffer = { s: '' }
+
+  proc.stdout.on('data', (data: string) => {
+    stdoutBuffer.s += data
+    drainReporterBuffer(stdoutBuffer, tally, emitProgress)
+    if (logStream) logStream.write(data)
+    flushLog(data, 'stdout')
+  })
+  proc.stderr.on('data', (data: string) => {
+    stderrBuffer.s += data
+    drainReporterBuffer(stderrBuffer, tally, emitProgress)
+    if (logStream) logStream.write(data)
+    flushLog(data, 'stderr')
+  })
+
+  return new Promise(resolve => {
+    proc.on('exit', (code, signal) => {
+      flushReporterTail(stdoutBuffer, tally, emitProgress)
+      flushReporterTail(stderrBuffer, tally, emitProgress)
+      emitProgress.flush()
+      try {
+        if (logStream) {
+          logStream.end()
+          logStream = null
+        }
+      } catch {
+        /* ignore */
+      }
+      cancelRef.proc = null
+      resolve({ exitCode: code, signal })
+    })
+    proc.on('error', () => resolve({ exitCode: 1, signal: null }))
+  })
+}
+
+function findTraversedNavEdgeId(navEdges: TestPageNavEdge[], fromPageId: string, toPageId: string): string | undefined {
+  return navEdges
+    .filter(e => e.sourcePageId === fromPageId && e.targetPageId === toPageId)
+    .sort((a, b) => (a.runOrder ?? 99) - (b.runOrder ?? 99))[0]?.id
+}
+
+function startPageSequenceRun(args: StartRunArgs): Promise<{ start: StartRunResult; outcome: Promise<RunOutcome> }> {
+  const { project, request, secretEnv } = args
+  const pageSequence = request.pageSequence ?? []
+  const caseIdsByPageId = request.caseIdsByPageId ?? {}
+
+  const runId = randomUuidV7()
+  const startedAt = new Date().toISOString()
+
+  const setupP = (async () => {
+    await fs.mkdir(path.dirname(getRunLogFile(project.id, runId)), { recursive: true })
+    await fs.mkdir(path.dirname(getRunJsonFile(project.id, runId)), { recursive: true })
+    const logFile = getRunLogFile(project.id, runId)
+    const jsonFile = getRunJsonFile(project.id, runId)
+    const junitFile = getRunJunitFile(project.id, runId)
+    const reportDir = getReportDir(project.id, runId)
+    await fs.mkdir(reportDir, { recursive: true })
+    const workspacePath = await bootstrapWorkspace(project, { jsonFile, junitFile, htmlOutputFolder: reportDir })
+    return { logFile, jsonFile, junitFile, reportDir, workspacePath }
+  })()
+
+  const cancelRef: {
+    cancelled: boolean
+    proc: ChildProcessWithoutNullStreams | null
+    killTimer: NodeJS.Timeout | null
+  } = { cancelled: false, proc: null, killTimer: null }
+
+  const cancel = (): void => {
+    if (cancelRef.cancelled) return
+    cancelRef.cancelled = true
+    try {
+      cancelRef.proc?.kill('SIGTERM')
+    } catch {
+      /* ignore */
+    }
+    cancelRef.killTimer = setTimeout(() => {
+      try {
+        cancelRef.proc?.kill('SIGKILL')
+      } catch {
+        /* ignore */
+      }
+    }, 3000)
+  }
+
+  const tally: ProgressTally = { plannedTotal: 0, passed: 0, failed: 0, skipped: 0 }
+
+  const outcomeP = setupP.then(async paths => {
+    const { logFile, jsonFile, junitFile, reportDir, workspacePath } = paths
+    let firstBatch = true
+    let lastExitCode: number | null = 0
+    let prevPageId: string | null = null
+    const navEdges = await listNavEdges(project.id)
+
+    for (let i = 0; i < pageSequence.length; i++) {
+      const pageId = pageSequence[i]!
+      if (cancelRef.cancelled) break
+      const caseIds = (caseIdsByPageId[pageId] ?? []).filter(Boolean)
+      if (!caseIds.length) {
+        prevPageId = pageId
+        continue
+      }
+
+      const activeEdgeId = prevPageId ? findTraversedNavEdgeId(navEdges, prevPageId, pageId) : undefined
+
+      broadcast({
+        kind: 'progress',
+        runId,
+        total: tallyCompleted(tally),
+        passed: tally.passed,
+        failed: tally.failed,
+        skipped: tally.skipped,
+        activePageId: pageId,
+        activeEdgeId,
+      })
+
+      const resolved = await resolveCaseIdsToExistingSpecRelPaths(project.id, workspacePath, caseIds)
+      if (!resolved.relPaths.length) {
+        prevPageId = pageId
+        continue
+      }
+
+      const { exitCode } = await spawnAndAwaitPlaywrightBatch({
+        project,
+        request,
+        secretEnv,
+        runId,
+        workspacePath,
+        logFile,
+        jsonFile,
+        junitFile,
+        reportDir,
+        specRelPaths: resolved.relPaths,
+        activePageId: pageId,
+        activeEdgeId,
+        tally,
+        logAppend: !firstBatch,
+        cancelRef,
+      })
+      firstBatch = false
+      if (exitCode != null && exitCode !== 0) lastExitCode = exitCode
+      prevPageId = pageId
+      if (cancelRef.cancelled) break
+    }
+
+    const finishedAt = new Date().toISOString()
+    let parsed: ParsedRunReport | undefined
+    try {
+      const report = await readReportJsonWithRetry(jsonFile, { maxWaitMs: 8000, intervalMs: 120 })
+      parsed = parsePlaywrightReport(report)
+    } catch {
+      if (tallyCompleted(tally) > 0) parsed = parsedFromListTally(tally, startedAt, finishedAt)
+    }
+
+    const status = cancelRef.cancelled ? 'cancelled' : parsed ? overallStatusFromSummary(parsed.summary, false) : lastExitCode === 0 ? 'passed' : 'failed'
+    projectLocks.delete(project.id)
+    runIndex.delete(runId)
+
+    broadcast({
+      kind: 'finished',
+      runId,
+      status,
+      summary: {
+        id: runId,
+        projectId: project.id,
+        status,
+        browsers: request.browsers,
+        workers: request.workers,
+        retries: request.retries,
+        grep: request.grep,
+        total: parsed?.summary.total ?? tallyCompleted(tally),
+        passed: parsed?.summary.passed ?? tally.passed,
+        failed: parsed?.summary.failed ?? tally.failed,
+        skipped: parsed?.summary.skipped ?? tally.skipped,
+        flaky: parsed?.summary.flaky ?? 0,
+        durationMs: parsed?.summary.durationMs ?? 0,
+        startedAt,
+        finishedAt,
+        triggeredBy: request.triggeredBy,
+        reportPath: reportDir,
+        junitPath: junitFile,
+        jsonPath: jsonFile,
+        cancelReason: cancelRef.cancelled ? 'user-cancel' : undefined,
+      },
+    })
+
+    return {
+      runId,
+      status,
+      parsed,
+      logFile,
+      jsonFile,
+      junitFile,
+      reportDir,
+      startedAt,
+      finishedAt,
+      cancelled: cancelRef.cancelled,
+    } satisfies RunOutcome
+  })
+
+  const active: ActiveRun = {
+    runId,
+    projectId: project.id,
+    proc: null as unknown as ChildProcessWithoutNullStreams,
+    startedAt,
+    cancel,
+    result: outcomeP,
+  }
+  projectLocks.set(project.id, active)
+  runIndex.set(runId, active)
+
+  broadcast({ kind: 'started', runId, projectId: project.id, startedAt })
+
+  return setupP.then(({ workspacePath }) => ({
+    start: { runId, startedAt, workspacePath },
+    outcome: outcomeP,
+  }))
 }
 
 /** Hủy mọi run đang chạy (logout, app quit). */

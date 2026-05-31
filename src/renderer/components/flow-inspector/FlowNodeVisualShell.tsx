@@ -23,6 +23,8 @@ type Props = {
   accentBackground?: boolean
   suppressGradientRimUnderlay?: boolean
   interiorBackground?: 'group-card' | 'transparent'
+  /** When true, node is excluded from group/flow runs — muted shell. */
+  executionDisabled?: boolean
   onPointerEnter?: () => void
   onPointerLeave?: () => void
   children: ReactNode
@@ -38,6 +40,7 @@ export const FlowNodeVisualShell = memo(function FlowNodeVisualShell({
   accentBackground = true,
   suppressGradientRimUnderlay = false,
   interiorBackground = 'group-card',
+  executionDisabled = false,
   onPointerEnter,
   onPointerLeave,
   children,
@@ -62,7 +65,11 @@ export const FlowNodeVisualShell = memo(function FlowNodeVisualShell({
 
   return (
     <div
-      className={cn('relative rounded-lg', className)}
+      className={cn(
+        'relative rounded-lg',
+        className,
+        executionDisabled && 'opacity-55 [&_.rf-node-frame]:border-dashed',
+      )}
       style={{
         borderRadius: FLOW_NODE_SHELL_RADIUS_PX,
         ...(v.selectionBoxShadow ? { boxShadow: v.selectionBoxShadow } : undefined),
@@ -81,7 +88,7 @@ export const FlowNodeVisualShell = memo(function FlowNodeVisualShell({
         onPointerEnter={onPointerEnter}
         onPointerLeave={onPointerLeave}
         className={cn(
-          'relative isolate box-border rounded-lg',
+          'rf-node-frame relative isolate box-border rounded-lg',
           fillsParent && 'h-full w-full min-h-0',
           (rimPx > 0 || v.borderMode === 'orbit') && 'overflow-visible',
           rimPx === 0 &&

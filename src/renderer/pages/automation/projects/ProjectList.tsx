@@ -105,6 +105,22 @@ function projectMatchesQuery(p: TestProject, q: string): boolean {
   return p.name.toLowerCase().includes(q) || p.baseUrl.toLowerCase().includes(q) || rail.includes(q) || (p.description?.toLowerCase().includes(q) ?? false)
 }
 
+const projectRailTransition =
+  'transition-[width,max-height,opacity] duration-300 ease-[cubic-bezier(0.22,1,0.36,1)] motion-reduce:duration-150 motion-reduce:transition-[width,max-height,opacity]'
+
+function projectRailShellClass(railOpen: boolean) {
+  return cn(
+    projectRailTransition,
+    'flex shrink-0 flex-col overflow-hidden bg-muted/10',
+    railOpen ? 'max-h-[44vh] w-full opacity-100 lg:max-h-none lg:w-[min(380px,38%)]' : 'max-h-0 w-full opacity-0 lg:max-h-none lg:w-0'
+  )
+}
+
+/** Fixed width on lg; padding stays constant so close animation only clips, no layout jump. */
+function projectRailInnerClass(railOpen: boolean) {
+  return cn('flex h-full min-h-0 w-full shrink-0 flex-col gap-2 p-3 lg:w-[380px]', !railOpen && 'pointer-events-none')
+}
+
 type ProjectDetailTab = 'dashboard' | 'pageMap' | 'information'
 
 export function ProjectList({ selectedId, onSelect, railOpen, onOpenCases, onOpenRuns, onOpenCasesForPage }: Props) {
@@ -236,8 +252,8 @@ export function ProjectList({ selectedId, onSelect, railOpen, onOpenCases, onOpe
 
   const loadingShell = (
     <div className="flex min-h-0 flex-1 flex-col lg:flex-row">
-      {railOpen ? (
-        <div className="shrink-0 space-y-3 bg-muted/10 p-3 lg:w-[min(380px,38%)]">
+      <div className={projectRailShellClass(railOpen)} aria-hidden={!railOpen}>
+        <div className={cn(projectRailInnerClass(railOpen), 'space-y-3')}>
           <div className="flex items-center gap-2">
             <Skeleton className="h-8 min-w-0 flex-1 rounded-md" />
             <Skeleton className="h-8 w-[7.5rem] shrink-0 rounded-md" />
@@ -256,7 +272,7 @@ export function ProjectList({ selectedId, onSelect, railOpen, onOpenCases, onOpe
             </div>
           ))}
         </div>
-      ) : null}
+      </div>
       <div className="flex min-h-0 flex-1 flex-col gap-4 p-5">
         <Skeleton className="h-8 w-1/2 max-w-md" />
         <Skeleton className="h-8 w-full max-w-xl" />
@@ -296,8 +312,8 @@ export function ProjectList({ selectedId, onSelect, railOpen, onOpenCases, onOpe
         emptyAll
       ) : (
         <div className="flex min-h-0 flex-1 flex-col lg:flex-row">
-          {railOpen ? (
-            <div className="flex max-h-[44vh] shrink-0 flex-col gap-2 bg-muted/10 p-3 lg:max-h-none lg:w-[min(380px,38%)] lg:ring-offset-background">
+          <div className={projectRailShellClass(railOpen)} aria-hidden={!railOpen}>
+            <div className={projectRailInnerClass(railOpen)}>
               <div className="flex shrink-0 items-center gap-2">
                 <Input
                   value={search}
@@ -305,6 +321,7 @@ export function ProjectList({ selectedId, onSelect, railOpen, onOpenCases, onOpe
                   placeholder={t('automation.projects.railSearchPlaceholder')}
                   className="h-8 min-w-0 flex-1 bg-background text-sm md:text-sm"
                   aria-label={t('automation.projects.railSearchPlaceholder')}
+                  tabIndex={railOpen ? 0 : -1}
                 />
                 <Button
                   type="button"
@@ -312,6 +329,7 @@ export function ProjectList({ selectedId, onSelect, railOpen, onOpenCases, onOpe
                   size="sm"
                   className={cn(PR_MANAGER_ACCENT_OUTLINE_BTN, PR_MANAGER_ACCENT_OUTLINE_SURFACE, 'shrink-0 shadow-none')}
                   onClick={openNewProject}
+                  tabIndex={railOpen ? 0 : -1}
                 >
                   <Plus className="size-4 shrink-0" />
                   {t('automation.projects.new')}
@@ -320,7 +338,7 @@ export function ProjectList({ selectedId, onSelect, railOpen, onOpenCases, onOpe
               <div
                 role="listbox"
                 aria-label={t('automation.projects.title')}
-                tabIndex={0}
+                tabIndex={railOpen ? 0 : -1}
                 onKeyDown={handleRailKeyDown}
                 className="min-h-0 flex-1 space-y-1 overflow-y-auto pr-0.5 outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
               >
@@ -338,6 +356,7 @@ export function ProjectList({ selectedId, onSelect, railOpen, onOpenCases, onOpe
                         role="option"
                         aria-selected={active}
                         onClick={() => onSelect(p.id)}
+                        tabIndex={railOpen ? 0 : -1}
                         className={cn('flex w-full gap-3 rounded-xl px-3 py-2.5 text-left transition', active ? 'bg-primary/10 shadow-none' : 'bg-transparent hover:bg-muted/50')}
                       >
                         <div className="w-1 shrink-0 self-stretch rounded-full" style={{ background: `hsl(${hue} 58% 46%)` }} aria-hidden />
@@ -363,7 +382,7 @@ export function ProjectList({ selectedId, onSelect, railOpen, onOpenCases, onOpe
                 )}
               </div>
             </div>
-          ) : null}
+          </div>
 
           <main className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden bg-background/50">
             {selected ? (

@@ -1118,7 +1118,7 @@ export interface AutomationApi {
     }) => Promise<AutomationEnvelope<TestCatalogPage>>
     update: (args: {
       id: string
-      patch: Partial<Pick<TestCatalogPage, 'name' | 'slug' | 'description' | 'sortOrder' | 'groupId' | 'diagramX' | 'diagramY' | 'diagramStyle'>>
+      patch: Partial<Pick<TestCatalogPage, 'name' | 'slug' | 'description' | 'sortOrder' | 'groupId' | 'diagramX' | 'diagramY' | 'diagramStyle' | 'executionDisabled'>>
     }) => Promise<AutomationEnvelope<TestCatalogPage | null>>
     delete: (id: string) => Promise<AutomationEnvelope<{ deleted: boolean }>>
     duplicateDeep: (input: { sourcePageId: string; name?: string; slug?: string | null; description?: string | null }) => Promise<AutomationEnvelope<{ newPageId: string }>>
@@ -1176,7 +1176,7 @@ export interface AutomationApi {
   navEdge: {
     list: (projectId: string) => Promise<AutomationEnvelope<TestPageNavEdge[]>>
     create: (input: { projectId: string; sourcePageId: string; targetPageId: string; label?: string }) => Promise<AutomationEnvelope<TestPageNavEdge>>
-    update: (args: { id: string; patch: { label?: string | null; styleJson?: string | null } }) => Promise<AutomationEnvelope<TestPageNavEdge | null>>
+    update: (args: { id: string; patch: { label?: string | null; styleJson?: string | null; runOrder?: number | null } }) => Promise<AutomationEnvelope<TestPageNavEdge | null>>
     delete: (id: string) => Promise<AutomationEnvelope<{ deleted: boolean }>>
   }
   exportCasesByPage: (projectId: string) => Promise<AutomationEnvelope<{ cancelled: boolean; files: string[] }>>
@@ -1214,7 +1214,7 @@ export interface AutomationApi {
   }
   run: {
     start: (req: RunRequest) => Promise<AutomationEnvelope<{ runId: string }>>
-    resolveScope: (args: { projectId: string; pageIds?: string[]; groupIds?: string[] }) => Promise<AutomationEnvelope<RunScopeResolution>>
+    resolveScope: (args: { projectId: string; pageIds?: string[]; groupIds?: string[]; ordered?: boolean; startPageId?: string }) => Promise<AutomationEnvelope<RunScopeResolution>>
     cancel: (runId: string) => Promise<AutomationEnvelope<{ cancelled: boolean }>>
     list: (args: { projectId: string; limit?: number }) => Promise<AutomationEnvelope<TestRunSummary[]>>
     get: (runId: string) => Promise<AutomationEnvelope<TestRunSummary | null>>

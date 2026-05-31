@@ -9,8 +9,9 @@ import { FLOW_EDGE_LABEL_TOOLBAR_Z_INDEX, FLOW_EDGE_LABEL_Z_INDEX } from 'shared
 import { connectionStrokeWidthPx, dashArrayForKind, isMultiColorGradient, mergeConnectionStyle } from 'shared/flowDiagramStyle'
 import { useFlowCanvasAnyNodeSelected } from '@/components/flow-inspector/FlowCanvasNodeSelectionContext'
 import { useFlowEdgeActions } from '@/components/flow-inspector/FlowEdgeActionsContext'
+import { FlowRunOrderBadge } from '@/components/flow-inspector/FlowRunOrderBadge'
 import { FlowEdgeLabelChrome } from '@/components/flow-inspector/FlowEdgeLabelChrome'
-import { getFlowEdgePath } from '@/components/flow-inspector/flowEdgeGeometry'
+import { getFlowEdgePath, getFlowEdgeRunOrderBadgePoint } from '@/components/flow-inspector/flowEdgeGeometry'
 import {
   FlowEdgeFireflyMarkers,
   FlowEdgeQuantumHopMarker,
@@ -28,6 +29,14 @@ export type StyledFlowEdgeData = {
   animateDot?: boolean
   /** Dev Pipelines — when this edge is traversable. */
   condition?: 'always' | 'on-success' | 'on-failure'
+  /** Execution order among outgoing edges from the same source (1 = first). */
+  runOrder?: number
+  runOrderEditable?: boolean
+  runOrderMax?: number
+  /** Badge fan when multiple edges share source+target (defaults to no fan). */
+  runOrderFanMax?: number
+  runOrderFanIndex?: number
+  onRunOrderChange?: (next: number) => void
 }
 
 /** Debounce ẩn toolbar khi rời edge — giống node map (NODE_TOOLBAR_HOVER_LEAVE_MS). */
@@ -109,6 +118,27 @@ export const StyledFlowEdge = memo(function StyledFlowEdge(props: EdgeProps) {
     [cs.curve, sourceX, sourceY, sourcePosition, targetX, targetY, targetPosition]
   )
 
+  const runOrderBadgePoint = useMemo(() => {
+    const strokeW = connectionStrokeWidthPx(cs.width)
+    return getFlowEdgeRunOrderBadgePoint(
+      {
+        sourceX,
+        sourceY,
+        sourcePosition,
+        targetX,
+        targetY,
+        targetPosition,
+      },
+      {
+        path,
+        runOrder: d.runOrder,
+        fanMax: d.runOrderFanMax,
+        fanIndex: d.runOrderFanIndex,
+        strokeWidthPx: strokeW,
+      },
+    )
+  }, [path, sourceX, sourceY, sourcePosition, targetX, targetY, targetPosition, cs.width, d.runOrder, d.runOrderMax])
+
   const strokeColor = (propStyle && (propStyle as CSSProperties).stroke) ?? cs.color
   const strokeWidth = (propStyle && (propStyle as CSSProperties).strokeWidth) ?? connectionStrokeWidthPx(cs.width)
 
@@ -160,6 +190,7 @@ export const StyledFlowEdge = memo(function StyledFlowEdge(props: EdgeProps) {
 
   const text = cs.labelVisible ? (d.label ?? cs.label)?.trim() : ''
   const showLabel = Boolean(text)
+  const showRunOrder = d.runOrder != null && d.runOrderEditable !== false
 
   const showDotAnim = cs.animation === 'dot' || d.animateDot
 
@@ -300,6 +331,25 @@ export const StyledFlowEdge = memo(function StyledFlowEdge(props: EdgeProps) {
             className={cn('nodrag nopan pointer-events-auto absolute', showActionPill && 'pointer-events-none')}
           >
             <FlowEdgeLabelChrome connectionStyle={cs}>{text}</FlowEdgeLabelChrome>
+          </div>
+        ) : null}
+
+        {showRunOrder ? (
+          <div
+            style={{
+              transform: `translate(-50%, -50%) translate(${runOrderBadgePoint.x}px,${runOrderBadgePoint.y}px)`,
+              zIndex: FLOW_EDGE_LABEL_Z_INDEX + 1,
+            }}
+            className="nodrag nopan pointer-events-auto absolute"
+            onPointerEnter={showToolbar}
+            onPointerLeave={hideToolbarSoon}
+          >
+            <FlowRunOrderBadge
+              runOrder={d.runOrder!}
+              max={d.runOrderMax ?? d.runOrder!}
+              editable={d.runOrderEditable !== false}
+              onChange={d.onRunOrderChange}
+            />
           </div>
         ) : null}
 

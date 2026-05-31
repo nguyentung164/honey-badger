@@ -23,6 +23,8 @@ interface CurrentRunState {
   projectId: string | null
   status: TestRunSummary['status'] | 'idle'
   tally: { total: number; passed: number; failed: number; skipped: number; currentTest?: string }
+  activePageId?: string | null
+  activeEdgeId?: string | null
   /** Chi tiết lỗi (stream) — hiển thị dưới status / toast. */
   finishDetail: string | null
   /** Từ sự kiện `started` — dùng cho History khi run đang chạy. */
@@ -161,6 +163,8 @@ export const useAutomationStore = create<AutomationState>(set => ({
                 skipped: event.skipped,
                 currentTest: event.currentTest,
               },
+              activePageId: event.activePageId ?? state.current.activePageId ?? null,
+              activeEdgeId: event.activeEdgeId ?? state.current.activeEdgeId ?? null,
             },
           }
         case 'persist_failed':

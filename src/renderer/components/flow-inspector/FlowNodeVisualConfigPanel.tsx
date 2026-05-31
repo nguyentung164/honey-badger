@@ -36,6 +36,8 @@ type Props = {
   onBoardDefaultLayoutCheckedChange?: (next: boolean) => void
   onResetBoardDefaultLayout?: () => void
   hasBoardDefaultLayout?: boolean
+  executionDisabled?: boolean
+  onExecutionDisabledChange?: (next: boolean) => void
 }
 
 /** Orbit kinds in catalog node + page map note inspectors (excludes `none`). */
@@ -205,6 +207,8 @@ export function FlowNodeVisualConfigPanel({
   onBoardDefaultLayoutCheckedChange,
   onResetBoardDefaultLayout,
   hasBoardDefaultLayout,
+  executionDisabled,
+  onExecutionDisabledChange,
 }: Props) {
   const { t } = useTranslation()
   const [lucideOpen, setLucideOpen] = useState(false)
@@ -302,6 +306,16 @@ export function FlowNodeVisualConfigPanel({
           <div className="space-y-1.5">
             <Label className={FLOW_INSPECTOR_SECTION_LABEL}>{t('flowInspector.nodeName')}</Label>
             <Input value={nodeDisplayName} onChange={e => onNodeDisplayNameChange(e.target.value)} className="h-9" spellCheck={false} />
+          </div>
+        ) : null}
+
+        {onExecutionDisabledChange != null ? (
+          <div className="flex items-center justify-between gap-3 rounded-lg border border-border/60 bg-muted/15 px-3 py-2.5">
+            <div className="min-w-0 flex-1">
+              <Label className={FLOW_INSPECTOR_SECTION_LABEL}>{t('flowInspector.executionDisabled')}</Label>
+              <p className="mt-0.5 text-[10px] leading-snug text-muted-foreground">{t('flowInspector.executionDisabledHint')}</p>
+            </div>
+            <Switch checked={executionDisabled ?? false} onCheckedChange={onExecutionDisabledChange} aria-label={t('flowInspector.executionDisabled')} />
           </div>
         ) : null}
 

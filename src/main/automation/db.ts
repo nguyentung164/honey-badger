@@ -22,6 +22,9 @@ import type {
 } from 'shared/automation/types'
 import { parseConnectionStyleJson, parseNodeVisualStyleJson, stringifyNodeVisualStyle } from 'shared/flowDiagramStyle'
 import { buildCasePageLookupMaps, resolvePageIdForCaseResult } from 'shared/automation/pageMapRunStatus'
+import { computeFlowPageSequence } from 'shared/automation/flowPageSequence'
+import { expandFlowRunPageScope } from 'shared/automation/flowRunScope'
+import { normalizeAllRunOrders, type FlowExecEdge } from 'shared/flowExecution'
 import { parsePageMapAnnotationStyleJson, stringifyPageMapAnnotationStyle } from 'shared/pageMapAnnotationStyle'
 import { randomUuidV7 } from 'shared/randomUuidV7'
 import { exec, query, type TransactionQuery, withTransaction } from '../task/schema/db'
@@ -134,6 +137,7 @@ interface CatalogPageRow {
   diagram_x: string | number | null
   diagram_y: string | number | null
   diagram_style_json: string | null
+  execution_disabled: boolean | number | null
   created_at: string
   updated_at: string
 }
@@ -150,6 +154,7 @@ function rowToCatalogPage(r: CatalogPageRow): TestCatalogPage {
     diagramX: r.diagram_x != null ? Number(r.diagram_x) : undefined,
     diagramY: r.diagram_y != null ? Number(r.diagram_y) : undefined,
     diagramStyle: parseNodeVisualStyleJson(r.diagram_style_json),
+    executionDisabled: r.execution_disabled === true || r.execution_disabled === 1,
     createdAt: r.created_at,
     updatedAt: r.updated_at,
   }
@@ -216,6 +221,7 @@ interface NavEdgeRow {
   target_page_id: string
   label: string | null
   style_json: string | null
+  run_order: number | null
   created_at: string
 }
 
@@ -227,6 +233,7 @@ function rowToNavEdge(r: NavEdgeRow): TestPageNavEdge {
     targetPageId: r.target_page_id,
     label: r.label ?? undefined,
     connectionStyle: parseConnectionStyleJson(r.style_json ?? undefined),
+    runOrder: r.run_order != null ? Number(r.run_order) : undefined,
     createdAt: r.created_at,
   }
 }
@@ -241,7 +248,7 @@ export async function ensureDefaultCatalogForProject(projectId: string): Promise
 
 export async function listCatalogPages(projectId: string): Promise<TestCatalogPage[]> {
   const rows = await query<CatalogPageRow>(
-    `SELECT id, project_id, name, slug, description, sort_order, group_id, diagram_x, diagram_y, diagram_style_json, created_at, updated_at
+    `SELECT id, project_id, name, slug, description, sort_order, group_id, diagram_x, diagram_y, diagram_style_json, execution_disabled, created_at, updated_at
      FROM test_catalog_pages WHERE project_id = ? ORDER BY sort_order ASC, name ASC`,
     [projectId]
   )
@@ -268,7 +275,7 @@ export async function caseCountByCatalogPageForProject(projectId: string): Promi
 
 export async function getCatalogPage(id: string): Promise<TestCatalogPage | null> {
   const rows = await query<CatalogPageRow>(
-    `SELECT id, project_id, name, slug, description, sort_order, group_id, diagram_x, diagram_y, diagram_style_json, created_at, updated_at
+    `SELECT id, project_id, name, slug, description, sort_order, group_id, diagram_x, diagram_y, diagram_style_json, execution_disabled, created_at, updated_at
      FROM test_catalog_pages WHERE id = ?`,
     [id]
   )
@@ -300,7 +307,7 @@ export async function createCatalogPage(input: {
 
 export async function updateCatalogPage(
   id: string,
-  patch: Partial<Pick<TestCatalogPage, 'name' | 'slug' | 'description' | 'sortOrder' | 'groupId' | 'diagramX' | 'diagramY' | 'diagramStyle'>>
+  patch: Partial<Pick<TestCatalogPage, 'name' | 'slug' | 'description' | 'sortOrder' | 'groupId' | 'diagramX' | 'diagramY' | 'diagramStyle' | 'executionDisabled'>>
 ): Promise<TestCatalogPage | null> {
   const fields: string[] = []
   const values: unknown[] = []
@@ -335,6 +342,10 @@ export async function updateCatalogPage(
   if (patch.diagramStyle !== undefined) {
     fields.push('diagram_style_json = ?')
     values.push(patch.diagramStyle == null ? null : stringifyNodeVisualStyle(patch.diagramStyle))
+  }
+  if (patch.executionDisabled !== undefined) {
+    fields.push('execution_disabled = ?')
+    values.push(patch.executionDisabled ? 1 : 0)
   }
   if (fields.length === 0) return getCatalogPage(id)
   fields.push('updated_at = CURRENT_TIMESTAMP')
@@ -868,7 +879,10 @@ export async function caseCountByCatalogGroupForProject(projectId: string): Prom
   return out
 }
 
-export async function resolveRunScope(projectId: string, opts: { pageIds?: string[]; groupIds?: string[] }): Promise<RunScopeResolution> {
+export async function resolveRunScope(
+  projectId: string,
+  opts: { pageIds?: string[]; groupIds?: string[]; ordered?: boolean; startPageId?: string },
+): Promise<RunScopeResolution> {
   const pageIds = [...new Set((opts.pageIds ?? []).filter(Boolean))]
   const requestedGroupIds = [...new Set((opts.groupIds ?? []).filter(Boolean))]
   const extraWarnings: string[] = []
@@ -895,6 +909,21 @@ export async function resolveRunScope(projectId: string, opts: { pageIds?: strin
     }
   }
 
+  let navEdgesForOrdered: TestPageNavEdge[] | undefined
+  if (opts.ordered && opts.startPageId) {
+    navEdgesForOrdered = await listNavEdges(projectId)
+    const expanded = expandFlowRunPageScope({
+      mergedPageIds,
+      startPageId: opts.startPageId,
+      navEdges: navEdgesForOrdered,
+      explicitPageIds: pageIds,
+      hasGroups: validRequestedGroups.length > 0,
+    })
+    extraWarnings.push(...expanded.warnings)
+    mergedPageIds.length = 0
+    mergedPageIds.push(...expanded.pageIds)
+  }
+
   const base = await resolveRunScopeForCatalogPages(projectId, mergedPageIds)
   const warnings = [...extraWarnings, ...base.warnings]
 
@@ -918,10 +947,26 @@ export async function resolveRunScope(projectId: string, opts: { pageIds?: strin
     }
   }
 
+  let orderedPageIds: string[] | undefined
+  if (opts.ordered && mergedPageIds.length > 0) {
+    const navEdges = navEdgesForOrdered ?? (await listNavEdges(projectId))
+    const pages = await listCatalogPages(projectId)
+    const flow = computeFlowPageSequence({
+      pageIdsInScope: mergedPageIds,
+      pages: pages.map(p => ({ id: p.id, sortOrder: p.sortOrder, executionDisabled: p.executionDisabled })),
+      navEdges,
+      startPageId: opts.startPageId,
+      caseCountByPageId: base.caseCountByPageId,
+    })
+    warnings.push(...flow.warnings)
+    if (flow.runnableSequence.length) orderedPageIds = flow.runnableSequence
+  }
+
   return {
     ...base,
     warnings,
     pageIdsExpanded: mergedPageIds,
+    orderedPageIds,
     caseIdsByGroupId: Object.keys(caseIdsByGroupId).length ? caseIdsByGroupId : undefined,
     caseCountByGroupId: Object.keys(caseCountByGroupId).length ? caseCountByGroupId : undefined,
   }
@@ -1033,12 +1078,84 @@ export async function deleteFlow(id: string): Promise<void> {
   await exec('DELETE FROM test_flows WHERE id = ?', [id])
 }
 
-export async function listNavEdges(projectId: string): Promise<TestPageNavEdge[]> {
-  const rows = await query<NavEdgeRow>(
-    `SELECT id, project_id, source_page_id, target_page_id, label, style_json, created_at FROM test_page_nav_edges WHERE project_id = ? ORDER BY created_at ASC`,
-    [projectId]
+/** Pure helper — patches needed to compact run_order per source (for tests + backfill). */
+export function navEdgeRunOrderBackfillPatches(
+  edges: Array<{ id: string; sourcePageId: string; targetPageId: string; runOrder?: number }>,
+): Array<{ id: string; runOrder: number }> {
+  const flowExec: FlowExecEdge[] = edges.map(e => ({
+    id: e.id,
+    source: e.sourcePageId,
+    target: e.targetPageId,
+    runOrder: e.runOrder,
+  }))
+  const normalized = normalizeAllRunOrders(flowExec)
+  const prevById = new Map(edges.map(e => [e.id, e.runOrder]))
+  const patches: Array<{ id: string; runOrder: number }> = []
+  for (const fe of normalized) {
+    if (fe.runOrder == null) continue
+    const prev = prevById.get(fe.id)
+    if (prev !== fe.runOrder) patches.push({ id: fe.id, runOrder: fe.runOrder })
+  }
+  return patches
+}
+
+const navEdgeRunOrderEnsuredProjects = new Set<string>()
+
+/** Clear backfill skip cache after graph mutations (new/deleted edges). */
+export function invalidateNavEdgeRunOrderCache(projectId: string): void {
+  navEdgeRunOrderEnsuredProjects.delete(projectId)
+}
+
+/** Apply run_order patches; returns count updated (for tests + backfill). */
+export async function applyNavEdgeRunOrderPatches(
+  edges: Array<{ id: string; sourcePageId: string; targetPageId: string; runOrder?: number }>,
+  update: (id: string, runOrder: number) => Promise<void>,
+): Promise<number> {
+  const patches = navEdgeRunOrderBackfillPatches(edges)
+  for (const p of patches) {
+    await update(p.id, p.runOrder)
+  }
+  return patches.length
+}
+
+async function queryNavEdgeRows(projectId: string): Promise<NavEdgeRow[]> {
+  return query<NavEdgeRow>(
+    `SELECT id, project_id, source_page_id, target_page_id, label, style_json, run_order, created_at FROM test_page_nav_edges WHERE project_id = ? ORDER BY created_at ASC`,
+    [projectId],
   )
-  return rows.map(rowToNavEdge)
+}
+
+export async function ensureNavEdgeRunOrders(projectId: string): Promise<number> {
+  if (navEdgeRunOrderEnsuredProjects.has(projectId)) return 0
+  const rows = await queryNavEdgeRows(projectId)
+  const nav = rows.map(rowToNavEdge)
+  const count = await applyNavEdgeRunOrderPatches(nav, async (id, runOrder) => {
+    await updateNavEdge(id, { runOrder })
+  })
+  navEdgeRunOrderEnsuredProjects.add(projectId)
+  return count
+}
+
+export async function listNavEdges(projectId: string): Promise<TestPageNavEdge[]> {
+  if (navEdgeRunOrderEnsuredProjects.has(projectId)) {
+    const rows = await queryNavEdgeRows(projectId)
+    return rows.map(rowToNavEdge)
+  }
+
+  const rows = await queryNavEdgeRows(projectId)
+  const nav = rows.map(rowToNavEdge)
+  const patches = navEdgeRunOrderBackfillPatches(nav)
+  if (patches.length) {
+    for (const p of patches) {
+      await updateNavEdge(p.id, { runOrder: p.runOrder })
+    }
+    navEdgeRunOrderEnsuredProjects.add(projectId)
+    const refreshed = await queryNavEdgeRows(projectId)
+    return refreshed.map(rowToNavEdge)
+  }
+
+  navEdgeRunOrderEnsuredProjects.add(projectId)
+  return nav
 }
 
 export async function createNavEdge(input: { projectId: string; sourcePageId: string; targetPageId: string; label?: string }): Promise<TestPageNavEdge> {
@@ -1055,12 +1172,13 @@ export async function createNavEdge(input: { projectId: string; sourcePageId: st
     input.targetPageId,
     input.label ?? null,
   ])
-  const rows = await query<NavEdgeRow>(`SELECT id, project_id, source_page_id, target_page_id, label, style_json, created_at FROM test_page_nav_edges WHERE id = ?`, [id])
+  invalidateNavEdgeRunOrderCache(input.projectId)
+  const rows = await query<NavEdgeRow>(`SELECT id, project_id, source_page_id, target_page_id, label, style_json, run_order, created_at FROM test_page_nav_edges WHERE id = ?`, [id])
   if (!rows.length) throw new Error('Failed to create edge.')
   return rowToNavEdge(rows[0])
 }
 
-export async function updateNavEdge(id: string, patch: { label?: string | null; styleJson?: string | null }): Promise<TestPageNavEdge | null> {
+export async function updateNavEdge(id: string, patch: { label?: string | null; styleJson?: string | null; runOrder?: number | null }): Promise<TestPageNavEdge | null> {
   const fields: string[] = []
   const values: unknown[] = []
   if (patch.label !== undefined) {
@@ -1071,18 +1189,25 @@ export async function updateNavEdge(id: string, patch: { label?: string | null; 
     fields.push('style_json = ?')
     values.push(patch.styleJson)
   }
+  if (patch.runOrder !== undefined) {
+    fields.push('run_order = ?')
+    values.push(patch.runOrder)
+  }
   if (fields.length === 0) {
-    const rows = await query<NavEdgeRow>(`SELECT id, project_id, source_page_id, target_page_id, label, style_json, created_at FROM test_page_nav_edges WHERE id = ?`, [id])
+    const rows = await query<NavEdgeRow>(`SELECT id, project_id, source_page_id, target_page_id, label, style_json, run_order, created_at FROM test_page_nav_edges WHERE id = ?`, [id])
     return rows.length ? rowToNavEdge(rows[0]) : null
   }
   values.push(id)
   await exec(`UPDATE test_page_nav_edges SET ${fields.join(', ')} WHERE id = ?`, values)
-  const rows = await query<NavEdgeRow>(`SELECT id, project_id, source_page_id, target_page_id, label, style_json, created_at FROM test_page_nav_edges WHERE id = ?`, [id])
+  const rows = await query<NavEdgeRow>(`SELECT id, project_id, source_page_id, target_page_id, label, style_json, run_order, created_at FROM test_page_nav_edges WHERE id = ?`, [id])
   return rows.length ? rowToNavEdge(rows[0]) : null
 }
 
 export async function deleteNavEdge(id: string): Promise<void> {
+  const rows = await query<{ project_id: string }>('SELECT project_id FROM test_page_nav_edges WHERE id = ?', [id])
   await exec('DELETE FROM test_page_nav_edges WHERE id = ?', [id])
+  const projectId = rows[0]?.project_id
+  if (projectId) invalidateNavEdgeRunOrderCache(projectId)
 }
 
 interface CaseRow {

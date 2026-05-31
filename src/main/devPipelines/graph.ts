@@ -2,6 +2,7 @@ import type { FlowConnectionStyle, FlowNodeVisualStyle } from 'shared/flowDiagra
 import { mergeConnectionStyle, mergeNodeVisualStyle } from 'shared/flowDiagramStyle'
 import type { DevPipelineEdgeCondition, DevPipelineGraphJson, DevPipelineNodeData, DevPipelinePersistedEdge, DevPipelinePersistedNode } from 'shared/devPipelines/types'
 import { isDevPipelineStepNode, listExecutableStepNodes } from 'shared/devPipelines/runScope'
+import { normalizeAllRunOrders, validateRunOrders, type FlowExecEdge } from 'shared/flowExecution'
 
 export class DevPipelineGraphValidationError extends Error {
   constructor(message: string) {
@@ -56,6 +57,17 @@ function parseNodeParams(data: Record<string, unknown>, nodeId: string, stepKind
   return undefined
 }
 
+function parseExecutionDisabled(data: Record<string, unknown>): boolean {
+  return data.executionDisabled === true
+}
+
+function stepCommonFields(data: Record<string, unknown>, visualFields: Record<string, unknown>) {
+  return {
+    ...visualFields,
+    ...(parseExecutionDisabled(data) ? { executionDisabled: true } : {}),
+  }
+}
+
 function parseEdgeData(edgeData: unknown, edgeId: string): DevPipelinePersistedEdge['data'] | undefined {
   if (edgeData === undefined || edgeData === null) return undefined
   if (!isRecord(edgeData)) throw new DevPipelineGraphValidationError(`Edge ${edgeId}: data must be an object`)
@@ -68,11 +80,19 @@ function parseEdgeData(edgeData: unknown, edgeId: string): DevPipelinePersistedE
     connectionStyle = mergeConnectionStyle(edgeData.connectionStyle as Partial<FlowConnectionStyle>)
   }
   const condition = edgeData.condition !== undefined ? parseEdgeCondition(edgeData.condition) : undefined
-  if (label === undefined && connectionStyle === undefined && condition === undefined) return undefined
+  let runOrder: number | undefined
+  if (edgeData.runOrder !== undefined && edgeData.runOrder !== null) {
+    if (typeof edgeData.runOrder !== 'number' || !Number.isFinite(edgeData.runOrder)) {
+      throw new DevPipelineGraphValidationError(`Edge ${edgeId}: runOrder must be a number`)
+    }
+    runOrder = Math.max(1, Math.round(edgeData.runOrder))
+  }
+  if (label === undefined && connectionStyle === undefined && condition === undefined && runOrder === undefined) return undefined
   return {
     ...(label !== undefined ? { label } : {}),
     ...(connectionStyle !== undefined ? { connectionStyle } : {}),
     ...(condition !== undefined ? { condition } : {}),
+    ...(runOrder !== undefined ? { runOrder } : {}),
   }
 }
 
@@ -156,7 +176,7 @@ export function parseAndValidateGraph(raw: unknown): DevPipelineGraphJson {
         type,
         position: { x: pos.x, y: pos.y },
         ...layoutFields,
-        data: { label: label.trim(), stepKind: 'noop', ...visualFields },
+        data: { label: label.trim(), stepKind: 'noop', ...stepCommonFields(data, visualFields) },
       })
       continue
     }
@@ -167,7 +187,7 @@ export function parseAndValidateGraph(raw: unknown): DevPipelineGraphJson {
         type,
         position: { x: pos.x, y: pos.y },
         ...layoutFields,
-        data: { label: label.trim(), stepKind: 'delay', params: paramsOut, ...visualFields },
+        data: { label: label.trim(), stepKind: 'delay', params: paramsOut, ...stepCommonFields(data, visualFields) },
       })
       continue
     }
@@ -182,7 +202,7 @@ export function parseAndValidateGraph(raw: unknown): DevPipelineGraphJson {
           label: label.trim(),
           stepKind: 'approval',
           ...(approvalMessage ? { approvalMessage } : {}),
-          ...visualFields,
+          ...stepCommonFields(data, visualFields),
         },
       })
       continue
@@ -194,7 +214,7 @@ export function parseAndValidateGraph(raw: unknown): DevPipelineGraphJson {
         type,
         position: { x: pos.x, y: pos.y },
         ...layoutFields,
-        data: { label: label.trim(), stepKind: 'http-check', params: paramsOut, ...visualFields },
+        data: { label: label.trim(), stepKind: 'http-check', params: paramsOut, ...stepCommonFields(data, visualFields) },
       })
       continue
     }
@@ -215,7 +235,7 @@ export function parseAndValidateGraph(raw: unknown): DevPipelineGraphJson {
           command,
           ...(cwd ? { cwd } : {}),
           waitForExit,
-          ...visualFields,
+          ...stepCommonFields(data, visualFields),
         },
       })
       continue
@@ -254,6 +274,27 @@ export function parseAndValidateGraph(raw: unknown): DevPipelineGraphJson {
   const stepIds = new Set(nodes.filter(isDevPipelineStepNode).map(n => n.id))
   const stepEdges = edges.filter(e => stepIds.has(e.source) && stepIds.has(e.target))
   detectCycle(stepIds, stepEdges)
+
+  const flowExecEdges: FlowExecEdge[] = edges.map(e => ({
+    id: e.id,
+    source: e.source,
+    target: e.target,
+    runOrder: e.data?.runOrder,
+    condition: e.data?.condition,
+  }))
+  const normalized = normalizeAllRunOrders(flowExecEdges)
+  const orderById = new Map(normalized.map(e => [e.id, e.runOrder]))
+  for (const e of edges) {
+    if (!stepIds.has(e.source) || !stepIds.has(e.target)) continue
+    const ro = orderById.get(e.id)
+    if (ro != null) {
+      e.data = { ...(e.data ?? {}), runOrder: ro }
+    }
+  }
+  const orderIssues = validateRunOrders(normalized.filter(e => stepIds.has(e.source) && stepIds.has(e.target)))
+  if (orderIssues.length) {
+    throw new DevPipelineGraphValidationError(orderIssues[0]!.message)
+  }
 
   let defaultCwd: string | undefined
   if (raw.defaultCwd !== undefined && raw.defaultCwd !== null) {

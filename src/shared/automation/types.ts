@@ -71,6 +71,8 @@ export interface TestCatalogPage {
   diagramY?: number
   /** Giao diện node trên page map (JSON FlowNodeVisualStyle). */
   diagramStyle?: FlowNodeVisualStyle
+  /** Bỏ qua khi chạy group / flow trên page map. */
+  executionDisabled?: boolean
   createdAt?: string
   updatedAt?: string
 }
@@ -92,6 +94,8 @@ export interface TestPageNavEdge {
   label?: string
   /** Kiểu cạnh trên diagram — map từ cột style_json. */
   connectionStyle?: FlowConnectionStyle
+  /** Thứ tự chạy trong flow (1 = nhánh đầu từ cùng source page). */
+  runOrder?: number
   createdAt?: string
 }
 
@@ -262,6 +266,8 @@ export interface RunScopeResolution {
   caseCountByGroupId?: Record<string, number>
   /** Cảnh báo (vd page id không thuộc project, page không có case). */
   warnings: string[]
+  /** Thứ tự page khi chạy theo flow (subset của pageIdsExpanded). */
+  orderedPageIds?: string[]
 }
 
 /** Tham số khi tạo run từ renderer. */
@@ -279,12 +285,20 @@ export interface RunRequest {
   headed?: boolean
   grep?: string
   triggeredBy?: string
+  /** Chạy tuần tự theo từng page (page map flow). */
+  pageSequence?: string[]
+  /** Bắt buộc khi dùng pageSequence — case theo page. */
+  caseIdsByPageId?: Record<string, string[]>
+  /** Resolve scope theo thứ tự nav edge. */
+  ordered?: boolean
+  /** Entry page khi chạy flow từ một trang. */
+  startPageId?: string
 }
 
 /** Sự kiện stream từ main → renderer khi run đang chạy. */
 export type RunStreamEvent =
   | { kind: 'log'; runId: string; chunk: string; stream: 'stdout' | 'stderr' }
-  | { kind: 'progress'; runId: string; total: number; passed: number; failed: number; skipped: number; currentTest?: string }
+  | { kind: 'progress'; runId: string; total: number; passed: number; failed: number; skipped: number; currentTest?: string; activePageId?: string; activeEdgeId?: string }
   | { kind: 'started'; runId: string; projectId: string; startedAt: string }
   | {
       kind: 'finished'

@@ -3,6 +3,7 @@ import {
   beginPageMapSave,
   finishPageMapSave,
   getPageMapSaveState,
+  PAGE_MAP_SAVING_MIN_MS,
   resetPageMapSaveState,
   trackPageMapPersist,
   trackPageMapPersistAll,
@@ -14,7 +15,8 @@ describe('pageMapAutosaveStore', () => {
     vi.useRealTimers()
   })
 
-  it('stays saving until all overlapping batches finish', () => {
+  it('stays saving until all overlapping batches finish', async () => {
+    vi.useFakeTimers()
     const first = beginPageMapSave()
     const second = beginPageMapSave()
     expect(getPageMapSaveState()).toBe('saving')
@@ -23,10 +25,13 @@ describe('pageMapAutosaveStore', () => {
     expect(getPageMapSaveState()).toBe('saving')
 
     finishPageMapSave(first, false)
+    expect(getPageMapSaveState()).toBe('saving')
+    await vi.advanceTimersByTimeAsync(PAGE_MAP_SAVING_MIN_MS)
     expect(getPageMapSaveState()).toBe('saved')
   })
 
-  it('uses latest batch result when stale completion drains the queue', () => {
+  it('uses latest batch result when stale completion drains the queue', async () => {
+    vi.useFakeTimers()
     const first = beginPageMapSave()
     const second = beginPageMapSave()
 
@@ -34,25 +39,49 @@ describe('pageMapAutosaveStore', () => {
     expect(getPageMapSaveState()).toBe('saving')
 
     finishPageMapSave(first, false)
+    expect(getPageMapSaveState()).toBe('saving')
+    await vi.advanceTimersByTimeAsync(PAGE_MAP_SAVING_MIN_MS)
+    expect(getPageMapSaveState()).toBe('saved')
+  })
+
+  it('keeps saving visible for a minimum duration after a fast API response', async () => {
+    vi.useFakeTimers()
+    const promise = trackPageMapPersist(async () => ({ status: 'success' as const }))
+    await Promise.resolve()
+    expect(getPageMapSaveState()).toBe('saving')
+
+    await vi.advanceTimersByTimeAsync(PAGE_MAP_SAVING_MIN_MS - 1)
+    expect(getPageMapSaveState()).toBe('saving')
+
+    await vi.advanceTimersByTimeAsync(1)
+    await promise
     expect(getPageMapSaveState()).toBe('saved')
   })
 
   it('trackPageMapPersist marks saved on success', async () => {
-    const res = await trackPageMapPersist(async () => ({ status: 'success' as const }))
-    expect(res.status).toBe('success')
+    vi.useFakeTimers()
+    const promise = trackPageMapPersist(async () => ({ status: 'success' as const }))
+    await vi.advanceTimersByTimeAsync(PAGE_MAP_SAVING_MIN_MS)
+    await promise
     expect(getPageMapSaveState()).toBe('saved')
   })
 
   it('trackPageMapPersist marks error on failure', async () => {
-    await trackPageMapPersist(async () => ({ status: 'error' as const }))
+    vi.useFakeTimers()
+    const promise = trackPageMapPersist(async () => ({ status: 'error' as const }))
+    await vi.advanceTimersByTimeAsync(PAGE_MAP_SAVING_MIN_MS)
+    await promise
     expect(getPageMapSaveState()).toBe('error')
   })
 
   it('trackPageMapPersistAll requires every result to succeed', async () => {
-    await trackPageMapPersistAll(async () => [
+    vi.useFakeTimers()
+    const promise = trackPageMapPersistAll(async () => [
       { status: 'success' },
       { status: 'error' },
     ])
+    await vi.advanceTimersByTimeAsync(PAGE_MAP_SAVING_MIN_MS)
+    await promise
     expect(getPageMapSaveState()).toBe('error')
   })
 })

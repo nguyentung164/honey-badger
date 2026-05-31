@@ -12,6 +12,8 @@ import {
 export type PageMapActionsValue = {
   canvasLocked: boolean
   runThisPage: (pageId: string) => void
+  runFlowFromPage: (pageId: string) => void
+  togglePageExecutionDisabled: (pageId: string) => void
   runBusy: boolean
   duplicatePage: (pageId: string) => void
   requestDeletePage: (pageId: string) => void
@@ -234,8 +236,8 @@ export type CatalogPageNodeDataForGraph = {
   panelUpdatedLine?: string
   panelSlugLine?: string
   diagramVisual?: import('shared/flowDiagramStyle').FlowNodeVisualStyle
-  /** Trang đang thuộc catalog group — hiện nút gỡ khỏi nhóm trên node toolbar. */
   inGroup: boolean
+  executionDisabled?: boolean
 }
 
 function navEdgeDegreesMap(navEdges: TestPageNavEdge[], pageIds: string[]): Record<string, { in: number; out: number }> {
@@ -355,6 +357,7 @@ export function buildPageMapNodes(input: {
         panelSlugLine,
         diagramVisual: p.diagramStyle,
         inGroup: hasParent,
+        executionDisabled: p.executionDisabled === true,
       } satisfies CatalogPageNodeDataForGraph,
     }
   })

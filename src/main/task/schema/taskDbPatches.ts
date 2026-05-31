@@ -841,6 +841,22 @@ CREATE TABLE IF NOT EXISTS test_case_results (
       await query('ALTER TABLE test_page_nav_edges ADD COLUMN style_json TEXT NULL')
     }
 
+    const missingNavEdgeRunOrder = await query<{ cnt: number }>(
+      `SELECT 1 AS cnt FROM information_schema.columns
+       WHERE table_schema = current_schema() AND table_name = 'test_page_nav_edges' AND column_name = 'run_order' LIMIT 1`
+    )
+    if (!missingNavEdgeRunOrder?.length) {
+      await query('ALTER TABLE test_page_nav_edges ADD COLUMN run_order INTEGER NULL')
+    }
+
+    const missingPageExecutionDisabled = await query<{ cnt: number }>(
+      `SELECT 1 AS cnt FROM information_schema.columns
+       WHERE table_schema = current_schema() AND table_name = 'test_catalog_pages' AND column_name = 'execution_disabled' LIMIT 1`
+    )
+    if (!missingPageExecutionDisabled?.length) {
+      await query('ALTER TABLE test_catalog_pages ADD COLUMN execution_disabled BOOLEAN NOT NULL DEFAULT FALSE')
+    }
+
     const missingCatalogDiagramStyle = await query<{ cnt: number }>(
       `SELECT 1 AS cnt FROM information_schema.columns
        WHERE table_schema = current_schema() AND table_name = 'test_catalog_pages' AND column_name = 'diagram_style_json' LIMIT 1`

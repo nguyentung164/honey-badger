@@ -13,6 +13,8 @@ import type {
   DevPipelineStepStatusEntry,
 } from 'shared/devPipelines/types'
 import { buildScopedRunPlan, isDevPipelineStepNode } from 'shared/devPipelines/runScope'
+import { runSequentialReadyNodes } from 'shared/devPipelines/sequentialScheduler'
+import type { FlowExecEdge } from 'shared/flowExecution'
 import { getDevPipelineFlow, insertDevPipelineRun, updateDevPipelineRunStepJson, finalizeDevPipelineRun } from './db'
 import { parseAndValidateGraph } from './graph'
 
@@ -160,7 +162,7 @@ function buildGraphIndex(graph: DevPipelineGraphJson, edges: DevPipelineGraphJso
 }
 
 function edgeConditionMet(outcome: NodeOutcome, condition: DevPipelineEdgeCondition): boolean {
-  if (outcome === 'skipped') return false
+  if (outcome === 'skipped') return condition === 'always'
   if (condition === 'always') return true
   if (condition === 'on-success') return outcome === 'success'
   if (condition === 'on-failure') return outcome === 'error'
@@ -333,7 +335,7 @@ async function runPipelineBody(
   const scopedGraph: DevPipelineGraphJson = { ...graph, edges: plan.edges }
   const executableSet = new Set(plan.executableNodeIds)
   const stepStatus: Record<string, DevPipelineStepStatusEntry> = {}
-  const { incoming, nodeById } = buildGraphIndex(scopedGraph, plan.edges)
+  const { nodeById } = buildGraphIndex(scopedGraph, plan.edges)
   const nodeIds = plan.executableNodeIds
   const resolved = new Map<string, NodeOutcome>()
   const running = new Set<string>()
@@ -344,9 +346,29 @@ async function runPipelineBody(
   for (const node of graph.nodes) {
     if (!executableSet.has(node.id) && isDevPipelineStepNode(node)) {
       stepStatus[node.id] = { status: 'skipped', finishedAt: now }
+      resolved.set(node.id, 'skipped')
+    }
+  }
+  for (const disabledId of plan.disabledNodeIds) {
+    if (!stepStatus[disabledId]) {
+      stepStatus[disabledId] = { status: 'skipped', finishedAt: now }
+      resolved.set(disabledId, 'skipped')
     }
   }
 
+  const flowExecEdges: FlowExecEdge[] = plan.edges.map(e => ({
+    id: e.id,
+    source: e.source,
+    target: e.target,
+    runOrder: e.data?.runOrder,
+    condition: e.data?.condition,
+  }))
+  const nodeByIdForPick = new Map(
+    graph.nodes.filter(isDevPipelineStepNode).map(n => [
+      n.id,
+      { id: n.id, label: (n.data as DevPipelineNodeData).label },
+    ]),
+  )
   const push = (extra: Partial<DevPipelineRunStreamPayload> = {}) => {
     broadcastRun({
       runId,
@@ -412,47 +434,35 @@ async function runPipelineBody(
   }
 
   try {
-    while (!cancelled) {
-      if (isCancelled()) {
-        await markCancelledAndExit()
-        return
-      }
-
-      const ready = nodeIds.filter(
-        id =>
-          !resolved.has(id) &&
-          !running.has(id) &&
-          canRunNode(id, incoming, resolved, plan.scopeNodeIds, plan.treatExternalAsSuccess),
-      )
-
-      if (ready.length === 0) {
-        if (running.size > 0) {
-          await sleep(50)
-          continue
+    await runSequentialReadyNodes({
+      nodeIds,
+      edges: flowExecEdges,
+      scopeNodeIds: plan.scopeNodeIds,
+      treatExternalAsSuccess: plan.treatExternalAsSuccess,
+      nodeById: nodeByIdForPick,
+      resolved,
+      shouldStop: () => cancelled || isCancelled(),
+      runOne: async nodeId => {
+        if (cancelled || isCancelled()) {
+          cancelled = true
+          throw new Error(DEV_PIPELINE_CANCELLED_MESSAGE)
         }
-        break
-      }
+        running.add(nodeId)
+        try {
+          await runOneNode(nodeId)
+        } catch (err) {
+          const msg = err instanceof Error ? err.message : String(err)
+          if (msg === DEV_PIPELINE_CANCELLED_MESSAGE || isCancelled()) cancelled = true
+          throw err
+        } finally {
+          running.delete(nodeId)
+        }
+      },
+    })
 
-      await Promise.all(
-        ready.map(async nodeId => {
-          running.add(nodeId)
-          try {
-            await runOneNode(nodeId)
-          } catch (err) {
-            const msg = err instanceof Error ? err.message : String(err)
-            if (msg === DEV_PIPELINE_CANCELLED_MESSAGE || isCancelled()) {
-              cancelled = true
-            }
-          } finally {
-            running.delete(nodeId)
-          }
-        })
-      )
-
-      if (cancelled || isCancelled()) {
-        await markCancelledAndExit()
-        return
-      }
+    if (cancelled || isCancelled()) {
+      await markCancelledAndExit()
+      return
     }
 
     const now = new Date().toISOString()

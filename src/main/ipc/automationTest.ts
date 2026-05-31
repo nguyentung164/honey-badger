@@ -529,7 +529,7 @@ export function registerAutomationTestIpcHandlers(): void {
     }
   })
 
-  ipcMain.handle(IPC.AUTOMATION.NAV_EDGE_UPDATE, async (_e, args: { id: string; patch: { label?: string | null; styleJson?: string | null } }) => {
+  ipcMain.handle(IPC.AUTOMATION.NAV_EDGE_UPDATE, async (_e, args: { id: string; patch: { label?: string | null; styleJson?: string | null; runOrder?: number | null } }) => {
     try {
       return ok(await updateNavEdge(args.id, args.patch))
     } catch (err) {
@@ -942,11 +942,16 @@ export function registerAutomationTestIpcHandlers(): void {
   })
 
   // -------------------- Run --------------------
-  ipcMain.handle(IPC.AUTOMATION.RUN_RESOLVE_SCOPE, async (_e, args: { projectId: string; pageIds?: string[]; groupIds?: string[] }) => {
+  ipcMain.handle(IPC.AUTOMATION.RUN_RESOLVE_SCOPE, async (_e, args: { projectId: string; pageIds?: string[]; groupIds?: string[]; ordered?: boolean; startPageId?: string }) => {
     try {
       const project = await getProject(args.projectId)
       if (!project) return fail('Project not found.')
-      const resolution = await resolveRunScope(args.projectId, { pageIds: args.pageIds ?? [], groupIds: args.groupIds ?? [] })
+      const resolution = await resolveRunScope(args.projectId, {
+        pageIds: args.pageIds ?? [],
+        groupIds: args.groupIds ?? [],
+        ordered: args.ordered,
+        startPageId: args.startPageId,
+      })
       return ok(resolution)
     } catch (err) {
       return fail((err as Error).message)
@@ -967,9 +972,22 @@ export function registerAutomationTestIpcHandlers(): void {
       const groupIds = (request.groupIds ?? []).filter(Boolean)
       const manualCaseIds = (request.caseIds ?? []).filter(Boolean)
       let mergedCaseIds = [...new Set(manualCaseIds)]
+      let pageSequence = request.pageSequence
+      let caseIdsByPageId = request.caseIdsByPageId
+      const useOrderedFlow = request.ordered === true || Boolean(pageSequence?.length)
+
       if (pageIds.length > 0 || groupIds.length > 0) {
-        const scope = await resolveRunScope(request.projectId, { pageIds, groupIds })
+        const scope = await resolveRunScope(request.projectId, {
+          pageIds,
+          groupIds,
+          ordered: useOrderedFlow,
+          startPageId: request.startPageId,
+        })
         mergedCaseIds = [...new Set([...mergedCaseIds, ...scope.caseIds])]
+        if (useOrderedFlow && scope.orderedPageIds?.length) {
+          pageSequence = scope.orderedPageIds
+          caseIdsByPageId = scope.caseIdsByPageId
+        }
         if (mergedCaseIds.length === 0) {
           if (groupIds.length > 0 && pageIds.length === 0 && manualCaseIds.length === 0) {
             return fail('NO_CASES_FOR_SELECTED_GROUPS')
@@ -981,7 +999,9 @@ export function registerAutomationTestIpcHandlers(): void {
       const effectiveRequest: RunRequest = {
         ...request,
         triggeredBy,
-        caseIds: mergedCaseIds.length > 0 ? mergedCaseIds : undefined,
+        caseIds: pageSequence?.length ? undefined : mergedCaseIds.length > 0 ? mergedCaseIds : undefined,
+        pageSequence: pageSequence?.length ? pageSequence : undefined,
+        caseIdsByPageId: pageSequence?.length ? caseIdsByPageId : undefined,
         pageIds: undefined,
         groupIds: undefined,
       }

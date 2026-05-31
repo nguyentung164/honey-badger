@@ -39,6 +39,8 @@ export type DevPipelineNodeData = {
   waitForExit?: boolean
   /** Message shown in the approval banner while awaiting user action. */
   approvalMessage?: string
+  /** When true, step is skipped during group/flow runs. */
+  executionDisabled?: boolean
   /** Màu / icon hiển thị trên canvas (flow inspector). */
   diagramVisual?: FlowNodeVisualStyle
 }
@@ -77,6 +79,7 @@ export type DevPipelineRunScope =
   | { mode: 'full' }
   | { mode: 'node'; nodeId: string }
   | { mode: 'group'; groupId: string }
+  | { mode: 'flow'; startNodeId?: string }
 
 export type DevPipelinePersistedEdge = {
   id: string
@@ -90,6 +93,8 @@ export type DevPipelinePersistedEdge = {
     connectionStyle?: Partial<FlowConnectionStyle>
     label?: string
     condition?: DevPipelineEdgeCondition
+    /** Order among outgoing edges from the same source (1 = first). */
+    runOrder?: number
   }
 }
 

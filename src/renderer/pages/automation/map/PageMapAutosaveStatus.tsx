@@ -70,29 +70,15 @@ export function PageMapAutosaveStatus({ className }: { className?: string }) {
       <AnimatePresence mode="wait" initial={false}>
         {visible ? (
           <motion.span
-            key={saveState}
+            key="page-map-autosave"
             role="status"
             aria-live="polite"
-            initial={reduceMotion ? false : { opacity: 0, scale: 0.9, y: 3 }}
-            animate={
-              reduceMotion
-                ? { opacity: 1, scale: 1, y: 0 }
-                : saveState === 'saved'
-                  ? { opacity: 1, scale: [0.92, 1.04, 1], y: 0 }
-                  : saveState === 'error'
-                    ? { opacity: 1, scale: 1, x: [0, -2, 2, -1, 0], y: 0 }
-                    : { opacity: 1, scale: 1, y: 0 }
-            }
-            exit={reduceMotion ? undefined : { opacity: 0, scale: 0.92, y: -2 }}
-            transition={
-              saveState === 'saved' && !reduceMotion
-                ? { duration: 0.35, ease: BADGE_EASE, times: [0, 0.55, 1] }
-                : saveState === 'error' && !reduceMotion
-                  ? { duration: 0.4, ease: BADGE_EASE }
-                  : transition
-            }
+            initial={reduceMotion ? false : { opacity: 0, y: 2 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={reduceMotion ? undefined : { opacity: 0, y: -2 }}
+            transition={transition}
             className={cn(
-              'inline-flex h-[25px] items-center gap-1 rounded-full px-2 text-[10px] font-medium leading-none',
+              'inline-flex h-[25px] items-center gap-1 rounded-full px-2 text-[10px] font-medium leading-none transition-colors duration-200',
               badgeClass(saveState)
             )}
           >

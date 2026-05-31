@@ -5,6 +5,7 @@ export type DevPipelineCanvasActions = {
   runBusy: boolean
   runThisGroup: (groupId: string) => void
   runThisStep: (stepId: string) => void
+  runFlowFromStep: (stepId: string) => void
   persistGroupSize: (groupId: string, size: { width: number; height: number }) => void
   persistNoteSize: (noteId: string, size: { width: number; minHeight?: number; nodeHeight?: number }) => void
   persistNoteContent: (noteId: string, content: string) => void

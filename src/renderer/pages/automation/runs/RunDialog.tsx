@@ -23,9 +23,12 @@ interface Props {
   groupIdsForRun?: string[]
   /** Một dòng mô tả phạm vi (vd "3 màn hình · 12 test"). */
   scopeSummaryHint?: string
+  /** Chạy theo thứ tự nav edge (page map flow). */
+  ordered?: boolean
+  startPageId?: string
 }
 
-export function RunDialog({ project, open, onOpenChange, onStarted, pageIdsForRun, groupIdsForRun, scopeSummaryHint }: Props) {
+export function RunDialog({ project, open, onOpenChange, onStarted, pageIdsForRun, groupIdsForRun, scopeSummaryHint, ordered, startPageId }: Props) {
   const { t } = useTranslation()
   const settings = useAutomationStore(s => s.settings)
   const [browsers, setBrowsers] = useState<AutomationBrowser[]>(project.browsers)
@@ -59,6 +62,8 @@ export function RunDialog({ project, open, onOpenChange, onStarted, pageIdsForRu
       headed,
       ...(pageIdsForRun?.length ? { pageIds: pageIdsForRun } : {}),
       ...(groupIdsForRun?.length ? { groupIds: groupIdsForRun } : {}),
+      ...(ordered ? { ordered: true } : {}),
+      ...(startPageId ? { startPageId } : {}),
     }
     try {
       const res = await window.api.automation.run.start(req)

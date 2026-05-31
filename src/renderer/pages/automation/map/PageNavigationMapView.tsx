@@ -111,6 +111,18 @@ import toast from '@/components/ui-elements/Toast'
 import { cn } from '@/lib/utils'
 import { mergePageMapEdges, mergePageMapNodes } from '@/pages/automation/map/pageMapGraphSync'
 import {
+  assignRunOrderForNewEdge,
+  FLOW_CYCLE_ERROR,
+  normalizeAllRunOrders,
+  normalizeRunOrdersForSource,
+  resolvedRunOrderByEdgeId,
+  swapRunOrderForEdge,
+  type FlowExecEdge,
+} from 'shared/flowExecution'
+import { runOrderFanPlacementForEdge } from 'shared/flowEdgeRunOrderLayout'
+import { isFlowUnreachableWarning, FLOW_UNREACHABLE_IN_SCOPE_PREFIX } from 'shared/automation/flowPageSequence'
+import { isFlowStartPageScopeWarning } from 'shared/automation/flowRunScope'
+import {
   PAGE_MAP_PATH_HIGHLIGHT_COLOR,
   PAGE_MAP_PATH_HIGHLIGHT_EDGE_STYLE,
   PAGE_MAP_PATH_HIGHLIGHT_RUNNING_COLOR,
@@ -120,6 +132,7 @@ import { CatalogGroupNode } from '@/pages/automation/map/CatalogGroupNode'
 import { PageMapBottomBar } from '@/pages/automation/map/PageMapActionBar'
 import { PageMapAnnotationConfigPanel, type PageMapAnnotationDraft } from '@/pages/automation/map/PageMapAnnotationConfigPanel'
 import { resetPageMapSaveState, scheduleDebouncedPageMapPersist, trackPageMapPersist, trackPageMapPersistAll, flushDebouncedPageMapPersists } from '@/pages/automation/map/pageMapAutosaveStore'
+import { logPageMapAutosave } from '@/pages/automation/map/pageMapAutosaveDebug'
 import { PageMapAnnotationNode } from '@/pages/automation/map/PageMapAnnotationNode'
 import { PageMapActionsContext } from '@/pages/automation/map/pageMapActionsContext'
 import {
@@ -179,6 +192,7 @@ type CatalogPageNodeData = {
   panelSlugLine?: string
   diagramVisual?: FlowNodeVisualStyle
   inGroup: boolean
+  executionDisabled?: boolean
 }
 
 const statusBadgeClass: Record<PageMapNodeStatus, string> = {
@@ -211,11 +225,13 @@ ensureNodeAnimStyles()
 
 const CatalogPageNodeToolbar = memo(function CatalogPageNodeToolbar({
   pageId,
+  executionDisabled,
   isVisible,
   onToolbarPointerEnter,
   onToolbarPointerLeave,
 }: {
   pageId: string
+  executionDisabled?: boolean
   isVisible: boolean
   onToolbarPointerEnter: () => void
   onToolbarPointerLeave: () => void
@@ -247,6 +263,40 @@ const CatalogPageNodeToolbar = memo(function CatalogPageNodeToolbar({
           }}
         >
           <Play className="size-3.5" />
+        </Button>
+        <Button
+          type="button"
+          size="icon"
+          variant="ghost"
+          className="nodrag nopan size-7 text-muted-foreground hover:bg-muted hover:text-foreground"
+          disabled={ctx.runBusy}
+          title={t('automation.pageMap.runFlow')}
+          onPointerDown={e => e.stopPropagation()}
+          onClick={e => {
+            e.stopPropagation()
+            ctx.runFlowFromPage(pageId)
+          }}
+        >
+          <Route className="size-3.5" />
+        </Button>
+        <Button
+          type="button"
+          size="icon"
+          variant="ghost"
+          className={cn(
+            'nodrag nopan size-7',
+            executionDisabled
+              ? 'text-amber-600 hover:bg-amber-500/15 dark:text-amber-400'
+              : 'text-muted-foreground hover:bg-muted hover:text-foreground',
+          )}
+          title={t('flowInspector.executionDisabled')}
+          onPointerDown={e => e.stopPropagation()}
+          onClick={e => {
+            e.stopPropagation()
+            ctx.togglePageExecutionDisabled(pageId)
+          }}
+        >
+          <Ban className="size-3.5" />
         </Button>
         <Button
           type="button"
@@ -390,11 +440,18 @@ const CatalogPageNode = memo(function CatalogPageNode({ id, data, selected }: No
 
   return (
     <>
-      <CatalogPageNodeToolbar pageId={id} isVisible={toolbarHover} onToolbarPointerEnter={showToolbar} onToolbarPointerLeave={hideToolbarSoon} />
+      <CatalogPageNodeToolbar
+        pageId={id}
+        executionDisabled={d.executionDisabled}
+        isVisible={toolbarHover}
+        onToolbarPointerEnter={showToolbar}
+        onToolbarPointerLeave={hideToolbarSoon}
+      />
       <NodeStatusIndicator status={pageStatusToIndicator(d.status)} className="w-fit max-w-full">
         <FlowNodeVisualShell
           diagramVisual={d.diagramVisual}
           selected={selected}
+          executionDisabled={d.executionDisabled}
           cardClassName={shellClasses.cardClassName}
           innerClassName={shellClasses.innerClassName}
           onPointerEnter={showToolbar}
@@ -626,7 +683,32 @@ function writeShowLastRunStatusPref(projectId: string, visible: boolean): void {
   }
 }
 
-function navToLabeledEdges(nav: TestPageNavEdge[], pathEdgeIds: Set<string>, pathEdgesRunPulse: boolean): Edge[] {
+function navToLabeledEdges(
+  nav: TestPageNavEdge[],
+  pathEdgeIds: Set<string>,
+  pathEdgesRunPulse: boolean,
+  onRunOrderChange?: (edgeId: string, next: number) => void,
+): Edge[] {
+  const siblingCountBySource = new Map<string, number>()
+  for (const e of nav) siblingCountBySource.set(e.sourcePageId, (siblingCountBySource.get(e.sourcePageId) ?? 0) + 1)
+  const flowExec: FlowExecEdge[] = nav.map(e => ({
+    id: e.id,
+    source: e.sourcePageId,
+    target: e.targetPageId,
+    runOrder: e.runOrder,
+  }))
+  const resolvedOrder = resolvedRunOrderByEdgeId(flowExec)
+  const fanEdges = nav.map(e => ({ id: e.id, source: e.sourcePageId, target: e.targetPageId }))
+  const fanByEdgeId = new Map(
+    nav.map(e => {
+      const fan = runOrderFanPlacementForEdge(
+        { id: e.id, source: e.sourcePageId, target: e.targetPageId },
+        fanEdges,
+        resolvedOrder,
+      )
+      return [e.id, fan] as const
+    }),
+  )
   return nav.map(e => {
     const cs = mergeConnectionStyle(e.connectionStyle)
     const lineLabel = e.label ?? cs.label ?? ''
@@ -656,6 +738,12 @@ function navToLabeledEdges(nav: TestPageNavEdge[], pathEdgeIds: Set<string>, pat
       data: {
         label: lineLabel,
         connectionStyle: e.connectionStyle,
+        runOrder: resolvedOrder.get(e.id) ?? 1,
+        runOrderMax: siblingCountBySource.get(e.sourcePageId) ?? 1,
+        runOrderFanMax: fanByEdgeId.get(e.id)?.fanMax ?? 1,
+        runOrderFanIndex: fanByEdgeId.get(e.id)?.fanIndex ?? 1,
+        runOrderEditable: Boolean(onRunOrderChange),
+        onRunOrderChange: onRunOrderChange ? (next: number) => onRunOrderChange(e.id, next) : undefined,
       },
     }
   })
@@ -668,6 +756,34 @@ type FloatMenu =
 
 const UNDO_CAP = 50
 
+function hasFlowCycleWarning(warnings: string[]): boolean {
+  return warnings.some(w => w === FLOW_CYCLE_ERROR)
+}
+
+function hasFlowStartPageScopeError(warnings: string[]): boolean {
+  return warnings.some(isFlowStartPageScopeWarning)
+}
+
+function unreachablePagesFromWarnings(warnings: string[]): string[] {
+  for (const w of warnings) {
+    if (!isFlowUnreachableWarning(w)) continue
+    return w
+      .slice(FLOW_UNREACHABLE_IN_SCOPE_PREFIX.length)
+      .split(',')
+      .map(s => s.trim())
+      .filter(Boolean)
+  }
+  return []
+}
+
+function notifyFlowScopeWarnings(warnings: string[], t: (key: string, opts?: Record<string, string>) => string): void {
+  const unreachable = unreachablePagesFromWarnings(warnings)
+  if (unreachable.length) {
+    toast.info(t('automation.pageMap.flowUnreachablePages', { pages: unreachable.join(', ') }))
+  } else if (warnings.some(isFlowUnreachableWarning)) {
+    toast.info(t('automation.pageMap.flowUnreachableWarning'))
+  }
+}
 
 export type PageNavigationMapViewProps = {
   projectId: string
@@ -715,6 +831,8 @@ export function PageNavigationMapView({ projectId, project, onOpenCasesForPage, 
   /** Khi mở Run từ context (một page / một group); null = dùng selection hiện tại trên map. */
   const [runIntent, setRunIntent] = useState<{ pageIds: string[]; groupIds: string[] } | null>(null)
   const [runOpenHint, setRunOpenHint] = useState<string | undefined>(undefined)
+  const [runOrdered, setRunOrdered] = useState(false)
+  const [runStartPageId, setRunStartPageId] = useState<string | undefined>(undefined)
   const [pageStatus, setPageStatus] = useState<Record<string, PageMapNodeStatus>>({})
   const [dbLastRun, setDbLastRun] = useState<PageMapLastRunStatus | null>(null)
   const [showPreviousRunStatus, setShowPreviousRunStatus] = useState(() => readShowLastRunStatusPref(projectId))
@@ -726,6 +844,8 @@ export function PageNavigationMapView({ projectId, project, onOpenCasesForPage, 
   const caseIdToPageIdRef = useRef<Map<string, string>>(new Map())
   const prevTallyRef = useRef({ passed: 0, failed: 0, skipped: 0 })
   const trackedRunIdRef = useRef<string | null>(null)
+  const runOrderedRef = useRef(false)
+  const lastActivePageRef = useRef<string | null>(null)
 
   const [pathEdgeIds, setPathEdgeIds] = useState<Set<string>>(() => new Set())
   const [floatMenu, setFloatMenu] = useState<FloatMenu | null>(null)
@@ -764,6 +884,8 @@ export function PageNavigationMapView({ projectId, project, onOpenCasesForPage, 
     | { kind: 'annotation'; id: string }
   const [flowInspector, setFlowInspector] = useState<FlowInspectorState>(null)
   const [edgeDraft, setEdgeDraft] = useState<FlowConnectionStyle>(() => mergeConnectionStyle())
+  const [edgeRunOrderDraft, setEdgeRunOrderDraft] = useState(1)
+  const [executionDisabledDraft, setExecutionDisabledDraft] = useState(false)
   const [nodeVisualDraft, setNodeVisualDraft] = useState<FlowNodeVisualStyle>(() => mergeNodeVisualStyle())
   const [nodeNameDraft, setNodeNameDraft] = useState('')
   const [boardLayoutDefaultChecked, setBoardLayoutDefaultChecked] = useState(false)
@@ -906,6 +1028,42 @@ export function PageNavigationMapView({ projectId, project, onOpenCasesForPage, 
     [pageStatus, showPreviousRunStatus]
   )
 
+  const handleNavEdgeRunOrderChange = useCallback(
+    (edgeId: string, next: number) => {
+      let swapped: FlowExecEdge[] = []
+      let prevResolved = new Map<string, number>()
+      setNavEdges(eds => {
+        const flowExec = normalizeAllRunOrders(
+          eds.map(e => ({
+            id: e.id,
+            source: e.sourcePageId,
+            target: e.targetPageId,
+            runOrder: e.runOrder,
+          })),
+        )
+        prevResolved = resolvedRunOrderByEdgeId(flowExec)
+        swapped = swapRunOrderForEdge(edgeId, next, flowExec)
+        return eds.map(e => {
+          const ro = swapped.find(x => x.id === e.id)?.runOrder
+          return ro != null && ro !== e.runOrder ? { ...e, runOrder: ro } : e
+        })
+      })
+      void trackPageMapPersist(async () => {
+        const updates: ReturnType<typeof window.api.automation.navEdge.update>[] = []
+        for (const fe of swapped) {
+          const ro = fe.runOrder
+          if (ro == null || ro === prevResolved.get(fe.id)) continue
+          updates.push(window.api.automation.navEdge.update({ id: fe.id, patch: { runOrder: ro } }))
+        }
+        if (!updates.length) return { status: 'success' as const }
+        const results = await Promise.all(updates)
+        const failed = results.find(r => r.status !== 'success')
+        return failed ?? results[0] ?? { status: 'success' as const }
+      })
+    },
+    [],
+  )
+
   const syncNodesFromState = useCallback(() => {
     if (!pages.length && !groups.length && !annotations.length) return
     setNodes(prev => {
@@ -923,8 +1081,8 @@ export function PageNavigationMapView({ projectId, project, onOpenCasesForPage, 
       })
       return mergePageMapNodes(prev, built)
     })
-    setEdges(prev => mergePageMapEdges(prev, navToLabeledEdges(navEdges, pathEdgeIds, runBusy)))
-  }, [pages, groups, annotations, groupCaseCounts, displayCaseCountByPage, displayPageStatus, statusLabels, t, setNodes, setEdges, navEdges, pathEdgeIds, runBusy])
+    setEdges(prev => mergePageMapEdges(prev, navToLabeledEdges(navEdges, pathEdgeIds, runBusy, handleNavEdgeRunOrderChange)))
+  }, [pages, groups, annotations, groupCaseCounts, displayCaseCountByPage, displayPageStatus, statusLabels, t, setNodes, setEdges, navEdges, pathEdgeIds, runBusy, handleNavEdgeRunOrderChange])
 
   const loadPageStatusFromDb = useCallback(async () => {
     const res = await window.api.automation.run.pageMapStatus(projectId)
@@ -1024,10 +1182,21 @@ export function PageNavigationMapView({ projectId, project, onOpenCasesForPage, 
       const m = mergeConnectionStyle(ne?.connectionStyle)
       if (typeof ne?.label === 'string') m.label = ne.label
       setEdgeDraft(m)
+      setEdgeRunOrderDraft(
+        resolvedRunOrderByEdgeId(
+          navEdges.map(e => ({
+            id: e.id,
+            source: e.sourcePageId,
+            target: e.targetPageId,
+            runOrder: e.runOrder,
+          })),
+        ).get(flowInspector.id) ?? 1,
+      )
     } else if (flowInspector.kind === 'node') {
       const firstId = flowInspector.ids[0]
       const p = pages.find(x => x.id === firstId)
       setNodeVisualDraft(mergeNodeVisualStyle(p?.diagramStyle))
+      setExecutionDisabledDraft(p?.executionDisabled === true)
       if (flowInspector.ids.length === 1) {
         setNodeNameDraft(p?.name ?? '')
       } else {
@@ -1352,11 +1521,55 @@ export function PageNavigationMapView({ projectId, project, onOpenCasesForPage, 
   const effectiveRunPageIds = useMemo(() => (runIntent?.pageIds?.length ? runIntent.pageIds : selectedPageIds), [runIntent?.pageIds, selectedPageIds])
   const effectiveRunGroupIds = useMemo(() => (runIntent?.groupIds?.length ? runIntent.groupIds : selectedGroupIds), [runIntent?.groupIds, selectedGroupIds])
 
+  const inspectorEdgeRunOrderMax = useMemo(() => {
+    if (flowInspector?.kind !== 'edge') return 1
+    const edge = navEdges.find(e => e.id === flowInspector.id)
+    if (!edge) return 1
+    return Math.max(1, navEdges.filter(e => e.sourcePageId === edge.sourcePageId).length)
+  }, [flowInspector, navEdges])
+
   useEffect(() => {
     const runPages = runScopePageIdsRef.current
     if (!runPages.length) return
 
     if (current.status === 'running' && current.projectId === projectId && current.runId === trackedRunIdRef.current) {
+      const activePageId = current.activePageId ?? undefined
+      if (activePageId && runPages.includes(activePageId) && runOrderedRef.current) {
+        const idx = runPages.indexOf(activePageId)
+        if (idx >= 0) {
+          setPageStatus(prev => {
+            const next = { ...prev }
+            for (let i = 0; i < idx; i++) {
+              const pid = runPages[i]!
+              if (next[pid] !== 'error') next[pid] = 'done'
+            }
+            next[activePageId] = 'running'
+            for (let i = idx + 1; i < runPages.length; i++) {
+              const pid = runPages[i]!
+              if (next[pid] === 'running') next[pid] = 'queued'
+            }
+            let changed = false
+            for (const pid of runPages) {
+              if (prev[pid] !== next[pid]) {
+                changed = true
+                break
+              }
+            }
+            return changed ? next : prev
+          })
+        }
+        const prevPageId = lastActivePageRef.current
+        if (current.activeEdgeId) {
+          setPathEdgeIds(new Set([current.activeEdgeId]))
+        } else if (prevPageId && prevPageId !== activePageId) {
+          const traversed = navEdges
+            .filter(e => e.sourcePageId === prevPageId && e.targetPageId === activePageId)
+            .sort((a, b) => (a.runOrder ?? 99) - (b.runOrder ?? 99))[0]
+          if (traversed) setPathEdgeIds(new Set([traversed.id]))
+        }
+        lastActivePageRef.current = activePageId
+      }
+
       const tally = current.tally
       const curTest = tally.currentTest ?? ''
       const rel = parseSpecRelPathFromReporterLine(curTest)
@@ -1426,8 +1639,11 @@ export function PageNavigationMapView({ projectId, project, onOpenCasesForPage, 
       setShowLastRunStatusVisible(true)
       runScopePageIdsRef.current = []
       trackedRunIdRef.current = null
+      lastActivePageRef.current = null
+      setPathEdgeIds(new Set())
+      runOrderedRef.current = false
     }
-  }, [current, projectId, setShowLastRunStatusVisible])
+  }, [current, projectId, setShowLastRunStatusVisible, navEdges])
 
   useEffect(() => {
     if (current.status === 'running' && current.projectId === projectId && current.runId && runScopePageIdsRef.current.length) {
@@ -1521,7 +1737,7 @@ export function PageNavigationMapView({ projectId, project, onOpenCasesForPage, 
     async (pageIds: string[]) => {
       if (!pageIds.length || runBusy) return
       try {
-        const res = await window.api.automation.run.resolveScope({ projectId, pageIds, groupIds: [] })
+        const res = await window.api.automation.run.resolveScope({ projectId, pageIds, groupIds: [], ordered: true })
         const caseIds = res.status === 'success' && res.data?.caseIds ? res.data.caseIds : []
         if (!caseIds.length) {
           if (pageIds.length === 1 && res.status === 'success') return
@@ -1530,10 +1746,22 @@ export function PageNavigationMapView({ projectId, project, onOpenCasesForPage, 
         }
         const data = res.data
         if (!data) return
+        if (hasFlowCycleWarning(data.warnings)) {
+          toast.error(t('automation.pageMap.flowCycleError'))
+          return
+        }
+        if (hasFlowStartPageScopeError(data.warnings)) {
+          toast.error(t('automation.pageMap.flowStartPageScopeError'))
+          return
+        }
+        notifyFlowScopeWarnings(data.warnings, t)
         buildStemMaps(data, cases)
-        const runnablePages = pageIdsWithCasesInScope(data)
+        const runnablePages = data.orderedPageIds?.length ? data.orderedPageIds : pageIdsWithCasesInScope(data)
         runScopePageIdsRef.current = [...runnablePages]
         prevTallyRef.current = { passed: 0, failed: 0, skipped: 0 }
+        setRunOrdered(true)
+        runOrderedRef.current = true
+        setRunStartPageId(undefined)
         setRunIntent({ pageIds: [...pageIds], groupIds: [] })
         setRunOpenHint(t('automation.pageMap.runDialogScope', { pages: runnablePages.length, cases: data.caseIds.length }))
         setPageStatus(prev => {
@@ -1553,7 +1781,7 @@ export function PageNavigationMapView({ projectId, project, onOpenCasesForPage, 
     async (groupIds: string[]) => {
       if (!groupIds.length || runBusy) return
       try {
-        const res = await window.api.automation.run.resolveScope({ projectId, pageIds: [], groupIds })
+        const res = await window.api.automation.run.resolveScope({ projectId, pageIds: [], groupIds, ordered: true })
         const caseIds = res.status === 'success' && res.data?.caseIds ? res.data.caseIds : []
         if (!caseIds.length) {
           toast.error(res.message ?? t('automation.pageMap.noCasesToRun'))
@@ -1561,10 +1789,22 @@ export function PageNavigationMapView({ projectId, project, onOpenCasesForPage, 
         }
         const data = res.data
         if (!data) return
+        if (hasFlowCycleWarning(data.warnings)) {
+          toast.error(t('automation.pageMap.flowCycleError'))
+          return
+        }
+        if (hasFlowStartPageScopeError(data.warnings)) {
+          toast.error(t('automation.pageMap.flowStartPageScopeError'))
+          return
+        }
+        notifyFlowScopeWarnings(data.warnings, t)
         buildStemMaps(data, cases)
-        const runnablePages = pageIdsWithCasesInScope(data)
+        const runnablePages = data.orderedPageIds?.length ? data.orderedPageIds : pageIdsWithCasesInScope(data)
         runScopePageIdsRef.current = [...runnablePages]
         prevTallyRef.current = { passed: 0, failed: 0, skipped: 0 }
+        setRunOrdered(true)
+        runOrderedRef.current = true
+        setRunStartPageId(undefined)
         setRunIntent({ pageIds: [], groupIds: [...groupIds] })
         setRunOpenHint(t('automation.pageMap.runDialogScope', { pages: runnablePages.length, cases: data.caseIds.length }))
         setPageStatus(prev => {
@@ -1580,9 +1820,66 @@ export function PageNavigationMapView({ projectId, project, onOpenCasesForPage, 
     [projectId, cases, buildStemMaps, t, runBusy]
   )
 
+  const openRunForFlow = useCallback(
+    async (startPageId: string) => {
+      if (!startPageId || runBusy) return
+      const page = pages.find(p => p.id === startPageId)
+      if (page?.executionDisabled) {
+        toast.info(t('flowInspector.executionDisabledRunBlocked'))
+        return
+      }
+      try {
+        const res = await window.api.automation.run.resolveScope({
+          projectId,
+          pageIds: [],
+          groupIds: [],
+          ordered: true,
+          startPageId,
+        })
+        const caseIds = res.status === 'success' && res.data?.caseIds ? res.data.caseIds : []
+        if (!caseIds.length) {
+          toast.error(res.message ?? t('automation.pageMap.noCasesToRun'))
+          return
+        }
+        const data = res.data
+        if (!data) return
+        if (hasFlowCycleWarning(data.warnings)) {
+          toast.error(t('automation.pageMap.flowCycleError'))
+          return
+        }
+        if (hasFlowStartPageScopeError(data.warnings)) {
+          toast.error(t('automation.pageMap.flowStartPageScopeError'))
+          return
+        }
+        notifyFlowScopeWarnings(data.warnings, t)
+        buildStemMaps(data, cases)
+        const runnablePages = data.orderedPageIds?.length ? data.orderedPageIds : pageIdsWithCasesInScope(data)
+        runScopePageIdsRef.current = [...runnablePages]
+        prevTallyRef.current = { passed: 0, failed: 0, skipped: 0 }
+        setRunOrdered(true)
+        runOrderedRef.current = true
+        setRunStartPageId(startPageId)
+        setRunIntent({ pageIds: [...runnablePages], groupIds: [] })
+        setRunOpenHint(t('automation.pageMap.runFlowScope', { pages: runnablePages.length, cases: data.caseIds.length }))
+        setPageStatus(prev => {
+          const next = { ...prev }
+          for (const pid of runnablePages) next[pid] = 'queued'
+          return next
+        })
+        setRunOpen(true)
+      } catch {
+        toast.error(t('automation.pageMap.resolveFailed'))
+      }
+    },
+    [pages, projectId, cases, buildStemMaps, t, runBusy]
+  )
+
   const handleOpenRun = useCallback(() => {
     setRunIntent(null)
     setRunOpenHint(undefined)
+    setRunOrdered(false)
+    runOrderedRef.current = false
+    setRunStartPageId(undefined)
     if (!scope?.caseIds.length) {
       toast.error(t('automation.pageMap.noCasesToRun'))
       return
@@ -1629,10 +1926,19 @@ export function PageNavigationMapView({ projectId, project, onOpenCasesForPage, 
 
   const handleRunStarted = useCallback((runId: string) => {
     trackedRunIdRef.current = runId
+    const pages = runScopePageIdsRef.current
     setPageStatus(prev => {
       const next = { ...prev }
-      for (const pid of runScopePageIdsRef.current) {
-        if (next[pid] === 'queued') next[pid] = 'running'
+      if (runOrderedRef.current && pages.length) {
+        next[pages[0]!] = 'running'
+        for (let i = 1; i < pages.length; i++) {
+          const pid = pages[i]!
+          if (next[pid] !== 'error') next[pid] = 'queued'
+        }
+      } else {
+        for (const pid of pages) {
+          if (next[pid] === 'queued') next[pid] = 'running'
+        }
       }
       return next
     })
@@ -1684,6 +1990,12 @@ export function PageNavigationMapView({ projectId, project, onOpenCasesForPage, 
       const gids = new Set(groups.map(g => g.id))
       const pids = new Set(pages.map(p => p.id))
       const aids = new Set(annotations.map(a => a.id))
+      const targets = Object.keys(positions).map(id => ({
+        id,
+        kind: gids.has(id) ? 'group' : pids.has(id) ? 'page' : aids.has(id) ? 'annotation' : 'unknown',
+        ...positions[id],
+      }))
+      logPageMapAutosave('drag:persistDiagramPositions', { nodeCount: targets.length, targets })
       await trackPageMapPersistAll(() =>
         Promise.all(
           Object.entries(positions).map(([id, pos]) => {
@@ -1723,6 +2035,7 @@ export function PageNavigationMapView({ projectId, project, onOpenCasesForPage, 
   const flushPendingDragPositions = useCallback(async () => {
     const batch = { ...pendingDragDiagramRef.current }
     pendingDragDiagramRef.current = {}
+    logPageMapAutosave('drag:debounceFlush', { nodeCount: Object.keys(batch).length, nodeIds: Object.keys(batch) })
     if (Object.keys(batch).length) await persistDiagramPositions(batch)
   }, [persistDiagramPositions])
 
@@ -1731,6 +2044,11 @@ export function PageNavigationMapView({ projectId, project, onOpenCasesForPage, 
   const schedulePersistDragPositions = useCallback(
     (updates: Record<string, { x: number; y: number }>) => {
       Object.assign(pendingDragDiagramRef.current, updates)
+      logPageMapAutosave('drag:debounceSchedule', {
+        updateCount: Object.keys(updates).length,
+        pendingCount: Object.keys(pendingDragDiagramRef.current).length,
+        nodeIds: Object.keys(pendingDragDiagramRef.current),
+      })
       dragPositionPersistRef.current.schedule()
     },
     [],
@@ -1793,7 +2111,27 @@ export function PageNavigationMapView({ projectId, project, onOpenCasesForPage, 
     () => ({
       canvasLocked,
       runThisPage: pageId => {
+        const page = pages.find(p => p.id === pageId)
+        if (page?.executionDisabled) {
+          toast.info(t('flowInspector.executionDisabledRunBlocked'))
+          return
+        }
         void openRunForPages([pageId])
+      },
+      runFlowFromPage: pageId => {
+        void openRunForFlow(pageId)
+      },
+      togglePageExecutionDisabled: pageId => {
+        const page = pages.find(p => p.id === pageId)
+        if (!page) return
+        const next = !page.executionDisabled
+        void trackPageMapPersist(async () => {
+          const res = await window.api.automation.catalogPage.update({ id: pageId, patch: { executionDisabled: next } })
+          if (res.status === 'success' && res.data) {
+            setPages(ps => ps.map(p => (p.id === pageId ? res.data! : p)))
+          }
+          return res
+        })
       },
       runBusy,
       duplicatePage: pageId => {
@@ -1827,7 +2165,10 @@ export function PageNavigationMapView({ projectId, project, onOpenCasesForPage, 
     [
       canvasLocked,
       openRunForPages,
+      openRunForFlow,
       openRunForGroups,
+      pages,
+      t,
       runBusy,
       duplicatePageFromMap,
       requestDeletePageFromMap,
@@ -1926,15 +2267,26 @@ export function PageNavigationMapView({ projectId, project, onOpenCasesForPage, 
 
   const onNodeDragStart = useCallback(
     (_: unknown, node: Node) => {
-      if (dragPositionsRef.current) return
+      if (dragPositionsRef.current) {
+        logPageMapAutosave('drag:start:skip', { nodeId: node.id, reason: 'snap already set' })
+        return
+      }
       const nds = rfRef.current?.getNodes() ?? []
-      dragPositionsRef.current = capturePositions(nds.filter(n => n.id === node.id || n.selected))
+      const tracked = nds.filter(n => n.id === node.id || n.selected)
+      dragPositionsRef.current = capturePositions(tracked)
+      logPageMapAutosave('drag:start', {
+        nodeId: node.id,
+        nodeType: node.type,
+        trackedCount: tracked.length,
+        trackedIds: tracked.map(n => n.id),
+      })
     },
     [capturePositions]
   )
 
   const onNodeDragStop = useCallback(
-    (_: unknown, _node: Node) => {
+    (_: unknown, node: Node) => {
+      logPageMapAutosave('drag:stop', { nodeId: node.id, nodeType: node.type })
       const inst = rfRef.current
       const snap = dragPositionsRef.current
       dragPositionsRef.current = null
@@ -2027,6 +2379,11 @@ export function PageNavigationMapView({ projectId, project, onOpenCasesForPage, 
             : []
         )
 
+        logPageMapAutosave('drag:reparentPersist', {
+          pageUpdateCount: pageUpdates.length,
+          groupSizePatchCount: groupSizePatches.length,
+          pageIds: pageUpdates.map(u => u.id),
+        })
         void trackPageMapPersistAll(() =>
           Promise.all([
             ...pageUpdates.map(u =>
@@ -2096,6 +2453,13 @@ export function PageNavigationMapView({ projectId, project, onOpenCasesForPage, 
           if (a && (a.x !== b.x || a.y !== b.y)) toPersist[id] = { x: a.x, y: a.y }
         }
       }
+      logPageMapAutosave('drag:stop:summary', {
+        nodeId: node.id,
+        snapCount: snap ? Object.keys(snap).length : 0,
+        reparentCount: reps.length,
+        toPersistCount: Object.keys(toPersist).length,
+        toPersistIds: Object.keys(toPersist),
+      })
       if (Object.keys(toPersist).length) schedulePersistDragPositions(toPersist)
       if (!snap) return
       let changed = false
@@ -2150,27 +2514,61 @@ export function PageNavigationMapView({ projectId, project, onOpenCasesForPage, 
   const applyEdgeInspector = useCallback(() => {
     if (!flowInspector || flowInspector.kind !== 'edge') return
     const id = flowInspector.id
+    const flowExec = normalizeAllRunOrders(
+      navEdges.map(e => ({
+        id: e.id,
+        source: e.sourcePageId,
+        target: e.targetPageId,
+        runOrder: e.runOrder,
+      })),
+    )
+    const prevResolved = resolvedRunOrderByEdgeId(flowExec)
+    const swapped = swapRunOrderForEdge(id, edgeRunOrderDraft, flowExec)
+    const targetRunOrder = swapped.find(x => x.id === id)?.runOrder ?? edgeRunOrderDraft
+    setNavEdges(eds =>
+      eds.map(e => {
+        const ro = swapped.find(x => x.id === e.id)?.runOrder
+        return ro != null && ro !== e.runOrder ? { ...e, runOrder: ro } : e
+      }),
+    )
     void trackPageMapPersist(async () => {
       const styleJson = stringifyConnectionStyle(edgeDraft)
       const label = edgeDraft.label.trim() || null
-      const res = await window.api.automation.navEdge.update({ id, patch: { label, styleJson } })
-      if (res.status !== 'success') {
-        toast.error(res.message ?? t('devPipelines.saveError'))
-        return res
+      const styleRes = await window.api.automation.navEdge.update({ id, patch: { label, styleJson, runOrder: targetRunOrder } })
+      const orderUpdates = swapped
+        .filter(fe => fe.runOrder != null && fe.runOrder !== prevResolved.get(fe.id))
+        .map(fe => window.api.automation.navEdge.update({ id: fe.id, patch: { runOrder: fe.runOrder! } }))
+      const orderResults = await Promise.all(orderUpdates)
+      if (styleRes.status !== 'success') {
+        toast.error(styleRes.message ?? t('devPipelines.saveError'))
+        return styleRes
       }
-      const next = res.data
+      const orderFailed = orderResults.find(r => r.status !== 'success')
+      if (orderFailed) {
+        toast.error(orderFailed.message ?? t('devPipelines.saveError'))
+        return orderFailed
+      }
+      const next = styleRes.data
       setNavEdges(eds =>
         eds.map(e => {
-          if (e.id !== id) return e
-          if (next) return next
-          return { ...e, label: label ?? undefined, connectionStyle: mergeConnectionStyle(edgeDraft) }
-        })
+          const ro = swapped.find(x => x.id === e.id)?.runOrder
+          if (e.id === id) {
+            if (next) return { ...next, runOrder: ro ?? targetRunOrder }
+            return {
+              ...e,
+              label: label ?? undefined,
+              connectionStyle: mergeConnectionStyle(edgeDraft),
+              runOrder: ro ?? targetRunOrder,
+            }
+          }
+          return ro != null && ro !== e.runOrder ? { ...e, runOrder: ro } : e
+        }),
       )
       setFlowInspector(null)
       toast.success(t('flowInspector.saved'))
-      return res
-    })()
-  }, [flowInspector, edgeDraft, t])
+      return styleRes
+    })
+  }, [flowInspector, edgeDraft, edgeRunOrderDraft, navEdges, t])
 
   const applyContentLayoutToAllPages = useCallback(async () => {
     const defaults = readBoardContentDefaults('pageMap')
@@ -2204,7 +2602,7 @@ export function PageNavigationMapView({ projectId, project, onOpenCasesForPage, 
       )
       toast.success(t('flowInspector.applyLayoutToAllDone', { count: pageIds.length }))
       return results
-    })()
+    })
   }, [pages, setNodes, t])
 
   const requestApplyContentLayoutToAll = useCallback(() => {
@@ -2232,12 +2630,15 @@ export function PageNavigationMapView({ projectId, project, onOpenCasesForPage, 
       const prev = pages.find(x => x.id === id)
       const nextName = nodeNameDraft.trim() || prev?.name || ''
       void trackPageMapPersist(async () => {
-        const res = await window.api.automation.catalogPage.update({ id, patch: { diagramStyle: nodeVisualDraft, name: nextName } })
+        const res = await window.api.automation.catalogPage.update({
+          id,
+          patch: { diagramStyle: nodeVisualDraft, name: nextName, executionDisabled: executionDisabledDraft || undefined },
+        })
         if (res.status !== 'success') {
           toast.error(res.message ?? t('devPipelines.saveError'))
           return res
         }
-        setPages(ps => ps.map(p => (p.id === id ? { ...p, diagramStyle: { ...nodeVisualDraft }, name: nextName || p.name } : p)))
+        setPages(ps => ps.map(p => (p.id === id ? { ...p, diagramStyle: { ...nodeVisualDraft }, name: nextName || p.name, executionDisabled: executionDisabledDraft || undefined } : p)))
         setNodes(nds =>
           nds.map(n => {
             if (n.type !== 'catalogPage' || n.id !== id) return n
@@ -2248,7 +2649,7 @@ export function PageNavigationMapView({ projectId, project, onOpenCasesForPage, 
         setFlowInspector(null)
         toast.success(t('flowInspector.saved'))
         return res
-      })()
+      })
       return
     }
     void trackPageMapPersistAll(async () => {
@@ -2271,7 +2672,7 @@ export function PageNavigationMapView({ projectId, project, onOpenCasesForPage, 
       setFlowInspector(null)
       toast.success(t('flowInspector.savedBulk', { count: ids.length }))
       return results
-    })()
+    })
   }, [flowInspector, nodeVisualDraft, nodeNameDraft, pages, t, setNodes, boardLayoutDefaultChecked])
 
   const applyGroupInspector = useCallback(() => {
@@ -2307,7 +2708,7 @@ export function PageNavigationMapView({ projectId, project, onOpenCasesForPage, 
         setFlowInspector(null)
         toast.success(t('flowInspector.saved'))
         return res
-      })()
+      })
       return
     }
     void trackPageMapPersistAll(async () => {
@@ -2330,7 +2731,7 @@ export function PageNavigationMapView({ projectId, project, onOpenCasesForPage, 
       setFlowInspector(null)
       toast.success(t('flowInspector.savedBulk', { count: ids.length }))
       return results
-    })()
+    })
   }, [flowInspector, nodeVisualDraft, nodeNameDraft, groupSizeDraft, groups, t, setNodes])
 
   const applyAnnotationInspector = useCallback(() => {
@@ -2376,7 +2777,7 @@ export function PageNavigationMapView({ projectId, project, onOpenCasesForPage, 
       setFlowInspector(null)
       toast.success(t('flowInspector.saved'))
       return res
-    })()
+    })
   }, [flowInspector, annotationDraft, t, setNodes])
 
   const onConnect = useCallback(
@@ -2399,28 +2800,79 @@ export function PageNavigationMapView({ projectId, project, onOpenCasesForPage, 
             return [res]
           }
           const created = res.data
+          const runOrder = assignRunOrderForNewEdge(
+            c.source,
+            navEdges.map(e => ({ id: e.id, source: e.sourcePageId, target: e.targetPageId, runOrder: e.runOrder })),
+          )
 
           const cs = mergeConnectionStyle({ sourceSide, targetSide })
           const styleJson = stringifyConnectionStyle(cs)
-          const styleRes = await window.api.automation.navEdge.update({ id: created.id, patch: { styleJson } })
+          const styleRes = await window.api.automation.navEdge.update({ id: created.id, patch: { styleJson, runOrder } })
 
-          setNavEdges(eds => [...eds, { ...created, connectionStyle: cs }])
+          setNavEdges(eds => [...eds, { ...created, connectionStyle: cs, runOrder }])
           toast.success(t('automation.pageMap.edgeAdded'))
           return [res, styleRes]
         })
       })()
     },
-    [projectId, t]
+    [projectId, t, navEdges]
   )
 
   const onEdgesDelete = useCallback(
     (deleted: Edge[]) => {
-      setNavEdges(eds => eds.filter(x => !deleted.some(d => d.id === x.id)))
-      void trackPageMapPersistAll(() => Promise.all(deleted.map(e => window.api.automation.navEdge.delete(e.id)))).catch(() => {
+      const deletedIds = new Set(deleted.map(d => d.id))
+      const affectedSources = new Set<string>()
+      for (const e of navEdges) {
+        if (deletedIds.has(e.id)) affectedSources.add(e.sourcePageId)
+      }
+
+      setNavEdges(eds => {
+        let next = eds.filter(x => !deletedIds.has(x.id))
+        for (const src of affectedSources) {
+          const flowExec: FlowExecEdge[] = next.map(e => ({
+            id: e.id,
+            source: e.sourcePageId,
+            target: e.targetPageId,
+            runOrder: e.runOrder,
+          }))
+          const normalized = normalizeRunOrdersForSource(src, flowExec)
+          const orderById = new Map(normalized.map(e => [e.id, e.runOrder]))
+          next = next.map(e => {
+            if (e.sourcePageId !== src) return e
+            const ro = orderById.get(e.id)
+            return ro != null && ro !== e.runOrder ? { ...e, runOrder: ro } : e
+          })
+        }
+        return next
+      })
+
+      void trackPageMapPersistAll(async () => {
+        const deleteResults = await Promise.all(deleted.map(e => window.api.automation.navEdge.delete(e.id)))
+        const remaining = navEdges.filter(x => !deletedIds.has(x.id))
+        const updateResults: Promise<unknown>[] = []
+        for (const src of affectedSources) {
+          const siblings = remaining.filter(e => e.sourcePageId === src)
+          const flowExec: FlowExecEdge[] = siblings.map(e => ({
+            id: e.id,
+            source: e.sourcePageId,
+            target: e.targetPageId,
+            runOrder: e.runOrder,
+          }))
+          const normalized = normalizeRunOrdersForSource(src, flowExec)
+          for (const fe of normalized) {
+            const prev = siblings.find(e => e.id === fe.id)
+            if (fe.runOrder != null && fe.runOrder !== prev?.runOrder) {
+              updateResults.push(window.api.automation.navEdge.update({ id: fe.id, patch: { runOrder: fe.runOrder } }))
+            }
+          }
+        }
+        const renumberResults = await Promise.all(updateResults)
+        return [...deleteResults, ...renumberResults] as Array<{ status: string }>
+      }).catch(() => {
         toast.error(t('automation.pageMap.edgeDeleteFailed'))
       })
     },
-    [t]
+    [t, navEdges]
   )
 
   const handleRunDialogOpenChange = useCallback((open: boolean) => {
@@ -2437,6 +2889,9 @@ export function PageNavigationMapView({ projectId, project, onOpenCasesForPage, 
       runScopePageIdsRef.current = []
       setRunIntent(null)
       setRunOpenHint(undefined)
+      setRunOrdered(false)
+      runOrderedRef.current = false
+      setRunStartPageId(undefined)
     }
   }, [])
 
@@ -2640,6 +3095,28 @@ export function PageNavigationMapView({ projectId, project, onOpenCasesForPage, 
               }}
             >
               {t('automation.pageMap.openBaseUrl')}
+            </button>
+            <button
+              type="button"
+              className="flex w-full px-3 py-1.5 text-left hover:bg-accent"
+              disabled={runBusy}
+              onClick={() => {
+                pageMapActions.runThisPage(ctxPage.id)
+                setFloatMenu(null)
+              }}
+            >
+              {t('automation.pageMap.runThisPage')}
+            </button>
+            <button
+              type="button"
+              className="flex w-full px-3 py-1.5 text-left hover:bg-accent"
+              disabled={runBusy}
+              onClick={() => {
+                pageMapActions.runFlowFromPage(ctxPage.id)
+                setFloatMenu(null)
+              }}
+            >
+              {t('automation.pageMap.runFlow')}
             </button>
             <button
               type="button"
@@ -2900,7 +3377,15 @@ export function PageNavigationMapView({ projectId, project, onOpenCasesForPage, 
             </Button>
           </SheetHeader>
           <div className="px-4 pb-6">
-            {flowInspector?.kind === 'edge' ? <FlowConnectionPropertiesPanel value={edgeDraft} onChange={setEdgeDraft} /> : null}
+            {flowInspector?.kind === 'edge' ? (
+              <FlowConnectionPropertiesPanel
+                value={edgeDraft}
+                onChange={setEdgeDraft}
+                runOrder={edgeRunOrderDraft}
+                runOrderMax={inspectorEdgeRunOrderMax}
+                onRunOrderChange={setEdgeRunOrderDraft}
+              />
+            ) : null}
             {flowInspector?.kind === 'node' ? (
               <div className="grid gap-3">
                 {flowInspector.ids.length > 1 ? (
@@ -2919,7 +3404,12 @@ export function PageNavigationMapView({ projectId, project, onOpenCasesForPage, 
                   }}
                   hasBoardDefaultLayout={hasBoardLayoutDefault}
                   {...(flowInspector.ids.length === 1
-                    ? { nodeDisplayName: nodeNameDraft, onNodeDisplayNameChange: setNodeNameDraft }
+                    ? {
+                        nodeDisplayName: nodeNameDraft,
+                        onNodeDisplayNameChange: setNodeNameDraft,
+                        executionDisabled: executionDisabledDraft,
+                        onExecutionDisabledChange: setExecutionDisabledDraft,
+                      }
                     : {})}
                 />
               </div>
@@ -2953,6 +3443,8 @@ export function PageNavigationMapView({ projectId, project, onOpenCasesForPage, 
         pageIdsForRun={effectiveRunPageIds.length ? effectiveRunPageIds : undefined}
         groupIdsForRun={effectiveRunGroupIds.length ? effectiveRunGroupIds : undefined}
         scopeSummaryHint={scopeSummaryHint}
+        ordered={runOrdered}
+        startPageId={runStartPageId}
         onStarted={handleRunStarted}
       />
 
@@ -3022,7 +3514,7 @@ export function PageNavigationMapView({ projectId, project, onOpenCasesForPage, 
                     await loadGraph()
                   } else toast.error(res.message ?? '')
                   return res
-                })()
+                })
               }}
             >
               {t('automation.common.save')}

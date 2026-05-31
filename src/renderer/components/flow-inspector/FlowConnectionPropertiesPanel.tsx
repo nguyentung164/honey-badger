@@ -56,6 +56,10 @@ type Props = {
   /** Dev Pipelines — edge run condition (optional). */
   edgeCondition?: DevPipelineEdgeCondition
   onEdgeConditionChange?: (next: DevPipelineEdgeCondition) => void
+  /** Execution order among outgoing edges from same source. */
+  runOrder?: number
+  runOrderMax?: number
+  onRunOrderChange?: (next: number) => void
 }
 
 const CURVES: FlowEdgeCurveKind[] = ['curved', 'straight', 'step']
@@ -258,7 +262,15 @@ function EdgeAnimationPreviewSvg({
   )
 }
 
-export function FlowConnectionPropertiesPanel({ value, onChange, edgeCondition, onEdgeConditionChange }: Props) {
+export function FlowConnectionPropertiesPanel({
+  value,
+  onChange,
+  edgeCondition,
+  onEdgeConditionChange,
+  runOrder,
+  runOrderMax,
+  onRunOrderChange,
+}: Props) {
   const { t } = useTranslation()
 
   useEffect(() => {
@@ -338,6 +350,27 @@ export function FlowConnectionPropertiesPanel({ value, onChange, edgeCondition, 
         </div>
       ) : null}
 
+      {onRunOrderChange && runOrder != null ? (
+        <div className="space-y-2 rounded-lg border border-border/60 bg-muted/15 px-3 py-2.5">
+          <Label className={FLOW_INSPECTOR_SECTION_LABEL} htmlFor="flow-edge-run-order">
+            {t('flowInspector.runOrder')}
+          </Label>
+          <Input
+            id="flow-edge-run-order"
+            type="number"
+            min={1}
+            max={runOrderMax ?? runOrder}
+            value={runOrder}
+            className="h-8 tabular-nums"
+            onChange={e => {
+              const n = Number.parseInt(e.target.value, 10)
+              if (Number.isFinite(n) && n >= 1) onRunOrderChange(Math.min(runOrderMax ?? n, n))
+            }}
+          />
+          <p className="text-[10px] leading-snug text-muted-foreground">{t('flowInspector.runOrderHint')}</p>
+        </div>
+      ) : null}
+
       <Tabs defaultValue="label" className="gap-4">
         <TabsList className="grid h-9 w-full grid-cols-2">
           <TabsTrigger value="label" className="text-xs">
@@ -372,7 +405,7 @@ export function FlowConnectionPropertiesPanel({ value, onChange, edgeCondition, 
               <FlowColorPickerField
                 label={t('automation.pageMap.annotationColor')}
                 labelClassName="text-xs font-normal normal-case tracking-normal text-muted-foreground"
-                value={mergedLabel.color}
+                value={mergedLabel.color ?? ''}
                 onCommit={hex => patchLabelStyle({ color: hex })}
                 onReset={() => patchLabelStyle({ color: '' })}
                 resetDisabled={!value.labelStyle?.color?.trim()}
@@ -506,7 +539,7 @@ export function FlowConnectionPropertiesPanel({ value, onChange, edgeCondition, 
               onChange={e => {
                 const borderWidth = Number(e.target.value) as FlowConnectionLabelStyle['borderWidth']
                 const next: Partial<FlowConnectionLabelStyle> = { borderWidth }
-                if (borderWidth > 0 && !labelAccentMode && !mergedLabel.borderColor?.trim()) {
+                if ((borderWidth ?? 0) > 0 && !labelAccentMode && !mergedLabel.borderColor?.trim()) {
                   next.borderColor = '#94a3b8'
                 }
                 patchLabelStyle(next)

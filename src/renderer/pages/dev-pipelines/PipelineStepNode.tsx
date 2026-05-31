@@ -1,5 +1,5 @@
 import { type NodeProps, NodeToolbar, Position } from '@xyflow/react'
-import { CheckCircle2, Circle, FileText, Files, HandMetal, Loader2, Play, Settings2, SkipForward, Terminal, Trash2, XCircle } from 'lucide-react'
+import { CheckCircle2, Circle, FileText, Files, HandMetal, Loader2, Play, Ban, Route, Settings2, SkipForward, Terminal, Trash2, XCircle } from 'lucide-react'
 import type { CSSProperties } from 'react'
 import { memo, useCallback, useEffect, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
@@ -168,6 +168,52 @@ function PipelineStepNodeInner({ id, data, selected }: NodeProps) {
                   variant="ghost"
                   size="icon"
                   className="nodrag nopan size-7 text-muted-foreground hover:bg-muted hover:text-foreground"
+                  disabled={!toolbar.canRunStep}
+                  aria-label={t('devPipelines.runFlow')}
+                  title={t('devPipelines.runFlow')}
+                  onPointerDown={e => e.stopPropagation()}
+                  onClick={e => {
+                    e.stopPropagation()
+                    toolbar.runFlowFromStep(id)
+                  }}
+                >
+                  <Route className="size-3.5" aria-hidden />
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent side="top">{t('devPipelines.runFlow')}</TooltipContent>
+            </Tooltip>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="icon"
+                  className={cn(
+                    'nodrag nopan size-7',
+                    d.executionDisabled
+                      ? 'text-amber-600 hover:bg-amber-500/15 dark:text-amber-400'
+                      : 'text-muted-foreground hover:bg-muted hover:text-foreground',
+                  )}
+                  aria-label={t('flowInspector.executionDisabled')}
+                  title={t('flowInspector.executionDisabled')}
+                  onPointerDown={e => e.stopPropagation()}
+                  onClick={e => {
+                    e.stopPropagation()
+                    toolbar.toggleExecutionDisabled(id)
+                  }}
+                >
+                  <Ban className="size-3.5" aria-hidden />
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent side="top">{t('flowInspector.executionDisabled')}</TooltipContent>
+            </Tooltip>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="icon"
+                  className="nodrag nopan size-7 text-muted-foreground hover:bg-muted hover:text-foreground"
                   aria-label={t('devPipelines.toolbarDetails')}
                   title={t('devPipelines.toolbarDetails')}
                   onPointerDown={e => e.stopPropagation()}
@@ -256,6 +302,7 @@ function PipelineStepNodeInner({ id, data, selected }: NodeProps) {
         <FlowNodeVisualShell
           diagramVisual={d.diagramVisual}
           selected={selected}
+          executionDisabled={d.executionDisabled}
           cardClassName={cn(
             shellClasses.cardClassName,
             'bg-card',
