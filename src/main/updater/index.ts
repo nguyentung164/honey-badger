@@ -51,27 +51,27 @@ export function initAutoUpdater(window: BrowserWindow) {
   autoUpdater.on('download-progress', progressObj => {
     const { percent, bytesPerSecond, total, transferred } = progressObj
 
-    // Tính tốc độ tải
-    const speedKBps = (bytesPerSecond / 1024).toFixed(2)
-    const _speedMBps = (bytesPerSecond / (1024 * 1024)).toFixed(2)
+    const speedMBps = (bytesPerSecond / (1024 * 1024)).toFixed(2)
 
     // Tính thời gian còn lại
     const remainingBytes = total - transferred
     const etaSeconds = remainingBytes / bytesPerSecond
     const eta = etaSeconds < 60 ? `${Math.round(etaSeconds)}s` : `${Math.round(etaSeconds / 60)}m`
 
-    // Log tốc độ tải
+    const downloadedMB = (transferred / (1024 * 1024)).toFixed(2)
+    const totalMB = (total / (1024 * 1024)).toFixed(2)
+
     l.info(
-      `[Updater] Download progress: ${percent.toFixed(1)}% | Speed: ${speedKBps} KB/s | ETA: ${eta} | Downloaded: ${(transferred / (1024 * 1024)).toFixed(2)} MB / ${(total / (1024 * 1024)).toFixed(2)} MB`
+      `[Updater] Download progress: ${percent.toFixed(2)}% | Speed: ${speedMBps} MB/s | ETA: ${eta} | Downloaded: ${downloadedMB} MB / ${totalMB} MB`
     )
 
     window.webContents.send(IPC.UPDATER.STATUS, {
       status: 'downloading',
       progress: progressObj.percent,
-      speed: speedKBps,
+      speed: speedMBps,
       eta,
-      downloadedMB: (transferred / (1024 * 1024)).toFixed(2),
-      totalMB: (total / (1024 * 1024)).toFixed(2),
+      downloadedMB,
+      totalMB,
     })
   })
 

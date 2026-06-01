@@ -1,9 +1,18 @@
 import { ipcMain } from 'electron'
 import l from 'electron-log'
 import { IPC } from 'main/constants'
-import type { AiDisplayCurrency } from '../task/aiUsageDb'
-import { clearAiUsageEvents, getAiUsageEvents, getDisplayCurrency, getFxState, setDisplayCurrency, setFxRates } from '../task/aiUsageDb'
-import { hasDbConfig } from '../task/schema/db'
+import type { AiDisplayCurrency, AiUsageEvent } from '../task/aiUsageDb'
+import {
+  clearAiUsageEvents,
+  getAiUsageEvents,
+  getAiUsageTotalsByUser,
+  getDisplayCurrency,
+  getFxState,
+  setDisplayCurrency,
+  setFxRates,
+} from '../task/aiUsageDb'
+import { getTokenFromStore, verifyToken } from '../task/auth'
+import { hasDbConfig, query } from '../task/schema/db'
 
 export type AiUsageSummary = {
   byFeature: Array<{
@@ -35,6 +44,35 @@ export type AiUsageSummary = {
   displayCurrency: AiDisplayCurrency
   fx: { usdToVnd: number | null; usdToJpy: number | null; updatedAt: number | null }
   dbAvailable: boolean
+  userId: string | null
+  userName: string | null
+}
+
+export type AiUsageUsersSummaryRow = {
+  userId: string | null
+  userName: string
+  calls: number
+  inputTokens: number
+  outputTokens: number
+  costUsd: number | null
+}
+
+function getSession() {
+  const token = getTokenFromStore()
+  return token ? verifyToken(token) : null
+}
+
+async function resolveTargetDisplayName(targetUserId: string, session: { userId: string; name: string }, userName?: string): Promise<string | null> {
+  if (userName?.trim()) return userName.trim()
+  if (targetUserId === session.userId) return session.name
+  if (!hasDbConfig()) return null
+  try {
+    const rows = await query<{ name: string }>('SELECT name FROM users WHERE id = ? LIMIT 1', [targetUserId])
+    const n = rows?.[0]?.name
+    return n?.trim() ? n : null
+  } catch {
+    return null
+  }
 }
 
 function startOfUtcDay(ts: number): string {
@@ -42,9 +80,8 @@ function startOfUtcDay(ts: number): string {
   return `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, '0')}-${String(d.getUTCDate()).padStart(2, '0')}`
 }
 
-export async function buildAiUsageSummary(): Promise<AiUsageSummary> {
+export async function buildAiUsageSummary(events: AiUsageEvent[], userId: string | null, userName: string | null): Promise<AiUsageSummary> {
   const dbAvailable = hasDbConfig()
-  const events = await getAiUsageEvents()
   const byFeatureMap = new Map<string, { calls: number; inputTokens: number; outputTokens: number; costUsd: number; unknownPricingCalls: number }>()
   const byDetailMap = new Map<
     string,
@@ -148,6 +185,8 @@ export async function buildAiUsageSummary(): Promise<AiUsageSummary> {
     displayCurrency: await getDisplayCurrency(),
     fx: { usdToVnd: fx.usdToVnd, usdToJpy: fx.usdToJpy, updatedAt: fx.updatedAt },
     dbAvailable,
+    userId,
+    userName,
   }
 }
 
@@ -177,11 +216,52 @@ async function fetchUsdRatesFallback(): Promise<{ vnd: number; jpy: number }> {
   return { vnd, jpy }
 }
 
-export function registerAiUsageIpcHandlers(): void {
-  ipcMain.handle(IPC.AI_USAGE.GET_SUMMARY, () => buildAiUsageSummary())
+type AiUsageUserParams = { userId?: string; userName?: string }
 
-  ipcMain.handle(IPC.AI_USAGE.CLEAR, async () => {
-    const ok = await clearAiUsageEvents()
+function parseUserParams(raw: unknown): AiUsageUserParams {
+  if (raw == null) return {}
+  if (typeof raw === 'string') return { userId: raw }
+  if (typeof raw === 'object' && 'userId' in raw) {
+    const o = raw as AiUsageUserParams
+    return { userId: o.userId, userName: o.userName }
+  }
+  return {}
+}
+
+export function registerAiUsageIpcHandlers(): void {
+  ipcMain.handle(IPC.AI_USAGE.GET_SUMMARY, async (_e, rawParams?: AiUsageUserParams | string) => {
+    const session = getSession()
+    if (!session) {
+      return buildAiUsageSummary([], null, null)
+    }
+    const { userId, userName } = parseUserParams(rawParams)
+    const targetUserId = userId ?? session.userId
+    if (targetUserId !== session.userId && session.role !== 'admin') {
+      return buildAiUsageSummary([], null, null)
+    }
+    const events = await getAiUsageEvents(targetUserId)
+    const name = await resolveTargetDisplayName(targetUserId, session, userName)
+    return buildAiUsageSummary(events, targetUserId, name)
+  })
+
+  ipcMain.handle(IPC.AI_USAGE.GET_USERS_SUMMARY, async () => {
+    const session = getSession()
+    if (!session || session.role !== 'admin') {
+      return { ok: false as const, error: 'FORBIDDEN' as const, rows: [] as AiUsageUsersSummaryRow[] }
+    }
+    const rows = await getAiUsageTotalsByUser()
+    return { ok: true as const, rows }
+  })
+
+  ipcMain.handle(IPC.AI_USAGE.CLEAR, async (_e, rawParams?: { userId?: string } | string) => {
+    const session = getSession()
+    if (!session) return { ok: false as const, error: 'unauthorized' }
+    const { userId } = parseUserParams(rawParams)
+    const targetUserId = userId ?? session.userId
+    if (targetUserId !== session.userId && session.role !== 'admin') {
+      return { ok: false as const, error: 'FORBIDDEN' }
+    }
+    const ok = await clearAiUsageEvents(targetUserId)
     return { ok: ok as boolean }
   })
 

@@ -638,6 +638,7 @@ CREATE INDEX IF NOT EXISTS idx_user_year ON user_daily_snapshots(user_id, snapsh
 
 CREATE TABLE IF NOT EXISTS ai_usage_events (
   id VARCHAR(36) PRIMARY KEY,
+  user_id VARCHAR(36) NOT NULL REFERENCES users(id) ON DELETE CASCADE,
   created_at TIMESTAMP(3) WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
   feature VARCHAR(64) NOT NULL,
   provider VARCHAR(32) NOT NULL CHECK (provider IN ('openai', 'claude', 'google')),
@@ -651,6 +652,7 @@ CREATE TABLE IF NOT EXISTS ai_usage_events (
 
 CREATE INDEX IF NOT EXISTS idx_ai_usage_created ON ai_usage_events(created_at);
 CREATE INDEX IF NOT EXISTS idx_ai_usage_feature ON ai_usage_events(feature);
+CREATE INDEX IF NOT EXISTS idx_ai_usage_user_created ON ai_usage_events(user_id, created_at);
 
 CREATE TABLE IF NOT EXISTS ai_usage_settings (
   id SMALLINT NOT NULL PRIMARY KEY DEFAULT 1,

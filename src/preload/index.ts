@@ -211,8 +211,12 @@ declare global {
       }
 
       aiUsage: {
-        getSummary: () => Promise<any>
-        clear: () => Promise<{ ok: boolean }>
+        getSummary: (params?: { userId?: string; userName?: string }) => Promise<any>
+        getUsersSummary: () => Promise<
+          | { ok: true; rows: Array<{ userId: string; userName: string; calls: number; inputTokens: number; outputTokens: number; costUsd: number | null }> }
+          | { ok: false; error: string; rows: [] }
+        >
+        clear: (params?: { userId?: string }) => Promise<{ ok: boolean; error?: string }>
         fetchExchangeRates: () => Promise<{ ok: true; usdToVnd: number; usdToJpy: number; updatedAt: number } | { ok: false; error: string }>
         getExchangeState: () => Promise<{
           usdToVnd: number | null
@@ -1386,8 +1390,9 @@ contextBridge.exposeInMainWorld('api', {
   },
 
   aiUsage: {
-    getSummary: () => ipcRenderer.invoke(IPC.AI_USAGE.GET_SUMMARY),
-    clear: () => ipcRenderer.invoke(IPC.AI_USAGE.CLEAR),
+    getSummary: (params?: { userId?: string; userName?: string }) => ipcRenderer.invoke(IPC.AI_USAGE.GET_SUMMARY, params ?? {}),
+    getUsersSummary: () => ipcRenderer.invoke(IPC.AI_USAGE.GET_USERS_SUMMARY),
+    clear: (params?: { userId?: string }) => ipcRenderer.invoke(IPC.AI_USAGE.CLEAR, params ?? {}),
     fetchExchangeRates: () => ipcRenderer.invoke(IPC.AI_USAGE.FETCH_EXCHANGE_RATES),
     getExchangeState: () => ipcRenderer.invoke(IPC.AI_USAGE.GET_EXCHANGE_STATE),
     setDisplayCurrency: (currency: 'USD' | 'VND' | 'JPY') => ipcRenderer.invoke(IPC.AI_USAGE.SET_DISPLAY_CURRENCY, currency),

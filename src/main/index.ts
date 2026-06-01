@@ -47,6 +47,7 @@ import {
   migrateTasksTicketIdNullable,
   migrateUserDailySnapshotsUniqueConstraint,
   migrateUserProjectRolesProjectIdUkToGenerated,
+  migrateAiUsageEventsUserIdColumn,
 } from './task/schema/taskDbPatches'
 import { initAutoUpdater } from './updater'
 import { initDeveloperModeShortcut } from './utils/developerModeShortcut'
@@ -137,6 +138,7 @@ makeAppWithSingleInstanceLock(async () => {
         await migrateTasksStatusEnteredAt().catch(() => {})
         await migrateAutomationTestTables().catch(() => {})
         await migrateDevPipelineTables().catch(() => {})
+        await migrateAiUsageEventsUserIdColumn().catch(() => {})
         const { startPrStatusSync } = await import('./scheduler/prStatusSync')
         startPrStatusSync()
       })()

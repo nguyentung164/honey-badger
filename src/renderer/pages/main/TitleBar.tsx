@@ -169,6 +169,12 @@ type SvnInfo = {
   changedFiles: { status: SvnStatusCode; path: string }[]
 }
 
+/** Dung lượng tải (MB), luôn 2 chữ số thập phân. */
+function formatDownloadMb(value: string | number | undefined): string {
+  const n = typeof value === 'number' ? value : parseFloat(String(value ?? ''))
+  return Number.isFinite(n) ? n.toFixed(2) : '0.00'
+}
+
 export const TitleBar = ({
   isLoading,
   versionControlSystem = 'svn',
@@ -591,10 +597,10 @@ export const TitleBar = ({
       }
       if (data.status === 'downloading') {
         setDownloadProgress(data.progress || 0)
-        setDownloadSpeed(data.speed || '')
+        setDownloadSpeed(formatDownloadMb(data.speed))
         setDownloadEta(data.eta || '')
-        setDownloadedMB(data.downloadedMB || '')
-        setTotalMB(data.totalMB || '')
+        setDownloadedMB(formatDownloadMb(data.downloadedMB))
+        setTotalMB(formatDownloadMb(data.totalMB))
       }
     }
     window.api.on('updater:status', handler)
@@ -1976,6 +1982,36 @@ export const TitleBar = ({
     </Tooltip>
   )
 
+  const appUpdateButton = showIconUpdateApp ? (
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <Button
+          id="app-update-button"
+          variant="link"
+          size="sm"
+          onClick={checkForUpdates}
+          className="shadow-none focus-visible:ring-0 focus-visible:ring-offset-0 transition-colors rounded-sm h-[25px] w-[25px] relative no-underline hover:no-underline hover:bg-muted shrink-0"
+        >
+          <svg width={0} height={0} className="absolute pointer-events-none" aria-hidden>
+            <defs>
+              <linearGradient id="titlebar-app-update-stroke-grad" x1="0%" y1="0%" x2="100%" y2="100%" gradientUnits="objectBoundingBox">
+                <animateTransform attributeName="gradientTransform" type="rotate" from="0 0.5 0.5" to="360 0.5 0.5" dur="5s" repeatCount="indefinite" />
+                <stop offset="0%" stopColor="#ef4444" />
+                <stop offset="50%" stopColor="#f97316" />
+                <stop offset="100%" stopColor="#facc15" />
+              </linearGradient>
+            </defs>
+          </svg>
+          <span className="titlebar-update-icon-anim">
+            <CircleArrowDown strokeWidth={1.25} absoluteStrokeWidth size={15} className="h-4 w-4" stroke="url(#titlebar-app-update-stroke-grad)" />
+          </span>
+          {status === 'downloaded' && <span className="absolute top-0 right-0 h-2 w-2 rounded-full bg-red-500 ring-2 ring-background" />}
+        </Button>
+      </TooltipTrigger>
+      <TooltipContent>{status === 'downloaded' ? t('title.checkForUpdate1', { 0: newAppVersion }) : t('title.checkForUpdate')}</TooltipContent>
+    </Tooltip>
+  ) : null
+
   return (
     <>
       {/* Dialogs */}
@@ -2141,7 +2177,7 @@ export const TitleBar = ({
           } as React.CSSProperties
         }
       >
-        {/* Left: logo + Workspace|Tasks (sát logo) + icon chỉ khi Workspace */}
+        {/* Left: logo + Workspace|Tasks (sát logo) + icon theo tab */}
         <div className="flex items-center h-full shrink-0 min-w-0 gap-0.5">
           <div className="w-10 h-6 flex justify-center items-center shrink-0" style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties}>
             <Tooltip>
@@ -2445,36 +2481,6 @@ export const TitleBar = ({
                     </Tooltip>
                   </>
                 )}
-
-                {showIconUpdateApp && (
-                  <Tooltip>
-                    <TooltipTrigger asChild>
-                      <Button
-                        id="app-update-button"
-                        variant="link"
-                        size="sm"
-                        onClick={checkForUpdates}
-                        className="shadow-none focus-visible:ring-0 focus-visible:ring-offset-0 transition-colors rounded-sm h-[25px] w-[25px] relative no-underline hover:no-underline hover:bg-muted"
-                      >
-                        <svg width={0} height={0} className="absolute pointer-events-none" aria-hidden>
-                          <defs>
-                            <linearGradient id="titlebar-app-update-stroke-grad" x1="0%" y1="0%" x2="100%" y2="100%" gradientUnits="objectBoundingBox">
-                              <animateTransform attributeName="gradientTransform" type="rotate" from="0 0.5 0.5" to="360 0.5 0.5" dur="5s" repeatCount="indefinite" />
-                              <stop offset="0%" stopColor="#ef4444" />
-                              <stop offset="50%" stopColor="#f97316" />
-                              <stop offset="100%" stopColor="#facc15" />
-                            </linearGradient>
-                          </defs>
-                        </svg>
-                        <span className="titlebar-update-icon-anim">
-                          <CircleArrowDown strokeWidth={1.25} absoluteStrokeWidth size={15} className="h-4 w-4" stroke="url(#titlebar-app-update-stroke-grad)" />
-                        </span>
-                        {status === 'downloaded' && <span className="absolute top-0 right-0 h-2 w-2 rounded-full bg-red-500 ring-2 ring-background" />}
-                      </Button>
-                    </TooltipTrigger>
-                    <TooltipContent>{status === 'downloaded' ? t('title.checkForUpdate1', { 0: newAppVersion }) : t('title.checkForUpdate')}</TooltipContent>
-                  </Tooltip>
-                )}
               </>
             )}
 
@@ -2527,11 +2533,11 @@ export const TitleBar = ({
           <div className="flex shrink-0 items-center gap-2 px-2 py-1 bg-muted rounded text-xs" style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties}>
             <CircleArrowDown className="h-3 w-3 animate-pulse shrink-0" />
             <Progress value={downloadProgress} className="w-10 h-1.5 shrink-0" />
-            <span className="text-[10px] tabular-nums shrink-0">{downloadProgress.toFixed(1)}%</span>
-            <span className="text-[10px] tabular-nums shrink-0">{downloadSpeed} KB/s</span>
+            <span className="text-[10px] tabular-nums shrink-0">{downloadProgress.toFixed(2)}%</span>
+            <span className="text-[10px] tabular-nums shrink-0">{formatDownloadMb(downloadSpeed)} MB/s</span>
             <span className="text-[10px] tabular-nums shrink-0">ETA: {downloadEta}</span>
             <span className="text-[10px] opacity-75 tabular-nums shrink-0">
-              {downloadedMB}/{totalMB}MB
+              {formatDownloadMb(downloadedMB)} / {formatDownloadMb(totalMB)} MB
             </span>
           </div>
         )}
@@ -3239,6 +3245,7 @@ export const TitleBar = ({
                     </DropdownMenuGroup>
                   </DropdownMenuContent>
                 </DropdownMenu>
+                {appUpdateButton}
                 {enableShellSwitcher && shellView === 'prManager' && !prManagerDetached && onPrManagerDetach ? (
                   <Tooltip>
                     <TooltipTrigger asChild>
@@ -3272,17 +3279,26 @@ export const TitleBar = ({
                 <UserProfilePanel open={showProfile} onOpenChange={setShowProfile} />
                 <HolidayCalendarDialog open={showHolidayCalendar} onOpenChange={setShowHolidayCalendar} />
                 <LeaderboardDialog open={showLeaderboard} onOpenChange={setShowLeaderboard} isAdmin={user?.role === 'admin'} />
-                <AiUsageStatsDialog open={showAiUsageStats} onOpenChange={setShowAiUsageStats} />
+                <AiUsageStatsDialog
+                  open={showAiUsageStats}
+                  onOpenChange={setShowAiUsageStats}
+                  isAdmin={isAdmin}
+                  currentUserId={user?.id}
+                  currentUserName={user?.name}
+                />
               </>
             ) : isGuest ? (
-              <Button
-                variant="ghost"
-                className="font-medium text-xs shrink-0 flex items-center gap-1.5 h-6 px-3 py-0 -mx-1 rounded-md bg-violet-100 dark:bg-violet-900/60 hover:bg-violet-100 dark:hover:bg-violet-900/50"
-                onClick={() => onRequestLogin?.()}
-              >
-                <UserCircle className="h-4 w-4 shrink-0" />
-                {t('taskManagement.guest')}
-              </Button>
+              <>
+                <Button
+                  variant="ghost"
+                  className="font-medium text-xs shrink-0 flex items-center gap-1.5 h-6 px-3 py-0 -mx-1 rounded-md bg-violet-100 dark:bg-violet-900/60 hover:bg-violet-100 dark:hover:bg-violet-900/50"
+                  onClick={() => onRequestLogin?.()}
+                >
+                  <UserCircle className="h-4 w-4 shrink-0" />
+                  {t('taskManagement.guest')}
+                </Button>
+                {appUpdateButton}
+              </>
             ) : (
               <DropdownMenu>
                 <DropdownMenuTrigger asChild>

@@ -990,3 +990,53 @@ CREATE TABLE IF NOT EXISTS dev_pipeline_runs (
   }
   devPipelineTablesMigrationDone = true
 }
+
+let aiUsageEventsUserIdMigrationDone = false
+
+/** Per-user AI usage attribution for admin reporting. */
+export async function migrateAiUsageEventsUserIdColumn(): Promise<void> {
+  if (aiUsageEventsUserIdMigrationDone || !hasDbConfig()) return
+
+  const hasCol = async (): Promise<boolean> => {
+    const rows = await query(
+      `SELECT 1 FROM information_schema.columns
+       WHERE table_schema = current_schema() AND table_name = 'ai_usage_events' AND column_name = 'user_id' LIMIT 1`
+    )
+    return Array.isArray(rows) && rows.length > 0
+  }
+
+  const hasIndex = async (indexName: string): Promise<boolean> => {
+    const rows = await query(`SELECT 1 FROM pg_indexes WHERE schemaname = current_schema()::text AND tablename = 'ai_usage_events' AND indexname = ? LIMIT 1`, [
+      indexName,
+    ])
+    return Array.isArray(rows) && rows.length > 0
+  }
+
+  const isUserIdNullable = async (): Promise<boolean> => {
+    const rows = await query<{ is_nullable: string }>(
+      `SELECT is_nullable FROM information_schema.columns
+       WHERE table_schema = current_schema() AND table_name = 'ai_usage_events' AND column_name = 'user_id' LIMIT 1`
+    )
+    return rows?.[0]?.is_nullable === 'YES'
+  }
+
+  try {
+    if (!(await hasCol())) {
+      await query('ALTER TABLE ai_usage_events ADD COLUMN user_id VARCHAR(36) NULL REFERENCES users(id) ON DELETE CASCADE')
+    }
+    await query(
+      `UPDATE ai_usage_events SET user_id = (SELECT id FROM users ORDER BY created_at ASC LIMIT 1) WHERE user_id IS NULL`
+    )
+    await query('DELETE FROM ai_usage_events WHERE user_id IS NULL')
+    if (await isUserIdNullable()) {
+      await query('ALTER TABLE ai_usage_events ALTER COLUMN user_id SET NOT NULL')
+    }
+    if (!(await hasIndex('idx_ai_usage_user_created'))) {
+      await query('CREATE INDEX IF NOT EXISTS idx_ai_usage_user_created ON ai_usage_events(user_id, created_at)')
+    }
+  } catch (e) {
+    l.error('[db] migrateAiUsageEventsUserIdColumn failed', e)
+    return
+  }
+  aiUsageEventsUserIdMigrationDone = true
+}

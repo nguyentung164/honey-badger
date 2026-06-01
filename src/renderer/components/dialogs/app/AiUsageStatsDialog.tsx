@@ -1,7 +1,7 @@
 'use client'
 
-import { RefreshCw, Sparkles, Trash2 } from 'lucide-react'
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { RefreshCw, Sparkles, Trash2, UserRound, Users, XIcon } from 'lucide-react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Bar, BarChart, CartesianGrid, Cell, XAxis, YAxis } from 'recharts'
 import {
@@ -18,13 +18,13 @@ import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { ChartContainer, ChartTooltip, ChartTooltipContent } from '@/components/ui/chart'
 import { Combobox } from '@/components/ui/combobox'
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
+import { Dialog, DialogClose, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
+import { AiUsageUsersListDialog } from '@/components/dialogs/app/AiUsageUsersListDialog'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 import toast from '@/components/ui-elements/Toast'
 import { formatDateByLocale } from '@/lib/dateUtils'
 import { cn } from '@/lib/utils'
 import { useAppearanceStoreSelect } from '@/stores/useAppearanceStore'
-
 type Summary = Awaited<ReturnType<typeof window.api.aiUsage.getSummary>>
 
 type Currency = 'USD' | 'VND' | 'JPY'
@@ -62,22 +62,30 @@ function formatMoney(amount: number | null, currency: Currency, fx: { usdToVnd: 
 export interface AiUsageStatsDialogProps {
   open: boolean
   onOpenChange: (open: boolean) => void
+  isAdmin?: boolean
+  currentUserId?: string
+  currentUserName?: string
 }
 
-export function AiUsageStatsDialog({ open, onOpenChange }: AiUsageStatsDialogProps) {
+export function AiUsageStatsDialog({ open, onOpenChange, isAdmin = false, currentUserId, currentUserName }: AiUsageStatsDialogProps) {
   const { t, i18n } = useTranslation()
   const buttonVariant = useAppearanceStoreSelect(s => s.buttonVariant)
   const [summary, setSummary] = useState<Summary | null>(null)
   const [loading, setLoading] = useState(false)
   const [fxLoading, setFxLoading] = useState(false)
   const [clearOpen, setClearOpen] = useState(false)
+  const [usersListOpen, setUsersListOpen] = useState(false)
+  const [viewUserId, setViewUserId] = useState<string | undefined>(undefined)
+  const [viewUserName, setViewUserName] = useState<string | undefined>(undefined)
+  const wasOpenRef = useRef(false)
   /** Optimistic currency while saving / reloading (Popover is portaled outside Dialog; also avoids lag before load()). */
   const [currencyOverride, setCurrencyOverride] = useState<Currency | null>(null)
 
-  const load = useCallback(async (opts?: { displayCurrencyAfterSave?: Currency }) => {
+  const fetchSummary = useCallback(async (userId: string, userName?: string, opts?: { displayCurrencyAfterSave?: Currency }) => {
+    setSummary(null)
     setLoading(true)
     try {
-      const s = await window.api.aiUsage.getSummary()
+      const s = await window.api.aiUsage.getSummary({ userId, userName })
       if (s && opts?.displayCurrencyAfterSave) {
         setSummary({ ...s, displayCurrency: opts.displayCurrencyAfterSave })
       } else {
@@ -92,14 +100,47 @@ export function AiUsageStatsDialog({ open, onOpenChange }: AiUsageStatsDialogPro
   }, [])
 
   useEffect(() => {
-    if (open) void load()
-  }, [open, load])
+    if (!open) {
+      wasOpenRef.current = false
+      setCurrencyOverride(null)
+      setUsersListOpen(false)
+      setViewUserId(undefined)
+      setViewUserName(undefined)
+      setSummary(null)
+      return
+    }
+    if (!wasOpenRef.current && currentUserId) {
+      wasOpenRef.current = true
+      setViewUserId(currentUserId)
+      setViewUserName(currentUserName)
+      void fetchSummary(currentUserId, currentUserName)
+    }
+  }, [open, currentUserId, currentUserName, fetchSummary])
 
-  useEffect(() => {
-    if (!open) setCurrencyOverride(null)
-  }, [open])
+  const handleSelectUser = useCallback(
+    (userId: string, userName: string) => {
+      setViewUserId(userId)
+      setViewUserName(userName)
+      void fetchSummary(userId, userName)
+    },
+    [fetchSummary]
+  )
 
   const currency: Currency = currencyOverride ?? summary?.displayCurrency ?? 'USD'
+  const viewingOtherUser = Boolean(isAdmin && currentUserId && viewUserId && viewUserId !== currentUserId)
+  const displayUserName = viewUserName ?? summary?.userName ?? currentUserName
+
+  const resetToCurrentUser = () => {
+    if (!currentUserId) return
+    setViewUserId(currentUserId)
+    setViewUserName(currentUserName)
+    void fetchSummary(currentUserId, currentUserName)
+  }
+
+  const reload = () => {
+    if (!viewUserId) return
+    void fetchSummary(viewUserId, viewUserName)
+  }
   const fx = summary?.fx ?? { usdToVnd: null, usdToJpy: null, updatedAt: null }
   const dbAvailable = summary?.dbAvailable ?? true
 
@@ -163,7 +204,8 @@ export function AiUsageStatsDialog({ open, onOpenChange }: AiUsageStatsDialogPro
       toast.error('error' in res && res.error ? res.error : t('aiUsage.error'))
       return
     }
-    await load({ displayCurrencyAfterSave: v })
+    if (!viewUserId) return
+    await fetchSummary(viewUserId, viewUserName, { displayCurrencyAfterSave: v })
     setCurrencyOverride(null)
   }
 
@@ -173,7 +215,7 @@ export function AiUsageStatsDialog({ open, onOpenChange }: AiUsageStatsDialogPro
       const res = await window.api.aiUsage.fetchExchangeRates()
       if (res.ok) {
         toast.success(t('aiUsage.fxUpdated'))
-        await load()
+        if (viewUserId) await fetchSummary(viewUserId, viewUserName)
       } else {
         toast.error(res.error ?? t('aiUsage.fxError'))
       }
@@ -183,13 +225,13 @@ export function AiUsageStatsDialog({ open, onOpenChange }: AiUsageStatsDialogPro
   }
 
   const onClear = async () => {
-    const res = await window.api.aiUsage.clear()
+    const res = await window.api.aiUsage.clear({ userId: viewUserId })
     if (!res.ok) {
       toast.error(t('aiUsage.clearFailed'))
       return
     }
     setClearOpen(false)
-    await load()
+    if (viewUserId) await fetchSummary(viewUserId, viewUserName)
     toast.success(t('aiUsage.cleared'))
   }
 
@@ -199,7 +241,8 @@ export function AiUsageStatsDialog({ open, onOpenChange }: AiUsageStatsDialogPro
     <>
       <Dialog open={open} onOpenChange={onOpenChange}>
         <DialogContent
-          className={cn('max-w-4xl! max-h-[90vh] overflow-y-auto gap-4')}
+          showCloseButton={false}
+          className={cn('flex max-h-[90vh] max-w-4xl! flex-col gap-0 overflow-hidden p-0 sm:max-w-4xl')}
           onInteractOutside={e => {
             const t = e.target
             if (t instanceof Element && t.closest('[data-slot="popover-content"]')) {
@@ -207,13 +250,58 @@ export function AiUsageStatsDialog({ open, onOpenChange }: AiUsageStatsDialogPro
             }
           }}
         >
-          <DialogHeader>
-            <DialogTitle className="flex items-center gap-2">
-              <Sparkles className="h-5 w-5 text-violet-500" />
-              {t('aiUsage.title')}
-            </DialogTitle>
+          <DialogHeader className="flex shrink-0 flex-row items-center gap-1.5 space-y-0 border-b px-3 py-2 text-left sm:text-left">
+            <Sparkles className="h-4 w-4 shrink-0 text-violet-500" aria-hidden />
+            <DialogTitle className="shrink-0 text-sm font-semibold leading-none">{t('aiUsage.title')}</DialogTitle>
+            {isAdmin && displayUserName ? (
+              <>
+                <span className="shrink-0 text-muted-foreground/50" aria-hidden>
+                  ·
+                </span>
+                <span className="min-w-0 max-w-[9rem] truncate text-xs font-normal text-muted-foreground" title={displayUserName}>
+                  {displayUserName}
+                </span>
+              </>
+            ) : null}
+            {viewingOtherUser ? (
+              <Button
+                type="button"
+                variant={buttonVariant}
+                size="icon"
+                className="h-7 w-7 shrink-0"
+                title={t('aiUsage.backToMeTitle')}
+                onClick={resetToCurrentUser}
+              >
+                <UserRound className="h-3.5 w-3.5" />
+              </Button>
+            ) : null}
+            {isAdmin ? (
+              <Button
+                type="button"
+                variant={buttonVariant}
+                size="icon"
+                className="h-7 w-7 shrink-0"
+                title={t('aiUsage.browseUsersTitle')}
+                onClick={() => setUsersListOpen(true)}
+              >
+                <Users className="h-3.5 w-3.5" />
+              </Button>
+            ) : null}
+            <div className="min-w-2 flex-1" />
+            <DialogClose asChild>
+              <Button
+                type="button"
+                variant="ghost"
+                size="icon"
+                className="h-7 w-7 shrink-0 text-muted-foreground hover:text-foreground"
+                aria-label={t('common.close')}
+              >
+                <XIcon className="h-4 w-4" />
+              </Button>
+            </DialogClose>
           </DialogHeader>
 
+          <div className="flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto px-4 py-3">
           <p className="text-xs text-muted-foreground leading-relaxed">{t('aiUsage.disclaimer')}</p>
 
           <div className="flex flex-wrap items-center gap-2">
@@ -255,14 +343,14 @@ export function AiUsageStatsDialog({ open, onOpenChange }: AiUsageStatsDialogPro
               <Trash2 className="h-3.5 w-3.5 mr-1" />
               {t('aiUsage.clear')}
             </Button>
-            <Button type="button" variant={buttonVariant} size="sm" className="h-8" disabled={loading} onClick={() => void load()}>
+            <Button type="button" variant={buttonVariant} size="sm" className="h-8" disabled={loading} onClick={() => reload()}>
               <RefreshCw className={cn('h-3.5 w-3.5', loading && 'animate-spin')} />
             </Button>
           </div>
 
           {needsFx && dbAvailable && <p className="text-xs text-amber-600 dark:text-amber-400">{t('aiUsage.needFxHint')}</p>}
 
-          {loading && !summary ? (
+          {loading ? (
             <div className="py-12 text-center text-sm text-muted-foreground">{t('common.loading')}</div>
           ) : summary && !summary.dbAvailable ? (
             <div className="rounded-md border-0 bg-card/40 px-4 py-8 text-center text-sm text-muted-foreground shadow-none">{t('aiUsage.dbNotConfigured')}</div>
@@ -376,14 +464,27 @@ export function AiUsageStatsDialog({ open, onOpenChange }: AiUsageStatsDialogPro
               </div>
             </>
           ) : null}
+          </div>
         </DialogContent>
       </Dialog>
+
+      {isAdmin ? (
+        <AiUsageUsersListDialog
+          open={usersListOpen}
+          onOpenChange={setUsersListOpen}
+          currency={currency}
+          fx={fx}
+          onSelectUser={handleSelectUser}
+        />
+      ) : null}
 
       <AlertDialog open={clearOpen} onOpenChange={setClearOpen}>
         <AlertDialogContent>
           <AlertDialogHeader>
             <AlertDialogTitle>{t('aiUsage.clearConfirmTitle')}</AlertDialogTitle>
-            <AlertDialogDescription>{t('aiUsage.clearConfirmDescription')}</AlertDialogDescription>
+            <AlertDialogDescription>
+              {t('aiUsage.clearConfirmDescription', { userName: displayUserName ?? '—' })}
+            </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogCancel variant={buttonVariant}>{t('common.cancel')}</AlertDialogCancel>

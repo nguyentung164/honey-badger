@@ -202,6 +202,7 @@ export const IPC = {
   },
   AI_USAGE: {
     GET_SUMMARY: 'ai-usage:get-summary',
+    GET_USERS_SUMMARY: 'ai-usage:get-users-summary',
     CLEAR: 'ai-usage:clear',
     FETCH_EXCHANGE_RATES: 'ai-usage:fetch-exchange-rates',
     GET_EXCHANGE_STATE: 'ai-usage:get-exchange-state',

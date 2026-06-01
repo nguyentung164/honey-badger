@@ -1,11 +1,13 @@
 import l from 'electron-log'
 import { randomUuidV7 } from 'shared/randomUuidV7'
 import type { ApiProvider } from '../store/ConfigurationStore'
+import { getTokenFromStore, verifyToken } from './auth'
 import { isBooleanColumn, toDbBoolValue } from './stores/pgPrTrackingStore'
 import { hasDbConfig, query } from './schema/db'
 
 export type AiUsageEvent = {
   id: string
+  userId: string
   ts: number
   feature: string
   provider: ApiProvider
@@ -15,6 +17,15 @@ export type AiUsageEvent = {
   cachedInputTokens: number
   costUsd: number | null
   pricingKnown: boolean
+}
+
+export type AiUsageUserTotals = {
+  userId: string
+  userName: string
+  calls: number
+  inputTokens: number
+  outputTokens: number
+  costUsd: number | null
 }
 
 export type AiDisplayCurrency = 'USD' | 'VND' | 'JPY'
@@ -29,11 +40,18 @@ function normalizeAiDisplayCurrency(raw: unknown): AiDisplayCurrency {
   return 'USD'
 }
 
+function resolveCurrentUserId(): string | null {
+  const token = getTokenFromStore()
+  const session = token ? verifyToken(token) : null
+  return session?.userId ?? null
+}
+
 function mapRow(r: Record<string, unknown>): AiUsageEvent {
   const created = r.created_at as Date
   const ts = created instanceof Date ? created.getTime() : new Date(String(created)).getTime()
   return {
     id: String(r.id),
+    userId: String(r.user_id),
     ts: Number.isFinite(ts) ? ts : Date.now(),
     feature: String(r.feature),
     provider: r.provider as ApiProvider,
@@ -46,16 +64,19 @@ function mapRow(r: Record<string, unknown>): AiUsageEvent {
   }
 }
 
-export async function appendAiUsageEvent(event: Omit<AiUsageEvent, 'id' | 'ts'>): Promise<boolean> {
+export async function appendAiUsageEvent(event: Omit<AiUsageEvent, 'id' | 'ts' | 'userId'>): Promise<boolean> {
   if (!hasDbConfig()) return false
+  const userId = resolveCurrentUserId()
+  if (!userId) return false
   try {
     const pricingKnownColIsBoolean = await isBooleanColumn('ai_usage_events', 'pricing_known')
     const pricingKnownDb = toDbBoolValue(event.pricingKnown, pricingKnownColIsBoolean)
     await query(
-      `INSERT INTO ai_usage_events (id, created_at, feature, provider, model, input_tokens, output_tokens, cached_input_tokens, cost_usd, pricing_known)
-       VALUES (?, CURRENT_TIMESTAMP(3), ?, ?, ?, ?, ?, ?, ?, ?)`,
+      `INSERT INTO ai_usage_events (id, user_id, created_at, feature, provider, model, input_tokens, output_tokens, cached_input_tokens, cost_usd, pricing_known)
+       VALUES (?, ?, CURRENT_TIMESTAMP(3), ?, ?, ?, ?, ?, ?, ?, ?)`,
       [
         randomUuidV7(),
+        userId,
         event.feature,
         event.provider,
         event.model,
@@ -66,11 +87,16 @@ export async function appendAiUsageEvent(event: Omit<AiUsageEvent, 'id' | 'ts'>)
         pricingKnownDb,
       ]
     )
-    const cntRows = await query<{ c: number }>('SELECT COUNT(*) AS c FROM ai_usage_events')
+    const cntRows = await query<{ c: number }>('SELECT COUNT(*) AS c FROM ai_usage_events WHERE user_id = ?', [userId])
     const c = Number(cntRows?.[0]?.c) || 0
     if (c > MAX_EVENTS) {
       const excess = c - MAX_EVENTS
-      await query(`DELETE FROM ai_usage_events WHERE id IN (SELECT id FROM ai_usage_events ORDER BY created_at ASC LIMIT ?)`, [excess])
+      await query(
+        `DELETE FROM ai_usage_events WHERE id IN (
+           SELECT id FROM ai_usage_events WHERE user_id = ? ORDER BY created_at ASC LIMIT ?
+         )`,
+        [userId, excess]
+      )
     }
     return true
   } catch (e) {
@@ -79,10 +105,13 @@ export async function appendAiUsageEvent(event: Omit<AiUsageEvent, 'id' | 'ts'>)
   }
 }
 
-export async function getAiUsageEvents(): Promise<AiUsageEvent[]> {
+export async function getAiUsageEvents(userId: string): Promise<AiUsageEvent[]> {
   if (!hasDbConfig()) return []
   try {
-    const rows = await query<Record<string, unknown>>('SELECT * FROM ai_usage_events ORDER BY created_at ASC')
+    const rows = await query<Record<string, unknown>>(
+      'SELECT * FROM ai_usage_events WHERE user_id = ? ORDER BY created_at ASC',
+      [userId]
+    )
     if (!Array.isArray(rows)) return []
     return rows.map(mapRow)
   } catch (e) {
@@ -91,10 +120,63 @@ export async function getAiUsageEvents(): Promise<AiUsageEvent[]> {
   }
 }
 
-export async function clearAiUsageEvents(): Promise<boolean> {
+function mapUserTotalsRow(r: {
+  user_id: string
+  user_name: string | null
+  calls: number
+  input_tokens: number
+  output_tokens: number
+  unknown_pricing_calls: number
+  cost_usd_sum: number | null
+}): AiUsageUserTotals {
+  const unknown = Number(r.unknown_pricing_calls) || 0
+  const calls = Number(r.calls) || 0
+  return {
+    userId: String(r.user_id),
+    userName: r.user_name?.trim() ? String(r.user_name) : '',
+    calls,
+    inputTokens: Number(r.input_tokens) || 0,
+    outputTokens: Number(r.output_tokens) || 0,
+    costUsd: unknown > 0 ? null : calls === 0 ? 0 : r.cost_usd_sum != null ? Number(r.cost_usd_sum) : 0,
+  }
+}
+
+export async function getAiUsageTotalsByUser(): Promise<AiUsageUserTotals[]> {
+  if (!hasDbConfig()) return []
+  try {
+    const userRows = await query<{
+      user_id: string
+      user_name: string | null
+      calls: number
+      input_tokens: number
+      output_tokens: number
+      unknown_pricing_calls: number
+      cost_usd_sum: number | null
+    }>(
+      `SELECT u.id AS user_id,
+              u.name AS user_name,
+              COUNT(e.id)::int AS calls,
+              COALESCE(SUM(e.input_tokens), 0)::int AS input_tokens,
+              COALESCE(SUM(e.output_tokens), 0)::int AS output_tokens,
+              SUM(CASE WHEN e.id IS NOT NULL AND e.cost_usd IS NULL THEN 1 ELSE 0 END)::int AS unknown_pricing_calls,
+              SUM(e.cost_usd) AS cost_usd_sum
+       FROM users u
+       LEFT JOIN ai_usage_events e ON e.user_id = u.id
+       GROUP BY u.id, u.name
+       ORDER BY u.name ASC NULLS LAST, u.id ASC`
+    )
+    if (!Array.isArray(userRows)) return []
+    return userRows.map(mapUserTotalsRow)
+  } catch (e) {
+    l.warn('aiUsageDb: get totals by user failed:', e)
+    return []
+  }
+}
+
+export async function clearAiUsageEvents(userId: string): Promise<boolean> {
   if (!hasDbConfig()) return false
   try {
-    await query('DELETE FROM ai_usage_events')
+    await query('DELETE FROM ai_usage_events WHERE user_id = ?', [userId])
     return true
   } catch (e) {
     l.warn('aiUsageDb: clear failed:', e)
