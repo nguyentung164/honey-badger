@@ -314,7 +314,9 @@
     "holidayCalendarCountryVn": "Vietnam",
     "holidayCalendarLegendLunar": "Lunar: day/month (n = leap month)",
     "holidayCalendarVnCompensatoryName": "{{name}} (compensatory)",
-    "holidayCalendarLegendVnCompensatory": "VN: Sat/Sun public holidays → estimated weekday off (following week from Mon; indicative only).",
+    "holidayCalendarLegendVnCompensatory": "VN: Sat/Sun public holidays → estimated weekday off (next working day; indicative only).",
+    "holidayCalendarJpCompensatoryName": "{{name}} (substitute)",
+    "holidayCalendarLegendJpCompensatory": "JP: substitute weekday when a public holiday falls on Sunday (Act on National Holidays Art. 3-2; not for Saturday).",
     "aiUsageStats": "AI usage cost",
     "userMenu": {
       "personal": "Personal",
@@ -1737,6 +1739,9 @@
       "selectAction": "Select action"
     },
     "branchForRepo": "Repo: {{repo}}",
+    "branchListRefreshing": "Updating branches from remote…",
+    "branchListLoadError": "Could not load branches",
+    "branchListEmpty": "No branches",
     "stashForRepo": "Git Stash ({{count}}) – repo: {{repo}}",
     "branchManage": {
       "title": "Manage branches",

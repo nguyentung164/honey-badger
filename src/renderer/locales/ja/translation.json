@@ -314,7 +314,9 @@
     "holidayCalendarCountryVn": "ベトナム",
     "holidayCalendarLegendLunar": "旧暦: 日/月（n = 閏月）",
     "holidayCalendarVnCompensatoryName": "{{name}}（振替・推定）",
-    "holidayCalendarLegendVnCompensatory": "VN: 土日が祝日の場合、翌週平日の振替休日を推定表示（参考、政府発表と異なる場合あり）。",
+    "holidayCalendarLegendVnCompensatory": "VN: 土日が祝日の場合、振替休日を推定表示（翌営業日；参考、政府発表と異なる場合あり）。",
+    "holidayCalendarJpCompensatoryName": "{{name}}（振替休日）",
+    "holidayCalendarLegendJpCompensatory": "JP: 日曜が祝日の場合の振替休日（祝日法第3条第2項；土曜は対象外）。",
     "aiUsageStats": "AI料金",
     "userMenu": {
       "personal": "個人",
@@ -1736,6 +1738,9 @@
       "selectAction": "アクションを選択"
     },
     "branchForRepo": "Repo: {{repo}}",
+    "branchListRefreshing": "リモートからブランチを更新中…",
+    "branchListLoadError": "ブランチ一覧を読み込めません",
+    "branchListEmpty": "ブランチがありません",
     "stashForRepo": "Git Stash ({{count}}) – repo: {{repo}}",
     "branchManage": {
       "title": "ブランチの管理",

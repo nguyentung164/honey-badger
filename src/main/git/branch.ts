@@ -8,6 +8,32 @@ interface GitBranchResponse {
   data?: any
 }
 
+async function enrichLocalBranchTracking(git: Awaited<ReturnType<typeof getGitInstance>>, branchName: string, branch: Record<string, unknown>) {
+  if (!git) return { ...branch }
+
+  try {
+    const trackingBranch = (await git.revparse(['--abbrev-ref', `${branchName}@{upstream}`])).trim()
+    if (!trackingBranch || trackingBranch === 'HEAD') {
+      return { ...branch }
+    }
+
+    const [aheadResult, behindResult] = await Promise.all([
+      git.raw(['rev-list', '--count', `${trackingBranch}..${branchName}`]),
+      git.raw(['rev-list', '--count', `${branchName}..${trackingBranch}`]),
+    ])
+
+    return {
+      ...branch,
+      ahead: parseInt(aheadResult.trim(), 10) || 0,
+      behind: parseInt(behindResult.trim(), 10) || 0,
+      tracking: trackingBranch,
+    }
+  } catch (_error) {
+    l.debug(`Branch ${branchName} has no upstream tracking`)
+    return { ...branch }
+  }
+}
+
 export async function getBranches(cwd?: string): Promise<GitBranchResponse> {
   try {
     const git = await getGitInstance(cwd)
@@ -17,39 +43,16 @@ export async function getBranches(cwd?: string): Promise<GitBranchResponse> {
 
     l.info('Fetching git branches')
 
-    // Get local branches
-    const localBranches = await git.branchLocal()
+    const [localBranches, remoteBranches] = await Promise.all([git.branchLocal(), git.branch(['-r'])])
 
-    // Get remote branches
-    const remoteBranches = await git.branch(['-r'])
-
-    // Get ahead/behind info for each local branch
-    const branchesWithTracking: Record<string, any> = {}
-    for (const branchName of localBranches.all) {
-      const branch = localBranches.branches[branchName]
-      branchesWithTracking[branchName] = { ...branch }
-
-      try {
-        // Get tracking branch info using git rev-list
-        const trackingBranch = await git.revparse(['--abbrev-ref', `${branchName}@{upstream}`])
-        if (trackingBranch) {
-          // Count ahead commits
-          const aheadResult = await git.raw(['rev-list', '--count', `${trackingBranch}..${branchName}`])
-          const ahead = parseInt(aheadResult.trim(), 10) || 0
-
-          // Count behind commits
-          const behindResult = await git.raw(['rev-list', '--count', `${branchName}..${trackingBranch}`])
-          const behind = parseInt(behindResult.trim(), 10) || 0
-
-          branchesWithTracking[branchName].ahead = ahead
-          branchesWithTracking[branchName].behind = behind
-          branchesWithTracking[branchName].tracking = trackingBranch
-        }
-      } catch (_error) {
-        // Branch has no upstream tracking - this is fine
-        l.debug(`Branch ${branchName} has no upstream tracking`)
-      }
-    }
+    const enrichedEntries = await Promise.all(
+      localBranches.all.map(async branchName => {
+        const branch = localBranches.branches[branchName]
+        const enriched = await enrichLocalBranchTracking(git, branchName, branch as Record<string, unknown>)
+        return [branchName, enriched] as const
+      })
+    )
+    const branchesWithTracking = Object.fromEntries(enrichedEntries)
 
     l.info('Git branches fetched successfully')
 

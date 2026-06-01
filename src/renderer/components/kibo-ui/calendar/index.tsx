@@ -11,7 +11,7 @@ import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import { formatVietnameseLunarCompact } from '@/lib/lunarVietnamese'
 import { cn } from '@/lib/utils'
-import { CountryFlag } from './flag-icons'
+import { CountryFlag, HolidayCellFlagBackdrop } from './flag-icons'
 
 export type CalendarState = {
   month: 0 | 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10 | 11
@@ -215,21 +215,109 @@ const Combobox = ({ value, setValue, data, labels, className }: ComboboxProps) =
   )
 }
 
-type OutOfBoundsDayProps = {
-  day: number
-  lunarLabel?: string
+function featuresForDate(featuresByDateKey: Map<string, Feature[]>, dayDate: Date): Feature[] {
+  return featuresByDateKey.get(format(startOfDay(dayDate), 'yyyy-MM-dd')) ?? []
 }
 
-const OutOfBoundsDay = ({ day, lunarLabel }: OutOfBoundsDayProps) => {
-  const { density } = useContext(CalendarContext)
-  const compact = density === 'compact'
+function holidayShellClasses(featuresForDay: Feature[]): string | undefined {
+  if (featuresForDay.length === 0) return undefined
+  return 'overflow-hidden'
+}
 
-  return (
-    <div className={cn('relative flex h-full w-full flex-col bg-secondary text-muted-foreground', compact ? 'gap-0.5 p-0.5' : 'gap-0.5 p-1 text-xs')}>
-      <span className={cn('tabular-nums', compact ? 'text-base font-semibold text-foreground' : '')}>{day}</span>
-      {lunarLabel != null && lunarLabel !== '' && <span className={cn('leading-tight', compact ? 'text-[10px]' : 'text-[10px] opacity-90', lunarTextClass)}>{lunarLabel}</span>}
-    </div>
+function holidayDayNumberClasses(featuresForDay: Feature[]): string | undefined {
+  if (featuresForDay.length === 0) return undefined
+  const hasJp = featuresForDay.some(f => featureCountryKey(f) === 'jp')
+  const hasVn = featuresForDay.some(f => featureCountryKey(f) === 'vn')
+  return cn(
+    'font-bold tabular-nums',
+    hasJp && hasVn
+      ? 'bg-gradient-to-r from-red-600 to-blue-600 bg-clip-text text-transparent dark:from-red-400 dark:to-blue-400'
+      : hasJp
+        ? 'text-red-600 dark:text-red-400'
+        : hasVn
+          ? 'text-blue-600 dark:text-blue-400'
+          : 'font-bold text-foreground'
   )
+}
+
+function buildCalendarDayCell(
+  day: number,
+  dayDate: Date,
+  featuresForDay: Feature[],
+  outOfBounds: boolean,
+  compact: boolean,
+  locale: Intl.LocalesArgument,
+  showLunar: boolean,
+  children: (props: { feature: Feature }) => ReactNode,
+): { content: ReactNode; shellClassName?: string; flagBackdrop?: ReactNode } {
+  const isToday = isSameDay(dayDate, new Date())
+  const hasJp = featuresForDay.some(f => featureCountryKey(f) === 'jp')
+  const hasVn = featuresForDay.some(f => featureCountryKey(f) === 'vn')
+  const holidayShellClass = holidayShellClasses(featuresForDay)
+  const holidayDayNumberClass = holidayDayNumberClasses(featuresForDay)
+  const todayShellClass = isToday && featuresForDay.length === 0 ? 'bg-primary/12 dark:bg-primary/18' : undefined
+  const lunarLabel = showLunar ? formatVietnameseLunarCompact(dayDate) : null
+  const holidayList = featuresForDay.slice(0, 3).map(feature => children({ feature }))
+  const flagBackdrop = featuresForDay.length > 0 ? <HolidayCellFlagBackdrop hasJp={hasJp} hasVn={hasVn} /> : undefined
+
+  const cellInner = (
+    <>
+      <div className={cn('flex flex-col', compact ? 'gap-0' : 'gap-0.5')}>
+        <span
+          className={cn(
+            'tabular-nums',
+            compact && !holidayDayNumberClass && 'text-base font-semibold',
+            compact && !holidayDayNumberClass && (outOfBounds ? 'text-muted-foreground' : 'text-foreground'),
+            compact && holidayDayNumberClass && 'text-base',
+            holidayDayNumberClass,
+            !holidayDayNumberClass && isToday && 'font-semibold text-primary'
+          )}
+        >
+          {day}
+        </span>
+        {lunarLabel != null && <span className={cn('leading-tight', compact ? 'text-[10px]' : 'text-[10px] opacity-90', lunarTextClass)}>{lunarLabel}</span>}
+      </div>
+      {featuresForDay.length > 0 && (
+        <div className={cn('min-w-0 w-full space-y-0.5', compact && 'text-xs')}>
+          {holidayList}
+          {featuresForDay.length > 3 && <span className="block text-muted-foreground text-xs">+{featuresForDay.length - 3} more</span>}
+        </div>
+      )}
+    </>
+  )
+
+  return {
+    flagBackdrop,
+    content:
+      featuresForDay.length > 0 ? (
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <div
+              className={cn(
+                'absolute inset-0 z-10 flex cursor-default flex-col',
+                compact ? 'gap-0.5 p-0.5' : 'gap-1 p-1 text-muted-foreground text-xs'
+              )}
+            >
+              {cellInner}
+            </div>
+          </TooltipTrigger>
+          <TooltipContent className="z-[120] max-w-sm px-3 py-2.5 text-left" side="top" sideOffset={6}>
+            <DayHolidaysTooltipPanel dayDate={dayDate} features={featuresForDay} locale={locale} showLunar={showLunar} />
+          </TooltipContent>
+        </Tooltip>
+      ) : (
+        <div
+          className={cn(
+            'relative flex flex-1 min-h-0 w-full min-w-0 flex-col',
+            compact ? 'gap-0.5 p-0.5' : 'gap-1 p-1 text-muted-foreground text-xs',
+            outOfBounds && 'h-full bg-secondary text-muted-foreground'
+          )}
+        >
+          {cellInner}
+        </div>
+      ),
+    shellClassName: cn(holidayShellClass, todayShellClass),
+  }
 }
 
 export type CalendarBodyProps = {
@@ -266,18 +354,19 @@ export const CalendarBody = ({ features, children }: CalendarBodyProps) => {
     return { nextMonthDaysArray, nextMonth, nextMonthYear }
   }, [month, year])
 
-  // Memoize features filtering by day to avoid recalculating on every render
-  const featuresByDay = useMemo(() => {
-    const result: { [day: number]: Feature[] } = {}
-    for (let day = 1; day <= daysInMonth; day++) {
-      result[day] = features.filter(feature => {
-        return isSameDay(startOfDay(new Date(feature.endAt)), startOfDay(new Date(year, month, day)))
-      })
+  // Index features by calendar date so prev/next-month padding cells can show holidays too.
+  const featuresByDateKey = useMemo(() => {
+    const result = new Map<string, Feature[]>()
+    for (const feature of features) {
+      const key = format(startOfDay(new Date(feature.endAt)), 'yyyy-MM-dd')
+      const bucket = result.get(key)
+      if (bucket) bucket.push(feature)
+      else result.set(key, [feature])
     }
     return result
-  }, [features, daysInMonth, year, month])
+  }, [features])
 
-  type BodyCell = { content: ReactNode; key: string; shellClassName?: string }
+  type BodyCell = { content: ReactNode; key: string; shellClassName?: string; flagBackdrop?: ReactNode }
   const cells: BodyCell[] = []
 
   for (let i = 0; i < firstDay; i++) {
@@ -285,89 +374,15 @@ export const CalendarBody = ({ features, children }: CalendarBodyProps) => {
 
     if (day) {
       const prevDate = new Date(prevMonthData.prevMonthYear, prevMonthData.prevMonth, day)
-      const lunarLabel = showLunar ? formatVietnameseLunarCompact(prevDate) : undefined
-      cells.push({ content: <OutOfBoundsDay day={day} lunarLabel={lunarLabel} />, key: `prev-${i}` })
+      const cell = buildCalendarDayCell(day, prevDate, featuresForDate(featuresByDateKey, prevDate), true, compact, locale, showLunar, children)
+      cells.push({ ...cell, key: `prev-${i}` })
     }
   }
 
   for (let day = 1; day <= daysInMonth; day++) {
-    const featuresForDay = featuresByDay[day] || []
     const dayDate = new Date(year, month, day)
-
-    const hasJp = featuresForDay.some(f => featureCountryKey(f) === 'jp')
-    const hasVn = featuresForDay.some(f => featureCountryKey(f) === 'vn')
-    const isToday = isSameDay(dayDate, new Date())
-    const holidayShellClass =
-      featuresForDay.length === 0
-        ? undefined
-        : cn(
-            hasJp && hasVn
-              ? 'bg-gradient-to-br from-red-500/20 to-blue-500/20 dark:from-red-500/26 dark:to-blue-500/26'
-              : hasJp
-                ? 'bg-red-500/18 dark:bg-red-500/24'
-                : hasVn
-                  ? 'bg-blue-500/18 dark:bg-blue-500/24'
-                  : 'bg-muted/55 dark:bg-muted/40',
-            ''
-          )
-
-    const holidayDayNumberClass =
-      featuresForDay.length === 0
-        ? undefined
-        : cn(
-            'font-bold tabular-nums',
-            hasJp && hasVn
-              ? 'bg-gradient-to-r from-red-600 to-blue-600 bg-clip-text text-transparent dark:from-red-400 dark:to-blue-400'
-              : hasJp
-                ? 'text-red-600 dark:text-red-400'
-                : hasVn
-                  ? 'text-blue-600 dark:text-blue-400'
-                  : 'font-bold text-foreground'
-          )
-
-    const todayShellClass = isToday && featuresForDay.length === 0 ? 'bg-primary/12 dark:bg-primary/18' : undefined
-
-    const holidayList = <div className={cn('min-w-0 w-full space-y-0.5', compact && 'text-xs')}>{featuresForDay.slice(0, 3).map(feature => children({ feature }))}</div>
-
-    const lunarLabel = showLunar ? formatVietnameseLunarCompact(dayDate) : null
-
-    cells.push({
-      content: (
-        <div className={cn('relative flex flex-1 min-h-0 w-full min-w-0 flex-col', compact ? 'gap-0.5 p-0.5' : 'gap-1 p-1 text-muted-foreground text-xs')}>
-          <div className={cn('flex flex-col', compact ? 'gap-0' : 'gap-0.5')}>
-            <span
-              className={cn(
-                'tabular-nums',
-                compact && !holidayDayNumberClass && 'text-base font-semibold text-foreground',
-                compact && holidayDayNumberClass && 'text-base',
-                holidayDayNumberClass,
-                !holidayDayNumberClass && isToday && 'font-semibold text-primary'
-              )}
-            >
-              {day}
-            </span>
-            {lunarLabel != null && <span className={cn('leading-tight', compact ? 'text-[10px]' : 'text-[10px] opacity-90', lunarTextClass)}>{lunarLabel}</span>}
-          </div>
-          {featuresForDay.length > 0 ? (
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <div className="min-w-0 w-full cursor-default space-y-0.5">
-                  {holidayList}
-                  {featuresForDay.length > 3 && <span className="block text-muted-foreground text-xs">+{featuresForDay.length - 3} more</span>}
-                </div>
-              </TooltipTrigger>
-              <TooltipContent className="z-[120] max-w-sm px-3 py-2.5 text-left" side="top" sideOffset={6}>
-                <DayHolidaysTooltipPanel dayDate={dayDate} features={featuresForDay} locale={locale} showLunar={showLunar} />
-              </TooltipContent>
-            </Tooltip>
-          ) : (
-            holidayList
-          )}
-        </div>
-      ),
-      key: `day-${day}`,
-      shellClassName: cn(holidayShellClass, todayShellClass),
-    })
+    const cell = buildCalendarDayCell(day, dayDate, featuresForDate(featuresByDateKey, dayDate), false, compact, locale, showLunar, children)
+    cells.push({ ...cell, key: `day-${day}` })
   }
 
   const remainingDays = 7 - ((firstDay + daysInMonth) % 7)
@@ -377,24 +392,25 @@ export const CalendarBody = ({ features, children }: CalendarBodyProps) => {
 
       if (day) {
         const nextDate = new Date(nextMonthData.nextMonthYear, nextMonthData.nextMonth, day)
-        const lunarLabel = showLunar ? formatVietnameseLunarCompact(nextDate) : undefined
-        cells.push({ content: <OutOfBoundsDay day={day} lunarLabel={lunarLabel} />, key: `next-${i}` })
+        const cell = buildCalendarDayCell(day, nextDate, featuresForDate(featuresByDateKey, nextDate), true, compact, locale, showLunar, children)
+        cells.push({ ...cell, key: `next-${i}` })
       }
     }
   }
 
   return (
     <div className="grid flex-grow grid-cols-7">
-      {cells.map(({ content, key, shellClassName }, index) => (
+      {cells.map(({ content, key, shellClassName, flagBackdrop }, index) => (
         <div
           className={cn(
             'relative flex flex-col border-t border-r align-top',
-            compact ? 'min-h-[3.75rem] sm:min-h-[4rem]' : 'min-h-[5.5rem] sm:min-h-[6.5rem]',
+            compact ? 'min-h-[5rem] sm:min-h-[5.5rem]' : 'min-h-[5.5rem] sm:min-h-[6.5rem]',
             shellClassName,
             index % 7 === 6 && 'border-r-0'
           )}
           key={key}
         >
+          {flagBackdrop}
           {content}
         </div>
       ))}
@@ -528,11 +544,21 @@ export const CalendarHeader = ({ className }: CalendarHeaderProps) => {
 
   return (
     <div className={cn('grid flex-grow grid-cols-7', className)}>
-      {daysData.map(day => (
-        <div className={cn('text-right text-muted-foreground text-xs', density === 'compact' ? 'px-1 py-1.5' : 'p-3')} key={day}>
-          {day}
-        </div>
-      ))}
+      {daysData.map((day, i) => {
+        const weekday = (startDay + i) % 7
+        const weekdayClass =
+          weekday === 0
+            ? 'font-bold text-red-600 dark:text-red-400'
+            : weekday === 6
+              ? 'font-bold text-blue-600 dark:text-blue-400'
+              : 'font-bold text-muted-foreground'
+
+        return (
+          <div className={cn('text-center text-xs', weekdayClass, density === 'compact' ? 'px-1 py-1.5' : 'p-3')} key={i}>
+            {day}
+          </div>
+        )
+      })}
     </div>
   )
 }

@@ -146,7 +146,7 @@ declare global {
         onCommitStream: (callback: (chunk: string) => void) => () => void
         onPushStream: (callback: (chunk: string) => void) => () => void
         onFetchStream: (callback: (chunk: string) => void) => () => void
-        fetch: (remote?: string, options?: { prune?: boolean; all?: boolean }, cwd?: string) => Promise<any>
+        fetch: (remote?: string, options?: { prune?: boolean; all?: boolean; skipUpdateCheck?: boolean }, cwd?: string) => Promise<any>
         get_remotes: (cwd?: string) => Promise<any>
         stash: (message?: string, options?: { includeUntracked?: boolean; stagedOnly?: boolean }, cwd?: string) => Promise<any>
         stash_list: (cwd?: string) => Promise<any>
@@ -1518,7 +1518,8 @@ contextBridge.exposeInMainWorld('api', {
       ipcRenderer.on(IPC.GIT.FETCH_STREAM, handler)
       return () => ipcRenderer.removeListener(IPC.GIT.FETCH_STREAM, handler)
     },
-    fetch: (remote?: string, options?: { prune?: boolean; all?: boolean }, cwd?: string) => ipcRenderer.invoke(IPC.GIT.FETCH, remote ?? 'origin', options, cwd),
+    fetch: (remote?: string, options?: { prune?: boolean; all?: boolean; skipUpdateCheck?: boolean }, cwd?: string) =>
+      ipcRenderer.invoke(IPC.GIT.FETCH, remote ?? 'origin', options, cwd),
     get_remotes: (cwd?: string) => ipcRenderer.invoke(IPC.GIT.GET_REMOTES, cwd),
     stash: (message?: string, options?: { includeUntracked?: boolean; stagedOnly?: boolean }, cwd?: string) => ipcRenderer.invoke(IPC.GIT.STASH, message, options, cwd),
     stash_list: (cwd?: string) => ipcRenderer.invoke(IPC.GIT.STASH_LIST, cwd),

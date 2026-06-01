@@ -1,6 +1,6 @@
 'use client'
 
-import { addDays, addWeeks, eachDayOfInterval, format, getDay, isBefore, isValid, startOfDay, startOfWeek, subDays } from 'date-fns'
+import { addDays, eachDayOfInterval, format, getDay, isBefore, isValid, startOfDay, subDays } from 'date-fns'
 import Holidays from 'date-holidays'
 import type { TFunction } from 'i18next'
 import { useLayoutEffect, useMemo } from 'react'
@@ -38,6 +38,36 @@ function holidayStatusesForT(t: TFunction): { jp: HolidayFeatureStatus; vn: Holi
 const jpHd = new Holidays('JP')
 const vnHd = new Holidays('VN')
 
+/** date-holidays JP timestamps are JST calendar days; normalize before placing on the grid. */
+const JP_HOLIDAY_TZ = 'Asia/Tokyo'
+
+function jpCalendarDate(d: Date): Date {
+  const parts = new Intl.DateTimeFormat('en-CA', {
+    timeZone: JP_HOLIDAY_TZ,
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  }).formatToParts(d)
+  const y = Number(parts.find(p => p.type === 'year')?.value)
+  const m = Number(parts.find(p => p.type === 'month')?.value)
+  const day = Number(parts.find(p => p.type === 'day')?.value)
+  return new Date(y, m - 1, day)
+}
+
+function expandJpHolidayInterval(h: { start?: Date; end?: Date }): Date[] | null {
+  if (h.start == null || h.end == null) return null
+  const s = jpCalendarDate(h.start)
+  const endExclusive = jpCalendarDate(h.end)
+  let endInclusive = subDays(endExclusive, 1)
+  if (isBefore(endInclusive, s)) endInclusive = s
+  if (!isValid(s) || !isValid(endInclusive)) return null
+  try {
+    return eachDayOfInterval({ start: s, end: endInclusive })
+  } catch {
+    return null
+  }
+}
+
 function holidayNameLang(i18nLang: string): string {
   const base = i18nLang.split('-')[0]?.toLowerCase() ?? 'en'
   if (base === 'vi') return 'vi'
@@ -51,17 +81,8 @@ function jpHolidayNameByDayRule(year: number, lang: string): Map<string, string>
   const list = jpHd.getHolidays(year, lang) ?? []
   for (const h of list) {
     if (h.start == null || h.end == null) continue
-    const s = startOfDay(h.start)
-    const endExclusive = startOfDay(h.end)
-    let endInclusive = subDays(endExclusive, 1)
-    if (isBefore(endInclusive, s)) endInclusive = s
-    if (!isValid(s) || !isValid(endInclusive)) continue
-    let days: Date[]
-    try {
-      days = eachDayOfInterval({ start: s, end: endInclusive })
-    } catch {
-      continue
-    }
+    const days = expandJpHolidayInterval(h)
+    if (days == null) continue
     const ruleKey = h.rule ?? h.name
     for (const day of days) {
       const dayKey = format(day, 'yyyy-MM-dd')
@@ -95,10 +116,15 @@ function isVnLegalDayOff(h: { type?: string }): boolean {
   return h.type !== 'observance'
 }
 
-/** Monday of the calendar week after the week containing `d` (weeks start Monday). */
-function mondayOfWeekAfter(d: Date): Date {
-  const mondayThisWeek = startOfWeek(d, { weekStartsOn: 1 })
-  return addWeeks(mondayThisWeek, 1)
+function isJpNationalPublicHoliday(h: { type?: string }): boolean {
+  return h.type === 'public'
+}
+
+/** date-holidays substitute row (振替休日) — shown via compensatory builder, not the main list. */
+function isJpSubstituteEntry(h: { name?: string; rule?: string }): boolean {
+  const rule = (h.rule ?? '').toLowerCase()
+  const name = (h.name ?? '').toLowerCase()
+  return rule.includes('substitutes') || name.includes('substitute')
 }
 
 function firstFreeWeekdayFrom(from: Date, publicOffDayKeys: Set<string>, usedCompensatory: Set<string>): Date | null {
@@ -113,27 +139,31 @@ function firstFreeWeekdayFrom(from: Date, publicOffDayKeys: Set<string>, usedCom
   return null
 }
 
-type VnHolidayDay = { day: Date; name: string; ruleKey: string }
+type HolidayDay = { day: Date; name: string; ruleKey: string }
 
-function collectVnPublicHolidayDays(years: number[], nameLang: string): { publicOffDayKeys: Set<string>; weekendHolidayDays: VnHolidayDay[] } {
+function expandHolidayInterval(h: { start?: Date; end?: Date }): Date[] | null {
+  if (h.start == null || h.end == null) return null
+  const s = startOfDay(h.start)
+  const endExclusive = startOfDay(h.end)
+  let endInclusive = subDays(endExclusive, 1)
+  if (isBefore(endInclusive, s)) endInclusive = s
+  if (!isValid(s) || !isValid(endInclusive)) return null
+  try {
+    return eachDayOfInterval({ start: s, end: endInclusive })
+  } catch {
+    return null
+  }
+}
+
+function collectVnPublicHolidayDays(years: number[], nameLang: string): { publicOffDayKeys: Set<string>; weekendHolidayDays: HolidayDay[] } {
   const publicOffDayKeys = new Set<string>()
-  const weekendHolidayDays: VnHolidayDay[] = []
+  const weekendHolidayDays: HolidayDay[] = []
 
   for (const y of years) {
     for (const h of vnHd.getHolidays(y, nameLang) ?? []) {
       if (!isVnLegalDayOff(h)) continue
-      if (h.start == null || h.end == null) continue
-      const s = startOfDay(h.start)
-      const endExclusive = startOfDay(h.end)
-      let endInclusive = subDays(endExclusive, 1)
-      if (isBefore(endInclusive, s)) endInclusive = s
-      if (!isValid(s) || !isValid(endInclusive)) continue
-      let days: Date[]
-      try {
-        days = eachDayOfInterval({ start: s, end: endInclusive })
-      } catch {
-        continue
-      }
+      const days = expandHolidayInterval(h)
+      if (days == null) continue
       const ruleKey = h.rule ?? h.name
       for (const day of days) {
         const dayKey = format(day, 'yyyy-MM-dd')
@@ -148,27 +178,69 @@ function collectVnPublicHolidayDays(years: number[], nameLang: string): { public
   return { publicOffDayKeys, weekendHolidayDays }
 }
 
-function buildVnCompensatoryFeatures(displayYear: number, nameLang: string, status: HolidayFeatureStatus, t: TFunction): Feature[] {
+/** Strip date-holidays substitute suffix so the compensatory label reads like the original holiday. */
+function jpSubstituteBaseName(name: string): string {
+  return name
+    .replace(/\s*\(substitute day\)\s*$/i, '')
+    .replace(/\s*（substitute day）\s*$/i, '')
+    .replace(/\s*（振替休日）\s*$/i, '')
+    .trim()
+}
+
+function buildJpCompensatoryFeatures(displayYear: number, nameLang: string, status: HolidayFeatureStatus, t: TFunction): Feature[] {
   const years = [displayYear - 1, displayYear, displayYear + 1]
-  const { publicOffDayKeys, weekendHolidayDays } = collectVnPublicHolidayDays(years, nameLang)
+  const out: Feature[] = []
+  const seenCompDay = new Set<string>()
+
+  for (const y of years) {
+    for (const h of jpHd.getHolidays(y, nameLang) ?? []) {
+      if (!isJpNationalPublicHoliday(h) || !isJpSubstituteEntry(h)) continue
+      const days = expandJpHolidayInterval(h)
+      if (days == null) continue
+      const ruleKey = h.rule ?? h.name
+      const baseName = jpSubstituteBaseName(h.name)
+      for (const day of days) {
+        const compKey = format(day, 'yyyy-MM-dd')
+        if (seenCompDay.has(compKey)) continue
+        seenCompDay.add(compKey)
+        out.push({
+          id: `jp-bu-${compKey}-${ruleKey}`,
+          name: t('title.holidayCalendarJpCompensatoryName', { name: baseName }),
+          startAt: day,
+          endAt: day,
+          status,
+        })
+      }
+    }
+  }
+
+  return out
+}
+
+/** VN (Điều 111 BLĐ 2019): lễ trùng ngày nghỉ hằng tuần → nghỉ bù ngày làm việc kế tiếp. */
+function buildCompensatoryFeatures(
+  sourceDays: HolidayDay[],
+  publicOffDayKeys: Set<string>,
+  status: HolidayFeatureStatus,
+  t: TFunction,
+  idPrefix: string,
+  nameKey: 'title.holidayCalendarVnCompensatoryName',
+): Feature[] {
   const usedCompensatory = new Set<string>()
   const out: Feature[] = []
-  const seenWeekendDay = new Set<string>()
+  const seenSourceDay = new Set<string>()
 
-  for (const { day, name, ruleKey } of weekendHolidayDays) {
-    const weekendKey = format(day, 'yyyy-MM-dd')
-    if (seenWeekendDay.has(weekendKey)) continue
-    seenWeekendDay.add(weekendKey)
-    const fromMonday = mondayOfWeekAfter(day)
-    const comp = firstFreeWeekdayFrom(fromMonday, publicOffDayKeys, usedCompensatory)
+  for (const { day, name, ruleKey } of sourceDays) {
+    const sourceKey = format(day, 'yyyy-MM-dd')
+    if (seenSourceDay.has(sourceKey)) continue
+    seenSourceDay.add(sourceKey)
+    const comp = firstFreeWeekdayFrom(addDays(day, 1), publicOffDayKeys, usedCompensatory)
     if (comp == null) continue
     const compKey = format(comp, 'yyyy-MM-dd')
     usedCompensatory.add(compKey)
-    if (comp.getFullYear() !== displayYear) continue
-    const origKey = format(day, 'yyyy-MM-dd')
     out.push({
-      id: `vn-bu-${compKey}-${origKey}-${ruleKey}`,
-      name: t('title.holidayCalendarVnCompensatoryName', { name }),
+      id: `${idPrefix}-${compKey}-${sourceKey}-${ruleKey}`,
+      name: t(nameKey, { name }),
       startAt: comp,
       endAt: comp,
       status,
@@ -178,28 +250,33 @@ function buildVnCompensatoryFeatures(displayYear: number, nameLang: string, stat
   return out
 }
 
+function buildVnCompensatoryFeatures(displayYear: number, nameLang: string, status: HolidayFeatureStatus, t: TFunction): Feature[] {
+  const years = [displayYear - 1, displayYear, displayYear + 1]
+  const { publicOffDayKeys, weekendHolidayDays } = collectVnPublicHolidayDays(years, nameLang)
+  return buildCompensatoryFeatures(weekendHolidayDays, publicOffDayKeys, status, t, 'vn-bu', 'title.holidayCalendarVnCompensatoryName')
+}
+
+function mergeJpHolidayNameMaps(years: number[], lang: string): Map<string, string> {
+  const map = new Map<string, string>()
+  for (const y of years) {
+    for (const [key, name] of jpHolidayNameByDayRule(y, lang)) map.set(key, name)
+  }
+  return map
+}
+
 function buildHolidayFeatures(year: number, nameLang: string, statuses: { jp: HolidayFeatureStatus; vn: HolidayFeatureStatus }, t: TFunction): Feature[] {
   try {
     const out: Feature[] = []
-    const jpViByDayRule = jpHolidayNameByDayRule(year, 'vi')
-    const jpEnByDayRule = jpHolidayNameByDayRule(year, 'en')
+    const years = [year - 1, year, year + 1]
+    const jpViByDayRule = mergeJpHolidayNameMaps(years, 'vi')
+    const jpEnByDayRule = mergeJpHolidayNameMaps(years, 'en')
 
     const addList = (list: ReturnType<typeof jpHd.getHolidays>, status: HolidayFeatureStatus) => {
       for (const h of list) {
+        if (status.countryCode === 'jp' && isJpSubstituteEntry(h)) continue
         if (h.start == null || h.end == null) continue
-        const s = startOfDay(h.start)
-        // date-holidays uses a half-open range [start, end): end is midnight on the day after the last holiday day.
-        // eachDayOfInterval is inclusive on both ends, so we must not include that trailing day.
-        const endExclusive = startOfDay(h.end)
-        let endInclusive = subDays(endExclusive, 1)
-        if (isBefore(endInclusive, s)) endInclusive = s
-        if (!isValid(s) || !isValid(endInclusive)) continue
-        let days: Date[]
-        try {
-          days = eachDayOfInterval({ start: s, end: endInclusive })
-        } catch {
-          continue
-        }
+        const days = status.countryCode === 'jp' ? expandJpHolidayInterval(h) : expandHolidayInterval(h)
+        if (days == null) continue
         const ruleKey = h.rule ?? h.name
         for (const day of days) {
           const dayKey = format(day, 'yyyy-MM-dd')
@@ -219,11 +296,12 @@ function buildHolidayFeatures(year: number, nameLang: string, statuses: { jp: Ho
       }
     }
 
-    const jpList = jpHd.getHolidays(year, nameLang) ?? []
-    const vnList = vnHd.getHolidays(year, nameLang) ?? []
-    addList(jpList, statuses.jp)
-    addList(vnList, statuses.vn)
+    for (const y of years) {
+      addList(jpHd.getHolidays(y, nameLang) ?? [], statuses.jp)
+      addList(vnHd.getHolidays(y, nameLang) ?? [], statuses.vn)
+    }
     out.push(...buildVnCompensatoryFeatures(year, nameLang, statuses.vn, t))
+    out.push(...buildJpCompensatoryFeatures(year, nameLang, statuses.jp, t))
     return out
   } catch (e) {
     logger.error('buildHolidayFeatures failed', e)
@@ -278,12 +356,12 @@ export function HolidayCalendarDialog({ open, onOpenChange }: HolidayCalendarDia
 
   return (
     <Dialog onOpenChange={onOpenChange} open={open}>
-      <DialogContent overlayClassName="z-[100]" className="z-[101] max-h-[90vh] max-w-3xl overflow-y-auto sm:max-w-3xl">
+      <DialogContent overlayClassName="z-[100]" className="z-[101] max-h-[90vh]! max-w-4xl! overflow-y-auto sm:max-w-3xl">
         <DialogHeader>
           <DialogTitle>{t('title.holidayCalendar')}</DialogTitle>
         </DialogHeader>
         <ResetCalendarOnOpen open={open} />
-        <CalendarProvider className="min-h-[380px] rounded-md border bg-card" density="compact" locale={calendarLocale} showLunar startDay={0}>
+        <CalendarProvider className="min-h-[450px] rounded-md border bg-card" density="compact" locale={calendarLocale} showLunar startDay={0}>
           <HolidayCalendarInner nameLang={nameLang} />
         </CalendarProvider>
         <div className="flex flex-wrap gap-4 border-t pt-3 text-muted-foreground text-xs">
@@ -297,6 +375,7 @@ export function HolidayCalendarDialog({ open, onOpenChange }: HolidayCalendarDia
           </span>
           <span>{t('title.holidayCalendarLegendLunar')}</span>
           <span className="basis-full sm:basis-auto">{t('title.holidayCalendarLegendVnCompensatory')}</span>
+          <span className="basis-full sm:basis-auto">{t('title.holidayCalendarLegendJpCompensatory')}</span>
         </div>
       </DialogContent>
     </Dialog>

@@ -314,6 +314,10 @@ export const TitleBar = ({
   const [gitBehind, setGitBehind] = useState<number>(0)
   const [branches, setBranches] = useState<any>(null)
   const [isLoadingBranches, setIsLoadingBranches] = useState(false)
+  const [isRefreshingBranchesRemote, setIsRefreshingBranchesRemote] = useState(false)
+  const branchesRef = useRef<any>(null)
+  const branchListLoadIdRef = useRef(0)
+  const branchRemoteFetchRef = useRef<{ cwd: string; promise: Promise<void> } | null>(null)
   const [isGitPulling, setIsGitPulling] = useState(false)
   const [isGitPushing, setIsGitPushing] = useState(false)
   const [isGitFetching, setIsGitFetching] = useState(false)
@@ -1139,11 +1143,19 @@ export const TitleBar = ({
     // gitContextPath trong deps để interval luôn gọi checkGitStatus đúng repo đang active (tránh stale closure khi đổi tab)
   }, [isConfigLoaded, versionControlSystem, gitContextPath])
 
+  useEffect(() => {
+    branchesRef.current = branches
+  }, [branches])
+
   // Khi đổi tab (gitContextPath thay đổi): tăng id để bỏ qua response cũ, clear branches, refetch state cho repo active (checkGitStatus gọi loadStashCount bên trong)
   useEffect(() => {
     if (versionControlSystem !== 'git' || !gitContextPath) return
     gitContextIdRef.current += 1
+    branchListLoadIdRef.current += 1
+    branchRemoteFetchRef.current = null
     setBranches(null)
+    setIsLoadingBranches(false)
+    setIsRefreshingBranchesRemote(false)
     checkGitStatus()
     // eslint-disable-next-line react-hooks/exhaustive-deps -- chỉ chạy khi gitContextPath/versionControlSystem đổi
   }, [gitContextPath, versionControlSystem])
@@ -1574,41 +1586,108 @@ export const TitleBar = ({
     }
   }
 
-  const loadBranches = async () => {
-    if (isLoadingBranches || !gitContextPath) return
+  const refreshBranchesFromRemote = useCallback(
+    async (cwd: string, loadId: number, contextId: number) => {
+      const applyBranches = (data: any) => {
+        if (contextId !== gitContextIdRef.current) return
+        setBranches(data)
+      }
 
-    setIsLoadingBranches(true)
-    const idAtStart = gitContextIdRef.current
-    const cwd = gitContextPath
-    const start = Date.now()
-    try {
-      // Remote list = remote-tracking refs cục bộ (`git branch -r`), không query server trực tiếp.
-      // Nhánh đã xóa trên server vẫn hiện cho tới khi fetch --prune cập nhật refs.
-      const pruneResult = await window.api.git.fetch('origin', { prune: true, all: true }, cwd)
-      if (pruneResult.status !== 'success') {
-        logger.warning('Fetch prune before branch list skipped or failed:', pruneResult.message)
+      const inflight = branchRemoteFetchRef.current
+      if (inflight?.cwd === cwd) {
+        setIsRefreshingBranchesRemote(true)
+        try {
+          await inflight.promise
+        } finally {
+          if (loadId === branchListLoadIdRef.current) setIsRefreshingBranchesRemote(false)
+        }
+        return
       }
-      const result = await window.api.git.get_branches(cwd)
-      if (idAtStart !== gitContextIdRef.current) return
-      if (result.status === 'success') {
-        setBranches(result.data)
-        logger.info('Branches loaded:', result.data)
-      } else {
-        toast.error(result.message || 'Không thể tải danh sách branches')
+
+      setIsRefreshingBranchesRemote(true)
+      const promise = (async () => {
+        try {
+          const pruneResult = await window.api.git.fetch('origin', { prune: true, all: true, skipUpdateCheck: true }, cwd)
+          if (pruneResult.status !== 'success') {
+            logger.warning('Fetch prune before branch list skipped or failed:', pruneResult.message)
+          }
+          const result = await window.api.git.get_branches(cwd)
+          if (result.status === 'success') {
+            applyBranches(result.data)
+            logger.info('Branches loaded (remote refresh):', result.data)
+          } else if (!branchesRef.current) {
+            toast.error(result.message || t('git.branchListLoadError'))
+          }
+        } catch (error) {
+          if (loadId !== branchListLoadIdRef.current || contextId !== gitContextIdRef.current) return
+          logger.error('Error refreshing branches from remote:', error)
+          if (!branchesRef.current) {
+            toast.error(t('git.branchListLoadError'))
+          }
+        } finally {
+          if (loadId === branchListLoadIdRef.current) {
+            setIsRefreshingBranchesRemote(false)
+          }
+          if (branchRemoteFetchRef.current?.promise === promise) {
+            branchRemoteFetchRef.current = null
+          }
+        }
+      })()
+
+      branchRemoteFetchRef.current = { cwd, promise }
+      await promise
+    },
+    [t]
+  )
+
+  const loadBranches = useCallback(
+    async (options?: { background?: boolean; forceFetch?: boolean }) => {
+      if (!gitContextPath) return
+
+      const cwd = gitContextPath
+      const loadId = ++branchListLoadIdRef.current
+      const contextId = gitContextIdRef.current
+      const hasCached = branchesRef.current != null
+
+      const applyBranches = (data: any) => {
+        if (loadId !== branchListLoadIdRef.current) return
+        if (contextId !== gitContextIdRef.current) return
+        setBranches(data)
       }
-    } catch (error) {
-      if (idAtStart !== gitContextIdRef.current) return
-      logger.error('Error loading branches:', error)
-      toast.error('Không thể tải danh sách branches')
-    } finally {
-      const elapsed = Date.now() - start
-      const minLoadingMs = 400
-      if (elapsed < minLoadingMs) {
-        await new Promise(r => setTimeout(r, minLoadingMs - elapsed))
+
+      const needsLocalSnapshot = !hasCached || options?.forceFetch
+      const showBlockingLoader = needsLocalSnapshot && !options?.background
+
+      if (showBlockingLoader) setIsLoadingBranches(true)
+
+      try {
+        if (needsLocalSnapshot) {
+          const localResult = await window.api.git.get_branches(cwd)
+          if (loadId !== branchListLoadIdRef.current || contextId !== gitContextIdRef.current) return
+          if (localResult.status === 'success') {
+            applyBranches(localResult.data)
+            logger.info('Branches loaded (local snapshot):', localResult.data)
+          } else {
+            toast.error(localResult.message || t('git.branchListLoadError'))
+          }
+        }
+      } catch (error) {
+        if (loadId !== branchListLoadIdRef.current || contextId !== gitContextIdRef.current) return
+        logger.error('Error loading local branches:', error)
+        if (!hasCached) toast.error(t('git.branchListLoadError'))
+      } finally {
+        if (showBlockingLoader) setIsLoadingBranches(false)
       }
-      setIsLoadingBranches(false)
-    }
-  }
+
+      await refreshBranchesFromRemote(cwd, loadId, contextId)
+    },
+    [gitContextPath, refreshBranchesFromRemote, t]
+  )
+
+  const prefetchBranchList = useCallback(() => {
+    if (!gitContextPath) return
+    void loadBranches({ background: true })
+  }, [gitContextPath, loadBranches])
 
   // Kiểm tra và detect branch changes (do app khác hoặc lệnh command line switch)
   const checkBranchChanges = async () => {
@@ -2085,7 +2164,7 @@ export const TitleBar = ({
         onOpenChange={setShowGitBranchManageDialog}
         currentBranch={currentBranch}
         onSuccess={() => {
-          loadBranches()
+          loadBranches({ forceFetch: true })
           refreshGitStatus()
         }}
         cwd={gitContextPath ?? undefined}
@@ -2763,13 +2842,18 @@ export const TitleBar = ({
               {showGitRepoChrome && currentBranch && (
                 <DropdownMenu
                   onOpenChange={open => {
-                    if (open) loadBranches()
+                    if (open) void loadBranches()
                   }}
                 >
                   <Tooltip>
                     <TooltipTrigger asChild>
                       <DropdownMenuTrigger asChild>
-                        <Button variant="ghost" size="sm" className="flex items-center gap-1 px-2 py-1 h-7 text-xs">
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          className="flex items-center gap-1 px-2 py-1 h-7 text-xs"
+                          onMouseEnter={prefetchBranchList}
+                        >
                           <span className="text-[10px] text-blue-600 dark:text-blue-400 bg-blue-50 dark:bg-blue-900/30 px-1.5 rounded flex items-center gap-0.5">
                             <GitBranch className="h-2.5 w-2.5" />
                             {currentBranch}
@@ -2783,10 +2867,16 @@ export const TitleBar = ({
                     <TooltipContent>{activeRepoLabel ? t('git.branchForRepo', { repo: activeRepoLabel }) : currentBranch}</TooltipContent>
                   </Tooltip>
                   <DropdownMenuContent align="center" className="max-h-[300px] overflow-y-auto">
-                    {isLoadingBranches ? (
+                    {isRefreshingBranchesRemote && (
+                      <div className="flex items-center gap-2 border-b px-2 py-1.5 text-xs text-muted-foreground">
+                        <Loader2 className="h-3 w-3 animate-spin shrink-0" />
+                        <span>{t('git.branchListRefreshing')}</span>
+                      </div>
+                    )}
+                    {isLoadingBranches && !branches ? (
                       <div className="flex items-center justify-center p-2">
                         <Loader2 className="h-4 w-4 animate-spin" />
-                        <span className="ml-2 text-xs">Đang tải branches...</span>
+                        <span className="ml-2 text-xs">{t('common.loading', 'Đang tải...')}</span>
                       </div>
                     ) : branches ? (
                       <>
@@ -2835,7 +2925,7 @@ export const TitleBar = ({
                         )}
                       </>
                     ) : (
-                      <div className="px-2 py-1 text-xs text-muted-foreground">Không có branches</div>
+                      <div className="px-2 py-1 text-xs text-muted-foreground">{t('git.branchListEmpty')}</div>
                     )}
                   </DropdownMenuContent>
                 </DropdownMenu>

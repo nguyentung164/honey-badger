@@ -357,6 +357,8 @@ export async function fetchUpdateLocalBranch(remote: string = 'origin', branch: 
 export interface FetchOptions {
   prune?: boolean
   all?: boolean
+  /** Skip checkForUpdates/notifications — use for background branch-list refresh. */
+  skipUpdateCheck?: boolean
 }
 
 export async function fetch(remote: string = 'origin', options?: FetchOptions, sender?: WebContents, cwdOverride?: string): Promise<GitPushPullResponse> {
@@ -411,6 +413,16 @@ export async function fetch(remote: string = 'origin', options?: FetchOptions, s
 
     sendChunk(`Fetch completed successfully.\n`)
     l.info('Fetch completed successfully')
+
+    if (opts.skipUpdateCheck) {
+      return {
+        status: 'success',
+        message: 'Successfully fetched changes',
+        data: {
+          fetchResult: fetchResult.stdout,
+        },
+      }
+    }
 
     // Check for updates after successful fetch (use same cwd as fetch)
     sendChunk(`Checking for updates...\n`)

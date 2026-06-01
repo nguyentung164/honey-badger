@@ -313,7 +313,9 @@
     "holidayCalendarCountryVn": "Việt Nam",
     "holidayCalendarLegendLunar": "Âm lịch: ngày/tháng (n = tháng nhuận)",
     "holidayCalendarVnCompensatoryName": "{{name}} (nghỉ bù)",
-    "holidayCalendarLegendVnCompensatory": "VN: lễ trùng T7/CN → ngày bù ước lượng (tuần sau, từ thứ Hai; tham khảo, có thể khác quyết định CP).",
+    "holidayCalendarLegendVnCompensatory": "VN: lễ trùng T7/CN → ngày bù ước lượng (ngày làm việc kế tiếp; tham khảo, có thể khác quyết định CP).",
+    "holidayCalendarJpCompensatoryName": "{{name}} (振替休日)",
+    "holidayCalendarLegendJpCompensatory": "JP: 振替休日 khi lễ trùng Chủ nhật (Luật Ngày lễ quốc gia Điều 3-2; thứ Bảy không áp dụng).",
     "aiUsageStats": "Chi phí AI",
     "userMenu": {
       "personal": "Cá nhân",
@@ -1728,6 +1730,9 @@
       "selectAction": "Chọn hành động"
     },
     "branchForRepo": "Repo: {{repo}}",
+    "branchListRefreshing": "Đang cập nhật nhánh từ remote…",
+    "branchListLoadError": "Không thể tải danh sách branches",
+    "branchListEmpty": "Không có branches",
     "stashForRepo": "Git Stash ({{count}}) – repo: {{repo}}",
     "branchManage": {
       "title": "Quản lý branch",
