@@ -78,6 +78,9 @@ export async function migratePrCheckpointGithubColumns(): Promise<void> {
     if (!(await checkCol('gh_pr_changed_files'))) {
       await query('ALTER TABLE pr_branch_checkpoints ADD COLUMN gh_pr_changed_files INT NULL')
     }
+    if (!(await checkCol('gh_pr_commits'))) {
+      await query('ALTER TABLE pr_branch_checkpoints ADD COLUMN gh_pr_commits INT NULL')
+    }
     if (!(await checkCol('gh_pr_mergeable_state'))) {
       await query('ALTER TABLE pr_branch_checkpoints ADD COLUMN gh_pr_mergeable_state VARCHAR(50) NULL')
     }

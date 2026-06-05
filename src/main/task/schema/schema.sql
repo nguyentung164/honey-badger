@@ -728,6 +728,7 @@ CREATE TABLE IF NOT EXISTS pr_branch_checkpoints (
   gh_pr_additions INT NULL,
   gh_pr_deletions INT NULL,
   gh_pr_changed_files INT NULL,
+  gh_pr_commits INT NULL,
   gh_pr_mergeable_state VARCHAR(50) NULL,
   gh_pr_assignees JSONB NULL,
   gh_pr_labels JSONB NULL,

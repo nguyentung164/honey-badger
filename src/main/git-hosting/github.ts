@@ -26,6 +26,33 @@ import type {
 /** Phi\u00ean b\u1ea3n REST API GitHub (b\u1eaft bu\u1ed9c header X-GitHub-Api-Version v\u1edbi nhi\u1ec1u client). */
 const GITHUB_REST_API_VERSION = '2022-11-28'
 
+function readOctokitLinkHeader(headers: unknown): string {
+  if (!headers || typeof headers !== 'object') return ''
+  const h = headers as Record<string, unknown> & { get?: (key: string) => string | null | undefined }
+  if (typeof h.get === 'function') {
+    return String(h.get('link') ?? h.get('Link') ?? '')
+  }
+  const link = h.link ?? h.Link
+  if (typeof link === 'string') return link
+  if (Array.isArray(link)) return link.map(String).join(',')
+  return ''
+}
+
+/** Parse `Link` header — trả về số trang cuối (GitHub REST pagination). */
+function parseGitHubLastPage(link: string): number | null {
+  if (!link.trim()) return null
+  for (const segment of link.split(',')) {
+    const part = segment.trim()
+    if (!/\brel=["']?last["']?\b/i.test(part)) continue
+    const pageMatch = part.match(/[?&]page=(\d+)/i)
+    if (pageMatch) {
+      const n = Number(pageMatch[1])
+      if (Number.isFinite(n) && n > 0) return n
+    }
+  }
+  return null
+}
+
 function broadcastTokenInvalid(message: string): void {
   try {
     for (const win of BrowserWindow.getAllWindows()) {
@@ -609,6 +636,41 @@ export const githubClient: IHostingClient = {
       )
     } catch (err: any) {
       throw wrapError(err, 'Failed to list PRs')
+    }
+  },
+
+  async getPRCommitCount(owner: string, repo: string, number: number): Promise<number | null> {
+    try {
+      return await withGithubRateLimitRetry(
+        async () => {
+          const octokit = getClient()
+          const perPage = 100
+          const res = await octokit.pulls.listCommits({
+            owner,
+            repo,
+            pull_number: number,
+            per_page: perPage,
+            page: 1,
+          })
+          const link = readOctokitLinkHeader(res.headers)
+          const lastPage = parseGitHubLastPage(link)
+          if (lastPage == null || lastPage <= 1) {
+            return res.data.length
+          }
+          const lastRes = await octokit.pulls.listCommits({
+            owner,
+            repo,
+            pull_number: number,
+            per_page: perPage,
+            page: lastPage,
+          })
+          return (lastPage - 1) * perPage + lastRes.data.length
+        },
+        { label: `getPRCommitCount ${owner}/${repo}#${number}` }
+      )
+    } catch (err: any) {
+      l.warn(`getPRCommitCount failed ${owner}/${repo}#${number}:`, err?.message ?? err)
+      return null
     }
   },
 

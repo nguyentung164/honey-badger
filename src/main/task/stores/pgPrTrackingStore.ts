@@ -98,6 +98,7 @@ export interface PrBranchCheckpoint {
   ghPrAdditions: number | null
   ghPrDeletions: number | null
   ghPrChangedFiles: number | null
+  ghPrCommits: number | null
   /** GitHub REST mergeable_state (\u2248 GraphQL MergeStateStatus, ch\u1eef th\u01b0\u1eddng): clean|dirty|conflict|blocked|behind|unknown|unstable|draft|has_hooks; ch\u1ec9 khi sync qua getPR. */
   ghPrMergeableState: string | null
   ghPrAssignees: Array<{ login: string; id: number; avatarUrl?: string | null }> | null
@@ -218,6 +219,7 @@ function mapCheckpoint(r: any): PrBranchCheckpoint {
     ghPrAdditions: r.gh_pr_additions ?? null,
     ghPrDeletions: r.gh_pr_deletions ?? null,
     ghPrChangedFiles: r.gh_pr_changed_files ?? null,
+    ghPrCommits: r.gh_pr_commits ?? null,
     ghPrMergeableState: r.gh_pr_mergeable_state ?? null,
     ghPrAssignees: parseJsonField<PrBranchCheckpoint['ghPrAssignees']>(r.gh_pr_assignees) ?? null,
     ghPrLabels: parseJsonField<PrBranchCheckpoint['ghPrLabels']>(r.gh_pr_labels) ?? null,
@@ -575,6 +577,7 @@ export async function upsertBranchCheckpoint(input: {
   ghPrAdditions?: number | null
   ghPrDeletions?: number | null
   ghPrChangedFiles?: number | null
+  ghPrCommits?: number | null
   ghPrMergeableState?: string | null
   ghPrAssignees?: Array<{ login: string; id: number; avatarUrl?: string | null }> | null
   ghPrLabels?: Array<{ name: string; color: string }> | null
@@ -629,6 +632,7 @@ export async function upsertBranchCheckpoint(input: {
     const hasGhAdditions = 'ghPrAdditions' in input
     const hasGhDeletions = 'ghPrDeletions' in input
     const hasGhChangedFiles = 'ghPrChangedFiles' in input
+    const hasGhCommits = 'ghPrCommits' in input
     const hasMergeableState = 'ghPrMergeableState' in input
     const hasAssignees = 'ghPrAssignees' in input
     const hasLabels = 'ghPrLabels' in input
@@ -650,6 +654,7 @@ export async function upsertBranchCheckpoint(input: {
            gh_pr_additions = CASE WHEN ?::boolean THEN ?::integer ELSE gh_pr_additions END,
            gh_pr_deletions = CASE WHEN ?::boolean THEN ?::integer ELSE gh_pr_deletions END,
            gh_pr_changed_files = CASE WHEN ?::boolean THEN ?::integer ELSE gh_pr_changed_files END,
+           gh_pr_commits = CASE WHEN ?::boolean THEN ?::integer ELSE gh_pr_commits END,
            gh_pr_mergeable_state = CASE WHEN ?::boolean THEN ?::varchar(50) ELSE gh_pr_mergeable_state END,
            gh_pr_assignees = (CASE WHEN ?::boolean THEN ?::text ELSE gh_pr_assignees::text END)::jsonb,
            gh_pr_labels = (CASE WHEN ?::boolean THEN ?::text ELSE gh_pr_labels::text END)::jsonb
@@ -684,6 +689,8 @@ export async function upsertBranchCheckpoint(input: {
         hasGhDeletions ? (input.ghPrDeletions ?? null) : null,
         hasGhChangedFiles,
         hasGhChangedFiles ? (input.ghPrChangedFiles ?? null) : null,
+        hasGhCommits,
+        hasGhCommits ? (input.ghPrCommits ?? null) : null,
         hasMergeableState,
         hasMergeableState ? (input.ghPrMergeableState ?? null) : null,
         hasAssignees,
@@ -708,11 +715,11 @@ export async function upsertBranchCheckpoint(input: {
        (id, user_id, tracked_branch_id, template_id, is_done, pr_number, pr_url, merged_at, merged_by,
         gh_pr_draft, gh_pr_state, gh_pr_merged, gh_pr_author,
         gh_pr_title, gh_pr_updated_at, gh_pr_additions, gh_pr_deletions,
-        gh_pr_changed_files, gh_pr_mergeable_state, gh_pr_assignees, gh_pr_labels)
+        gh_pr_changed_files, gh_pr_commits, gh_pr_mergeable_state, gh_pr_assignees, gh_pr_labels)
      VALUES (?::varchar(36), ?::varchar(36), ?::varchar(36), ?::varchar(36), ?::${isDoneCast}, ?::integer, ?::varchar(500), ?::timestamptz, ?::varchar(255),
              ?::${ghPrDraftCast}, ?::varchar(20), ?::${ghPrMergedCast}, ?::varchar(255),
              ?::varchar(500), ?::timestamptz, ?::integer, ?::integer,
-             ?::integer, ?::varchar(50), ?::jsonb, ?::jsonb)`,
+             ?::integer, ?::integer, ?::varchar(50), ?::jsonb, ?::jsonb)`,
     [
       id,
       checkpointUserId,
@@ -732,6 +739,7 @@ export async function upsertBranchCheckpoint(input: {
       'ghPrAdditions' in input ? (input.ghPrAdditions ?? null) : null,
       'ghPrDeletions' in input ? (input.ghPrDeletions ?? null) : null,
       'ghPrChangedFiles' in input ? (input.ghPrChangedFiles ?? null) : null,
+      'ghPrCommits' in input ? (input.ghPrCommits ?? null) : null,
       'ghPrMergeableState' in input ? (input.ghPrMergeableState ?? null) : null,
       assigneesJson,
       labelsJson,

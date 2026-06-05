@@ -40,7 +40,7 @@ export const CELL_TXT = 'text-xs leading-tight'
 
 /** Giới hạn rộng cột chữ dài (Branch, PR động, …). */
 export const COL_BRANCH = 'min-w-0 max-w-[200px] overflow-hidden'
-export const COL_PR_CHECKPOINT = 'min-w-0 max-w-[180px] overflow-hidden'
+export const COL_PR_CHECKPOINT = 'min-w-0 max-w-[240px] overflow-hidden'
 /** Viền dọc giữa các cột (cùng style `border-r` cột Repo); cột checkbox cuối không dùng. */
 export const COL_DIVIDER_R = 'border-r border-r-border/60'
 /** Viền ngang từng ô (dùng khi bật lưới viền bảng). */

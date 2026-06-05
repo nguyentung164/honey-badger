@@ -50,6 +50,8 @@ export interface PrBranchCheckpoint {
   ghPrAdditions: number | null
   ghPrDeletions: number | null
   ghPrChangedFiles: number | null
+  /** Số commit trên PR; chỉ có khi sync qua getPRCommitCount. */
+  ghPrCommits: number | null
   ghPrMergeableState: string | null
   ghPrAssignees: Array<{ login: string; id: number; avatarUrl?: string | null }> | null
   ghPrLabels: Array<{ name: string; color: string }> | null

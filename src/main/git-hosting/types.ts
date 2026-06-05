@@ -30,6 +30,8 @@ export interface PullRequestSummary {
   additions?: number | null
   deletions?: number | null
   changedFiles?: number | null
+  /** Số commit trên PR; chỉ set khi gọi getPRCommitCount (sync board). */
+  commitsCount?: number | null
   mergeableState?: string | null
   assignees?: PrAssignee[] | null
   labels?: PrLabel[] | null
@@ -186,6 +188,8 @@ export interface IHostingClient {
   getPR(owner: string, repo: string, number: number, options?: { includeReviewSubmissions?: boolean }): Promise<PullRequestSummary>
   listPRs(options: ListPRsOptions): Promise<PullRequestSummary[]>
   getPRCommits(owner: string, repo: string, number: number): Promise<PullRequestCommit[]>
+  /** Một request (per_page=1 + Link header); null khi lỗi. */
+  getPRCommitCount(owner: string, repo: string, number: number): Promise<number | null>
   getDefaultBranch(owner: string, repo: string): Promise<string>
   listBranches(owner: string, repo: string): Promise<string[]>
   getLatestCommitMessage(owner: string, repo: string, branch: string): Promise<string | null>

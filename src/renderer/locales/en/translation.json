@@ -3982,6 +3982,11 @@
       "deleteTitle": "Delete automation?",
       "deleteDesc": "This action cannot be undone."
     },
+    "metrics": {
+      "commits": "{{count}} commits",
+      "files": "{{count}} files changed",
+      "lines": "+{{additions}} −{{deletions}} lines"
+    },
     "board": {
       "toastRemoteCheck": "Could not verify the branch on GitHub.",
       "toastNote": "Could not save note.",

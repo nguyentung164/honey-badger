@@ -74,7 +74,8 @@ function errResp(err: unknown) {
 
 async function afterPrMutateSyncCheckpoints(owner: string, repo: string, pr: PullRequestSummary, label: string): Promise<void> {
   try {
-    await syncPullRequestIntoTrackedCheckpoints(owner, repo, pr)
+    const commitsCount = await githubClient.getPRCommitCount(owner, repo, pr.number)
+    await syncPullRequestIntoTrackedCheckpoints(owner, repo, { ...pr, commitsCount })
   } catch (err) {
     l.warn(`${label}: syncPullRequestIntoTrackedCheckpoints failed:`, err)
   }
@@ -584,9 +585,13 @@ export function registerPrIpcHandlers(): void {
               await Promise.all(
                 slice.map(async ([key, basePr]) => {
                   try {
-                    const detailed = await githubClient.getPR(repo.owner, repo.repo, basePr.number, {
-                      includeReviewSubmissions: false,
-                    })
+                    const [detailed, commitsCount] = await Promise.all([
+                      githubClient.getPR(repo.owner, repo.repo, basePr.number, {
+                        includeReviewSubmissions: false,
+                      }),
+                      githubClient.getPRCommitCount(repo.owner, repo.repo, basePr.number),
+                    ])
+                    detailed.commitsCount = commitsCount
                     best.set(key, detailed)
                   } catch {
                     // getPR l\u1ed7i \u2192 gi\u1eef d\u1eef li\u1ec7u list
@@ -619,7 +624,11 @@ export function registerPrIpcHandlers(): void {
             }
             await runInBatches(allKnownPrNumbers, prDetailPrefetchConcurrency, async prNum => {
               try {
-                const detailed = await githubClient.getPR(repo.owner, repo.repo, prNum, { includeReviewSubmissions: false })
+                const [detailed, commitsCount] = await Promise.all([
+                  githubClient.getPR(repo.owner, repo.repo, prNum, { includeReviewSubmissions: false }),
+                  githubClient.getPRCommitCount(repo.owner, repo.repo, prNum),
+                ])
+                detailed.commitsCount = commitsCount
                 // syncPullRequestIntoTrackedCheckpoints tìm checkpoint trực tiếp theo prNumber trong DB
                 // (không phụ thuộc template matching hay branch name) — giống cách PrDetailDialog đọc data tươi.
                 await syncPullRequestIntoTrackedCheckpoints(repo.owner, repo.repo, detailed)
@@ -750,7 +759,12 @@ export function registerPrIpcHandlers(): void {
               repoId: input.repoId,
               branchName: input.head,
             })
-            await applyPullRequestToCheckpoints({ projectId: input.projectId, repoId: input.repoId, pr })
+            const commitsCount = await githubClient.getPRCommitCount(input.owner, input.repo, pr.number)
+            await applyPullRequestToCheckpoints({
+              projectId: input.projectId,
+              repoId: input.repoId,
+              pr: { ...pr, commitsCount },
+            })
           } catch (err) {
             trackingError = err instanceof Error ? err.message : String(err)
             l.warn('PR tracking upsert failed after successful create:', trackingError)

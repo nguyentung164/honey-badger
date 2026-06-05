@@ -3973,6 +3973,11 @@
       "deleteTitle": "Xoá automation?",
       "deleteDesc": "Hành động này không thể hoàn tác."
     },
+    "metrics": {
+      "commits": "{{count}} commit",
+      "files": "{{count}} tệp thay đổi",
+      "lines": "+{{additions}} −{{deletions}} dòng"
+    },
     "board": {
       "toastRemoteCheck": "Không xác minh được nhánh trên GitHub.",
       "toastNote": "Không lưu được ghi chú.",

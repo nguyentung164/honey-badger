@@ -3,7 +3,6 @@
 import { formatDistanceToNow } from 'date-fns'
 import type { TFunction } from 'i18next'
 import {
-  CircleAlert,
   ExternalLink,
   GitMerge,
   GitPullRequestClosed,
@@ -11,9 +10,8 @@ import {
   GitPullRequestDraft,
   Hourglass,
 } from 'lucide-react'
-import { memo } from 'react'
+import { memo, type ReactNode } from 'react'
 import { useTranslation } from 'react-i18next'
-import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import { getDateFnsLocale } from '@/lib/dateUtils'
@@ -22,6 +20,7 @@ import { formatPrCheckpointStatusFingerprint, type PrCheckpointStatusChangeDetai
 import type { PrBranchCheckpoint, PrCheckpointTemplate, PrRepo } from '../hooks/usePrData'
 import { getMergeableUi } from '../prMergeableUi'
 import type { PrBoardRowAction } from './prBoardRowActions'
+import { PrSizeMetrics, prSizeMetricsFromCheckpoint } from './PrSizeMetrics'
 import {
   applyPrMergeCellVisualStyle,
   CELL_CTRL_H,
@@ -31,10 +30,7 @@ import {
   type PrMergeCellVisualStyle,
 } from './prBoardTableConstants'
 
-const MERGE_STATUS_CHANGE_FRAME_CLASS = 'rounded-md border border-dashed border-lime-500/70 dark:border-lime-400/55'
-
-const MERGE_STATUS_CHANGE_BADGE_CLASS =
-  'absolute -right-1 -top-1 z-[1] w-5 h-5 border-0 px-0! py-0! text-lime-700 shadow-none dark:text-lime-500'
+const MERGE_STATUS_CHANGE_FRAME_CLASS = 'rounded-md border border-dashed border-emerald-400/90 dark:border-emerald-300/80'
 
 function MergeStatusChangeChrome({
   hasStatusChange,
@@ -43,7 +39,7 @@ function MergeStatusChangeChrome({
 }: {
   hasStatusChange: boolean
   statusChangeDetail?: PrCheckpointStatusChangeDetail
-  children: React.ReactNode
+  children: ReactNode
 }) {
   const { t } = useTranslation()
   if (!hasStatusChange) {
@@ -60,12 +56,7 @@ function MergeStatusChangeChrome({
     <div className="relative w-full min-w-0">
       <Tooltip>
         <TooltipTrigger asChild>
-          <div className="relative w-full min-w-0 cursor-default">
-            <div className={cn('w-full min-w-0', MERGE_STATUS_CHANGE_FRAME_CLASS)}>{children}</div>
-            <Badge variant="secondary" className={MERGE_STATUS_CHANGE_BADGE_CLASS}>
-              <CircleAlert size={20} strokeWidth={2.25} className="shrink-0" aria-hidden />
-            </Badge>
-          </div>
+          <div className={cn('w-full min-w-0 cursor-default', MERGE_STATUS_CHANGE_FRAME_CLASS)}>{children}</div>
         </TooltipTrigger>
         <TooltipContent side="top" className="max-w-[320px] text-xs">
           <p className="leading-snug">{statusTooltip}</p>
@@ -153,6 +144,65 @@ function ghPrSurfaceClasses(cp: PrBranchCheckpoint): string {
   return GH_PR_SURFACE_BG.ready
 }
 
+function MergeCellMetrics({ cp }: { cp: PrBranchCheckpoint | null }) {
+  if (!cp?.prNumber) return null
+  return <PrSizeMetrics variant="compact" {...prSizeMetricsFromCheckpoint(cp)} />
+}
+
+/** merge_*: status trái (icon + text), metrics phải (icon + số). */
+function MergeCellRow({
+  companionPrCp,
+  surfaceClassName,
+  title,
+  children,
+  interactive = false,
+  disabled,
+  onClick,
+}: {
+  companionPrCp: PrBranchCheckpoint | null
+  surfaceClassName: string
+  title?: string
+  children: ReactNode
+  interactive?: boolean
+  disabled?: boolean
+  onClick?: () => void
+}) {
+  const innerCls = 'flex min-w-0 flex-1 items-center justify-start gap-1 overflow-hidden text-left'
+  return (
+    <div className="flex w-full min-w-0 items-stretch gap-0.5">
+      <div
+        className={cn(
+          'flex min-w-0 flex-1 items-center justify-between gap-1 rounded-md px-1.5',
+          CELL_CTRL_H,
+          CELL_TXT,
+          surfaceClassName,
+          interactive && !disabled && 'hover:brightness-95 dark:hover:brightness-110'
+        )}
+      >
+        {interactive ? (
+          <button
+            type="button"
+            disabled={disabled}
+            className={cn(
+              innerCls,
+              'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50 disabled:cursor-not-allowed disabled:opacity-80'
+            )}
+            onClick={onClick}
+            title={title}
+          >
+            {children}
+          </button>
+        ) : (
+          <div className={innerCls} title={title}>
+            {children}
+          </div>
+        )}
+        <MergeCellMetrics cp={companionPrCp} />
+      </div>
+    </div>
+  )
+}
+
 function ghPrContentTextClass(cp: PrBranchCheckpoint, t: TFunction): string {
   if (cp.ghPrMerged === true || cp.ghPrState === 'closed' || cp.ghPrDraft === true) return ''
   return getMergeableUi(cp.ghPrMergeableState, t).prText
@@ -199,7 +249,7 @@ function CheckpointCellInner({
   const ghostNoDefaultHover = cellVisualStyle >= 3 ? 'bg-transparent dark:bg-transparent hover:!bg-transparent dark:hover:!bg-transparent' : undefined
 
   if (isMergeKind) {
-    const wrapMerge = (node: React.ReactNode) => (
+    const wrapMerge = (node: ReactNode) => (
       <MergeStatusChangeChrome hasStatusChange={hasStatusChange} statusChangeDetail={statusChangeDetail}>
         {node}
       </MergeStatusChangeChrome>
@@ -210,7 +260,6 @@ function CheckpointCellInner({
 
     // Merge cell: merged_at tr\u00ean checkpoint merge_* ho\u1eb7c PR \u1edf pr_* \u0111\u00e3 merged tr\u00ean GitHub
     if (showMergedCell) {
-      const linkSrc = cp?.prNumber != null || cp?.prUrl ? cp : companionPrCp
       const when =
         mergedOnRecord && cp?.mergedAt
           ? formatDistanceToNow(new Date(cp.mergedAt), { addSuffix: true, locale: dateLoc })
@@ -219,33 +268,14 @@ function CheckpointCellInner({
             : null
       const detail = [when, cp?.mergedBy ? t('prManager.board.mergedBy', { name: cp.mergedBy }) : null].filter(Boolean).join(' · ')
       return wrapMerge(
-        <div className="flex w-full min-w-0 items-stretch gap-0.5">
-          <div
-            className={vs(
-              cn('flex min-w-0 flex-1 items-center justify-center gap-1 rounded-md bg-violet-400/12 px-1.5 text-violet-700 dark:text-violet-300', CELL_CTRL_H, CELL_TXT)
-            )}
-            title={detail || undefined}
-          >
-            <GitMerge className="h-3.5 w-3.5 shrink-0 text-violet-500 dark:text-violet-300" />
-            <span className="min-w-0 truncate font-medium">
-              {t('prManager.board.merged')}
-              {linkSrc?.prUrl ? (
-                <button
-                  type="button"
-                  onClick={e => {
-                    e.stopPropagation()
-                    if (linkSrc.prUrl) openUrlInDefaultBrowser(linkSrc.prUrl)
-                  }}
-                  className="ml-0.5 font-inherit underline-offset-2 hover:underline"
-                >
-                  #{linkSrc.prNumber}
-                </button>
-              ) : linkSrc?.prNumber != null ? (
-                <span className="ml-0.5">#{linkSrc.prNumber}</span>
-              ) : null}
-            </span>
-          </div>
-        </div>
+        <MergeCellRow
+          companionPrCp={companionPrCp}
+          surfaceClassName={vs('bg-violet-400/12 text-violet-700 dark:text-violet-300')}
+          title={detail || undefined}
+        >
+          <GitMerge className="h-3.5 w-3.5 shrink-0 text-violet-500 dark:text-violet-300" />
+          <span className="min-w-0 truncate font-medium">{t('prManager.board.merged')}</span>
+        </MergeCellRow>
       )
     }
     // PR Draft: GitHub ch\u01b0a cho merge \u2014 kh\u00f4ng hi\u1ec7n n\u00fat Merge, hi\u1ec3n th\u1ecb nh\u00e3n thay th\u1ebf (ch\u1eef nh\u1ecf)
@@ -253,28 +283,17 @@ function CheckpointCellInner({
       const draftN = companionPrCp.prNumber
       const canOpen = canOpenInApp
       return wrapMerge(
-        <div className="flex w-full min-w-0 items-stretch gap-0.5">
-          <button
-            type="button"
-            disabled={!canOpen}
-            className={vs(
-              cn(
-                'flex min-w-0 flex-1 items-center justify-center gap-1 rounded-md bg-slate-400/10 px-1.5 text-slate-600 dark:text-slate-300',
-                CELL_CTRL_H,
-                CELL_TXT,
-                canOpen && 'hover:brightness-95 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50 dark:hover:brightness-110',
-                !canOpen && 'cursor-not-allowed opacity-80'
-              )
-            )}
-            onClick={canOpen ? () => dispatchRowAction({ type: 'openPrInApp', rowId, prNumber: draftN }) : undefined}
-            title={t('prManager.board.draftTitle')}
-          >
-            <GitPullRequestDraft className="h-3.5 w-3.5 shrink-0" />
-            <span className="min-w-0 truncate">
-              <span className="font-medium">{t('prManager.board.draftLabel')}</span>
-            </span>
-          </button>
-        </div>
+        <MergeCellRow
+          companionPrCp={companionPrCp}
+          surfaceClassName={vs('bg-slate-400/10 text-slate-600 dark:text-slate-300')}
+          title={t('prManager.board.draftTitle')}
+          interactive
+          disabled={!canOpen}
+          onClick={canOpen ? () => dispatchRowAction({ type: 'openPrInApp', rowId, prNumber: draftN }) : undefined}
+        >
+          <GitPullRequestDraft className="h-3.5 w-3.5 shrink-0" />
+          <span className="min-w-0 truncate font-medium">{t('prManager.board.draftLabel')}</span>
+        </MergeCellRow>
       )
     }
     const hasCompanionForMerge = companionPrCp?.prNumber != null && companionPrCp.ghPrMerged !== true && companionPrCp.ghPrState !== 'closed' && companionPrCp.ghPrDraft !== true
@@ -285,29 +304,17 @@ function CheckpointCellInner({
       const blockN = companionPrCp.prNumber
       const canOpen = canOpenInApp && blockN != null
       return wrapMerge(
-        <div className="flex w-full min-w-0 items-stretch gap-0.5">
-          <button
-            type="button"
-            disabled={!canOpen}
-            className={vs(
-              cn(
-                'flex min-w-0 flex-1 items-center justify-center gap-1 rounded-md px-1.5',
-                CELL_CTRL_H,
-                CELL_TXT,
-                mergeUi.mergeCell,
-                canOpen && 'hover:brightness-95 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50 dark:hover:brightness-110',
-                !canOpen && 'cursor-not-allowed opacity-80'
-              )
-            )}
-            onClick={canOpen ? () => { if (blockN == null) return; dispatchRowAction({ type: 'openPrInApp', rowId, prNumber: blockN }) } : undefined}
-            title={mergeUi.mergeTitle ? `${mergeUi.mergeTitle} ${t('prManager.mergeableUi.openInAppHint')}` : t('prManager.mergeableUi.openInAppHint')}
-          >
-            <MIcon className="h-3.5 w-3.5 shrink-0" />
-            <span className="min-w-0 truncate">
-              <span className="font-medium">{mergeUi.shortLabel}</span>
-            </span>
-          </button>
-        </div>
+        <MergeCellRow
+          companionPrCp={companionPrCp}
+          surfaceClassName={vs(mergeUi.mergeCell)}
+          title={mergeUi.mergeTitle ? `${mergeUi.mergeTitle} ${t('prManager.mergeableUi.openInAppHint')}` : t('prManager.mergeableUi.openInAppHint')}
+          interactive
+          disabled={!canOpen}
+          onClick={canOpen ? () => { if (blockN == null) return; dispatchRowAction({ type: 'openPrInApp', rowId, prNumber: blockN }) } : undefined}
+        >
+          <MIcon className="h-3.5 w-3.5 shrink-0" />
+          <span className="min-w-0 truncate font-medium">{mergeUi.shortLabel}</span>
+        </MergeCellRow>
       )
     }
     // C\u00f3 PR \u0111ang m\u1edf (s\u1eb5n s\u00e0ng merge) \u2192 n\u00fat Merge
@@ -315,7 +322,16 @@ function CheckpointCellInner({
     if (canMerge) {
       return wrapMerge(
         <div className="flex w-full min-w-0 items-stretch gap-0.5">
-          <div className={vs(cn('flex min-w-0 flex-1 items-center justify-center rounded-md', GH_PR_SURFACE_BG.ready, CELL_CTRL_H))}>
+          <div
+            className={vs(
+              cn(
+                'flex min-w-0 flex-1 items-center justify-between gap-1 rounded-md px-1.5',
+                GH_PR_SURFACE_BG.ready,
+                CELL_CTRL_H,
+                CELL_TXT
+              )
+            )}
+          >
             <Button
               type="button"
               variant="ghost"
@@ -324,7 +340,7 @@ function CheckpointCellInner({
               className={cn(
                 stripBtn(
                   cn(
-                    'w-full rounded-md border-0 bg-transparent text-emerald-700 shadow-none hover:bg-emerald-400/16 dark:text-emerald-300 dark:hover:bg-emerald-400/12',
+                    'min-w-0 flex-1 justify-start rounded-md border-0 bg-transparent px-0 text-emerald-700 shadow-none hover:bg-emerald-400/16 dark:text-emerald-300 dark:hover:bg-emerald-400/12',
                     CELL_CTRL_H,
                     CELL_TXT
                   )
@@ -334,6 +350,7 @@ function CheckpointCellInner({
             >
               <GitMerge className="h-3.5 w-3.5 shrink-0 text-emerald-600 dark:text-emerald-300" /> {t('prManager.board.merge')}
             </Button>
+            <MergeCellMetrics cp={companionPrCp} />
           </div>
         </div>
       )
@@ -343,25 +360,17 @@ function CheckpointCellInner({
       const closedN = companionPrCp.prNumber
       const canOpen = canOpenInApp
       return wrapMerge(
-        <div className="flex w-full min-w-0 items-stretch gap-0.5">
-          <button
-            type="button"
-            disabled={!canOpen}
-            className={vs(
-              cn(
-                'flex min-w-0 flex-1 items-center justify-center gap-1 rounded-md bg-rose-400/10 px-1.5 text-rose-700 dark:text-rose-300',
-                CELL_CTRL_H,
-                CELL_TXT,
-                canOpen && 'hover:brightness-95 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50 dark:hover:brightness-110',
-                !canOpen && 'cursor-not-allowed opacity-80'
-              )
-            )}
-            onClick={canOpen ? () => dispatchRowAction({ type: 'openPrInApp', rowId, prNumber: closedN }) : undefined}
-            title={t('prManager.board.openPrInApp')}
-          >
-            <GitPullRequestClosed className="h-3.5 w-3.5 shrink-0 text-rose-500 dark:text-rose-300" /> {t('prManager.board.closed')}
-          </button>
-        </div>
+        <MergeCellRow
+          companionPrCp={companionPrCp}
+          surfaceClassName={vs('bg-rose-400/10 text-rose-700 dark:text-rose-300')}
+          title={t('prManager.board.openPrInApp')}
+          interactive
+          disabled={!canOpen}
+          onClick={canOpen ? () => dispatchRowAction({ type: 'openPrInApp', rowId, prNumber: closedN }) : undefined}
+        >
+          <GitPullRequestClosed className="h-3.5 w-3.5 shrink-0 text-rose-500 dark:text-rose-300" />
+          <span className="min-w-0 truncate font-medium">{t('prManager.board.closed')}</span>
+        </MergeCellRow>
       )
     }
     // Ch\u01b0a c\u00f3 PR c\u00f9ng target \u2192 hi\u1ec3n \u201cCh\u1edd PR\u201d

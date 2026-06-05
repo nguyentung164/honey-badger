@@ -3979,6 +3979,11 @@
       "deleteTitle": "自動化を削除しますか？",
       "deleteDesc": "この操作は元に戻せません。"
     },
+    "metrics": {
+      "commits": "{{count}} 件のコミット",
+      "files": "{{count}} ファイル変更",
+      "lines": "+{{additions}} −{{deletions}} 行"
+    },
     "board": {
       "toastRemoteCheck": "GitHub上でブランチを確認できませんでした。",
       "toastNote": "メモを保存できませんでした。",

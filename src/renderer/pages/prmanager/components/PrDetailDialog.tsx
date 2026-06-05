@@ -1055,13 +1055,6 @@ export function PrDetailDialog({ open, onOpenChange, projectId, prRepo, prNumber
                 </div>
               )}
             </div>
-            {pr && (pr.additions != null || pr.deletions != null || pr.changedFiles != null) ? (
-              <div className="mt-1.5 text-xs text-muted-foreground sm:text-sm">
-                {pr.changedFiles != null ? <span>{pr.changedFiles === 1 ? t('prManager.detail.file') : t('prManager.detail.file_plural', { count: pr.changedFiles })}</span> : null}
-                {pr.additions != null && <span className="ml-1 text-emerald-600 dark:text-emerald-400">+{pr.additions}</span>}
-                {pr.deletions != null && <span className="text-rose-600 dark:text-rose-400"> −{pr.deletions}</span>}
-              </div>
-            ) : null}
           </DialogHeader>
 
           <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
@@ -1136,10 +1129,26 @@ export function PrDetailDialog({ open, onOpenChange, projectId, prRepo, prNumber
                     <TabsTrigger value="commits" className="gap-1.5 text-sm">
                       <GitCommit className="h-3.5 w-3.5 shrink-0" />
                       {t('prManager.detail.tabCommits')}
+                      {!loading && pr ? (
+                        <Badge variant="secondary" className="h-4 min-w-4 border-0 bg-muted/90 px-1 py-0 text-[10px] font-semibold leading-4 tabular-nums shadow-none">
+                          {commits.length}
+                        </Badge>
+                      ) : null}
                     </TabsTrigger>
                     <TabsTrigger value="files" className="gap-1.5 text-sm leading-snug sm:gap-2">
                       <FileCode className="h-3.5 w-3.5 shrink-0" />
                       <span className="max-w-[5.5rem] text-center sm:max-w-none">{t('prManager.detail.tabFiles')}</span>
+                      {!loading && pr && (files.length > 0 || pr.changedFiles != null) ? (
+                        <Badge variant="secondary" className="h-4 min-h-4 gap-1 border-0 bg-muted/90 px-1.5 py-0 text-[10px] font-medium leading-4 shadow-none">
+                          <span className="tabular-nums">{files.length > 0 ? files.length : pr.changedFiles}</span>
+                          {(pr.additions != null || pr.deletions != null) && (
+                            <span className="inline-flex items-center gap-0.5 tabular-nums">
+                              {pr.additions != null ? <span className="text-emerald-600 dark:text-emerald-400">+{pr.additions}</span> : null}
+                              {pr.deletions != null ? <span className="text-rose-600 dark:text-rose-400">−{pr.deletions}</span> : null}
+                            </span>
+                          )}
+                        </Badge>
+                      ) : null}
                     </TabsTrigger>
                   </TabsList>
                 </div>
