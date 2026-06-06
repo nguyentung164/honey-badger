@@ -3109,9 +3109,15 @@
     "myProfile": "My Profile",
     "allUsers": "All Users",
     "noUsers": "No users yet",
-    "previewToast": "Achievement(demo)",
+    "previewToast": "Achievement (demo)",
+    "previewRank": "Rank (demo)",
+    "previewRankActive": "pill",
+    "previewRankReset": "Reset title bar style",
     "leaderboard": "Leaderboard",
     "viewAllBadges": "View All Badges ({{count}} earned)",
+    "profileStats": {
+      "commitStreak": "Commit streak"
+    },
     "showLock": "Show lock",
     "showUnlock": "Show icon",
     "badgesDialog": {
@@ -3987,6 +3993,31 @@
       "files": "{{count}} files changed",
       "lines": "+{{additions}} −{{deletions}} lines"
     },
+    "metricsCompare": {
+      "title": "Compare PR changes",
+      "reload": "Reload",
+      "reloadAria": "Reload file lists from GitHub",
+      "openPrDetail": "Open PR detail (reset commit, sync…)",
+      "noPr": "No PR yet for {{branch}}",
+      "noFileInPanel": "File not in this PR: {{file}}",
+      "summaryTitle": "File summary (union)",
+      "fileCompareTitle": "Compare: {{file}}",
+      "partialFile": "Only in some stages",
+      "clickToCompare": "Click to compare",
+      "loadError": "Could not load files",
+      "emptyFiles": "No file data to compare.",
+      "fileColumn": "File",
+      "focusFiles": "File count mismatch",
+      "focusLines": "Line count mismatch",
+      "absent": "Absent",
+      "noRepo": "Repository not found for this row.",
+      "needGithub": "GitHub login required to compare files.",
+      "onlySharedFiles": "Only files in all PRs",
+      "emptySharedFiles": "No files appear in every PR.",
+      "onlyLineMismatchFiles": "Only mismatched line counts",
+      "emptyLineMismatchFiles": "No files with mismatched line counts.",
+      "emptyLineMismatchSharedFiles": "No shared files with mismatched line counts."
+    },
     "board": {
       "toastRemoteCheck": "Could not verify the branch on GitHub.",
       "toastNote": "Could not save note.",
@@ -4034,6 +4065,7 @@
       "advancedCombineOr": "Any (OR)",
       "advancedCombineAndHelp": "AND: each column with a narrowed filter must have a matching PR (e.g. only Merged checked ⇒ that column must have a merged PR). Columns with all four statuses checked do not require a PR.",
       "advancedCombineOrHelp": "Show a branch if at least one PR column matches its filters.",
+      "advancedCombineSingleColumnHelp": "Needs at least two PR columns (e.g. stage and main). With one column, AND and OR behave the same.",
       "filterByBranchLabel": "By branch:",
       "onlyRemote": "On remote",
       "onlyRemoteTitle": "When enabled, branch rows without PR history are only listed if their head ref still exists on the remote (verified via GitHub). Rows that already have PR history stay visible so merged PRs are not hidden.",
@@ -4103,6 +4135,8 @@
     "bulk": {
       "nSelected": "{{count}} selected",
       "toolbarLabel": "Bulk actions",
+      "helpAria": "Bulk actions help",
+      "helpIntro": "Actions apply to selected rows when eligible (GitHub token required for most).",
       "selectPage": "Select all rows on this page",
       "selectRow": "Select row for bulk actions",
       "tt": {

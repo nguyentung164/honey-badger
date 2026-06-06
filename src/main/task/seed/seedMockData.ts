@@ -13,6 +13,7 @@
 import * as bcrypt from 'bcryptjs'
 import { addDays, addHours, differenceInCalendarDays, format, getDay, subMonths, subYears } from 'date-fns'
 import { Pool } from 'pg'
+import { calculateRank } from 'shared/achievementRanks'
 import { EVM_DEFAULT_PHASES } from 'shared/evmDefaults'
 import { v7 as uuidV7 } from 'uuid'
 
@@ -746,7 +747,7 @@ interface DevUser {
   tenureMonths: number
   lateTaskPercent: number
   commitVariance: CommitVariance
-  targetRank: 'newbie' | 'contributor' | 'developer' | 'regular' | 'pro' | 'expert' | 'master' | 'legend'
+  targetRank: 'newbie' | 'contributor' | 'developer' | 'regular' | 'pro' | 'expert' | 'master' | 'legend' | 'mythic'
   /** Legacy: map sang reportStreakTailDays trong reportStreakTailDaysOf */
   wantsReportStreak?: 5 | 6 | 7
   /** Xóa override dayType cho N ngày làm việc cuối (báo cáo liên tiếp) */
@@ -869,25 +870,6 @@ function isNoReviewReviewer(dev: DevUser): boolean {
 function isStreakTailDay(dev: DevUser, dayIdx: number, workingDaysLen: number): boolean {
   const n = reportStreakTailDaysOf(dev)
   return n != null && n > 0 && dayIdx >= workingDaysLen - n
-}
-
-const RANKS = [
-  { code: 'newbie', minXp: 0 },
-  { code: 'contributor', minXp: 200 },
-  { code: 'developer', minXp: 800 },
-  { code: 'regular', minXp: 2000 },
-  { code: 'pro', minXp: 5000 },
-  { code: 'expert', minXp: 12000 },
-  { code: 'master', minXp: 30000 },
-  { code: 'legend', minXp: 70000 },
-]
-
-function calculateRank(xp: number): string {
-  let rank = RANKS[0].code
-  for (const r of RANKS) {
-    if (xp >= r.minXp) rank = r.code
-  }
-  return rank
 }
 
 const PROFILE_CONFIG: Record<DevProfile, { tasksPerDay: [number, number]; commitsPerDay: [number, number]; donePercent: number; reportPercent: number; reviewPercent: number }> = {
@@ -1381,6 +1363,7 @@ const RANK_SCALE: Record<string, number> = {
   expert: 1.3,
   master: 1.8,
   legend: 3.2,
+  mythic: 4.0,
 }
 
 // ========== Main seed ==========

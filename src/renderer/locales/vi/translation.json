@@ -3100,9 +3100,15 @@
     "myProfile": "Hồ sơ của tôi",
     "allUsers": "Tất cả người dùng",
     "noUsers": "Chưa có người dùng",
-    "previewToast": "Achievement(demo)",
+    "previewToast": "Achievement (demo)",
+    "previewRank": "Rank (demo)",
+    "previewRankActive": "pill",
+    "previewRankReset": "Đặt lại style title bar",
     "leaderboard": "Bảng xếp hạng",
     "viewAllBadges": "Xem tất cả huy hiệu ({{count}} đã nhận)",
+    "profileStats": {
+      "commitStreak": "Streak commit"
+    },
     "showLock": "Hiện ổ khóa",
     "showUnlock": "Hiện icon",
     "badgesDialog": {
@@ -3978,6 +3984,31 @@
       "files": "{{count}} tệp thay đổi",
       "lines": "+{{additions}} −{{deletions}} dòng"
     },
+    "metricsCompare": {
+      "title": "So sánh thay đổi PR",
+      "reload": "Tải lại",
+      "reloadAria": "Tải lại danh sách file từ GitHub",
+      "openPrDetail": "Mở chi tiết PR (reset commit, đồng bộ…)",
+      "noPr": "Chưa có PR cho {{branch}}",
+      "noFileInPanel": "File không có trong PR này: {{file}}",
+      "summaryTitle": "Tổng hợp file (union)",
+      "fileCompareTitle": "So sánh: {{file}}",
+      "partialFile": "Chỉ có ở một số stage",
+      "clickToCompare": "Bấm để so sánh",
+      "loadError": "Không tải được file",
+      "emptyFiles": "Không có dữ liệu file để so sánh.",
+      "fileColumn": "File",
+      "focusFiles": "Lệch số file",
+      "focusLines": "Lệch số dòng",
+      "absent": "Không có",
+      "noRepo": "Không tìm thấy kho cho dòng này.",
+      "needGithub": "Cần đăng nhập GitHub để so sánh file.",
+      "onlySharedFiles": "Chỉ file có ở tất cả PR",
+      "emptySharedFiles": "Không có file nào xuất hiện ở tất cả PR.",
+      "onlyLineMismatchFiles": "Chỉ file lệch số dòng",
+      "emptyLineMismatchFiles": "Không có file nào lệch số dòng giữa các PR.",
+      "emptyLineMismatchSharedFiles": "Không có file chung nào lệch số dòng."
+    },
     "board": {
       "toastRemoteCheck": "Không xác minh được nhánh trên GitHub.",
       "toastNote": "Không lưu được ghi chú.",
@@ -4025,6 +4056,7 @@
       "advancedCombineOr": "Một cột (OR)",
       "advancedCombineAndHelp": "AND: mỗi cột có lọc hẹp phải có PR khớp (chỉ tick Merged ⇒ cột đó phải có PR merged). Cột bật đủ 4 trạng thái không bắt buộc phải có PR.",
       "advancedCombineOrHelp": "Hiện nhánh nếu có ít nhất một cột PR khớp bộ lọc của cột đó.",
+      "advancedCombineSingleColumnHelp": "Cần ít nhất hai cột PR (vd. stage và main). Chỉ một cột thì AND và OR giống nhau.",
       "filterByBranchLabel": "Theo nhánh:",
       "onlyRemote": "Trên remote",
       "onlyRemoteTitle": "Khi bật, các dòng nhánh chưa có lịch sử PR chỉ hiện nếu head ref còn tồn tại trên remote (đã xác minh qua GitHub). Dòng đã có lịch sử PR vẫn được giữ để không ẩn các PR đã merge.",
@@ -4094,6 +4126,8 @@
     "bulk": {
       "nSelected": "Đã chọn {{count}} dòng",
       "toolbarLabel": "Thao tác hàng loạt",
+      "helpAria": "Trợ giúp thao tác hàng loạt",
+      "helpIntro": "Áp dụng cho các dòng đã chọn khi đủ điều kiện (hầu hết cần token GitHub).",
       "selectPage": "Chọn tất cả dòng trên trang này",
       "selectRow": "Chọn dòng để thao tác hàng loạt",
       "tt": {

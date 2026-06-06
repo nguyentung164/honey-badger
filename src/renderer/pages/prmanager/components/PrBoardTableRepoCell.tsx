@@ -46,7 +46,7 @@ export const PrBoardTableRepoCell = memo(function PrBoardTableRepoCell({
       rowSpan={group.rowSpan}
       data-repo-cell
       className={cn(
-        'w-0 min-w-[200px] max-w-[min(900px,96vw)] whitespace-normal align-top font-medium p-2 pr-3',
+        'w-0 min-w-[220px] max-w-[min(900px,96vw)] whitespace-normal align-top font-medium p-2 pr-3',
         showTableBorders && COL_DIVIDER_R,
         showTableBorders && COL_DIVIDER_B,
         group.vis.row,

@@ -3,7 +3,7 @@ import { BarChart2, ChevronsLeft, ChevronsRight, ClipboardList, Clock, Code2, Fl
 import { type CSSProperties, Fragment, lazy, Suspense, useEffect, useMemo, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useSearchParams } from 'react-router-dom'
-import { RANK_CONFIG } from '@/components/achievement/RankBadge'
+import { getRankUsernameClass, RANK_CONFIG, RankAvatarRing } from '@/components/achievement/RankBadge'
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar'
 import { Combobox } from '@/components/ui/combobox'
 import { Skeleton } from '@/components/ui/skeleton'
@@ -165,11 +165,13 @@ export function ProgressTrackingPage() {
           label: u.name,
           render: (
             <span className="flex items-center gap-2 min-w-0">
-              <Avatar className={cn('h-3.5 w-3.5 shrink-0 ring-1 ml-1', rankCfg.ringColor)}>
-                {avatarSrc ? <AvatarImage src={avatarSrc ?? ''} alt={u.name} className="object-cover" /> : null}
-                <AvatarFallback className={cn('text-[7px]', rankCfg.bgColor, rankCfg.color)}>{getInitials(u.name)}</AvatarFallback>
-              </Avatar>
-              <span className="truncate font-medium">{u.name}</span>
+              <RankAvatarRing rank={rank} size="xxs" className={cn('shrink-0 ml-1', rankCfg.glowClass)}>
+                <Avatar className="bg-transparent">
+                  {avatarSrc ? <AvatarImage src={avatarSrc ?? ''} alt={u.name} className="object-cover" /> : null}
+                  <AvatarFallback className={cn('text-[7px]', rankCfg.bgColor, rankCfg.color)}>{getInitials(u.name)}</AvatarFallback>
+                </Avatar>
+              </RankAvatarRing>
+              <span className={cn('truncate', getRankUsernameClass(rank))}>{u.name}</span>
             </span>
           ),
         }
@@ -285,17 +287,17 @@ export function ProgressTrackingPage() {
               {(() => {
                 const rank = selectedUserId === currentUser?.id ? (achievementStats?.current_rank ?? 'newbie') : selectedUserId ? (userRanks[selectedUserId] ?? 'newbie') : 'newbie'
                 const rankCfg = RANK_CONFIG[rank as keyof typeof RANK_CONFIG] ?? RANK_CONFIG.newbie
+                const avatarSrc =
+                  selectedUserId && (selectedUserId === currentUser?.id ? currentUser?.avatarUrl : avatarUrls[selectedUserId])
                 const avatar = (
-                  <Avatar className={cn('shrink-0 ring-2', rankCfg.ringColor, sidebarCollapsed ? 'h-9 w-9' : 'h-8 w-8')}>
-                    {selectedUserId && (selectedUserId === currentUser?.id ? currentUser?.avatarUrl : avatarUrls[selectedUserId]) && (
-                      <AvatarImage
-                        src={(selectedUserId === currentUser?.id ? currentUser?.avatarUrl : avatarUrls[selectedUserId]) ?? ''}
-                        alt={selectedUserName ?? ''}
-                        className="object-cover"
-                      />
-                    )}
-                    <AvatarFallback className={cn(sidebarCollapsed ? 'text-xs' : 'text-sm', rankCfg.bgColor, rankCfg.color)}>{getInitials(selectedUserName ?? '—')}</AvatarFallback>
-                  </Avatar>
+                  <RankAvatarRing rank={rank} size={sidebarCollapsed ? 'md' : 'sm'} className={rankCfg.glowClass}>
+                    <Avatar className="bg-transparent">
+                      {avatarSrc && <AvatarImage src={avatarSrc ?? ''} alt={selectedUserName ?? ''} className="object-cover" />}
+                      <AvatarFallback className={cn(sidebarCollapsed ? 'text-xs' : 'text-sm', rankCfg.bgColor, rankCfg.color)}>
+                        {getInitials(selectedUserName ?? '—')}
+                      </AvatarFallback>
+                    </Avatar>
+                  </RankAvatarRing>
                 )
                 if (sidebarCollapsed) {
                   return (
@@ -311,7 +313,7 @@ export function ProgressTrackingPage() {
                   <>
                     {avatar}
                     <div className="min-w-0 transition-opacity duration-300 ease-out motion-reduce:duration-150">
-                      <p className="truncate text-sm font-medium">{selectedUserName ?? '—'}</p>
+                      <p className={cn('truncate text-sm', getRankUsernameClass(rank))}>{selectedUserName ?? '—'}</p>
                     </div>
                   </>
                 )

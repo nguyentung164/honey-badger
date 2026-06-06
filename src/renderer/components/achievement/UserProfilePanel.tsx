@@ -15,7 +15,8 @@ import { useTaskAuthStore } from '@/stores/useTaskAuthStore'
 import { AchievementBadgesDialog } from './AchievementBadgesDialog'
 import { AvatarCropDialog } from './AvatarCropDialog'
 import { BadgeCard } from './BadgeCard'
-import { getNextRankXp, RANK_CONFIG, RankBadge } from './RankBadge'
+import { MAX_RANK_CODE } from 'shared/achievementRanks'
+import { getNextRankXp, getRankProfileAuraClass, getRankUsernameClass, RANK_CONFIG, RankAvatarRing, RankBadge } from './RankBadge'
 
 interface StatCardProps {
   label: string
@@ -80,29 +81,19 @@ function BadgeSelector({ earned, pinned, onChange }: BadgeSelectorProps) {
   )
 }
 
-const RANK_BADGE_BG: Record<string, React.CSSProperties> = {
-  newbie: { background: '#64748b' } /* slate-500  */,
-  contributor: { background: '#059669' } /* emerald-600 */,
-  developer: { background: '#0284c7' } /* sky-600    */,
-  regular: { background: '#2563eb' } /* blue-600   */,
-  pro: { background: 'linear-gradient(135deg, #5b21b6, #7c3aed)' } /* violet     */,
-  expert: { background: 'linear-gradient(135deg, #b45309, #f59e0b)' } /* amber      */,
-  master: { background: 'linear-gradient(135deg, #9f1239, #f43f5e)' } /* rose       */,
-  legend: { background: 'linear-gradient(90deg, #f43f5e, #8b5cf6, #3b82f6)' },
-}
-
 /**
  * Gradient 2 màu: từ màu rank hiện tại → màu rank tiếp theo
  * legend dùng class .legend-xp-bar (animated) thay vì inline style
  */
 const XP_BAR_COLOR: Record<string, string> = {
-  newbie: 'linear-gradient(90deg, #94a3b8, #10b981)' /* slate  → emerald */,
-  contributor: 'linear-gradient(90deg, #10b981, #0ea5e9)' /* emerald→ sky     */,
-  developer: 'linear-gradient(90deg, #0ea5e9, #3b82f6)' /* sky    → blue    */,
-  regular: 'linear-gradient(90deg, #3b82f6, #8b5cf6)' /* blue   → violet  */,
-  pro: 'linear-gradient(90deg, #8b5cf6, #f59e0b)' /* violet → amber   */,
-  expert: 'linear-gradient(90deg, #f59e0b, #f43f5e)' /* amber  → rose    */,
-  master: 'linear-gradient(90deg, #f43f5e, #8b5cf6)' /* rose   → violet  */,
+  newbie: 'linear-gradient(90deg, #fbbf24, #84cc16)',
+  contributor: 'linear-gradient(90deg, #84cc16, #2dd4bf)',
+  developer: 'linear-gradient(90deg, #2dd4bf, #38bdf8)',
+  regular: 'linear-gradient(90deg, #38bdf8, #3b82f6)',
+  pro: 'linear-gradient(90deg, #3b82f6, #6366f1)',
+  expert: 'linear-gradient(90deg, #6366f1, #a855f7)',
+  master: 'linear-gradient(90deg, #a855f7, #f43f5e)',
+  legend: 'linear-gradient(90deg, #f43f5e, #8b5cf6, #06b6d4)',
 }
 
 /* ─────────────────── Dev Score helpers ─────────────────── */
@@ -311,9 +302,13 @@ export function UserProfilePanel({ open, onOpenChange, userId: viewingUserId, us
   const xp = stats?.xp ?? 0
   const currentRank = stats?.current_rank ?? 'newbie'
   const rankCfg = RANK_CONFIG[currentRank as keyof typeof RANK_CONFIG] ?? RANK_CONFIG.newbie
-  const { nextXp, progress: rawProgress } = getNextRankXp(xp)
+  const avatarRingRank = isAdminProfile ? MAX_RANK_CODE : currentRank
+  const displayRank = isAdminProfile ? MAX_RANK_CODE : currentRank
+  const avatarRingCfg = isAdminProfile ? RANK_CONFIG[MAX_RANK_CODE] : rankCfg
+  const profileAuraClass = getRankProfileAuraClass(avatarRingRank)
+  const { nextRank, nextXp, progress: rawProgress } = getNextRankXp(xp)
   /* When already at MAX rank, always show full bar regardless of xp/stats inconsistency */
-  const progress = currentRank === 'legend' ? 100 : rawProgress
+  const progress = currentRank === MAX_RANK_CODE ? 100 : rawProgress
 
   const displayName = isViewingOther ? (viewingUserName ?? '—') : (user?.name ?? '—')
   const initials =
@@ -399,41 +394,42 @@ export function UserProfilePanel({ open, onOpenChange, userId: viewingUserId, us
             {/* Avatar + Rank + XP */}
             <div className={cn('flex flex-col items-center gap-2 pt-5 pb-4 px-6', otherProfileLoading && 'pointer-events-none opacity-40')}>
               {/* Avatar với hover overlay upload */}
-              <div className={cn('relative rounded-full group/avatar-wrapper', isAdminProfile ? 'rank-glow-admin' : rankCfg.glowClass)}>
-                <div className="relative">
-                  <Avatar
+              <div className="relative group/avatar-wrapper size-24">
+                {profileAuraClass && (
+                  <div
                     className={cn(
-                      'h-20! w-20! ring-4 ring-offset-2 ring-offset-background transition-shadow',
-                      isAdminProfile ? 'ring-red-400 dark:ring-red-500' : rankCfg.ringColor,
-                      isAdminProfile ? 'bg-red-50 dark:bg-red-900/30' : rankCfg.bgColor,
-                      !isViewingOther && 'cursor-pointer'
+                      'pointer-events-none absolute left-1/2 top-1/2 z-0 size-[4.75rem] -translate-x-1/2 -translate-y-1/2 rounded-full blur-2xl opacity-80',
+                      profileAuraClass
                     )}
-                    size="lg"
-                  >
+                    aria-hidden
+                  />
+                )}
+                <RankAvatarRing rank={avatarRingRank} size="profile" className="relative z-[1]">
+                  <Avatar className={cn('bg-transparent', !isViewingOther && 'cursor-pointer')}>
                     {displayAvatarUrl && <AvatarImage src={displayAvatarUrl} alt={displayName} className="object-cover" />}
-                    <AvatarFallback className={cn('text-4xl font-bold', isAdminProfile ? 'text-red-600 dark:text-red-400' : rankCfg.color)}>{initials}</AvatarFallback>
+                    <AvatarFallback className={cn('text-4xl font-bold', avatarRingCfg.color, avatarRingCfg.bgColor)}>{initials}</AvatarFallback>
                   </Avatar>
-                  {!isViewingOther && (
-                    <button
-                      type="button"
-                      onClick={handlePickAvatarFile}
-                      disabled={uploadingAvatar}
-                      className={cn(
-                        'absolute inset-0 flex items-center justify-center rounded-full cursor-pointer',
-                        'bg-black/50 opacity-0 group-hover/avatar-wrapper:opacity-100 transition-opacity duration-200',
-                        'hover:bg-black/60 focus:outline-none focus-visible:opacity-100 focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-background',
-                        uploadingAvatar && 'opacity-100 bg-black/50 cursor-wait'
-                      )}
-                      title={t('achievement.uploadAvatar', 'Upload avatar')}
-                    >
-                      {uploadingAvatar ? <Loader2 size={32} className="animate-spin text-white" /> : <Camera size={32} className="text-white" />}
-                    </button>
-                  )}
-                </div>
+                </RankAvatarRing>
+                {!isViewingOther && (
+                  <button
+                    type="button"
+                    onClick={handlePickAvatarFile}
+                    disabled={uploadingAvatar}
+                    className={cn(
+                      'absolute inset-[calc(50%-2.625rem)] z-[2] size-[5.25rem] flex items-center justify-center rounded-full cursor-pointer',
+                      'bg-black/50 opacity-0 group-hover/avatar-wrapper:opacity-100 transition-opacity duration-200',
+                      'hover:bg-black/60 focus:outline-none focus-visible:opacity-100 focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-background',
+                      uploadingAvatar && 'opacity-100 bg-black/50 cursor-wait'
+                    )}
+                    title={t('achievement.uploadAvatar', 'Upload avatar')}
+                  >
+                    {uploadingAvatar ? <Loader2 size={32} className="animate-spin text-white" /> : <Camera size={32} className="text-white" />}
+                  </button>
+                )}
               </div>
 
               <div className="flex flex-col items-center gap-1 pt-1">
-                <div className="font-semibold text-sm">{displayName}</div>
+                <div className={cn('text-sm truncate max-w-full', getRankUsernameClass(displayRank))}>{displayName}</div>
                 {isAdminProfile ? (
                   <span
                     className="inline-flex items-center gap-1.5 rounded-full px-2 py-0.5 font-bold text-xs text-white"
@@ -442,33 +438,39 @@ export function UserProfilePanel({ open, onOpenChange, userId: viewingUserId, us
                     🛡️ ADMIN
                   </span>
                 ) : (
-                  <span
-                    className="inline-flex items-center gap-1.5 rounded-full px-2 py-0.5 font-bold text-xs text-white"
-                    style={RANK_BADGE_BG[currentRank] ?? RANK_BADGE_BG.newbie}
-                  >
-                    <RankBadge rank={currentRank} size="xs" showLabel={false} />
-                    {rankCfg.label}
+                  <span className={cn('inline-flex items-center gap-1.5 font-bold text-xs', rankCfg.color)}>
+                    <span>{rankCfg.label}</span>
                   </span>
                 )}
               </div>
 
               {/* XP Bar */}
-              <div className="w-full max-w-xs space-y-1">
+              <div className="w-full max-w-sm space-y-1.5">
                 <div className="flex justify-between text-xs text-muted-foreground">
                   <span className="font-medium text-foreground">{xp.toLocaleString()} XP</span>
-                  {currentRank === 'legend' ? (
-                    <span className="font-semibold text-transparent bg-clip-text bg-gradient-to-r from-rose-500 via-violet-500 to-blue-500">MAX RANK 👑</span>
+                  {currentRank === MAX_RANK_CODE ? (
+                    <span className="font-bold text-transparent bg-clip-text bg-gradient-to-r from-amber-400 via-fuchsia-500 to-cyan-400">MAX RANK</span>
                   ) : (
                     <span>Next: {nextXp.toLocaleString()} XP</span>
                   )}
                 </div>
-                <div className="h-2.5 rounded-full bg-muted overflow-hidden">
-                  <div
-                    className={cn('h-full rounded-full transition-[width] duration-700', currentRank === 'legend' && 'legend-xp-bar')}
-                    style={currentRank === 'legend' ? { width: `${progress}%` } : { width: `${progress}%`, background: XP_BAR_COLOR[currentRank] ?? '#94a3b8' }}
-                  />
+                <div className="flex items-center gap-2">
+                  <RankBadge rank={currentRank} variant="medal" size="xs" noGlow className="shrink-0" />
+                  <div className="h-2.5 min-w-0 flex-1 rounded-full bg-muted overflow-hidden">
+                    <div
+                      className={cn('h-full rounded-full transition-[width] duration-700', currentRank === MAX_RANK_CODE && 'mythic-xp-bar')}
+                      style={
+                        currentRank === MAX_RANK_CODE
+                          ? { width: `${progress}%` }
+                          : { width: `${progress}%`, background: XP_BAR_COLOR[currentRank] ?? '#94a3b8' }
+                      }
+                    />
+                  </div>
+                  <RankBadge rank={nextRank} variant="medal" size="xs" noGlow className="shrink-0" />
                 </div>
-                {currentRank !== 'legend' && <div className="text-center text-[10px] text-muted-foreground">{progress.toFixed(1)}% to next rank</div>}
+                {currentRank !== MAX_RANK_CODE && (
+                  <div className="text-center text-[10px] text-muted-foreground">{progress.toFixed(1)}% to next rank</div>
+                )}
               </div>
             </div>
 
@@ -488,7 +490,7 @@ export function UserProfilePanel({ open, onOpenChange, userId: viewingUserId, us
                 <StatCard label="Reports" value={stats?.total_reports ?? 0} />
                 <StatCard label="Files Committed" value={(stats?.total_files_committed ?? 0).toLocaleString()} />
                 <StatCard
-                  label="Streak"
+                  label={t('achievement.profileStats.commitStreak')}
                   value={`${stats?.current_streak_days ?? 0}d`}
                   icon={<Flame size={12} className="text-orange-500" />}
                   highlight={Boolean(stats?.current_streak_days && stats.current_streak_days >= 3)}

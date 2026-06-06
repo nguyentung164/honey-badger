@@ -26,13 +26,20 @@ export type MergeableUi = {
 
 const MERGE_BADGE_DEFAULT = 'bg-muted/65 text-foreground/90'
 
+/** Nền cột pr_* (`GH_PR_SURFACE_BG`) + chữ `prText` — đồng bộ merge_* status. */
+function mergeCellSurface(bg: string, prText: string): string {
+  return `${bg} ${prText}`
+}
+
 export function getMergeableUi(mergeable: string | null | undefined, t: TFunction): MergeableUi {
   const s = (mergeable || '').toLowerCase().trim()
   if (s === 'dirty' || s === 'conflict') {
-    const mergeCell = 'bg-amber-400/16 text-amber-900 dark:text-amber-100'
+    const prText = 'text-amber-700 dark:text-amber-300'
+    const prIcon = 'text-amber-500 dark:text-amber-300'
+    const mergeCell = mergeCellSurface('bg-amber-400/14', prText)
     return {
-      prText: 'text-amber-700 dark:text-amber-300',
-      prIcon: 'text-amber-500 dark:text-amber-300',
+      prText,
+      prIcon,
       mergeCell,
       mergeBadge: mergeCell,
       shortLabel: t('prManager.mergeableUi.conflict'),
@@ -43,10 +50,12 @@ export function getMergeableUi(mergeable: string | null | undefined, t: TFunctio
     }
   }
   if (s === 'blocked') {
-    const mergeCell = 'bg-rose-400/16 text-rose-900 dark:text-rose-100'
+    const prText = 'text-rose-700 dark:text-rose-300'
+    const prIcon = 'text-rose-500 dark:text-rose-300'
+    const mergeCell = mergeCellSurface('bg-rose-400/14', prText)
     return {
-      prText: 'text-rose-700 dark:text-rose-300',
-      prIcon: 'text-rose-500 dark:text-rose-300',
+      prText,
+      prIcon,
       mergeCell,
       mergeBadge: mergeCell,
       shortLabel: t('prManager.mergeableUi.blocked'),
@@ -57,10 +66,12 @@ export function getMergeableUi(mergeable: string | null | undefined, t: TFunctio
     }
   }
   if (s === 'behind') {
-    const mergeCell = 'bg-sky-400/16 text-sky-900 dark:text-sky-100'
+    const prText = 'text-sky-700 dark:text-sky-300'
+    const prIcon = 'text-sky-500 dark:text-sky-300'
+    const mergeCell = mergeCellSurface('bg-sky-400/14', prText)
     return {
-      prText: 'text-sky-700 dark:text-sky-300',
-      prIcon: 'text-sky-500 dark:text-sky-300',
+      prText,
+      prIcon,
       mergeCell,
       mergeBadge: mergeCell,
       shortLabel: t('prManager.mergeableUi.behind'),
@@ -71,10 +82,12 @@ export function getMergeableUi(mergeable: string | null | undefined, t: TFunctio
     }
   }
   if (s === 'unstable') {
-    const mergeCell = 'bg-orange-400/14 text-orange-900 dark:text-orange-100'
+    const prText = 'text-orange-700 dark:text-orange-300'
+    const prIcon = 'text-orange-500 dark:text-orange-300'
+    const mergeCell = mergeCellSurface('bg-orange-400/12', prText)
     return {
-      prText: 'text-orange-700 dark:text-orange-300',
-      prIcon: 'text-orange-500 dark:text-orange-300',
+      prText,
+      prIcon,
       mergeCell,
       mergeBadge: mergeCell,
       shortLabel: t('prManager.mergeableUi.ciFailing'),
@@ -85,10 +98,12 @@ export function getMergeableUi(mergeable: string | null | undefined, t: TFunctio
     }
   }
   if (s === 'draft') {
-    const mergeCell = 'bg-slate-400/16 text-slate-900 dark:text-slate-100'
+    const prText = 'text-slate-600 dark:text-slate-300'
+    const prIcon = 'text-slate-400 dark:text-slate-300'
+    const mergeCell = mergeCellSurface('bg-slate-400/14', prText)
     return {
-      prText: 'text-slate-600 dark:text-slate-300',
-      prIcon: 'text-slate-400 dark:text-slate-300',
+      prText,
+      prIcon,
       mergeCell,
       mergeBadge: mergeCell,
       shortLabel: t('prManager.mergeableUi.mergeStateDraft'),
@@ -112,10 +127,12 @@ export function getMergeableUi(mergeable: string | null | undefined, t: TFunctio
     }
   }
   if (s === 'unknown') {
-    const mergeCell = 'bg-lime-400/14 text-lime-950 dark:text-lime-50'
+    const prText = 'text-lime-700 dark:text-lime-300'
+    const prIcon = 'text-lime-600 dark:text-lime-300'
+    const mergeCell = mergeCellSurface('bg-lime-400/10 dark:bg-lime-400/14', prText)
     return {
-      prText: 'text-lime-700 dark:text-lime-300',
-      prIcon: 'text-lime-600 dark:text-lime-300',
+      prText,
+      prIcon,
       mergeCell,
       mergeBadge: mergeCell,
       shortLabel: t('prManager.mergeableUi.checking'),

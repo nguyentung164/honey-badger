@@ -6,7 +6,7 @@ import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/comp
 import { cn } from '@/lib/utils'
 import { useAchievementStore } from '@/stores/useAchievementStore'
 import { useTaskAuthStore } from '@/stores/useTaskAuthStore'
-import { RANK_CONFIG, RankBadge } from './RankBadge'
+import { getRankUsernameClass, PODIUM_AVATAR_RING_SIZE, RANK_CONFIG, RankAvatarRing, RankBadge } from './RankBadge'
 
 const POSITION_STYLE: Record<string, { bg: string; text: string }> = {
   PM: { bg: 'bg-amber-100  dark:bg-amber-900/50', text: 'text-amber-700  dark:text-amber-300' },
@@ -67,22 +67,6 @@ const KEYFRAMES = `
     50%  { box-shadow: 0 0 0 3px rgba(139,92,246,0.18); }
     100% { box-shadow: 0 0 0 0 rgba(139,92,246,0); }
   }
-  @keyframes lb-spin-ring {
-    from { transform: rotate(0deg); }
-    to   { transform: rotate(360deg); }
-  }
-  @keyframes lb-spin-ring-rev {
-    from { transform: rotate(360deg); }
-    to   { transform: rotate(0deg); }
-  }
-  @keyframes lb-gold-bloom {
-    0%,100% { opacity: 0.55; transform: rotate(0deg) scale(1); }
-    50%      { opacity: 0.9;  transform: rotate(180deg) scale(1.08); }
-  }
-  @keyframes lb-gold-mid {
-    0%,100% { opacity: 0.75; transform: rotate(0deg); }
-    50%      { opacity: 1;    transform: rotate(180deg); }
-  }
 `
 
 /* ─────────────────── podium config ─────────────────── */
@@ -90,7 +74,6 @@ const KEYFRAMES = `
 const PODIUM_CFG = [
   {
     medal: '👑',
-    avatarSize: 'h-16 w-16',
     pedestalHeight: 'min-h-[88px]',
     pedestalGradient: 'linear-gradient(to bottom, #fde047, #f59e0b, #d97706)',
     nameClass: 'text-sm font-bold text-amber-500 dark:text-amber-300',
@@ -100,7 +83,6 @@ const PODIUM_CFG = [
   },
   {
     medal: '🥈',
-    avatarSize: 'h-12 w-12',
     pedestalHeight: 'min-h-[64px]',
     pedestalGradient: 'linear-gradient(to bottom, #e2e8f0, #cbd5e1, #94a3b8)',
     nameClass: 'text-xs font-semibold text-slate-500 dark:text-slate-300',
@@ -110,7 +92,6 @@ const PODIUM_CFG = [
   },
   {
     medal: '🥉',
-    avatarSize: 'h-11 w-11',
     pedestalHeight: 'min-h-[48px]',
     pedestalGradient: 'linear-gradient(to bottom, #d97706, #b45309, #92400e)',
     nameClass: 'text-xs font-semibold text-amber-700 dark:text-amber-500',
@@ -193,97 +174,6 @@ function GoldSparkles() {
           ✦
         </span>
       ))}
-    </div>
-  )
-}
-
-/* ─────────────────── podium avatar rings ─────────────────── */
-
-function PodiumAvatarRing({ posIdx, children }: { posIdx: number; children: React.ReactNode }) {
-  if (posIdx === 0) {
-    const gradient = [
-      'conic-gradient(from 0deg,',
-      '#fde047 0%,',
-      '#f59e0b 12%,',
-      '#fb923c 24%,',
-      '#fde047 36%,',
-      '#fffbeb 50%,',
-      '#fde047 64%,',
-      '#f59e0b 76%,',
-      '#d97706 88%,',
-      '#fde047 100%)',
-    ].join(' ')
-
-    return (
-      <div className="relative rounded-full" style={{ isolation: 'isolate' }}>
-        <div
-          className="absolute rounded-full pointer-events-none"
-          style={{
-            inset: '-10px',
-            background: gradient,
-            animation: 'lb-gold-bloom 2s ease-in-out infinite',
-            filter: 'blur(16px)',
-          }}
-        />
-        <div
-          className="absolute rounded-full pointer-events-none"
-          style={{
-            inset: '-4px',
-            background: gradient,
-            animation: 'lb-gold-mid 2s ease-in-out infinite',
-            filter: 'blur(6px)',
-          }}
-        />
-        <div className="absolute inset-0 rounded-full pointer-events-none" style={{ background: gradient, animation: 'lb-spin-ring 2s linear infinite' }} />
-        <div className="absolute rounded-full bg-background pointer-events-none" style={{ inset: '5px' }} />
-        <div className="relative">{children}</div>
-      </div>
-    )
-  }
-
-  if (posIdx === 1) {
-    const outerGrad = 'conic-gradient(from 0deg, #f8fafc, #94a3b8, #e2e8f0, #475569, #cbd5e1, #94a3b8, #f8fafc)'
-    const innerGrad = 'conic-gradient(from 180deg, #e2e8f0, #64748b, #f1f5f9, #94a3b8, #e2e8f0)'
-    return (
-      <div className="relative rounded-full" style={{ isolation: 'isolate' }}>
-        <div
-          className="absolute inset-0 rounded-full pointer-events-none"
-          style={{
-            background: outerGrad,
-            animation: 'lb-spin-ring 7s linear infinite',
-            boxShadow: '0 0 10px 2px rgba(148,163,184,0.45)',
-          }}
-        />
-        <div className="absolute rounded-full bg-background pointer-events-none" style={{ inset: '2.5px' }} />
-        <div
-          className="absolute rounded-full pointer-events-none"
-          style={{
-            inset: '4px',
-            background: innerGrad,
-            animation: 'lb-spin-ring-rev 5s linear infinite',
-          }}
-        />
-        <div className="absolute rounded-full bg-background pointer-events-none" style={{ inset: '6px' }} />
-        <div className="relative">{children}</div>
-      </div>
-    )
-  }
-
-  const bronzeGrad = 'conic-gradient(from 60deg, #fbbf24, #d97706, #92400e, #b45309, #d97706, #fbbf24)'
-  return (
-    <div className="relative rounded-full" style={{ isolation: 'isolate' }}>
-      <div
-        className="absolute rounded-full pointer-events-none"
-        style={{
-          inset: '-3px',
-          background: bronzeGrad,
-          filter: 'blur(6px)',
-          opacity: 0.6,
-        }}
-      />
-      <div className="absolute inset-0 rounded-full pointer-events-none" style={{ background: bronzeGrad }} />
-      <div className="absolute rounded-full bg-background pointer-events-none" style={{ inset: '2.5px' }} />
-      <div className="relative">{children}</div>
     </div>
   )
 }
@@ -466,19 +356,25 @@ export function Leaderboard({ open = true, isAdmin = false, projectId, onUserCli
                   {/* Avatar with sparkles for #1 */}
                   <div className={cn('relative', cfg.isGold && 'group')}>
                     {cfg.isGold && <GoldSparkles />}
-                    <PodiumAvatarRing posIdx={posIdx}>
-                      <Avatar className={cn(cfg.avatarSize, 'transition-transform duration-200', isClickable && 'group-hover:scale-105')}>
+                    <RankAvatarRing
+                      rank={entry.current_rank}
+                      size={PODIUM_AVATAR_RING_SIZE[posIdx]}
+                      className={cn(rankCfg.glowClass, 'transition-transform duration-200', isClickable && 'group-hover:scale-105')}
+                    >
+                      <Avatar className="bg-transparent">
                         {avatarUrls[entry.user_id] && <AvatarImage src={avatarUrls[entry.user_id] ?? ''} alt={entry.name} className="object-cover" />}
                         <AvatarFallback className={cn('font-bold', posIdx === 0 ? 'text-base' : 'text-xs', rankCfg.bgColor, rankCfg.color)}>
                           {getInitials(entry.name)}
                         </AvatarFallback>
                       </Avatar>
-                    </PodiumAvatarRing>
+                    </RankAvatarRing>
                   </div>
 
                   {/* Name + XP */}
                   <div className="mt-1.5 text-center px-1 w-full max-w-[90px]">
-                    <div className={cn('truncate leading-tight', cfg.nameClass)}>{entry.name}</div>
+                    <div className={cn('truncate leading-tight', posIdx === 0 ? 'text-sm' : 'text-xs', getRankUsernameClass(entry.current_rank))}>
+                      {entry.name}
+                    </div>
                     <div className="flex items-center justify-center gap-1 mt-0.5 flex-wrap">
                       {isCurrentUser && (
                         <Badge variant="secondary" className="text-[8px] h-3.5 px-1">
@@ -507,7 +403,7 @@ export function Leaderboard({ open = true, isAdmin = false, projectId, onUserCli
                         style={{ animation: 'lb-gold-shimmer 2.8s ease-in-out infinite', animationDelay: '0.5s' }}
                       />
                     )}
-                    <RankBadge rank={entry.current_rank} size="lg" noGlow />
+                    <RankBadge rank={entry.current_rank} variant="medal" size="lg" noGlow />
                   </div>
                 </div>
               )
@@ -547,13 +443,15 @@ export function Leaderboard({ open = true, isAdmin = false, projectId, onUserCli
                   <div className="w-7 text-center flex-shrink-0">
                     <span className="text-xs text-muted-foreground font-mono">{actualRank}</span>
                   </div>
-                  <Avatar className={cn('h-8 w-8 flex-shrink-0 ring-2', rankCfg.ringColor)}>
-                    {avatarUrls[entry.user_id] ? <AvatarImage src={avatarUrls[entry.user_id] ?? ''} alt={entry.name} className="object-cover" /> : null}
-                    <AvatarFallback className={cn('text-xs font-bold', rankCfg.bgColor, rankCfg.color)}>{getInitials(entry.name)}</AvatarFallback>
-                  </Avatar>
+                  <RankAvatarRing rank={entry.current_rank} size="sm" className={cn('flex-shrink-0', rankCfg.glowClass)}>
+                    <Avatar className="bg-transparent">
+                      {avatarUrls[entry.user_id] ? <AvatarImage src={avatarUrls[entry.user_id] ?? ''} alt={entry.name} className="object-cover" /> : null}
+                      <AvatarFallback className={cn('text-xs font-bold', rankCfg.bgColor, rankCfg.color)}>{getInitials(entry.name)}</AvatarFallback>
+                    </Avatar>
+                  </RankAvatarRing>
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center gap-1.5">
-                      <span className={cn('text-sm font-medium truncate', isCurrentUser && 'text-violet-600 dark:text-violet-400')}>{entry.name}</span>
+                      <span className={cn('text-sm truncate', getRankUsernameClass(entry.current_rank))}>{entry.name}</span>
                       {isCurrentUser && (
                         <Badge variant="secondary" className="text-[8px] h-3.5 px-1 shrink-0">
                           You
@@ -561,7 +459,7 @@ export function Leaderboard({ open = true, isAdmin = false, projectId, onUserCli
                       )}
                       <PositionBadgeGroup positions={entry.positions} />
                     </div>
-                    <RankBadge rank={entry.current_rank} size="xs" showLabel className="mt-0.5" noGlow />
+                    <RankBadge rank={entry.current_rank} variant="medal" size="xs" showLabel className="mt-0.5" noGlow />
                   </div>
                   <div className="text-center flex-shrink-0 w-10">
                     <div className="text-sm font-semibold">{entry.total_achievements}</div>

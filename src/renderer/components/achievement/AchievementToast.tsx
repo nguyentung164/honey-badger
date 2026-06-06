@@ -22,7 +22,7 @@ import {
 import { cn } from '@/lib/utils'
 import { useAchievementStore } from '@/stores/useAchievementStore'
 import { BadgeCard } from './BadgeCard'
-import { RANK_CONFIG } from './RankBadge'
+import { RANK_CONFIG, RankBadge } from './RankBadge'
 
 const MAX_TOASTS = 3
 const TOAST_DURATION = 6000
@@ -67,8 +67,8 @@ function SingleToast({ item, onRemove }: { item: ToastItemState; onRemove: (id: 
 
       {isRankUp ? (
         <>
-          <div className="flex flex-col items-center gap-1">
-            <span className="text-2xl">{rankCfg?.emoji ?? '⬆️'}</span>
+          <div className="flex shrink-0 items-center">
+            <RankBadge rank={newRank ?? 'newbie'} variant="simple" size="sm" noGlow />
           </div>
           <div className="flex-1 min-w-0 pr-4">
             <div className="text-xs font-bold text-yellow-500 uppercase tracking-wide">Rank Up!</div>
@@ -107,6 +107,7 @@ const RANK_SCALE = {
   expert: 1.15,
   master: 1.35,
   legend: 1.6,
+  mythic: 1.8,
 } as const
 
 function fireStarBurstConfetti(scale: number) {
@@ -146,7 +147,7 @@ export function AchievementToastContainer() {
   }, [])
 
   useEffect(() => {
-    registerAchievementToastCallback(item => {
+    return registerAchievementToastCallback(item => {
       setToasts(prev => {
         const next = [{ ...item, removing: false }, ...prev].slice(0, MAX_TOASTS)
         return next

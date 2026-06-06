@@ -10,6 +10,7 @@ import {
   Bell,
   Bot,
   CalendarDays,
+  Check,
   CheckSquare,
   ChevronDown,
   ChevronRight,
@@ -49,11 +50,18 @@ import { lazy, type RefCallback, Suspense, useCallback, useEffect, useLayoutEffe
 import { useTranslation } from 'react-i18next'
 import { useNavigate } from 'react-router-dom'
 import type { MainShellView } from 'shared/mainShellView'
+import { MAX_RANK_CODE } from 'shared/achievementRanks'
 import { randomUuidV7 } from 'shared/randomUuidV7'
 import { AchievementUnlockDialog } from '@/components/achievement/AchievementUnlockDialog'
 import { BadgeCard } from '@/components/achievement/BadgeCard'
 import { LeaderboardDialog } from '@/components/achievement/LeaderboardDialog'
-import { RANK_CONFIG as RANK_CONFIG_ACH, RankBadge } from '@/components/achievement/RankBadge'
+import {
+  getAchievementDemoMenuItemClass,
+  getAchievementDemoMenuLabelClass,
+  getAchievementDemoMenuTierClass,
+} from '@/components/achievement/achievementTierDemo'
+import { getRankDemoMenuItemClass, getRankDemoMenuLabelClass, getRankUsernameClass, RANK_CONFIG as RANK_CONFIG_ACH, RankAvatarRing } from '@/components/achievement/RankBadge'
+import { emitAchievementToast } from '@/hooks/useAchievementNotification'
 import { UserProfilePanel } from '@/components/achievement/UserProfilePanel'
 import { DevPipelinesTitleBarButton } from '@/pages/main/DevPipelinesTitleBarButton'
 import { HolidayCalendarDialog } from '@/components/calendar/HolidayCalendarDialog'
@@ -220,6 +228,7 @@ export const TitleBar = ({
   const [previewDefs, setPreviewDefs] = useState<Array<{ code: string; name: string; tier: string; sort_order: number }>>([])
   const [previewDefsStatus, setPreviewDefsStatus] = useState<'idle' | 'loading' | 'loaded' | 'error'>('idle')
   const [showProfile, setShowProfile] = useState(false)
+  const [demoRankCode, setDemoRankCode] = useState<string | null>(null)
   const [showLeaderboard, setShowLeaderboard] = useState(false)
   const [showAiUsageStats, setShowAiUsageStats] = useState(false)
   const [showHolidayCalendar, setShowHolidayCalendar] = useState(false)
@@ -237,13 +246,10 @@ export const TitleBar = ({
   const isAdmin = user?.role === 'admin'
   const canViewTeamMetrics = Boolean(user && ['admin', 'pl', 'pm'].includes(user.role))
 
-  const rankCfg = RANK_CONFIG_ACH[currentRank as keyof typeof RANK_CONFIG_ACH] ?? RANK_CONFIG_ACH.newbie
-  const rankGlowClass = rankCfg.glowClass
-  const rankTextClass = cn(
-    ['pro', 'expert', 'master', 'legend'].includes(currentRank) && !isAdmin && 'font-semibold',
-    isAdmin ? 'text-red-600 dark:text-red-400 font-semibold' : rankCfg.color
-  )
-
+  const titleBarDisplayRank = isAdmin ? (demoRankCode ?? MAX_RANK_CODE) : currentRank
+  const pillCfg = RANK_CONFIG_ACH[titleBarDisplayRank as keyof typeof RANK_CONFIG_ACH] ?? RANK_CONFIG_ACH.newbie
+  const avatarRingRank = titleBarDisplayRank
+  const titleBarNameClass = cn(isAdmin && 'font-semibold', getRankUsernameClass(titleBarDisplayRank))
   useEffect(() => {
     if (user) {
       achievementFetchAll().catch(() => { })
@@ -3201,23 +3207,24 @@ export const TitleBar = ({
                       variant="ghost"
                       className={cn(
                         'font-medium text-xs shrink-0 flex items-center gap-1.5 h-6 px-2! py-0 -mx-1 rounded-md transition-colors',
-                        isAdmin ? 'border-0 shadow-none bg-red-100 dark:bg-red-900/50 hover:bg-red-200 dark:hover:bg-red-900/70' : cn(rankCfg.bgColor, rankCfg.pillHoverBg)
+                        pillCfg.bgColor,
+                        pillCfg.pillHoverBg
                       )}
                     >
-                      <Avatar className={cn('h-4 w-4 shrink-0', isAdmin ? 'ring-red-400 dark:ring-red-500' : rankCfg.ringColor)}>
-                        {user.avatarUrl && <AvatarImage src={user.avatarUrl} alt={user.name} className="object-cover" />}
-                        <AvatarFallback
-                          className={cn('text-[10px]', isAdmin ? 'bg-red-100 dark:bg-red-900 text-red-700 dark:text-red-300' : `${rankCfg.bgColor} ${rankCfg.color}`)}
-                        >
-                          {user.name
-                            .split(/\s+/)
-                            .map(w => w[0]?.toUpperCase())
-                            .join('')
-                            .slice(0, 2)}
-                        </AvatarFallback>
-                      </Avatar>
-                      {isAdmin ? <span className="text-[11px]">🛡️</span> : <RankBadge rank={currentRank} size="xs" noGlow />}
-                      <span className={cn('truncate max-w-[120px] inline-block rounded-sm', rankTextClass, !isAdmin && rankGlowClass)}>{user.name}</span>
+                      <RankAvatarRing rank={avatarRingRank} size="xs">
+                        <Avatar className="size-full bg-transparent">
+                          {user.avatarUrl && <AvatarImage src={user.avatarUrl} alt={user.name} className="object-cover" />}
+                          <AvatarFallback className="text-[10px] bg-muted text-muted-foreground">
+                            {user.name
+                              .split(/\s+/)
+                              .map(w => w[0]?.toUpperCase())
+                              .join('')
+                              .slice(0, 2)}
+                          </AvatarFallback>
+                        </Avatar>
+                      </RankAvatarRing>
+                      {isAdmin && <span className="text-[11px] shrink-0">🛡️</span>}
+                      <span className={cn('truncate max-w-[120px]', titleBarNameClass)}>{user.name}</span>
                       {pinnedBadges.slice(0, 3).map(b => (
                         <span
                           key={b.achievement_code}
@@ -3238,30 +3245,76 @@ export const TitleBar = ({
                               <Award className="h-4 w-4 text-orange-500" />
                               {t('achievement.previewToast')}…
                             </DropdownMenuSubTrigger>
-                            <DropdownMenuSubContent className="max-h-[320px] overflow-y-auto">
+                            <DropdownMenuSubContent className="max-h-[320px] overflow-y-auto p-1">
                               {previewDefsStatus === 'loading' ? (
                                 <div className="px-2 py-3 text-xs text-muted-foreground text-center">{t('common.loading', 'Đang tải...')}</div>
                               ) : previewDefs.length === 0 ? (
-                                <DropdownMenuItem onSelect={() => window.api.achievement.previewToast()}>{t('achievement.previewToast')} (Welcome!)</DropdownMenuItem>
+                                <DropdownMenuItem
+                                  className={getAchievementDemoMenuItemClass('bronze')}
+                                  onSelect={() => window.api.achievement.previewToast()}
+                                >
+                                  <span className={getAchievementDemoMenuLabelClass('bronze')}>{t('achievement.previewToast')} (Welcome!)</span>
+                                </DropdownMenuItem>
                               ) : (
                                 previewDefs
                                   .sort((a, b) => (a.sort_order ?? 999) - (b.sort_order ?? 999))
                                   .map(def => (
-                                    <DropdownMenuItem key={def.code} onSelect={() => window.api.achievement.previewToast(def.code)}>
-                                      <span className="truncate">{t(`achievement.def.${def.code}.name`, { defaultValue: def.name })}</span>
-                                      <span className="ml-1 text-[10px] text-muted-foreground shrink-0">{def.tier}</span>
+                                    <DropdownMenuItem
+                                      key={def.code}
+                                      className={getAchievementDemoMenuItemClass(def.tier)}
+                                      onSelect={() => window.api.achievement.previewToast(def.code)}
+                                    >
+                                      <span className={getAchievementDemoMenuLabelClass(def.tier)}>
+                                        {t(`achievement.def.${def.code}.name`, { defaultValue: def.name })}
+                                      </span>
+                                      <span className={getAchievementDemoMenuTierClass(def.tier)}>{def.tier}</span>
                                     </DropdownMenuItem>
                                   ))
                               )}
-                              <DropdownMenuSeparator />
-                              {(Object.entries(RANK_CONFIG_ACH) as [string, { label: string; emoji?: string; minXp?: number }][])
+                            </DropdownMenuSubContent>
+                          </DropdownMenuSub>
+                          <DropdownMenuSub>
+                            <DropdownMenuSubTrigger>
+                              <Crown className="h-4 w-4 text-amber-500" />
+                              {t('achievement.previewRank')}…
+                            </DropdownMenuSubTrigger>
+                            <DropdownMenuSubContent className="max-h-[320px] overflow-y-auto p-1">
+                              {(Object.entries(RANK_CONFIG_ACH) as [string, { label: string; minXp?: number }][])
                                 .sort((a, b) => (a[1].minXp ?? 0) - (b[1].minXp ?? 0))
                                 .map(([code, cfg]) => (
-                                  <DropdownMenuItem key={code} onSelect={() => window.api.achievement.previewRankUp(code)}>
-                                    <span className="shrink-0">{cfg.emoji ?? ''}</span>
-                                    <span className="truncate">{cfg.label}</span>
+                                  <DropdownMenuItem
+                                    key={code}
+                                    className={getRankDemoMenuItemClass(code)}
+                                    onSelect={() => {
+                                      setDemoRankCode(code)
+                                      // Defer until dropdown closes — avoids pointer-down-outside closing dialog instantly
+                                      window.setTimeout(() => {
+                                        emitAchievementToast(
+                                          {
+                                            id: `rank_up-demo-${code}-${Date.now()}`,
+                                            type: 'rank_up',
+                                            title: `Rank Up! Bạn đã đạt rank ${cfg.label}`,
+                                            payload: { newRank: code },
+                                            timestamp: Date.now(),
+                                          },
+                                          { replace: true }
+                                        )
+                                      }, 0)
+                                    }}
+                                  >
+                                    <RankAvatarRing rank={code} size="xxs">
+                                      <span className="block size-full rounded-full bg-transparent" aria-hidden />
+                                    </RankAvatarRing>
+                                    <span className={getRankDemoMenuLabelClass(code)}>{cfg.label}</span>
+                                    {demoRankCode === code && <Check className="ml-auto size-4 shrink-0 opacity-80" aria-hidden />}
                                   </DropdownMenuItem>
                                 ))}
+                              {demoRankCode && (
+                                <>
+                                  <DropdownMenuSeparator />
+                                  <DropdownMenuItem onSelect={() => setDemoRankCode(null)}>{t('achievement.previewRankReset')}</DropdownMenuItem>
+                                </>
+                              )}
                             </DropdownMenuSubContent>
                           </DropdownMenuSub>
                         </DropdownMenuGroup>

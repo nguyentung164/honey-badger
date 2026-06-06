@@ -12,7 +12,7 @@ const ROTATING_STAR_SHAPE = (() => {
 })()
 
 import { Sparkles, Trophy, Zap } from 'lucide-react'
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Dialog, DialogContent, DialogTitle } from '@/components/ui/dialog'
 import {
@@ -22,42 +22,93 @@ import {
   registerAchievementToastCallback,
   useAchievementNotification,
 } from '@/hooks/useAchievementNotification'
+import { ACHIEVEMENT_RANKS, type RankCode } from 'shared/achievementRanks'
 import { cn } from '@/lib/utils'
 import { useAchievementStore } from '@/stores/useAchievementStore'
 import { BadgeCard } from './BadgeCard'
-import { RANK_CONFIG } from './RankBadge'
+import { getRankRevealLabelClass, RANK_CONFIG, RankBadge } from './RankBadge'
+
+function getPreviousRankCode(rank: string): RankCode {
+  const idx = ACHIEVEMENT_RANKS.findIndex(r => r.code === rank)
+  if (idx <= 0) return ACHIEVEMENT_RANKS[0].code
+  return ACHIEVEMENT_RANKS[idx - 1].code
+}
+
+function RankUpReveal({ newRank }: { newRank: string }) {
+  const newCode = (newRank in RANK_CONFIG ? newRank : 'newbie') as RankCode
+  const prevCode = getPreviousRankCode(newCode)
+  const newCfg = RANK_CONFIG[newCode]
+  const prevCfg = RANK_CONFIG[prevCode]
+
+  return (
+    <div className="relative flex w-full flex-col items-center overflow-visible py-2">
+      <div className="relative flex h-36 w-full items-center justify-center overflow-visible">
+        <div className="pointer-events-none absolute left-1/2 top-1/2 z-0 -translate-x-1/2 -translate-y-1/2" aria-hidden>
+          <div
+            className={cn(
+              'h-56 w-56 rounded-full blur-3xl animate-rank-up-halo-pulse',
+              RANK_DIALOG_HALO[newCode] ?? 'bg-amber-200/55 dark:bg-amber-400/30'
+            )}
+          />
+        </div>
+        <div className="relative z-10 h-32 w-32 overflow-visible">
+          <div className="animate-rank-up-old-leave pointer-events-none absolute inset-0 flex items-center justify-center will-change-transform">
+            <RankBadge rank={prevCode} variant="simple" size="xl" noGlow />
+          </div>
+          <div className="animate-rank-up-new-arrive absolute inset-0 flex items-center justify-center will-change-transform">
+            <div className="animate-rank-up-float-delayed">
+              <RankBadge rank={newCode} variant="simple" size="xl" noGlow />
+            </div>
+          </div>
+        </div>
+      </div>
+      <div className="relative mt-3 h-11 w-full overflow-visible">
+        <div className="animate-rank-up-label-old pointer-events-none absolute inset-0 flex items-center justify-center will-change-transform">
+          <span className={cn('achievement-rank-up-name whitespace-nowrap text-center text-2xl font-bold tracking-wide', getRankRevealLabelClass(prevCode, 'prev'))}>
+            {prevCfg.label}
+          </span>
+        </div>
+        <div className="animate-rank-up-label-new absolute inset-0 flex items-center justify-center will-change-transform">
+          <span className={cn('achievement-rank-up-name achievement-rank-up-name--new whitespace-nowrap text-center text-3xl font-extrabold tracking-wide', getRankRevealLabelClass(newCode, 'new'))}>
+            {newCfg.label}
+          </span>
+        </div>
+      </div>
+    </div>
+  )
+}
 
 const TIER_STYLES = {
-  bronze: { border: 'border-orange-700/60', badge: 'bg-orange-700/15 border-orange-700/40 text-orange-800 dark:text-orange-400' },
-  silver: { border: 'border-slate-400/60', badge: 'bg-slate-500/15 border-slate-400/40 text-slate-600 dark:text-slate-300' },
-  gold: { border: 'border-yellow-500/70', badge: 'bg-yellow-500/20 border-yellow-500/50 text-yellow-600 dark:text-yellow-400' },
-  special: { border: 'border-violet-500/60', badge: 'bg-violet-500/15 border-violet-500/40 text-violet-600 dark:text-violet-400' },
-  negative: { border: 'border-red-500/60', badge: 'bg-red-500/15 border-red-500/45 text-red-600 dark:text-red-400' },
+  bronze: { border: 'border-orange-700/60', badge: 'bg-orange-700/15 text-orange-800 dark:text-orange-400' },
+  silver: { border: 'border-slate-400/60', badge: 'bg-slate-500/15 text-slate-600 dark:text-slate-300' },
+  gold: { border: 'border-yellow-500/70', badge: 'bg-yellow-500/20 text-yellow-600 dark:text-yellow-400' },
+  special: { border: 'border-violet-500/60', badge: 'bg-violet-500/15 text-violet-600 dark:text-violet-400' },
+  negative: { border: 'border-red-500/60', badge: 'bg-red-500/15 text-red-600 dark:text-red-400' },
 } as const
 
 /** Halo + góc blur dialog — theo tier badge (không cố định tím). */
 const TIER_DIALOG_HALO: Record<string, string> = {
-  bronze: 'bg-amber-500/14',
-  silver: 'bg-slate-400/14',
-  gold: 'bg-yellow-400/14',
-  special: 'bg-violet-500/14',
-  negative: 'bg-red-500/14',
+  bronze: 'bg-amber-200/25 dark:bg-amber-500/14',
+  silver: 'bg-slate-200/30 dark:bg-slate-400/14',
+  gold: 'bg-amber-200/30 dark:bg-yellow-400/14',
+  special: 'bg-violet-200/25 dark:bg-violet-500/14',
+  negative: 'bg-red-200/25 dark:bg-red-500/14',
 }
 
 const TIER_DIALOG_CORNER_TR: Record<string, string> = {
-  bronze: 'from-amber-500/22',
-  silver: 'from-slate-400/22',
-  gold: 'from-yellow-400/22',
-  special: 'from-violet-500/22',
-  negative: 'from-red-500/22',
+  bronze: 'from-amber-200/45 dark:from-amber-500/22',
+  silver: 'from-slate-200/50 dark:from-slate-400/22',
+  gold: 'from-amber-200/40 dark:from-yellow-400/22',
+  special: 'from-violet-200/40 dark:from-violet-500/22',
+  negative: 'from-red-200/40 dark:from-red-500/22',
 }
 
 const TIER_DIALOG_CORNER_BL: Record<string, string> = {
-  bronze: 'from-amber-600/14',
-  silver: 'from-slate-500/14',
-  gold: 'from-amber-300/14',
-  special: 'from-fuchsia-500/14',
-  negative: 'from-rose-600/16',
+  bronze: 'from-amber-100/35 dark:from-amber-600/14',
+  silver: 'from-slate-100/35 dark:from-slate-500/14',
+  gold: 'from-amber-100/30 dark:from-amber-300/14',
+  special: 'from-fuchsia-100/35 dark:from-fuchsia-500/14',
+  negative: 'from-rose-100/35 dark:from-rose-600/16',
 }
 
 /** Màu confetti riêng theo tier – thay vì dùng màu generic */
@@ -69,15 +120,29 @@ const TIER_CONFETTI_COLORS: Record<string, string[]> = {
   negative: ['#EF4444', '#F87171', '#FCA5A5', '#DC2626', '#FF4444'],
 }
 
+const RANK_DIALOG_HALO: Record<string, string> = {
+  newbie: 'bg-amber-200/55 dark:bg-amber-400/30',
+  contributor: 'bg-lime-200/50 dark:bg-lime-400/30',
+  developer: 'bg-teal-200/50 dark:bg-teal-400/30',
+  regular: 'bg-sky-200/50 dark:bg-sky-400/30',
+  pro: 'bg-blue-200/50 dark:bg-blue-400/30',
+  expert: 'bg-indigo-200/50 dark:bg-indigo-400/30',
+  master: 'bg-purple-200/50 dark:bg-purple-400/30',
+  legend: 'bg-rose-200/45 dark:bg-rose-400/25',
+  mythic:
+    'bg-gradient-to-br from-amber-200/50 via-fuchsia-200/45 to-cyan-200/50 dark:from-amber-400/25 dark:via-fuchsia-400/20 dark:to-cyan-400/30',
+}
+
 const RANK_CONFETTI_COLORS: Record<string, string[]> = {
-  newbie: ['#9CA3AF', '#D1D5DB', '#F3F4F6', '#6B7280', '#E5E7EB'],
-  contributor: ['#22C55E', '#86EFAC', '#4ADE80', '#16A34A', '#BBF7D0'],
-  developer: ['#3B82F6', '#93C5FD', '#60A5FA', '#2563EB', '#BFDBFE'],
-  regular: ['#06B6D4', '#67E8F9', '#22D3EE', '#0891B2', '#A5F3FC'],
-  pro: ['#8B5CF6', '#C4B5FD', '#A78BFA', '#7C3AED', '#DDD6FE'],
-  expert: ['#F59E0B', '#FDE68A', '#FCD34D', '#D97706', '#FEF3C7'],
-  master: ['#F97316', '#FDBA74', '#FB923C', '#EA580C', '#FED7AA'],
-  legend: ['#EC4899', '#8B5CF6', '#06B6D4', '#F43F5E', '#A78BFA'],
+  newbie: ['#FBBF24', '#F59E0B', '#FDE68A', '#D97706', '#FEF3C7'],
+  contributor: ['#84CC16', '#A3E635', '#BEF264', '#65A30D', '#ECFCCB'],
+  developer: ['#2DD4BF', '#5EEAD4', '#14B8A6', '#0D9488', '#CCFBF1'],
+  regular: ['#38BDF8', '#7DD3FC', '#0EA5E9', '#0284C7', '#E0F2FE'],
+  pro: ['#3B82F6', '#60A5FA', '#2563EB', '#1D4ED8', '#DBEAFE'],
+  expert: ['#6366F1', '#818CF8', '#4F46E5', '#4338CA', '#E0E7FF'],
+  master: ['#A855F7', '#C084FC', '#9333EA', '#7E22CE', '#F3E8FF'],
+  legend: ['#F43F5E', '#EC4899', '#FB7185', '#E11D48', '#FBCFE8'],
+  mythic: ['#FBBF24', '#F59E0B', '#D946EF', '#22D3EE', '#06B6D4', '#0F172A'],
 }
 
 /** Style cho label pill + icon + shimmer text theo tier */
@@ -121,7 +186,7 @@ const TIER_SPARKLE_COLOR: Record<string, string> = {
   gold: 'rgba(255,215,0,0.65)',
   special: 'rgba(139,92,246,0.55)',
   negative: 'rgba(239,68,68,0.58)',
-  rank_up: 'rgba(245,158,11,0.60)',
+  rank_up: 'rgba(217,119,6,0.55)',
 }
 
 const SPARKLE_SLOTS = [
@@ -184,7 +249,7 @@ function useCountUp(target: number, duration = 900, startDelay = 380): number {
   return count
 }
 
-function DialogContentInner({ item }: { item: AchievementToastItem }) {
+function DialogContentInner({ item, onDismiss }: { item: AchievementToastItem; onDismiss: () => void }) {
   const { t } = useTranslation()
   const definitions = useAchievementStore(s => s.definitions)
   const earned = useAchievementStore(s => s.myEarned)
@@ -196,7 +261,6 @@ function DialogContentInner({ item }: { item: AchievementToastItem }) {
   const def = definitions.find(d => d.code === achievementPayload?.code)
   const earnedItem = earned.find(e => e.achievement_code === achievementPayload?.code)
   const newRank = rankUpPayload?.newRank ?? null
-  const rankCfg = newRank ? RANK_CONFIG[newRank as keyof typeof RANK_CONFIG] : null
 
   const tier = isRankUp ? 'gold' : (def?.tier ?? 'bronze')
   const isStruggle = Boolean(def?.is_negative || def?.tier === 'negative')
@@ -208,8 +272,18 @@ function DialogContentInner({ item }: { item: AchievementToastItem }) {
 
   return (
     <div
+      role="button"
+      tabIndex={0}
+      onClick={onDismiss}
+      onKeyDown={e => {
+        if (e.key === 'Enter' || e.key === ' ') {
+          e.preventDefault()
+          onDismiss()
+        }
+      }}
       className={cn(
-        'relative overflow-hidden rounded-3xl bg-gradient-to-b from-background to-muted/30 shadow-2xl backdrop-blur-xl',
+        'relative z-[1] cursor-pointer rounded-3xl bg-gradient-to-b from-background via-background to-white/90 shadow-2xl backdrop-blur-xl dark:via-background dark:to-muted/30',
+        isRankUp ? 'overflow-visible' : 'overflow-hidden',
         'animate-achievement-dialog',
         tierStyle.border,
         'shadow-2xl'
@@ -221,52 +295,36 @@ function DialogContentInner({ item }: { item: AchievementToastItem }) {
 
       {/* Decorative corner accents — màu theo tier */}
       <div
-        className={cn('absolute -top-12 -right-12 h-24 w-24 rounded-full bg-gradient-to-br to-transparent blur-2xl', TIER_DIALOG_CORNER_TR[tier] ?? TIER_DIALOG_CORNER_TR.bronze)}
+        className={cn(
+          'pointer-events-none absolute -top-12 -right-12 h-24 w-24 rounded-full bg-gradient-to-br to-transparent blur-2xl',
+          TIER_DIALOG_CORNER_TR[tier] ?? TIER_DIALOG_CORNER_TR.bronze
+        )}
       />
       <div
-        className={cn('absolute -bottom-8 -left-8 h-20 w-20 rounded-full bg-gradient-to-tr to-transparent blur-xl', TIER_DIALOG_CORNER_BL[tier] ?? TIER_DIALOG_CORNER_BL.bronze)}
+        className={cn(
+          'pointer-events-none absolute -bottom-8 -left-8 h-20 w-20 rounded-full bg-gradient-to-tr to-transparent blur-xl',
+          TIER_DIALOG_CORNER_BL[tier] ?? TIER_DIALOG_CORNER_BL.bronze
+        )}
       />
 
       {/* Top shine line */}
       <div className="absolute left-0 right-0 top-0 h-px bg-gradient-to-r from-transparent via-white/40 to-transparent" />
 
-      <div className="relative flex flex-col items-center gap-7 px-12 pt-14 pb-10">
+      <div className="relative flex flex-col items-center gap-7 px-12 pt-12 pb-6">
         {isRankUp ? (
-          <div className="flex flex-col items-center gap-4">
-            <div
-              className={cn(
-                'flex h-28 w-28 items-center justify-center rounded-3xl border-2 text-6xl shadow-xl transition-transform hover:scale-105',
-                rankCfg?.bgColor ?? 'bg-gray-100 dark:bg-gray-800',
-                rankCfg?.ringColor?.replace('ring-', 'border-') ?? 'border-gray-400',
-                'ring-4 ring-offset-2 ring-offset-background',
-                rankCfg?.ringColor ?? 'ring-gray-400/50'
-              )}
-            >
-              {/* Outer handles entrance pop, inner handles continuous float */}
-              <span className="block animate-achievement-badge">
-                <span className="block animate-achievement-badge-float">
-                  <span className="inline-block">{rankCfg?.emoji ?? '⬆️'}</span>
-                </span>
-              </span>
+          <div className="flex flex-col items-center gap-4 overflow-visible pt-2">
+            <RankUpReveal newRank={newRank ?? 'newbie'} />
+            <div className="flex items-center justify-center gap-3 animate-achievement-label py-1">
+              <Trophy size={18} className="text-amber-600 dark:text-amber-500 animate-achievement-icon-shine dark:animate-achievement-icon-glow" />
+              <span className="text-xl achievement-rank-up-heading">Rank Up!</span>
+              <Trophy size={18} className="text-amber-600 dark:text-amber-500 animate-achievement-icon-shine dark:animate-achievement-icon-glow" />
             </div>
-            <div className="space-y-1 text-center">
-              <div className="flex items-center justify-center gap-3 animate-achievement-label py-2">
-                <Trophy size={18} className="text-amber-500 animate-achievement-icon-shine animate-achievement-icon-glow" />
-                <span className="text-lg font-bold uppercase tracking-[0.2em] animate-achievement-text-shimmer">Rank Up!</span>
-                <Trophy size={18} className="text-amber-500 animate-achievement-icon-shine animate-achievement-icon-glow" />
-              </div>
-              <div className="text-3xl font-extrabold tracking-tight animate-achievement-title">
-                <span className={cn('inline-block', rankCfg?.achievementGlowClass ?? 'animate-achievement-rank-glow-gray', rankCfg?.color ?? 'text-foreground')}>
-                  {rankCfg?.label ?? newRank}
-                </span>
-              </div>
-            </div>
-            <p className="text-center text-sm text-muted-foreground leading-relaxed animate-achievement-desc">{item.title}</p>
+            <p className="pt-2 text-center text-sm text-muted-foreground leading-relaxed animate-achievement-desc">{item.title}</p>
           </div>
         ) : def ? (
           <>
             <div className="relative overflow-visible">
-              <div className={cn('absolute -inset-4 rounded-full blur-2xl', TIER_DIALOG_HALO[tier] ?? TIER_DIALOG_HALO.bronze)} />
+              <div className={cn('pointer-events-none absolute -inset-4 rounded-full blur-2xl', TIER_DIALOG_HALO[tier] ?? TIER_DIALOG_HALO.bronze)} />
               {/* Outer handles entrance pop scale, inner handles continuous float Y */}
               <div className="relative animate-achievement-badge overflow-visible">
                 <div className="animate-achievement-badge-float">
@@ -292,7 +350,7 @@ function DialogContentInner({ item }: { item: AchievementToastItem }) {
                 </p>
               )}
               <div className="flex flex-wrap items-center justify-center gap-2 animate-achievement-desc">
-                <span className={cn('rounded-full border px-3 py-1 text-[10px] font-bold uppercase tracking-wider', tierStyle.badge)}>
+                <span className={cn('rounded-full px-3 py-1 text-[10px] font-bold uppercase tracking-wider', tierStyle.badge)}>
                   {isStruggle
                     ? t('achievement.unlockDialog.struggleTier', 'Struggle')
                     : t('achievement.unlockDialog.tierLabel', { tier: def.tier, defaultValue: `${def.tier} Tier` })}
@@ -329,6 +387,7 @@ const RANK_SCALE = {
   expert: 1.15,
   master: 1.35,
   legend: 1.5,
+  mythic: 1.7,
 } as const
 
 function getConfettiMeta(item: AchievementToastItem): { scale: number; colors: string[] } {
@@ -352,7 +411,7 @@ function fireStarBurstConfetti(scale: number, colors: string[]) {
   const origin = { x: 0.5, y: 0.5 }
   const scalar = Math.max(0.35, Math.min(1.3, 0.85 * scale))
   const shapes = typeof ROTATING_STAR_SHAPE === 'object' ? [ROTATING_STAR_SHAPE] : ['star' as const]
-  const opts = { origin, colors, zIndex: 99999, shapes, scalar, flat: false }
+  const opts = { origin, colors, zIndex: 200, shapes, scalar, flat: false }
   const fire = (ratio: number, spreadVal: number, velocity: number) =>
     confetti({
       ...opts,
@@ -371,7 +430,7 @@ function fireStarBurstConfetti(scale: number, colors: string[]) {
 /** Realistic Look: mix multiple bursts với spread/velocity/decay khác nhau (tham khảo https://www.kirilv.com/canvas-confetti/) */
 function fireRealisticConfetti(scale: number, colors: string[]) {
   const origin = { x: 0.5, y: 0.5 }
-  const opts = { origin, colors, zIndex: 99999 }
+  const opts = { origin, colors, zIndex: 200 }
   const fire = (ratio: number, overrides: object) => confetti({ ...opts, ...overrides, particleCount: Math.max(4, Math.floor(8 * scale * ratio)) })
   fire(0.25, { spread: 26, startVelocity: 55, decay: 0.9 })
   fire(0.2, { spread: 60, startVelocity: 45, decay: 0.9 })
@@ -384,42 +443,77 @@ function fireConfetti(item: AchievementToastItem) {
   const { scale, colors } = getConfettiMeta(item)
   if (item.type === 'rank_up') {
     fireStarBurstConfetti(scale, colors)
-    return
+  } else {
+    fireRealisticConfetti(scale, colors)
   }
-  fireRealisticConfetti(scale, colors)
 }
+
+/** Ignore outside-dismiss right after open (dropdown menu click would close instantly). */
+const OUTSIDE_DISMISS_GRACE_MS = 450
 
 export function AchievementUnlockDialog() {
   const [queue, setQueue] = useState<AchievementToastItem[]>([])
+  const ignoreOutsideDismissRef = useRef(false)
 
   useAchievementNotification()
 
   const currentItem = queue[0] ?? null
+
   const handleClose = useCallback(() => {
-    setQueue(prev => prev.slice(1))
+    confetti.reset()
+    setQueue([])
   }, [])
 
+  const dismissFromOutside = useCallback(
+    (e: Event) => {
+      if (ignoreOutsideDismissRef.current) {
+        e.preventDefault()
+        return
+      }
+      handleClose()
+    },
+    [handleClose]
+  )
+
   useEffect(() => {
-    registerAchievementToastCallback(item => {
+    return registerAchievementToastCallback((item, options) => {
+      // Must run before open flips true — blocks menu pointer-down from closing instantly
+      ignoreOutsideDismissRef.current = true
+      window.setTimeout(() => {
+        ignoreOutsideDismissRef.current = false
+      }, OUTSIDE_DISMISS_GRACE_MS)
       setQueue(prev => {
-        const payload = item.payload as { code?: string; newRank?: string }
-        const key = `${item.type}-${payload.code ?? payload.newRank ?? item.id}`
-        const isDuplicate = prev.some(p => {
-          const pPayload = p.payload as { code?: string; newRank?: string }
-          return `${p.type}-${pPayload.code ?? pPayload.newRank ?? p.id}` === key
-        })
-        if (isDuplicate) return prev
+        if (options?.replace) return [item]
+        if (prev.some(p => p.id === item.id)) return prev
         return [...prev, item]
       })
-      fireConfetti(item)
     })
   }, [])
 
+  useEffect(() => {
+    if (!currentItem) return
+    const frame = requestAnimationFrame(() => fireConfetti(currentItem))
+    return () => cancelAnimationFrame(frame)
+  }, [currentItem?.id])
+
   return (
-    <Dialog open={!!currentItem} onOpenChange={open => !open && handleClose()}>
-      <DialogContent showCloseButton={false} className="max-w-sm border-0 bg-transparent p-0 shadow-none" onPointerDownOutside={handleClose} onEscapeKeyDown={handleClose}>
+    <Dialog
+      open={!!currentItem}
+      onOpenChange={open => {
+        if (!open && !ignoreOutsideDismissRef.current) handleClose()
+      }}
+    >
+      <DialogContent
+        showCloseButton={false}
+        className={cn(
+          'z-[51] max-w-sm border-0 bg-transparent p-0 shadow-none',
+          currentItem?.type === 'rank_up' && 'overflow-visible'
+        )}
+        onPointerDownOutside={dismissFromOutside}
+        onEscapeKeyDown={handleClose}
+      >
         <DialogTitle className="sr-only">{currentItem?.type === 'rank_up' ? 'Rank Up!' : 'Achievement Unlocked!'}</DialogTitle>
-        {currentItem && <DialogContentInner item={currentItem} />}
+        {currentItem && <DialogContentInner item={currentItem} onDismiss={handleClose} />}
       </DialogContent>
     </Dialog>
   )

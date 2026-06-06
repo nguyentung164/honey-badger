@@ -1,33 +1,47 @@
 'use client'
 
-import { FileCode, FileDiff, GitCommit } from 'lucide-react'
+import { FileCode, FileDiff } from 'lucide-react'
 import type { ReactNode } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import { cn } from '@/lib/utils'
+import type { MergeMetricAlignStatus } from './prBoardTableModel'
 
 export type PrSizeMetricsProps = {
-  commits?: number | null
   changedFiles?: number | null
   additions?: number | null
   deletions?: number | null
-  /** compact = board merge cell (3 cột cố định); tab = inline next to tab label */
+  /** compact = board merge cell (2 cột cố định); tab = inline next to tab label */
   variant?: 'compact' | 'tab'
   className?: string
+  /** So khớp metrics giữa các cột merge_* trên cùng dòng (chỉ compact). */
+  alignment?: {
+    files?: MergeMetricAlignStatus
+    lines?: MergeMetricAlignStatus
+  }
+  onMismatchClick?: (kind: 'files' | 'lines') => void
 }
 
 /** Cột metrics trên board — căn thẳng hàng giữa các dòng. */
-const COMPACT_SEGMENT_COMMIT = 'w-[2.25rem]'
 const COMPACT_SEGMENT_FILES = 'w-[2.25rem]'
 const COMPACT_SEGMENT_LINES = 'w-[5.25rem]'
-const COMPACT_GRID_COLS = 'grid-cols-[2.25rem_2.25rem_5.25rem]'
+const COMPACT_GRID_COLS = 'grid-cols-[2.25rem_5.25rem]'
 
-/** Tách màu metrics khỏi màu status (emerald/violet/rose/…) của ô merge. */
-const COMPACT_METRIC_COMMIT = 'text-sky-600 dark:text-sky-400'
-const COMPACT_METRIC_FILES = 'text-cyan-600 dark:text-cyan-400'
-const COMPACT_METRIC_LINES_ICON = 'text-indigo-500 dark:text-indigo-400'
-const COMPACT_METRIC_ADD = 'text-green-600 dark:text-green-400'
-const COMPACT_METRIC_DEL = 'text-orange-600 dark:text-orange-400'
+function compactCountTone(status: MergeMetricAlignStatus | undefined): string {
+  if (status === 'match') return 'text-emerald-600 dark:text-emerald-400'
+  if (status === 'mismatch') return 'text-red-600 dark:text-red-400'
+  return 'text-muted-foreground'
+}
+
+function compactLinesBadgeCls(status: MergeMetricAlignStatus | undefined): string {
+  if (status === 'match') {
+    return 'rounded px-1.5 py-0.5 bg-emerald-500/18 text-emerald-800 dark:bg-emerald-500/22 dark:text-emerald-200'
+  }
+  if (status === 'mismatch') {
+    return 'rounded px-1.5 py-0.5 bg-red-500/18 text-red-800 dark:bg-red-500/22 dark:text-red-200'
+  }
+  return 'rounded px-1.5 py-0.5 bg-muted/45 text-muted-foreground'
+}
 
 function showCount(n: number | null | undefined): n is number {
   return n != null && Number.isFinite(n) && n >= 0
@@ -38,21 +52,34 @@ function MetricSegment({
   label,
   visible,
   isCompact,
+  clickable,
+  onClick,
   children,
 }: {
   segmentClass: string
   label: string
   visible: boolean
   isCompact: boolean
+  clickable?: boolean
+  onClick?: () => void
   children: ReactNode
 }) {
   const inner = (
     <button
       type="button"
       className={cn(
-        'inline-flex h-3.5 w-full items-center justify-start gap-0.5 overflow-hidden border-0 bg-transparent p-0',
-        isCompact && visible && 'pointer-events-auto'
+        'inline-flex h-6 w-full items-center justify-start gap-0.5 overflow-hidden border-0 bg-transparent p-0',
+        isCompact && visible && 'pointer-events-auto',
+        clickable && 'cursor-pointer hover:opacity-90'
       )}
+      onClick={
+        clickable
+          ? e => {
+            e.stopPropagation()
+            onClick?.()
+          }
+          : undefined
+      }
     >
       {children}
       <span className="sr-only">{label}</span>
@@ -65,36 +92,45 @@ function MetricSegment({
 
   return (
     <div className={cn('shrink-0', segmentClass)}>
-      <Tooltip>
-        <TooltipTrigger asChild>{inner}</TooltipTrigger>
-        <TooltipContent side="top" className="text-xs">
-          {label}
-        </TooltipContent>
-      </Tooltip>
+      {clickable ? (
+        inner
+      ) : (
+        <Tooltip>
+          <TooltipTrigger asChild>{inner}</TooltipTrigger>
+          <TooltipContent side="top" className="text-xs">
+            {label}
+          </TooltipContent>
+        </Tooltip>
+      )}
     </div>
   )
 }
 
 export function PrSizeMetrics({
-  commits,
   changedFiles,
   additions,
   deletions,
   variant = 'compact',
   className,
+  alignment,
+  onMismatchClick,
 }: PrSizeMetricsProps) {
   const { t } = useTranslation()
   const isCompact = variant === 'compact'
-  const iconClass = isCompact ? 'h-3 w-3 shrink-0' : 'h-3 w-3 shrink-0 opacity-80'
-  const textClass = isCompact ? 'min-w-0 truncate text-[10px] leading-none tabular-nums' : 'text-[10px] leading-none tabular-nums'
+  const iconClass = isCompact ? 'h-3.5 w-3.5 shrink-0' : 'h-3 w-3 shrink-0 opacity-80'
+  const textClass = isCompact ? 'min-w-0 truncate text-[10px] leading-none tabular-nums' : 'text-[9px] leading-none tabular-nums'
+  const filesTone = compactCountTone(alignment?.files)
+  const linesBadgeCls = compactLinesBadgeCls(alignment?.lines)
+  const filesMismatch = alignment?.files === 'mismatch'
+  const linesMismatch = alignment?.lines === 'mismatch'
+  const hasClickableMismatch = isCompact && onMismatchClick != null && (filesMismatch || linesMismatch)
 
-  const hasCommits = showCount(commits)
   const hasFiles = showCount(changedFiles)
   const hasAdds = showCount(additions)
   const hasDels = showCount(deletions)
   const hasLines = hasAdds || hasDels
 
-  if (!hasCommits && !hasFiles && !hasLines) return null
+  if (!hasFiles && !hasLines) return null
 
   if (isCompact) {
     return (
@@ -102,41 +138,49 @@ export function PrSizeMetrics({
         className={cn(
           'grid shrink-0 items-center justify-items-start gap-0.5',
           COMPACT_GRID_COLS,
-          'pointer-events-none',
+          !hasClickableMismatch && 'pointer-events-none',
           className
         )}
       >
         <MetricSegment
-          segmentClass={COMPACT_SEGMENT_COMMIT}
-          label={t('prManager.metrics.commits', { count: hasCommits ? commits : 0 })}
-          visible={hasCommits}
-          isCompact
-        >
-          <GitCommit className={cn(iconClass, COMPACT_METRIC_COMMIT)} aria-hidden />
-          <span className={cn(textClass, COMPACT_METRIC_COMMIT)}>{commits}</span>
-        </MetricSegment>
-        <MetricSegment
           segmentClass={COMPACT_SEGMENT_FILES}
-          label={t('prManager.metrics.files', { count: hasFiles ? changedFiles : 0 })}
+          label={
+            filesMismatch
+              ? `${t('prManager.metrics.files', { count: hasFiles ? changedFiles : 0 })} — ${t('prManager.metricsCompare.clickToCompare')}`
+              : t('prManager.metrics.files', { count: hasFiles ? changedFiles : 0 })
+          }
           visible={hasFiles}
           isCompact
+          clickable={filesMismatch}
+          onClick={() => onMismatchClick?.('files')}
         >
-          <FileCode className={cn(iconClass, COMPACT_METRIC_FILES)} aria-hidden />
-          <span className={cn(textClass, COMPACT_METRIC_FILES)}>{changedFiles}</span>
+          <FileCode className={cn(iconClass, filesTone)} aria-hidden />
+          <span className={cn(textClass, filesTone)}>{changedFiles}</span>
         </MetricSegment>
         <MetricSegment
           segmentClass={COMPACT_SEGMENT_LINES}
-          label={t('prManager.metrics.lines', {
-            additions: hasAdds ? additions : 0,
-            deletions: hasDels ? deletions : 0,
-          })}
+          label={
+            linesMismatch
+              ? `${t('prManager.metrics.lines', {
+                additions: hasAdds ? additions : 0,
+                deletions: hasDels ? deletions : 0,
+              })} — ${t('prManager.metricsCompare.clickToCompare')}`
+              : t('prManager.metrics.lines', {
+                additions: hasAdds ? additions : 0,
+                deletions: hasDels ? deletions : 0,
+              })
+          }
           visible={hasLines}
           isCompact
+          clickable={linesMismatch}
+          onClick={() => onMismatchClick?.('lines')}
         >
-          <FileDiff className={cn(iconClass, COMPACT_METRIC_LINES_ICON)} aria-hidden />
-          <span className={cn('inline-flex min-w-0 items-center gap-px', textClass)}>
-            {hasAdds ? <span className={COMPACT_METRIC_ADD}>+{additions}</span> : null}
-            {hasDels ? <span className={COMPACT_METRIC_DEL}>−{deletions}</span> : null}
+          <span className={cn('inline-flex min-w-0 items-center gap-0.5', linesBadgeCls)}>
+            <FileDiff className={cn(iconClass, 'shrink-0 opacity-90')} aria-hidden />
+            <span className={cn('inline-flex min-w-0 items-center gap-px', textClass)}>
+              {hasAdds ? <span>+{additions}</span> : null}
+              {hasDels ? <span>−{deletions}</span> : null}
+            </span>
           </span>
         </MetricSegment>
       </div>
@@ -162,41 +206,31 @@ export function PrSizeMetrics({
 
   return (
     <div className={cn('flex shrink-0 items-center gap-1.5', className)}>
-      {hasCommits
-        ? wrap(
-            'commits',
-            t('prManager.metrics.commits', { count: commits }),
-            <>
-              <GitCommit className={iconClass} aria-hidden />
-              <span className={textClass}>{commits}</span>
-            </>
-          )
-        : null}
       {hasFiles
         ? wrap(
-            'files',
-            t('prManager.metrics.files', { count: changedFiles }),
-            <>
-              <FileCode className={iconClass} aria-hidden />
-              <span className={textClass}>{changedFiles}</span>
-            </>
-          )
+          'files',
+          t('prManager.metrics.files', { count: changedFiles }),
+          <>
+            <FileCode className={iconClass} aria-hidden />
+            <span className={textClass}>{changedFiles}</span>
+          </>
+        )
         : null}
       {hasLines
         ? wrap(
-            'lines',
-            t('prManager.metrics.lines', {
-              additions: hasAdds ? additions : 0,
-              deletions: hasDels ? deletions : 0,
-            }),
-            <>
-              <FileDiff className={iconClass} aria-hidden />
-              <span className={cn('inline-flex items-center gap-0.5', textClass)}>
-                {hasAdds ? <span className="text-emerald-600 dark:text-emerald-400">+{additions}</span> : null}
-                {hasDels ? <span className="text-rose-600 dark:text-rose-400">−{deletions}</span> : null}
-              </span>
-            </>
-          )
+          'lines',
+          t('prManager.metrics.lines', {
+            additions: hasAdds ? additions : 0,
+            deletions: hasDels ? deletions : 0,
+          }),
+          <>
+            <FileDiff className={iconClass} aria-hidden />
+            <span className={cn('inline-flex items-center gap-0.5', textClass)}>
+              {hasAdds ? <span className="text-emerald-600 dark:text-emerald-400">+{additions}</span> : null}
+              {hasDels ? <span className="text-rose-600 dark:text-rose-400">−{deletions}</span> : null}
+            </span>
+          </>
+        )
         : null}
     </div>
   )
@@ -204,13 +238,11 @@ export function PrSizeMetrics({
 
 /** Metrics từ checkpoint pr_* (board merge column). */
 export function prSizeMetricsFromCheckpoint(cp: {
-  ghPrCommits?: number | null
   ghPrChangedFiles?: number | null
   ghPrAdditions?: number | null
   ghPrDeletions?: number | null
-}): Pick<PrSizeMetricsProps, 'commits' | 'changedFiles' | 'additions' | 'deletions'> {
+}): Pick<PrSizeMetricsProps, 'changedFiles' | 'additions' | 'deletions'> {
   return {
-    commits: cp.ghPrCommits,
     changedFiles: cp.ghPrChangedFiles,
     additions: cp.ghPrAdditions,
     deletions: cp.ghPrDeletions,

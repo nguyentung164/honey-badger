@@ -6,6 +6,14 @@ import { PR_GH_STATUS_IDS } from '../prGhStatus'
 import type { RepoBaseInsightsMap } from '../repoBaseBranchInsights'
 import { readLastGithubSyncBranchMs, readLastGithubSyncRepoMs, effectiveGithubSyncMsForBranchRow } from './prBoardSyncStorage'
 
+export type MergeMetricAlignStatus = 'neutral' | 'match' | 'mismatch'
+
+/** So khớp files / lines giữa các cột merge_* trên cùng một dòng. */
+export type MergeMetricsAlignment = {
+  files: MergeMetricAlignStatus
+  lines: MergeMetricAlignStatus
+}
+
 export type PrBoardMergeCellViewModel = {
   tplId: string
   cp: PrBranchCheckpoint | null
@@ -28,7 +36,39 @@ export type PrBoardRowViewModel = {
   mergeCells: PrBoardMergeCellViewModel[]
   /** O(1) lookup theo template id — tránh `.find()` khi render. */
   mergeCellsByTplId: ReadonlyMap<string, PrBoardMergeCellViewModel>
+  mergeMetricsAlignment: MergeMetricsAlignment
   vis: (typeof PR_MANAGER_REPO_GROUP_VISUAL)[number]
+}
+
+function metricAlignStatus(values: Array<number | null | undefined>): MergeMetricAlignStatus {
+  const nums = values.filter((v): v is number => v != null && Number.isFinite(v) && v >= 0)
+  if (nums.length < 2) return 'neutral'
+  const first = nums[0]
+  return nums.every(n => n === first) ? 'match' : 'mismatch'
+}
+
+function linePairAlignStatus(
+  pairs: Array<{ additions?: number | null; deletions?: number | null }>
+): MergeMetricAlignStatus {
+  const keys = pairs
+    .filter(
+      p =>
+        (p.additions != null && Number.isFinite(p.additions)) || (p.deletions != null && Number.isFinite(p.deletions))
+    )
+    .map(p => `${p.additions ?? '∅'}:${p.deletions ?? '∅'}`)
+  if (keys.length < 2) return 'neutral'
+  const first = keys[0]
+  return keys.every(k => k === first) ? 'match' : 'mismatch'
+}
+
+function computeMergeMetricsAlignment(mergeCells: PrBoardMergeCellViewModel[]): MergeMetricsAlignment {
+  const companions = mergeCells
+    .map(c => c.companionPrCp)
+    .filter((cp): cp is PrBranchCheckpoint => cp?.prNumber != null)
+  return {
+    files: metricAlignStatus(companions.map(c => c.ghPrChangedFiles)),
+    lines: linePairAlignStatus(companions.map(c => ({ additions: c.ghPrAdditions, deletions: c.ghPrDeletions }))),
+  }
 }
 
 export type PrBoardRepoGroupViewModel = {
@@ -195,6 +235,7 @@ export function buildPagedTableViewModel(input: BuildPagedTableViewModelInput): 
         effectiveBranchSyncMs,
         mergeCells,
         mergeCellsByTplId,
+        mergeMetricsAlignment: computeMergeMetricsAlignment(mergeCells),
         vis,
       }
     })
@@ -261,6 +302,8 @@ function rowVmContentEqualExceptSelection(a: PrBoardRowViewModel, b: PrBoardRowV
     a.branchHasStatusChange === b.branchHasStatusChange &&
     a.branchSyncMs === b.branchSyncMs &&
     a.effectiveBranchSyncMs === b.effectiveBranchSyncMs &&
+    a.mergeMetricsAlignment.files === b.mergeMetricsAlignment.files &&
+    a.mergeMetricsAlignment.lines === b.mergeMetricsAlignment.lines &&
     a.vis === b.vis &&
     mergeCellsEqual(a.mergeCells, b.mergeCells)
   )

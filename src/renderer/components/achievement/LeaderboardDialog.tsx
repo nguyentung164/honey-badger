@@ -104,7 +104,7 @@ export function LeaderboardDialog({ open, onOpenChange, isAdmin = false }: Leade
   return (
     <>
       <Dialog open={open} onOpenChange={onOpenChange}>
-        <DialogContent className="max-w-md max-h-[85vh] overflow-hidden flex flex-col gap-0 p-0 border-0">
+        <DialogContent showCloseButton={false} className="max-w-md max-h-[85vh] overflow-hidden flex flex-col gap-0 p-0 border-0">
           {/* Header */}
           <DialogHeader className="px-5 pt-4 pb-3 border-b border-border/50 shrink-0">
             <div className="flex flex-col items-center gap-2">

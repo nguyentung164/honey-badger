@@ -2023,6 +2023,50 @@ html[data-font-size="large"] {
 .rank-shimmer {
   animation: rankLegendGlowPulse 3s ease-in-out infinite;
 }
+@keyframes rankMythicGlowPulse {
+  0%,
+  100% {
+    box-shadow:
+      0 0 5px rgba(251, 191, 36, 0.35),
+      0 0 10px rgba(217, 70, 239, 0.28),
+      0 0 14px rgba(34, 211, 238, 0.22);
+  }
+  33% {
+    box-shadow:
+      0 0 8px rgba(217, 70, 239, 0.42),
+      0 0 14px rgba(34, 211, 238, 0.32),
+      0 0 18px rgba(251, 191, 36, 0.28);
+  }
+  66% {
+    box-shadow:
+      0 0 7px rgba(34, 211, 238, 0.38),
+      0 0 12px rgba(251, 191, 36, 0.3),
+      0 0 16px rgba(217, 70, 239, 0.26);
+  }
+}
+.rank-glow-mythic {
+  animation: rankMythicGlowPulse 2.4s ease-in-out infinite;
+}
+.rank-shimmer-mythic {
+  animation: rankMythicGlowPulse 2.4s ease-in-out infinite;
+}
+
+/* My Profile — soft aura behind avatar (blur only, no ring box-shadow) */
+.rank-profile-aura-violet {
+  background: rgba(139, 92, 246, 0.42);
+}
+.rank-profile-aura-gold {
+  background: rgba(245, 158, 11, 0.38);
+}
+.rank-profile-aura-rose {
+  background: rgba(244, 63, 94, 0.38);
+}
+.rank-profile-aura-legend {
+  background: linear-gradient(135deg, rgba(244, 63, 94, 0.34), rgba(139, 92, 246, 0.3), rgba(59, 130, 246, 0.28));
+}
+.rank-profile-aura-mythic {
+  background: linear-gradient(135deg, rgba(251, 191, 36, 0.38), rgba(217, 70, 239, 0.32), rgba(34, 211, 238, 0.32));
+}
 
 @keyframes adminGlowPulse {
   0%,
@@ -2044,6 +2088,11 @@ html[data-font-size="large"] {
   background: linear-gradient(90deg, #f43f5e, #8b5cf6, #3b82f6, #8b5cf6, #f43f5e);
   background-size: 400% 100%;
   animation: xpLegendFlow 3s linear infinite;
+}
+.mythic-xp-bar {
+  background: linear-gradient(90deg, #fbbf24, #d946ef, #22d3ee, #f59e0b, #06b6d4, #fbbf24);
+  background-size: 400% 100%;
+  animation: xpLegendFlow 2.5s linear infinite;
 }
 .animate-slide-up-toast {
   animation: slideUpToast 0.3s ease-out;
@@ -2183,106 +2232,121 @@ html[data-font-size="large"] {
 @keyframes achievementRankGlowGray {
   0%,
   100% {
-    text-shadow: 0 0 12px rgba(156, 163, 175, 0.5);
+    text-shadow: 0 0 8px rgba(156, 163, 175, 0.4);
   }
   50% {
-    text-shadow: 0 0 24px rgba(156, 163, 175, 0.8);
+    text-shadow: 0 0 16px rgba(156, 163, 175, 0.6);
   }
 }
 @keyframes achievementRankGlowGreen {
   0%,
   100% {
-    text-shadow: 0 0 12px rgba(34, 197, 94, 0.5);
+    text-shadow: 0 0 8px rgba(34, 197, 94, 0.4);
   }
   50% {
-    text-shadow: 0 0 24px rgba(34, 197, 94, 0.8);
+    text-shadow: 0 0 16px rgba(34, 197, 94, 0.6);
   }
 }
 @keyframes achievementRankGlowBlue {
   0%,
   100% {
-    text-shadow: 0 0 12px rgba(59, 130, 246, 0.5);
+    text-shadow: 0 0 8px rgba(59, 130, 246, 0.4);
   }
   50% {
-    text-shadow: 0 0 24px rgba(59, 130, 246, 0.8);
+    text-shadow: 0 0 16px rgba(59, 130, 246, 0.6);
   }
 }
 @keyframes achievementRankGlowCyan {
   0%,
   100% {
-    text-shadow: 0 0 12px rgba(6, 182, 212, 0.5);
+    text-shadow: 0 0 8px rgba(6, 182, 212, 0.4);
   }
   50% {
-    text-shadow: 0 0 24px rgba(6, 182, 212, 0.8);
+    text-shadow: 0 0 16px rgba(6, 182, 212, 0.6);
   }
 }
 @keyframes achievementRankGlowViolet {
   0%,
   100% {
-    text-shadow: 0 0 12px rgba(139, 92, 246, 0.5);
+    text-shadow: 0 0 8px rgba(139, 92, 246, 0.4);
   }
   50% {
-    text-shadow: 0 0 24px rgba(139, 92, 246, 0.8);
+    text-shadow: 0 0 16px rgba(139, 92, 246, 0.6);
   }
 }
 @keyframes achievementRankGlowAmber {
   0%,
   100% {
-    text-shadow: 0 0 12px rgba(245, 158, 11, 0.5);
+    text-shadow: 0 0 8px rgba(245, 158, 11, 0.4);
   }
   50% {
-    text-shadow: 0 0 24px rgba(245, 158, 11, 0.8);
+    text-shadow: 0 0 16px rgba(245, 158, 11, 0.6);
   }
 }
 @keyframes achievementRankGlowSky {
   0%,
   100% {
-    text-shadow: 0 0 12px rgba(14, 165, 233, 0.5);
+    text-shadow: 0 0 8px rgba(14, 165, 233, 0.4);
   }
   50% {
-    text-shadow: 0 0 24px rgba(14, 165, 233, 0.8);
+    text-shadow: 0 0 16px rgba(14, 165, 233, 0.6);
   }
 }
 @keyframes achievementRankGlowEmerald {
   0%,
   100% {
-    text-shadow: 0 0 12px rgba(16, 185, 129, 0.5);
+    text-shadow: 0 0 8px rgba(16, 185, 129, 0.4);
   }
   50% {
-    text-shadow: 0 0 24px rgba(16, 185, 129, 0.8);
+    text-shadow: 0 0 16px rgba(16, 185, 129, 0.6);
   }
 }
 @keyframes achievementRankGlowRose {
   0%,
   100% {
-    text-shadow: 0 0 12px rgba(244, 63, 94, 0.5);
+    text-shadow: 0 0 8px rgba(244, 63, 94, 0.4);
   }
   50% {
-    text-shadow: 0 0 24px rgba(244, 63, 94, 0.8);
+    text-shadow: 0 0 16px rgba(244, 63, 94, 0.6);
   }
 }
 @keyframes achievementRankGlowOrange {
   0%,
   100% {
-    text-shadow: 0 0 12px rgba(249, 115, 22, 0.5);
+    text-shadow: 0 0 8px rgba(249, 115, 22, 0.4);
   }
   50% {
-    text-shadow: 0 0 24px rgba(249, 115, 22, 0.8);
+    text-shadow: 0 0 16px rgba(249, 115, 22, 0.6);
   }
 }
 @keyframes achievementRankGlowLegend {
   0%,
   100% {
     text-shadow:
-      0 0 12px rgba(244, 63, 94, 0.5),
-      0 0 20px rgba(139, 92, 246, 0.4),
-      0 0 28px rgba(59, 130, 246, 0.35);
+      0 0 8px rgba(244, 63, 94, 0.4),
+      0 0 14px rgba(139, 92, 246, 0.3),
+      0 0 18px rgba(59, 130, 246, 0.25);
   }
   50% {
     text-shadow:
-      0 0 20px rgba(244, 63, 94, 0.7),
-      0 0 32px rgba(139, 92, 246, 0.6),
-      0 0 40px rgba(59, 130, 246, 0.5);
+      0 0 14px rgba(244, 63, 94, 0.55),
+      0 0 22px rgba(139, 92, 246, 0.45),
+      0 0 26px rgba(59, 130, 246, 0.38);
+  }
+}
+@keyframes achievementRankGlowMythic {
+  0%,
+  100% {
+    text-shadow:
+      0 0 9px rgba(251, 191, 36, 0.42),
+      0 0 15px rgba(217, 70, 239, 0.32),
+      0 0 20px rgba(34, 211, 238, 0.28);
+  }
+  50% {
+    text-shadow:
+      0 0 15px rgba(251, 191, 36, 0.58),
+      0 0 24px rgba(217, 70, 239, 0.48),
+      0 0 28px rgba(34, 211, 238, 0.4);
   }
 }
 
@@ -2359,6 +2423,103 @@ html[data-font-size="large"] {
   50% {
     transform: translateY(-7px);
   }
+}
+
+/* Rank Up dialog — free-layer motion (no clip box / carousel) */
+@keyframes rankUpOldLeave {
+  0%,
+  18% {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+    filter: blur(0);
+  }
+  52% {
+    opacity: 0.55;
+    transform: translateY(-2.75rem) scale(0.9);
+    filter: blur(1px);
+  }
+  100% {
+    opacity: 0;
+    transform: translateY(-5.75rem) scale(0.76);
+    filter: blur(5px);
+  }
+}
+@keyframes rankUpNewArrive {
+  0%,
+  18% {
+    opacity: 0;
+    transform: translateY(3.75rem) scale(0.84);
+    filter: blur(2.5px);
+  }
+  58% {
+    opacity: 0.9;
+    transform: translateY(-0.2rem) scale(1.05);
+    filter: blur(0);
+  }
+  100% {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+    filter: blur(0);
+  }
+}
+@keyframes rankUpLabelOld {
+  0%,
+  18% {
+    opacity: 1;
+    transform: translateY(0);
+    filter: blur(0);
+  }
+  100% {
+    opacity: 0;
+    transform: translateY(-1.85rem);
+    filter: blur(2px);
+  }
+}
+@keyframes rankUpLabelNew {
+  0%,
+  18% {
+    opacity: 0;
+    transform: translateY(1.35rem);
+    filter: blur(1.5px);
+  }
+  100% {
+    opacity: 1;
+    transform: translateY(0);
+    filter: blur(0);
+  }
+}
+@keyframes rankUpHaloPulse {
+  0%,
+  18% {
+    opacity: 0.45;
+    transform: scale(0.88);
+  }
+  58% {
+    opacity: 1;
+    transform: scale(1.12);
+  }
+  100% {
+    opacity: 0.9;
+    transform: scale(1);
+  }
+}
+.animate-rank-up-halo-pulse {
+  animation: rankUpHaloPulse 1.2s cubic-bezier(0.4, 0, 0.15, 1) 0.38s both;
+}
+.animate-rank-up-old-leave {
+  animation: rankUpOldLeave 1.2s cubic-bezier(0.4, 0, 0.15, 1) 0.38s both;
+}
+.animate-rank-up-new-arrive {
+  animation: rankUpNewArrive 1.2s cubic-bezier(0.4, 0, 0.15, 1) 0.38s both;
+}
+.animate-rank-up-label-old {
+  animation: rankUpLabelOld 1.2s cubic-bezier(0.4, 0, 0.15, 1) 0.38s both;
+}
+.animate-rank-up-label-new {
+  animation: rankUpLabelNew 1.2s cubic-bezier(0.4, 0, 0.15, 1) 0.38s both;
+}
+.animate-rank-up-float-delayed {
+  animation: achievementBadgeFloat 3.2s ease-in-out 1.6s infinite;
 }
 
 /* Unlock dialog — SVG stroke pulse along badge silhouette (per shape) */
@@ -2483,6 +2644,57 @@ html[data-font-size="large"] {
 .animate-achievement-rank-glow-legend {
   animation: achievementRankGlowLegend 2s ease-in-out 0.2s infinite;
 }
+.animate-achievement-rank-glow-mythic {
+  animation: achievementRankGlowMythic 2s ease-in-out 0.2s infinite;
+}
+
+/* canvas-confetti — full-screen canvas must not steal clicks from dialogs */
+body > canvas {
+  pointer-events: none !important;
+}
+
+/** Rank-up dialog "Rank Up!" label — Titillium Web Black (fixed; ignores app font setting). */
+.achievement-rank-up-heading {
+  font-family: var(--font-titillium-web), ui-sans-serif, system-ui, sans-serif;
+  font-weight: 900;
+  letter-spacing: 0.2em;
+  text-transform: uppercase;
+  color: #f59e0b;
+}
+[data-theme-mode="dark"] .achievement-rank-up-heading,
+.dark .achievement-rank-up-heading {
+  color: transparent;
+  background: linear-gradient(90deg, #f59e0b, #fbbf24, #f59e0b, #fbbf24);
+  background-size: 200% auto;
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+  animation: achievementTextShimmer 3s linear infinite;
+  opacity: 0.9;
+}
+/** Rank-up dialog rank name — depth via drop-shadow (glow stays on text-shadow animation). */
+.achievement-rank-up-name {
+  filter: drop-shadow(0 1px 1px rgba(255, 255, 255, 0.65));
+}
+.achievement-rank-up-name--new {
+  filter: drop-shadow(0 1px 1px rgba(255, 255, 255, 0.8));
+}
+[data-theme-mode="dark"] .achievement-rank-up-name,
+.dark .achievement-rank-up-name {
+  filter: drop-shadow(0 1px 0 rgba(0, 0, 0, 0.35));
+}
+[data-theme-mode="dark"] .achievement-rank-up-name--new,
+.dark .achievement-rank-up-name--new {
+  filter:
+    drop-shadow(0 1px 0 rgba(0, 0, 0, 0.45))
+    drop-shadow(0 2px 4px rgba(0, 0, 0, 0.25));
+}
+/** Light mode: solid rank colors read better without pulsing text-shadow glow */
+[data-theme-mode="light"] .achievement-rank-up-name--new[class*='animate-achievement-rank-glow'],
+.light .achievement-rank-up-name--new[class*='animate-achievement-rank-glow'] {
+  animation: none;
+  text-shadow: none;
+}
 
 .animate-achievement-dialog {
   animation: achievementDialogPop 0.5s cubic-bezier(0.34, 1.56, 0.64, 1);
@@ -2605,10 +2817,30 @@ html[data-font-size="large"] {
   .animate-achievement-rank-glow-amber,
   .animate-achievement-rank-glow-orange,
   .animate-achievement-rank-glow-legend,
+  .animate-achievement-rank-glow-mythic,
   .animate-achievement-icon-glow-violet,
   .animate-achievement-asset-dust,
-  .animate-achievement-badge-dust-rise {
+  .animate-achievement-badge-dust-rise,
+  .animate-rank-up-old-leave,
+  .animate-rank-up-new-arrive,
+  .animate-rank-up-label-old,
+  .animate-rank-up-label-new,
+  .animate-rank-up-halo-pulse,
+  .animate-rank-up-float-delayed {
     animation: none;
+  }
+  .animate-rank-up-old-leave {
+    opacity: 0;
+  }
+  .animate-rank-up-new-arrive {
+    opacity: 1;
+    transform: none;
+    filter: none;
+  }
+  .animate-rank-up-label-new {
+    opacity: 1;
+    transform: none;
+    filter: none;
   }
 }
 

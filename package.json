@@ -2,7 +2,7 @@
   "displayName": "Honey Badger",
   "name": "honey-badger",
   "description": "Honey Badger",
-  "version": "1.1.1",
+  "version": "1.1.2",
   "main": "./node_modules/.dev/main/index.js",
   "resources": "src/resources",
   "author": {
@@ -32,7 +32,10 @@
     "lint:fix": "biome lint --write --no-errors-on-unmatched",
     "i18n:find-unused": "tsx scripts/find-unused-translation-keys.ts",
     "i18n:remove-unused": "tsx scripts/remove-unused-translation-keys.ts",
-    "seed:mock": "cross-env APP_DB_HOST=xxx APP_DB_PORT=1234 APP_DB_NAME=postgres APP_DB_USER=postgres APP_DB_PASSWORD=xxx SEED_RANDOM=1 tsx src/main/task/seed/seedMockDataRun.ts"
+    "seed:mock": "cross-env APP_DB_HOST=xxx APP_DB_PORT=1234 APP_DB_NAME=postgres APP_DB_USER=postgres APP_DB_PASSWORD=xxx SEED_RANDOM=1 tsx src/main/task/seed/seedMockDataRun.ts",
+    "export:rank-badges": "node scripts/export-rank-badges-svg.mjs",
+    "export:rank-badges:all": "node scripts/export-rank-badges-svg.mjs --all",
+    "crop:rank-badges": "node scripts/crop-rank-badges-svg.mjs"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.88.0",

@@ -1230,6 +1230,16 @@ export async function githubRemoteBranchExists(owner: string, repo: string, bran
   }
 }
 
+/** Song song theo repo khi kiểm tra nhánh remote (cân bằng tốc độ / rate limit GitHub). */
+const REMOTE_EXIST_REPO_CONCURRENCY = 3
+const BRANCH_PROTECT_CHECK_CONCURRENCY = 5
+
+async function batchAsyncVoid<T>(items: T[], batchSize: number, fn: (item: T) => Promise<void>): Promise<void> {
+  for (let i = 0; i < items.length; i += batchSize) {
+    await Promise.all(items.slice(i, i + batchSize).map(fn))
+  }
+}
+
 /**
  * Ki\u1ec3m tra nhi\u1ec1u nh\u00e1nh c\u00f2n tr\u00ean remote: gom theo (owner, repo), m\u1ed7i repo g\u1ecdi
  * `listBranches` (paginate) m\u1ed9t l\u1ea7n r\u1ed3i so t\u1eadn t\u1ea1i t\u00ean nh\u00e1nh.
@@ -1254,7 +1264,8 @@ export async function githubRemoteBranchesExistenceMap(items: { id: string; owne
     byRepo.set(key, g)
   }
 
-  for (const { owner, repo, rows } of byRepo.values()) {
+  const repoGroups = [...byRepo.values()]
+  await batchAsyncVoid(repoGroups, REMOTE_EXIST_REPO_CONCURRENCY, async ({ owner, repo, rows }) => {
     let names: Set<string>
     try {
       const list = await githubClient.listBranches(owner, repo)
@@ -1264,22 +1275,14 @@ export async function githubRemoteBranchesExistenceMap(items: { id: string; owne
       for (const { id } of rows) {
         out[id] = false
       }
-      continue
+      return
     }
     for (const { id, branch } of rows) {
       out[id] = Boolean(branch) && names.has(branch)
     }
-  }
+  })
 
   return out
-}
-
-const BRANCH_PROTECT_CHECK_CONCURRENCY = 5
-
-async function batchAsyncVoid<T>(items: T[], batchSize: number, fn: (item: T) => Promise<void>): Promise<void> {
-  for (let i = 0; i < items.length; i += batchSize) {
-    await Promise.all(items.slice(i, i + batchSize).map(fn))
-  }
 }
 
 /**
@@ -1332,7 +1335,8 @@ export async function githubRemoteBranchesExistenceAndProtectionMap(
     byRepo.set(key, g)
   }
 
-  for (const { owner, repo, rows } of byRepo.values()) {
+  const repoGroups = [...byRepo.values()]
+  await batchAsyncVoid(repoGroups, REMOTE_EXIST_REPO_CONCURRENCY, async ({ owner, repo, rows }) => {
     let names: Set<string>
     try {
       const list = await githubClient.listBranches(owner, repo)
@@ -1343,7 +1347,7 @@ export async function githubRemoteBranchesExistenceAndProtectionMap(
         existence[id] = false
         branchProtected[id] = false
       }
-      continue
+      return
     }
     const onRemote: { id: string; branch: string }[] = []
     for (const { id, branch } of rows) {
@@ -1358,12 +1362,12 @@ export async function githubRemoteBranchesExistenceAndProtectionMap(
     await batchAsyncVoid(onRemote, BRANCH_PROTECT_CHECK_CONCURRENCY, async ({ id, branch }) => {
       branchProtected[id] = await githubBranchIsProtectedPerRestApi(owner, repo, branch)
     })
-  }
+  })
 
   return { existence, branchProtected }
 }
 
-const REPO_BASE_INSIGHT_REPO_CONCURRENCY = 2
+const REPO_BASE_INSIGHT_REPO_CONCURRENCY = 3
 const REPO_BASE_INSIGHT_BRANCH_CONCURRENCY = 3
 const LAST_MERGED_PR_MAX_PAGES = 5
 

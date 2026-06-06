@@ -10,7 +10,9 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import toast from '@/components/ui-elements/Toast'
+import { getRankUsernameClass, RANK_CONFIG, RankAvatarRing } from '@/components/achievement/RankBadge'
 import { cn } from '@/lib/utils'
+import { useAchievementStore } from '@/stores/useAchievementStore'
 import { useAppearanceStoreSelect } from '@/stores/useAppearanceStore'
 import { useTaskAuthStore } from '@/stores/useTaskAuthStore'
 
@@ -18,6 +20,15 @@ interface ProjectMember {
   userId: string
   name: string
   userCode: string
+}
+
+function getInitials(name: string): string {
+  return name
+    .split(/\s+/)
+    .map(s => s[0])
+    .join('')
+    .toUpperCase()
+    .slice(0, 2)
 }
 
 interface ProjectMembersDialogProps {
@@ -62,10 +73,34 @@ export function ProjectMembersDialog({
   const [canManageDev, setCanManageDev] = useState(false)
   const [columnFilters, setColumnFilters] = useState<Record<string, string>>({})
   const [avatarUrls, setAvatarUrls] = useState<Record<string, string | null>>({})
+  const fetchLeaderboard = useAchievementStore(s => s.fetchLeaderboard)
+  const leaderboard = useAchievementStore(s => s.leaderboard)
   /** Tăng mỗi lần bắt đầu load mới; response cũ (race với thêm/xóa member) không được apply. */
   const membersFetchGen = useRef(0)
 
+  const userRanks = leaderboard.reduce<Record<string, string>>((acc, e) => {
+    acc[e.user_id] = e.current_rank
+    return acc
+  }, {})
+
   const resolveAvatarSrc = (userId: string) => (userId === currentUser?.id ? (currentUser?.avatarUrl ?? avatarUrls[userId] ?? null) : (avatarUrls[userId] ?? null))
+
+  const renderMemberAvatar = (userId: string, name: string, avatarSrc: string | null) => {
+    const rank = userRanks[userId] ?? 'newbie'
+    const rankCfg = RANK_CONFIG[rank as keyof typeof RANK_CONFIG] ?? RANK_CONFIG.newbie
+    return (
+      <RankAvatarRing rank={rank} size="member" className={cn('shrink-0', rankCfg.glowClass)}>
+        <Avatar className="bg-transparent">
+          {avatarSrc ? <AvatarImage src={avatarSrc} alt={name} className="object-cover" /> : null}
+          <AvatarFallback className={cn('text-xs font-medium', rankCfg.bgColor, rankCfg.color)}>{getInitials(name)}</AvatarFallback>
+        </Avatar>
+      </RankAvatarRing>
+    )
+  }
+
+  useEffect(() => {
+    if (open) void fetchLeaderboard()
+  }, [open, fetchLeaderboard])
 
   useEffect(() => {
     if (!open) {
@@ -304,14 +339,6 @@ export function ProjectMembersDialog({
   const availableForDev = users.filter(u => !devs.some(d => d.userId === u.id))
   const availableForPm = users.filter(u => !pms.some(p => p.userId === u.id))
 
-  const getInitials = (name: string) =>
-    name
-      .split(/\s+/)
-      .map(s => s[0])
-      .join('')
-      .toUpperCase()
-      .slice(0, 2)
-
   const matchSearch = (q: string, name: string, userCode: string) => {
     const s = q.trim().toLowerCase()
     if (!s) return true
@@ -368,14 +395,12 @@ export function ProjectMembersDialog({
                 ) : (
                   filteredMembers.map(m => {
                     const memberAvatarSrc = resolveAvatarSrc(m.userId)
+                    const memberRank = userRanks[m.userId] ?? 'newbie'
                     return (
                       <div key={m.userId} className="flex items-center gap-2 rounded-md px-2 py-1.5 bg-background hover:bg-muted/50 transition-colors group">
-                        <Avatar className="h-7 w-7 shrink-0">
-                          {memberAvatarSrc ? <AvatarImage src={memberAvatarSrc} alt={m.name} className="object-cover" /> : null}
-                          <AvatarFallback className="bg-primary/10 text-primary text-xs font-medium">{getInitials(m.name)}</AvatarFallback>
-                        </Avatar>
+                        {renderMemberAvatar(m.userId, m.name, memberAvatarSrc)}
                         <div className="flex-1 min-w-0">
-                          <div className="text-sm font-medium truncate">{m.name}</div>
+                          <div className={cn('text-sm truncate', getRankUsernameClass(memberRank))}>{m.name}</div>
                           <div className="text-xs text-muted-foreground">{m.userCode}</div>
                         </div>
                         {canManage && (
@@ -429,6 +454,7 @@ export function ProjectMembersDialog({
                         filteredAvailable.map(u => {
                           const isSelected = selectedIds.has(u.id)
                           const availAvatarSrc = resolveAvatarSrc(u.id)
+                          const availRank = userRanks[u.id] ?? 'newbie'
                           return (
                             <button
                               key={u.id}
@@ -441,12 +467,9 @@ export function ProjectMembersDialog({
                                 isSubmitting && 'pointer-events-none opacity-60'
                               )}
                             >
-                              <Avatar className="h-7 w-7 shrink-0">
-                                {availAvatarSrc ? <AvatarImage src={availAvatarSrc} alt={u.name} className="object-cover" /> : null}
-                                <AvatarFallback className="bg-muted text-muted-foreground text-xs font-medium">{getInitials(u.name)}</AvatarFallback>
-                              </Avatar>
+                              {renderMemberAvatar(u.id, u.name, availAvatarSrc)}
                               <div className="flex-1 min-w-0">
-                                <div className="text-sm font-medium truncate">{u.name}</div>
+                                <div className={cn('text-sm truncate', getRankUsernameClass(availRank))}>{u.name}</div>
                                 <div className="text-xs text-muted-foreground">{u.userCode}</div>
                               </div>
                             </button>

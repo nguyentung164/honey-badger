@@ -15,25 +15,9 @@ import {
   type UserStats,
   updateUserStats,
 } from './achievementStore'
+import { ACHIEVEMENT_RANKS, calculateRank } from 'shared/achievementRanks'
 
-export const RANKS = [
-  { code: 'newbie', minXp: 0, name: 'Newbie' },
-  { code: 'contributor', minXp: 200, name: 'Contributor' },
-  { code: 'developer', minXp: 800, name: 'Developer' },
-  { code: 'regular', minXp: 2000, name: 'Regular' },
-  { code: 'pro', minXp: 5000, name: 'Pro' },
-  { code: 'expert', minXp: 12000, name: 'Expert' },
-  { code: 'master', minXp: 30000, name: 'Master' },
-  { code: 'legend', minXp: 70000, name: 'Legend' },
-]
-
-export function calculateRank(xp: number): string {
-  let rank = RANKS[0].code
-  for (const r of RANKS) {
-    if (xp >= r.minXp) rank = r.code
-  }
-  return rank
-}
+export { ACHIEVEMENT_RANKS as RANKS, calculateRank }
 
 function todayStr(): string {
   const d = new Date()

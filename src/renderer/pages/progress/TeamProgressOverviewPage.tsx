@@ -2,9 +2,11 @@
 
 import { subDays } from 'date-fns'
 import { ArrowDown, ArrowUp, BarChart2, ChevronDown, ChevronRight, Code2, GitCommit, Minus, Square, TrendingUp, Users, X, Zap } from 'lucide-react'
-import { type CSSProperties, Fragment, lazy, memo, type ReactNode, Suspense, useCallback, useEffect, useMemo, useState } from 'react'
+import { type CSSProperties, Fragment, lazy, memo, type ReactNode, Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { DateRange } from 'react-day-picker'
 import { useTranslation } from 'react-i18next'
+import { getRankUsernameClass, RANK_CONFIG, RankAvatarRing } from '@/components/achievement/RankBadge'
+import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar'
 import { Combobox } from '@/components/ui/combobox'
 import { Skeleton } from '@/components/ui/skeleton'
 import { Table, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
@@ -13,6 +15,7 @@ import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/comp
 import { DateRangePickerPopover } from '@/components/ui-elements/DateRangePickerPopover'
 import { GlowLoader } from '@/components/ui-elements/GlowLoader'
 import { cn } from '@/lib/utils'
+import { useAchievementStore } from '@/stores/useAchievementStore'
 import type { UserInfo } from '@/stores/useProgressStore'
 import { useTaskAuthStore } from '@/stores/useTaskAuthStore'
 
@@ -61,6 +64,14 @@ type SortKey =
 
 function fmtLocalDate(d: Date): string {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+}
+
+function getInitials(name: string): string {
+  return name
+    .split(/\s+/)
+    .map(w => w[0]?.toUpperCase())
+    .join('')
+    .slice(0, 2)
 }
 
 function PanelSkeleton() {
@@ -299,6 +310,8 @@ export function TeamProgressOverviewPage() {
   const { t } = useTranslation()
   const verifySession = useTaskAuthStore(s => s.verifySession)
   const currentUser = useTaskAuthStore(s => s.user)
+  const fetchLeaderboard = useAchievementStore(s => s.fetchLeaderboard)
+  const leaderboard = useAchievementStore(s => s.leaderboard)
 
   const [projects, setProjects] = useState<ProjectOpt[]>([])
   const [allUsers, setAllUsers] = useState<UserInfo[]>([])
@@ -320,6 +333,17 @@ export function TeamProgressOverviewPage() {
   /** Tristate: cùng cột bấm lần lượt asc → desc → tắt (thứ tự danh sách gốc) */
   const [sortKey, setSortKey] = useState<SortKey | null>(null)
   const [sortDir, setSortDir] = useState<'asc' | 'desc' | null>(null)
+  const [avatarUrls, setAvatarUrls] = useState<Record<string, string | null>>({})
+  const fetchedAvatarRef = useRef<Set<string>>(new Set())
+
+  const userRanks = useMemo(
+    () =>
+      leaderboard.reduce<Record<string, string>>((acc, e) => {
+        acc[e.user_id] = e.current_rank
+        return acc
+      }, {}),
+    [leaderboard]
+  )
 
   const onSort = useCallback(
     (key: SortKey) => {
@@ -352,6 +376,20 @@ export function TeamProgressOverviewPage() {
   useEffect(() => {
     void verifySession()
   }, [verifySession])
+
+  useEffect(() => {
+    if (allUsers.length > 0) void fetchLeaderboard()
+  }, [allUsers.length, fetchLeaderboard])
+
+  useEffect(() => {
+    allUsers.forEach(u => {
+      if (fetchedAvatarRef.current.has(u.id)) return
+      fetchedAvatarRef.current.add(u.id)
+      void window.api.user.getAvatarUrl(u.id).then(url => {
+        setAvatarUrls(prev => ({ ...prev, [u.id]: url }))
+      })
+    })
+  }, [allUsers])
 
   useEffect(() => {
     let cancelled = false
@@ -580,7 +618,7 @@ export function TeamProgressOverviewPage() {
                   <TableHeader sticky className="[&_tr]:border-0 [&_tr:hover]:bg-transparent [&>tr]:bg-[var(--table-header-bg)]">
                     <TableRow className="border-0 hover:bg-transparent">
                       <TableHead className="w-8 shrink-0 rounded-tl-md p-0 border-0" aria-hidden />
-                      <SortTh columnKey="name" currentKey={sortKey} dir={sortDir} onSort={onSort} className="min-w-[72px] max-w-[min(132px,18vw)]">
+                      <SortTh columnKey="name" currentKey={sortKey} dir={sortDir} onSort={onSort} className="min-w-[96px] max-w-[min(168px,22vw)]">
                         {t('common.name')}
                       </SortTh>
                       <TableHead className="h-auto min-w-[56px] max-w-[min(120px,16vw)] border-0 p-0 align-middle">
@@ -654,10 +692,25 @@ export function TeamProgressOverviewPage() {
                                 <ChevronRight className="size-4 text-muted-foreground mx-auto" aria-hidden />
                               )}
                             </TableCell>
-                            <TableCell className="max-w-[min(132px,18vw)] min-w-[72px] py-1.5 px-1 border-0 align-middle">
-                              <CellOverflowTip text={u.name} className="font-medium">
-                                {u.name}
-                              </CellOverflowTip>
+                            <TableCell className="max-w-[min(168px,22vw)] min-w-[96px] py-1.5 px-1 border-0 align-middle">
+                              {(() => {
+                                const rank = userRanks[u.id] ?? 'newbie'
+                                const rankCfg = RANK_CONFIG[rank as keyof typeof RANK_CONFIG] ?? RANK_CONFIG.newbie
+                                const avatarSrc = u.id === currentUser?.id ? currentUser?.avatarUrl : avatarUrls[u.id]
+                                return (
+                                  <CellOverflowTip text={u.name}>
+                                    <span className="flex items-center gap-1.5 min-w-0">
+                                      <RankAvatarRing rank={rank} size="xxs" className={cn('shrink-0', rankCfg.glowClass)}>
+                                        <Avatar className="bg-transparent">
+                                          {avatarSrc ? <AvatarImage src={avatarSrc} alt={u.name} className="object-cover" /> : null}
+                                          <AvatarFallback className={cn('text-[7px] font-bold', rankCfg.bgColor, rankCfg.color)}>{getInitials(u.name)}</AvatarFallback>
+                                        </Avatar>
+                                      </RankAvatarRing>
+                                      <span className={cn('truncate font-medium', getRankUsernameClass(rank))}>{u.name}</span>
+                                    </span>
+                                  </CellOverflowTip>
+                                )
+                              })()}
                             </TableCell>
                             <TableCell className="max-w-[min(120px,16vw)] min-w-[56px] py-1.5 px-1 border-0 align-middle">
                               <CellOverflowTip text={projectCellText} className="text-muted-foreground text-xs">

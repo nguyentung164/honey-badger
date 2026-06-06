@@ -60,6 +60,9 @@ import { PR_GH_STATUS_BADGE_CLASS, prSummaryToGhStatusKind } from '../prGhStatus
 import { getMergeableUi } from '../prMergeableUi'
 import { PR_MANAGER_ACCENT_OUTLINE_BTN, PR_MANAGER_ACCENT_OUTLINE_SURFACE } from '../prManagerButtonStyles'
 import { MergePrDialog } from './MergePrDialog'
+import { PrChangedFilesList } from './PrChangedFilesList'
+import { METRIC_BADGE, type PrChangedFileView } from './prChangedFileTypes'
+import { PrMetricLines } from './prMetricBadgeContent'
 import { githubMergeableBlocksMerge } from './prBoardBulkResolve'
 
 type PrSummary = {
@@ -91,16 +94,6 @@ type PrCommitRow = {
   message: string
   author?: string | null
   date?: string | null
-}
-
-type PrFile = {
-  filename: string
-  status: string
-  patch: string | null
-  patchTruncated: boolean
-  additions: number
-  deletions: number
-  blobUrl: string | null
 }
 
 type PrComment = {
@@ -305,55 +298,6 @@ function reviewAccordionLead(
   }
 }
 
-/** Unified diff line colors (editor-style). */
-function patchLineClass(line: string): string {
-  if (
-    line.startsWith('diff --git') ||
-    line.startsWith('index ') ||
-    line.startsWith('new file') ||
-    line.startsWith('deleted file') ||
-    line.startsWith('similarity') ||
-    line.startsWith('Binary files') ||
-    line.startsWith('rename ')
-  ) {
-    return 'text-muted-foreground'
-  }
-  if (line.startsWith('---') || line.startsWith('+++')) {
-    return 'text-sky-700/95 dark:text-sky-300/95'
-  }
-  if (line.startsWith('@@')) {
-    return 'bg-blue-500/10 font-medium text-blue-800 dark:text-blue-200'
-  }
-  if (line.startsWith('+')) {
-    return 'bg-emerald-500/[0.12] text-emerald-800 dark:text-emerald-200'
-  }
-  if (line.startsWith('-')) {
-    return 'bg-rose-500/[0.12] text-rose-800 dark:text-rose-200'
-  }
-  if (line.startsWith('\\')) {
-    return 'text-muted-foreground italic'
-  }
-  return 'text-foreground/88'
-}
-
-function DiffPatchBlock({ patch }: { patch: string }) {
-  const lines = patch.split('\n')
-  return (
-    <div
-      className={cn(
-        'max-h-[min(50vh,360px)] min-w-0 max-w-full overflow-x-auto',
-        'rounded border border-border/50 bg-[hsl(220_14%_96%_/_0.5)] font-mono text-[11px] leading-[1.45] [font-variant-ligatures:none] dark:bg-[hsl(220_14%_8%_/_0.4)]'
-      )}
-    >
-      {lines.map((line, i) => (
-        <div key={i} className={cn('min-h-[1.35em] w-full min-w-0 whitespace-pre pl-0.5', patchLineClass(line))}>
-          {line || '\u00a0'}
-        </div>
-      ))}
-    </div>
-  )
-}
-
 function HeaderIconBtn({ label, disabled, onRequest, children, className }: { label: string; disabled?: boolean; onRequest: () => void; children: ReactNode; className?: string }) {
   return (
     <Tooltip>
@@ -383,7 +327,7 @@ export function PrDetailDialog({ open, onOpenChange, projectId, prRepo, prNumber
   const dateLoc = getDateFnsLocale(i18n.language) as Locale
   const [loading, setLoading] = useState(false)
   const [pr, setPr] = useState<PrSummary | null>(null)
-  const [files, setFiles] = useState<PrFile[]>([])
+  const [files, setFiles] = useState<PrChangedFileView[]>([])
   const [comments, setComments] = useState<PrComment[]>([])
   const [commentDraft, setCommentDraft] = useState('')
   const [sending, setSending] = useState(false)
@@ -1130,7 +1074,7 @@ export function PrDetailDialog({ open, onOpenChange, projectId, prRepo, prNumber
                       <GitCommit className="h-3.5 w-3.5 shrink-0" />
                       {t('prManager.detail.tabCommits')}
                       {!loading && pr ? (
-                        <Badge variant="secondary" className="h-4 min-w-4 border-0 bg-muted/90 px-1 py-0 text-[10px] font-semibold leading-4 tabular-nums shadow-none">
+                        <Badge variant="secondary" className={cn(METRIC_BADGE, 'min-w-4 font-semibold tabular-nums')}>
                           {commits.length}
                         </Badge>
                       ) : null}
@@ -1139,15 +1083,12 @@ export function PrDetailDialog({ open, onOpenChange, projectId, prRepo, prNumber
                       <FileCode className="h-3.5 w-3.5 shrink-0" />
                       <span className="max-w-[5.5rem] text-center sm:max-w-none">{t('prManager.detail.tabFiles')}</span>
                       {!loading && pr && (files.length > 0 || pr.changedFiles != null) ? (
-                        <Badge variant="secondary" className="h-4 min-h-4 gap-1 border-0 bg-muted/90 px-1.5 py-0 text-[10px] font-medium leading-4 shadow-none">
-                          <span className="tabular-nums">{files.length > 0 ? files.length : pr.changedFiles}</span>
-                          {(pr.additions != null || pr.deletions != null) && (
-                            <span className="inline-flex items-center gap-0.5 tabular-nums">
-                              {pr.additions != null ? <span className="text-emerald-600 dark:text-emerald-400">+{pr.additions}</span> : null}
-                              {pr.deletions != null ? <span className="text-rose-600 dark:text-rose-400">−{pr.deletions}</span> : null}
-                            </span>
-                          )}
-                        </Badge>
+                        <span className="inline-flex items-center gap-1">
+                          <Badge variant="secondary" className={cn(METRIC_BADGE, 'tabular-nums')}>
+                            {files.length > 0 ? files.length : (pr.changedFiles ?? 0)}
+                          </Badge>
+                          <PrMetricLines additions={pr.additions} deletions={pr.deletions} includeZero badgeClassName={METRIC_BADGE} />
+                        </span>
                       ) : null}
                     </TabsTrigger>
                   </TabsList>
@@ -1446,58 +1387,12 @@ export function PrDetailDialog({ open, onOpenChange, projectId, prRepo, prNumber
                         </AlertDescription>
                       </Alert>
                     ) : null}
-                    <div className="space-y-1.5">
-                      {files.length === 0 ? (
-                        <p className="text-sm text-muted-foreground">{t('prManager.detail.noFileData')}</p>
-                      ) : (
-                        files.map(f => {
-                          const key = f.filename
-                          const isO = fileOpen === key
-                          return (
-                            <Collapsible
-                              key={key}
-                              open={isO}
-                              onOpenChange={o => setFileOpen(o ? key : null)}
-                              className="overflow-hidden rounded-lg border border-border/60 bg-card/30"
-                            >
-                              <CollapsibleTrigger className="flex w-full min-w-0 items-start gap-2 px-2.5 py-2 text-left text-xs font-medium hover:bg-muted/50" type="button">
-                                <span className="min-w-0 flex-1 [overflow-wrap:anywhere] break-words pr-1 text-left leading-snug" title={f.filename}>
-                                  {f.filename}
-                                </span>
-                                <span className="mt-0.5 max-w-[48%] shrink-0 text-right text-[10px] leading-tight text-muted-foreground sm:max-w-[40%]">
-                                  {f.status}
-                                  {f.patchTruncated && (
-                                    <span className="ml-1 text-amber-700 dark:text-amber-300" title={t('prManager.detail.patchTruncated')}>
-                                      [{t('prManager.detail.patchTruncated')}]
-                                    </span>
-                                  )}
-                                  {f.additions > 0 && <span className="text-emerald-600"> +{f.additions}</span>}
-                                  {f.deletions > 0 && <span className="text-rose-600"> −{f.deletions}</span>}
-                                </span>
-                              </CollapsibleTrigger>
-                              <CollapsibleContent>
-                                <div className="border-t border-border/40 p-1.5 pt-0">
-                                  {!f.patch ? (
-                                    <p className="pt-1 text-xs text-amber-800 dark:text-amber-200">
-                                      {t('prManager.detail.noPatch')}{' '}
-                                      {f.blobUrl ? (
-                                        <button type="button" className="underline" onClick={() => f.blobUrl && openUrl(f.blobUrl)}>
-                                          {t('prManager.detail.onGithub')}
-                                        </button>
-                                      ) : null}
-                                    </p>
-                                  ) : (
-                                    <div className="pt-1">
-                                      <DiffPatchBlock patch={f.patch} />
-                                    </div>
-                                  )}
-                                </div>
-                              </CollapsibleContent>
-                            </Collapsible>
-                          )
-                        })
-                      )}
-                    </div>
+                    <PrChangedFilesList
+                      files={files}
+                      openFilename={fileOpen}
+                      onOpenFilename={setFileOpen}
+                      onOpenBlobUrl={openUrl}
+                    />
                   </div>
                 </TabsContent>
               </Tabs>

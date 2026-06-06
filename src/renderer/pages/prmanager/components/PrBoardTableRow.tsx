@@ -47,7 +47,19 @@ export const PrBoardTableRow = memo(function PrBoardTableRow({
   repoCell,
 }: PrBoardTableRowProps) {
   const { t, i18n } = useTranslation()
-  const { row, rowId, vis, isRowSyncLocked, branchProtected, branchHasStatusChange, branchStatusChangeCount, branchSyncMs } = rowVm
+  const {
+    row,
+    rowId,
+    vis,
+    isSelected,
+    mergeMetricsAlignment,
+    isRowSyncLocked,
+    branchProtected,
+    branchHasStatusChange,
+    branchStatusChangeCount,
+    branchSyncMs,
+  } = rowVm
+  const rowToneCls = isSelected ? 'bg-primary/15 dark:bg-primary/10' : vis.row
 
   return (
     <TableRow
@@ -56,12 +68,12 @@ export const PrBoardTableRow = memo(function PrBoardTableRow({
       className={cn(
         'align-top',
         showTableBorders ? 'border-b-0' : 'border-b border-b-border/60',
-        vis.row,
+        rowToneCls,
         isRowSyncLocked && 'pointer-events-none opacity-[0.65]'
       )}
     >
       {repoCell}
-      <TableCell className={cn(COL_BRANCH, showTableBorders && COL_DIVIDER_R, showTableBorders && COL_DIVIDER_B, 'text-xs align-top', vis.row)}>
+      <TableCell className={cn(COL_BRANCH, showTableBorders && COL_DIVIDER_R, showTableBorders && COL_DIVIDER_B, 'text-xs align-top', rowToneCls)}>
         <div className="flex min-w-0 items-center gap-0.5">
           <Tooltip>
             <TooltipTrigger asChild>
@@ -143,7 +155,7 @@ export const PrBoardTableRow = memo(function PrBoardTableRow({
               showTableBorders && COL_DIVIDER_R,
               showTableBorders && COL_DIVIDER_B,
               'p-1 text-center align-middle !whitespace-normal',
-              vis.row
+              rowToneCls
             )}
           >
             <PrBoardCheckpointCell
@@ -151,6 +163,7 @@ export const PrBoardTableRow = memo(function PrBoardTableRow({
               tpl={tpl}
               cp={cellVm.cp}
               companionPrCp={cellVm.companionPrCp}
+              mergeMetricsAlignment={mergeMetricsAlignment}
               hasStatusChange={cellVm.hasStatusChange}
               statusChangeDetail={cellVm.statusChangeDetail}
               cellVisualStyle={prMergeCellStyle}
@@ -161,7 +174,7 @@ export const PrBoardTableRow = memo(function PrBoardTableRow({
         )
       })}
       {SHOW_NOTE_COLUMN && (
-        <TableCell className={cn(showTableBorders && COL_DIVIDER_R, showTableBorders && COL_DIVIDER_B, vis.row)}>
+        <TableCell className={cn(showTableBorders && COL_DIVIDER_R, showTableBorders && COL_DIVIDER_B, rowToneCls)}>
           <Input
             value={noteDraft ?? noteValue}
             onChange={e => onNoteChange(rowId, e.target.value)}
@@ -171,7 +184,7 @@ export const PrBoardTableRow = memo(function PrBoardTableRow({
           />
         </TableCell>
       )}
-      <TableCell className={cn('w-10 p-1 text-center align-middle', showTableBorders && COL_DIVIDER_B, vis.row)} onClick={e => e.stopPropagation()}>
+      <TableCell className={cn('w-10 p-1 text-center align-middle', showTableBorders && COL_DIVIDER_B, rowToneCls)} onClick={e => e.stopPropagation()}>
         <Checkbox
           checked={rowVm.isSelected}
           onCheckedChange={() => dispatchRowAction({ type: 'toggleSelect', rowId })}

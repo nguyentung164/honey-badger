@@ -21,6 +21,7 @@ import type { PrBranchCheckpoint, PrCheckpointTemplate, PrRepo } from '../hooks/
 import { getMergeableUi } from '../prMergeableUi'
 import type { PrBoardRowAction } from './prBoardRowActions'
 import { PrSizeMetrics, prSizeMetricsFromCheckpoint } from './PrSizeMetrics'
+import type { MergeMetricsAlignment } from './prBoardTableModel'
 import {
   applyPrMergeCellVisualStyle,
   CELL_CTRL_H,
@@ -30,39 +31,42 @@ import {
   type PrMergeCellVisualStyle,
 } from './prBoardTableConstants'
 
-const MERGE_STATUS_CHANGE_FRAME_CLASS = 'rounded-md border border-dashed border-emerald-400/90 dark:border-emerald-300/80'
+/** outline: không chiếm box-model, khác border — vẫn bo theo rounded-md */
+const MERGE_STATUS_CHANGE_FRAME_CLASS =
+  'rounded-md outline outline-[0.5px] outline-dashed outline-emerald-400/90 -outline-offset-1 dark:outline-emerald-300/80'
 
-function MergeStatusChangeChrome({
-  hasStatusChange,
+function MergeStatusChangeFrame({ active, children }: { active: boolean; children: ReactNode }) {
+  if (!active) return <>{children}</>
+  return <div className={cn('w-full min-w-0', MERGE_STATUS_CHANGE_FRAME_CLASS)}>{children}</div>
+}
+
+function StatusChangeTooltip({
+  active,
   statusChangeDetail,
   children,
 }: {
-  hasStatusChange: boolean
+  active: boolean
   statusChangeDetail?: PrCheckpointStatusChangeDetail
   children: ReactNode
 }) {
   const { t } = useTranslation()
-  if (!hasStatusChange) {
-    return <>{children}</>
-  }
+  if (!active) return <>{children}</>
   const statusTooltip =
     statusChangeDetail != null
       ? t('prManager.board.statusChangedTooltip', {
-          before: formatPrCheckpointStatusFingerprint(statusChangeDetail.before, t),
-          after: formatPrCheckpointStatusFingerprint(statusChangeDetail.after, t),
-        })
+        before: formatPrCheckpointStatusFingerprint(statusChangeDetail.before, t),
+        after: formatPrCheckpointStatusFingerprint(statusChangeDetail.after, t),
+      })
       : t('prManager.board.statusChangedBadge')
   return (
-    <div className="relative w-full min-w-0">
-      <Tooltip>
-        <TooltipTrigger asChild>
-          <div className={cn('w-full min-w-0 cursor-default', MERGE_STATUS_CHANGE_FRAME_CLASS)}>{children}</div>
-        </TooltipTrigger>
-        <TooltipContent side="top" className="max-w-[320px] text-xs">
-          <p className="leading-snug">{statusTooltip}</p>
-        </TooltipContent>
-      </Tooltip>
-    </div>
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <span className="min-w-0 cursor-default truncate">{children}</span>
+      </TooltipTrigger>
+      <TooltipContent side="top" className="max-w-[320px] text-xs">
+        <p className="leading-snug">{statusTooltip}</p>
+      </TooltipContent>
+    </Tooltip>
   )
 }
 
@@ -144,14 +148,31 @@ function ghPrSurfaceClasses(cp: PrBranchCheckpoint): string {
   return GH_PR_SURFACE_BG.ready
 }
 
-function MergeCellMetrics({ cp }: { cp: PrBranchCheckpoint | null }) {
+function MergeCellMetrics({
+  cp,
+  alignment,
+  onMismatchClick,
+}: {
+  cp: PrBranchCheckpoint | null
+  alignment?: MergeMetricsAlignment
+  onMismatchClick?: (kind: 'files' | 'lines') => void
+}) {
   if (!cp?.prNumber) return null
-  return <PrSizeMetrics variant="compact" {...prSizeMetricsFromCheckpoint(cp)} />
+  return (
+    <PrSizeMetrics
+      variant="compact"
+      {...prSizeMetricsFromCheckpoint(cp)}
+      alignment={alignment}
+      onMismatchClick={onMismatchClick}
+    />
+  )
 }
 
 /** merge_*: status trái (icon + text), metrics phải (icon + số). */
 function MergeCellRow({
   companionPrCp,
+  mergeMetricsAlignment,
+  onMismatchClick,
   surfaceClassName,
   title,
   children,
@@ -160,6 +181,8 @@ function MergeCellRow({
   onClick,
 }: {
   companionPrCp: PrBranchCheckpoint | null
+  mergeMetricsAlignment?: MergeMetricsAlignment
+  onMismatchClick?: (kind: 'files' | 'lines') => void
   surfaceClassName: string
   title?: string
   children: ReactNode
@@ -197,7 +220,7 @@ function MergeCellRow({
             {children}
           </div>
         )}
-        <MergeCellMetrics cp={companionPrCp} />
+        <MergeCellMetrics cp={companionPrCp} alignment={mergeMetricsAlignment} onMismatchClick={onMismatchClick} />
       </div>
     </div>
   )
@@ -224,6 +247,7 @@ function CheckpointCellInner({
   tpl,
   cp,
   companionPrCp,
+  mergeMetricsAlignment,
   hasStatusChange = false,
   statusChangeDetail,
   cellVisualStyle,
@@ -234,6 +258,7 @@ function CheckpointCellInner({
   tpl: PrCheckpointTemplate
   cp: PrBranchCheckpoint | null
   companionPrCp: PrBranchCheckpoint | null
+  mergeMetricsAlignment?: MergeMetricsAlignment
   hasStatusChange?: boolean
   statusChangeDetail?: PrCheckpointStatusChangeDetail
   cellVisualStyle: PrMergeCellVisualStyle
@@ -247,12 +272,16 @@ function CheckpointCellInner({
   const stripBtn = (cls: string) => (cellVisualStyle >= 3 ? stripPrMergeCellBackgroundClasses(cls) : cls)
   /** Nút dùng `variant="ghost"`: CVA vẫn có hover:bg-accent — tắt khi style 3–4 đã strip nền. */
   const ghostNoDefaultHover = cellVisualStyle >= 3 ? 'bg-transparent dark:bg-transparent hover:!bg-transparent dark:hover:!bg-transparent' : undefined
+  const onMismatchClick = (kind: 'files' | 'lines') => {
+    dispatchRowAction({ type: 'openMetricsCompare', rowId, focus: kind })
+  }
 
   if (isMergeKind) {
-    const wrapMerge = (node: ReactNode) => (
-      <MergeStatusChangeChrome hasStatusChange={hasStatusChange} statusChangeDetail={statusChangeDetail}>
-        {node}
-      </MergeStatusChangeChrome>
+    const wrapMerge = (node: ReactNode) => <MergeStatusChangeFrame active={hasStatusChange}>{node}</MergeStatusChangeFrame>
+    const statusTip = (label: ReactNode) => (
+      <StatusChangeTooltip active={hasStatusChange} statusChangeDetail={statusChangeDetail}>
+        {label}
+      </StatusChangeTooltip>
     )
     const mergedOnRecord = Boolean(cp?.mergedAt)
     const mergedOnGithub = companionPrCp?.ghPrMerged === true
@@ -270,11 +299,13 @@ function CheckpointCellInner({
       return wrapMerge(
         <MergeCellRow
           companionPrCp={companionPrCp}
+          mergeMetricsAlignment={mergeMetricsAlignment}
+          onMismatchClick={onMismatchClick}
           surfaceClassName={vs('bg-violet-400/12 text-violet-700 dark:text-violet-300')}
           title={detail || undefined}
         >
           <GitMerge className="h-3.5 w-3.5 shrink-0 text-violet-500 dark:text-violet-300" />
-          <span className="min-w-0 truncate font-medium">{t('prManager.board.merged')}</span>
+          <span className="min-w-0 truncate font-medium">{statusTip(t('prManager.board.merged'))}</span>
         </MergeCellRow>
       )
     }
@@ -285,6 +316,8 @@ function CheckpointCellInner({
       return wrapMerge(
         <MergeCellRow
           companionPrCp={companionPrCp}
+          mergeMetricsAlignment={mergeMetricsAlignment}
+          onMismatchClick={onMismatchClick}
           surfaceClassName={vs('bg-slate-400/10 text-slate-600 dark:text-slate-300')}
           title={t('prManager.board.draftTitle')}
           interactive
@@ -292,7 +325,7 @@ function CheckpointCellInner({
           onClick={canOpen ? () => dispatchRowAction({ type: 'openPrInApp', rowId, prNumber: draftN }) : undefined}
         >
           <GitPullRequestDraft className="h-3.5 w-3.5 shrink-0" />
-          <span className="min-w-0 truncate font-medium">{t('prManager.board.draftLabel')}</span>
+          <span className="min-w-0 truncate font-medium">{statusTip(t('prManager.board.draftLabel'))}</span>
         </MergeCellRow>
       )
     }
@@ -306,14 +339,16 @@ function CheckpointCellInner({
       return wrapMerge(
         <MergeCellRow
           companionPrCp={companionPrCp}
+          mergeMetricsAlignment={mergeMetricsAlignment}
+          onMismatchClick={onMismatchClick}
           surfaceClassName={vs(mergeUi.mergeCell)}
           title={mergeUi.mergeTitle ? `${mergeUi.mergeTitle} ${t('prManager.mergeableUi.openInAppHint')}` : t('prManager.mergeableUi.openInAppHint')}
           interactive
           disabled={!canOpen}
           onClick={canOpen ? () => { if (blockN == null) return; dispatchRowAction({ type: 'openPrInApp', rowId, prNumber: blockN }) } : undefined}
         >
-          <MIcon className="h-3.5 w-3.5 shrink-0" />
-          <span className="min-w-0 truncate font-medium">{mergeUi.shortLabel}</span>
+          <MIcon className={cn('h-3.5 w-3.5 shrink-0', mergeUi.prIcon)} />
+          <span className="min-w-0 truncate font-medium">{statusTip(mergeUi.shortLabel)}</span>
         </MergeCellRow>
       )
     }
@@ -348,9 +383,9 @@ function CheckpointCellInner({
                 ghostNoDefaultHover
               )}
             >
-              <GitMerge className="h-3.5 w-3.5 shrink-0 text-emerald-600 dark:text-emerald-300" /> {t('prManager.board.merge')}
+              <GitMerge className="h-3.5 w-3.5 shrink-0 text-emerald-600 dark:text-emerald-300" /> {statusTip(t('prManager.board.merge'))}
             </Button>
-            <MergeCellMetrics cp={companionPrCp} />
+            <MergeCellMetrics cp={companionPrCp} alignment={mergeMetricsAlignment} onMismatchClick={onMismatchClick} />
           </div>
         </div>
       )
@@ -362,6 +397,8 @@ function CheckpointCellInner({
       return wrapMerge(
         <MergeCellRow
           companionPrCp={companionPrCp}
+          mergeMetricsAlignment={mergeMetricsAlignment}
+          onMismatchClick={onMismatchClick}
           surfaceClassName={vs('bg-rose-400/10 text-rose-700 dark:text-rose-300')}
           title={t('prManager.board.openPrInApp')}
           interactive
@@ -369,7 +406,7 @@ function CheckpointCellInner({
           onClick={canOpen ? () => dispatchRowAction({ type: 'openPrInApp', rowId, prNumber: closedN }) : undefined}
         >
           <GitPullRequestClosed className="h-3.5 w-3.5 shrink-0 text-rose-500 dark:text-rose-300" />
-          <span className="min-w-0 truncate font-medium">{t('prManager.board.closed')}</span>
+          <span className="min-w-0 truncate font-medium">{statusTip(t('prManager.board.closed'))}</span>
         </MergeCellRow>
       )
     }
@@ -378,7 +415,7 @@ function CheckpointCellInner({
       <div
         className={vs(cn('flex w-full items-center justify-center gap-1 rounded-md bg-zinc-400/10 text-zinc-700 dark:bg-zinc-500/12 dark:text-zinc-200', CELL_CTRL_H, CELL_TXT))}
       >
-        <Hourglass className="h-3.5 w-3.5 shrink-0 text-zinc-500 dark:text-zinc-400" /> {t('prManager.board.waitingForPr')}
+        <Hourglass className="h-3.5 w-3.5 shrink-0 text-zinc-500 dark:text-zinc-400" /> {statusTip(t('prManager.board.waitingForPr'))}
       </div>
     )
   }
@@ -448,9 +485,9 @@ function CheckpointCellInner({
                   : cp.ghPrDraft === true
                     ? t('prManager.board.tooltipDraft')
                     : (() => {
-                        const u = getMergeableUi(cp.ghPrMergeableState, t)
-                        return u.blockMerge ? t('prManager.board.openBlocked', { label: u.shortLabel }) : t('prManager.board.openReady')
-                      })()}
+                      const u = getMergeableUi(cp.ghPrMergeableState, t)
+                      return u.blockMerge ? t('prManager.board.openBlocked', { label: u.shortLabel }) : t('prManager.board.openReady')
+                    })()}
             </div>
             <div className="leading-snug text-muted-foreground">{titleText}</div>
             {cp.ghPrUpdatedAt ? (
@@ -539,6 +576,7 @@ type PrBoardCheckpointCellProps = {
   tpl: PrCheckpointTemplate
   cp: PrBranchCheckpoint | null
   companionPrCp: PrBranchCheckpoint | null
+  mergeMetricsAlignment?: MergeMetricsAlignment
   hasStatusChange?: boolean
   statusChangeDetail?: PrCheckpointStatusChangeDetail
   cellVisualStyle: PrMergeCellVisualStyle
@@ -551,6 +589,7 @@ export const PrBoardCheckpointCell = memo(function PrBoardCheckpointCell({
   tpl,
   cp,
   companionPrCp,
+  mergeMetricsAlignment,
   hasStatusChange,
   statusChangeDetail,
   cellVisualStyle,
@@ -563,6 +602,7 @@ export const PrBoardCheckpointCell = memo(function PrBoardCheckpointCell({
       tpl={tpl}
       cp={cp}
       companionPrCp={companionPrCp}
+      mergeMetricsAlignment={mergeMetricsAlignment}
       hasStatusChange={hasStatusChange}
       statusChangeDetail={statusChangeDetail}
       cellVisualStyle={cellVisualStyle}
@@ -572,4 +612,4 @@ export const PrBoardCheckpointCell = memo(function PrBoardCheckpointCell({
   )
 })
 
-export { GH_PR_SURFACE_BG, ghPrSurfaceClasses, ghPrContentTextClass, PrStatusIcon, MergeStatusChangeChrome }
+export { GH_PR_SURFACE_BG, ghPrSurfaceClasses, ghPrContentTextClass, PrStatusIcon, MergeStatusChangeFrame, StatusChangeTooltip }

@@ -26,12 +26,12 @@ import { Checkbox } from '@/components/ui/checkbox'
 import { Collapsible, CollapsibleContent } from '@/components/ui/collapsible'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
-import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import { cn } from '@/lib/utils'
 import type { PrCheckpointTemplate, PrRepo } from '../hooks/usePrData'
 import type { PrGhStatusKind } from '../prGhStatus'
 import { PR_GH_STATUS_IDS, PR_GH_STATUS_TEXT_CLASS } from '../prGhStatus'
+import { PrBoardBulkActionsHelp } from './PrBoardBulkActionsHelp'
 import type { BulkActionKind } from './prBoardBulkResolve'
 import { PrBoardFullTableSyncButton, type PrBoardSyncProgressEvent } from './PrBoardFullTableSyncButton'
 
@@ -58,6 +58,26 @@ const PR_GH_FILTER_STYLE: Record<PrGhStatusKind, { label: string; checkbox: stri
       'data-[state=checked]:border-rose-600 data-[state=checked]:bg-rose-600 data-[state=checked]:text-white dark:data-[state=checked]:border-rose-500 dark:data-[state=checked]:bg-rose-600',
   },
 }
+
+const ACROSS_PR_COMBINE_SHELL_CLS = cn(
+  'inline-flex shrink-0 gap-0.5 rounded-lg bg-zinc-200/95 p-0.5 shadow-sm',
+  'dark:bg-zinc-800/95 dark:shadow-black/20'
+)
+
+const ACROSS_PR_COMBINE_BTN_BASE_CLS = cn(
+  'rounded-md border-0 px-2.5 py-1 text-xs font-medium shadow-none transition-colors',
+  'focus-visible:z-10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/80 focus-visible:ring-offset-2 focus-visible:ring-offset-background'
+)
+
+const ACROSS_PR_COMBINE_BTN_ON_CLS = cn(
+  'bg-white font-semibold text-foreground shadow-sm hover:bg-white hover:text-foreground',
+  'dark:bg-zinc-600 dark:text-zinc-50 dark:hover:bg-zinc-600'
+)
+
+const ACROSS_PR_COMBINE_BTN_OFF_CLS = cn(
+  'bg-transparent text-muted-foreground hover:bg-zinc-300/60 hover:text-foreground',
+  'dark:hover:bg-zinc-700/80'
+)
 
 type PrGhAdvancedCombineMode = 'and' | 'or'
 
@@ -466,58 +486,47 @@ export const PrBoardToolbar = memo(function PrBoardToolbar(props: PrBoardToolbar
               <div className="flex w-full min-w-0 flex-wrap items-center justify-between gap-x-4 gap-y-2 border-t border-border/60 pt-1">
                 <div className="flex min-w-0 flex-1 flex-wrap items-center gap-x-3 gap-y-2">
                   <span className="shrink-0 text-[11px] font-medium leading-snug text-muted-foreground">{t('prManager.board.advancedCombineLabel')}</span>
-                  <ToggleGroup
-                    type="single"
-                    value={advancedFiltersOpen ? prGhAdvancedCombineMode : prGhSimpleCombineMode}
-                    onValueChange={v => {
-                      if (v !== 'and' && v !== 'or') return
-                      if (advancedFiltersOpen) setPrGhAdvancedCombineMode(v)
-                      else setPrGhSimpleCombineMode(v)
-                    }}
-                    variant="default"
-                    size="xs"
-                    spacing={0}
-                    className={cn('shrink-0 gap-0 rounded-lg bg-zinc-200/95 shadow-sm', 'dark:bg-zinc-800 dark:shadow-black/20')}
+                  <div
+                    role="group"
+                    aria-label={t('prManager.board.advancedCombineLabel')}
+                    className={ACROSS_PR_COMBINE_SHELL_CLS}
                   >
-                    <Tooltip>
-                      <TooltipTrigger asChild>
-                        <ToggleGroupItem
-                          value="and"
-                          className={cn(
-                            'border-0 font-medium shadow-none',
-                            'rounded-sm text-muted-foreground hover:bg-zinc-300/70 hover:text-foreground dark:hover:bg-zinc-700',
-                            'data-[state=on]:bg-primary data-[state=on]:font-semibold data-[state=on]:text-primary-foreground',
-                            'data-[state=on]:hover:bg-primary data-[state=on]:hover:text-primary-foreground',
-                            'focus-visible:z-10 focus-visible:ring-2 focus-visible:ring-ring/80 focus-visible:ring-offset-2 focus-visible:ring-offset-background'
-                          )}
-                        >
-                          {t('prManager.board.advancedCombineAnd')}
-                        </ToggleGroupItem>
-                      </TooltipTrigger>
-                      <TooltipContent side="bottom" className="max-w-xs text-xs">
-                        {t('prManager.board.advancedCombineAndHelp')}
-                      </TooltipContent>
-                    </Tooltip>
-                    <Tooltip>
-                      <TooltipTrigger asChild>
-                        <ToggleGroupItem
-                          value="or"
-                          className={cn(
-                            'border-0 font-medium shadow-none',
-                            'rounded-sm text-muted-foreground hover:bg-zinc-300/70 hover:text-foreground dark:hover:bg-zinc-700',
-                            'data-[state=on]:bg-primary data-[state=on]:font-semibold data-[state=on]:text-primary-foreground',
-                            'data-[state=on]:hover:bg-primary data-[state=on]:hover:text-primary-foreground',
-                            'focus-visible:z-10 focus-visible:ring-2 focus-visible:ring-ring/80 focus-visible:ring-offset-2 focus-visible:ring-offset-background'
-                          )}
-                        >
-                          {t('prManager.board.advancedCombineOr')}
-                        </ToggleGroupItem>
-                      </TooltipTrigger>
-                      <TooltipContent side="bottom" className="max-w-xs text-xs">
-                        {t('prManager.board.advancedCombineOrHelp')}
-                      </TooltipContent>
-                    </Tooltip>
-                  </ToggleGroup>
+                    {(['and', 'or'] as const).map(mode => {
+                      const combineMode = advancedFiltersOpen ? prGhAdvancedCombineMode : prGhSimpleCombineMode
+                      const active = combineMode === mode
+                      const combineNeedsMultipleColumns = orderedPrCheckpointTemplates.length < 2
+                      return (
+                        <Tooltip key={mode}>
+                          <TooltipTrigger asChild>
+                            <button
+                              type="button"
+                              aria-pressed={active}
+                              disabled={combineNeedsMultipleColumns}
+                              className={cn(
+                                ACROSS_PR_COMBINE_BTN_BASE_CLS,
+                                active ? ACROSS_PR_COMBINE_BTN_ON_CLS : ACROSS_PR_COMBINE_BTN_OFF_CLS,
+                                combineNeedsMultipleColumns && 'cursor-not-allowed opacity-50'
+                              )}
+                              onClick={() => {
+                                if (combineNeedsMultipleColumns) return
+                                if (advancedFiltersOpen) setPrGhAdvancedCombineMode(mode)
+                                else setPrGhSimpleCombineMode(mode)
+                              }}
+                            >
+                              {mode === 'and' ? t('prManager.board.advancedCombineAnd') : t('prManager.board.advancedCombineOr')}
+                            </button>
+                          </TooltipTrigger>
+                          <TooltipContent side="bottom" className="max-w-xs text-xs">
+                            {combineNeedsMultipleColumns
+                              ? t('prManager.board.advancedCombineSingleColumnHelp')
+                              : mode === 'and'
+                                ? t('prManager.board.advancedCombineAndHelp')
+                                : t('prManager.board.advancedCombineOrHelp')}
+                          </TooltipContent>
+                        </Tooltip>
+                      )
+                    })}
+                  </div>
                   {!advancedFiltersOpen ? (
                     <>
                       <div className="h-3 w-px shrink-0 self-center bg-border" aria-hidden />
@@ -616,8 +625,11 @@ export const PrBoardToolbar = memo(function PrBoardToolbar(props: PrBoardToolbar
               </CollapsibleContent>
             </Collapsible>
           </div>
-          <div className="ml-auto flex min-w-0 max-w-full shrink-0 flex-col items-stretch gap-1.5 rounded-md border border-dashed bg-muted/30 px-2 pt-1.5 sm:px-3">
-            <span className="w-full text-center text-[12px] font-medium leading-none text-muted-foreground">{t('prManager.bulk.toolbarLabel')}</span>
+          <div className="ml-auto flex min-w-0 max-w-full shrink-0 flex-col items-stretch gap-1 rounded-md border border-dashed bg-muted/30 px-2 pt-1.5 sm:px-3">
+            <div className="flex w-full items-center justify-center gap-0.5">
+              <span className="text-[12px] font-medium leading-none text-muted-foreground">{t('prManager.bulk.toolbarLabel')}</span>
+              <PrBoardBulkActionsHelp />
+            </div>
             <div className="flex min-h-8 w-full flex-wrap items-center justify-end gap-1.5 sm:gap-2">
               <Tooltip>
                 <TooltipTrigger asChild>

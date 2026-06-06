@@ -7,7 +7,7 @@ import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar'
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { cn } from '@/lib/utils'
 import { useAchievementStore } from '@/stores/useAchievementStore'
-import { RANK_CONFIG } from './RankBadge'
+import { getRankUsernameClass, RANK_CONFIG, RankAvatarRing } from './RankBadge'
 import { UserProfilePanel } from './UserProfilePanel'
 
 interface UserItem {
@@ -124,14 +124,16 @@ export function AllUsersProfileDialog({ open, onOpenChange }: AllUsersProfileDia
                       const rank = userRanks[u.id] ?? 'newbie'
                       const rankCfg = RANK_CONFIG[rank as keyof typeof RANK_CONFIG] ?? RANK_CONFIG.newbie
                       return (
-                        <Avatar className={cn('h-9 w-9 shrink-0 ring-2', rankCfg.ringColor)}>
-                          {avatarUrls[u.id] && <AvatarImage src={avatarUrls[u.id] ?? ''} alt={u.name} className="object-cover" />}
-                          <AvatarFallback className={cn('text-sm font-bold', rankCfg.bgColor, rankCfg.color)}>{getInitials(u.name)}</AvatarFallback>
-                        </Avatar>
+                        <RankAvatarRing rank={rank} size="md" className={cn('shrink-0', rankCfg.glowClass)}>
+                          <Avatar className="bg-transparent">
+                            {avatarUrls[u.id] && <AvatarImage src={avatarUrls[u.id] ?? ''} alt={u.name} className="object-cover" />}
+                            <AvatarFallback className={cn('text-sm font-bold', rankCfg.bgColor, rankCfg.color)}>{getInitials(u.name)}</AvatarFallback>
+                          </Avatar>
+                        </RankAvatarRing>
                       )
                     })()}
                     <div className="flex-1 min-w-0">
-                      <div className="text-sm font-medium truncate">{u.name}</div>
+                      <div className={cn('text-sm truncate', getRankUsernameClass(userRanks[u.id] ?? 'newbie'))}>{u.name}</div>
                       <div className="text-xs text-muted-foreground truncate">{u.userCode}</div>
                     </div>
                   </button>

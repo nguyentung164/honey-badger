@@ -3108,9 +3108,15 @@
     "myProfile": "マイプロフィール",
     "allUsers": "全ユーザー",
     "noUsers": "ユーザーがいません",
-    "previewToast": "アチーブメント(デモ)",
+    "previewToast": "アチーブメント (デモ)",
+    "previewRank": "ランク (デモ)",
+    "previewRankActive": "pill",
+    "previewRankReset": "タイトルバーのスタイルをリセット",
     "leaderboard": "ランキング",
     "viewAllBadges": "全バッジを見る（{{count}}獲得）",
+    "profileStats": {
+      "commitStreak": "コミット連続"
+    },
     "showLock": "ロック表示",
     "showUnlock": "アイコン表示",
     "badgesDialog": {
@@ -3984,6 +3990,31 @@
       "files": "{{count}} ファイル変更",
       "lines": "+{{additions}} −{{deletions}} 行"
     },
+    "metricsCompare": {
+      "title": "PR変更の比較",
+      "reload": "再読み込み",
+      "reloadAria": "GitHubからファイル一覧を再読み込み",
+      "openPrDetail": "PR詳細を開く（コミットリセット、同期…）",
+      "noPr": "{{branch}} のPRはまだありません",
+      "noFileInPanel": "このPRにファイルがありません: {{file}}",
+      "summaryTitle": "ファイル概要（union）",
+      "fileCompareTitle": "比較: {{file}}",
+      "partialFile": "一部のステージのみ",
+      "clickToCompare": "クリックして比較",
+      "loadError": "ファイルを読み込めませんでした",
+      "emptyFiles": "比較するファイルデータがありません。",
+      "fileColumn": "ファイル",
+      "focusFiles": "ファイル数の不一致",
+      "focusLines": "行数の不一致",
+      "absent": "なし",
+      "noRepo": "この行のリポジトリが見つかりません。",
+      "needGithub": "ファイル比較にはGitHubログインが必要です。",
+      "onlySharedFiles": "すべてのPRにあるファイルのみ",
+      "emptySharedFiles": "すべてのPRに存在するファイルはありません。",
+      "onlyLineMismatchFiles": "行数不一致のみ",
+      "emptyLineMismatchFiles": "行数が一致しないファイルはありません。",
+      "emptyLineMismatchSharedFiles": "すべてのPRに共通し行数不一致のファイルはありません。"
+    },
     "board": {
       "toastRemoteCheck": "GitHub上でブランチを確認できませんでした。",
       "toastNote": "メモを保存できませんでした。",
@@ -4031,6 +4062,7 @@
       "advancedCombineOr": "いずれか (OR)",
       "advancedCombineAndHelp": "AND: 絞り込んだ列には該当するPRが必要です（Mergedのみなど）。4状態すべてオンはその列にPRがなくても可。",
       "advancedCombineOrHelp": "列のフィルターに一致するPRが1つでもあれば表示します。",
+      "advancedCombineSingleColumnHelp": "PR列が2つ以上必要です（例: stage と main）。1列だけのときは AND と OR は同じ動作です。",
       "filterByBranchLabel": "ブランチ:",
       "onlyRemote": "リモートのみ",
       "onlyRemoteTitle": "オンにすると、PR 履歴のないブランチ行だけを remote 上に head ref が残っている場合に表示します（GitHub で確認）。PR 履歴のある行は、マージ済み PR を隠さないためそのまま表示します。",
@@ -4100,6 +4132,8 @@
     "bulk": {
       "nSelected": "{{count}} 件選択中",
       "toolbarLabel": "一括操作",
+      "helpAria": "一括操作のヘルプ",
+      "helpIntro": "選択行が条件を満たす場合に実行されます（多くは GitHub トークンが必要）。",
       "selectPage": "このページの行をすべて選択",
       "selectRow": "一括操作用に行を選択",
       "tt": {

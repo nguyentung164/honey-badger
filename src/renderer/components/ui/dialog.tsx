@@ -39,16 +39,18 @@ function DialogContent({
   showCloseButton = true,
   overlayClassName,
   closeDisabled = false,
+  onOverlayPointerDown,
   ...props
 }: React.ComponentProps<typeof DialogPrimitive.Content> & {
   showCloseButton?: boolean
   overlayClassName?: string
   /** Khi true: nút X không đóng được (vd. thao tác đang chạy). */
   closeDisabled?: boolean
+  onOverlayPointerDown?: React.PointerEventHandler<HTMLDivElement>
 }) {
   return (
     <DialogPortal data-slot="dialog-portal">
-      <DialogOverlay className={overlayClassName} />
+      <DialogOverlay className={overlayClassName} onPointerDown={onOverlayPointerDown} />
       <DialogPrimitive.Content
         data-slot="dialog-content"
         className={cn(

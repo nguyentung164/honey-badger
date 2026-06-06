@@ -21,12 +21,26 @@ export interface AchievementToastItem {
   timestamp: number
 }
 
-type ToastCallback = (item: AchievementToastItem) => void
+export type EmitAchievementToastOptions = {
+  /** Replace queue — admin demo re-preview without stacking dialogs. */
+  replace?: boolean
+}
 
-let toastCallback: ToastCallback | null = null
+type ToastCallback = (item: AchievementToastItem, options?: EmitAchievementToastOptions) => void
 
+const toastCallbacks = new Set<ToastCallback>()
+
+/** Subscribe to achievement / rank-up toasts. Returns unsubscribe. */
 export function registerAchievementToastCallback(cb: ToastCallback) {
-  toastCallback = cb
+  toastCallbacks.add(cb)
+  return () => {
+    toastCallbacks.delete(cb)
+  }
+}
+
+/** Push a toast locally (admin demo, tests) without IPC roundtrip. */
+export function emitAchievementToast(item: AchievementToastItem, options?: EmitAchievementToastOptions) {
+  toastCallbacks.forEach(cb => cb(item, options))
 }
 
 export function useAchievementNotification() {
@@ -49,7 +63,7 @@ export function useAchievementNotification() {
           payload,
           timestamp: Date.now(),
         }
-        toastCallback?.(toastItem)
+        emitAchievementToast(toastItem)
         // Refresh stats after achievement
         setTimeout(() => fetchAll(), 500)
       } catch {

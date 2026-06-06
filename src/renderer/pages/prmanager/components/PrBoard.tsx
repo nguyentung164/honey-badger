@@ -34,6 +34,7 @@ import {
 } from '../repoBaseBranchInsights'
 import { CreatePrDialog } from './CreatePrDialog'
 import { MergePrDialog } from './MergePrDialog'
+import { PrMetricsCompareDialog } from './PrMetricsCompareDialog'
 import { PrAiAssistSheet } from './PrAiAssistSheet'
 import { PrBulkActionsDialog } from './PrBulkActionsDialog'
 import { PrDetailDialog } from './PrDetailDialog'
@@ -62,6 +63,14 @@ import {
   type PrMergeCellVisualStyle,
 } from './prBoardTableConstants'
 import { buildPagedTableViewModel, buildRepoById, stabilizeTableViewModel } from './prBoardTableModel'
+import {
+  derivePrKind,
+  flattenPrBoardRowsForPaging,
+  isPrGhStatusFilterNarrowed,
+  mergePrBoardFilteredRows,
+  rowMatchesPrGhBoardFilters,
+  type PrGhAdvancedCombineMode,
+} from './prBoardGhFilters'
 import { PrBoardTable } from './PrBoardTable'
 import { PrBoardToolbar } from './PrBoardToolbar'
 import type { PrBoardSyncProgressEvent } from './PrBoardFullTableSyncButton'
@@ -99,28 +108,6 @@ function githubPrCreatorLogin(row: TrackedBranchRow, orderedTemplates: PrCheckpo
   return null
 }
 
-function derivePrKind(prCp: PrBranchCheckpoint, mergeCp: PrBranchCheckpoint | null): PrGhFilterId {
-  if (mergeCp?.mergedAt || prCp.ghPrMerged === true) return 'merged'
-  // Closed trước Draft: PR draft bị đóng trên GitHub vẫn có draft:true — phải là closed cho lọc, không lọt nhóm Draft
-  if (prCp.ghPrState === 'closed') return 'closed'
-  if (prCp.ghPrDraft === true) return 'draft'
-  if (prCp.ghPrState === 'open') return 'open'
-  return 'open'
-}
-
-function collectRowPrKinds(row: TrackedBranchRow, activeTemplates: PrCheckpointTemplate[]): Set<PrGhFilterId> {
-  const kinds = new Set<PrGhFilterId>()
-  for (const tpl of activeTemplates) {
-    if (!tpl.code.toLowerCase().startsWith('pr_')) continue
-    const prCp = row.checkpoints.find(c => c.templateId === tpl.id) ?? null
-    if (!prCp?.prNumber) continue
-    const mergeTpl = activeTemplates.find(t => t.code.toLowerCase().startsWith('merge_') && t.targetBranch === tpl.targetBranch)
-    const mergeCp = mergeTpl ? (row.checkpoints.find(c => c.templateId === mergeTpl.id) ?? null) : null
-    kinds.add(derivePrKind(prCp, mergeCp))
-  }
-  return kinds
-}
-
 /** Có ít nhất một ô pr_* (checkpoint) đã gắn số PR. */
 function rowHasAnyPrNumber(row: TrackedBranchRow, activeTemplates: PrCheckpointTemplate[]): boolean {
   for (const tpl of activeTemplates) {
@@ -134,63 +121,6 @@ function rowHasAnyPrNumber(row: TrackedBranchRow, activeTemplates: PrCheckpointT
 /** Row đã có bất kỳ checkpoint PR nào để giữ lịch sử hiển thị dù head ref trên remote đã biến mất. */
 function rowHasAnyPrHistory(row: TrackedBranchRow): boolean {
   return row.checkpoints.some(cp => cp.prNumber != null)
-}
-
-/** AND: mọi cột pr_* được lọc hẹp đều phải có PR khớp; cột bật đủ 4 trạng thái = không ràng buộc cột đó. OR: ít nhất một cột có PR khớp. */
-type PrGhAdvancedCombineMode = 'and' | 'or'
-
-function prColumnKindMatchesFilters(kind: PrGhFilterId, filters: Set<PrGhFilterId>): boolean {
-  const allOn = PR_GH_FILTER_IDS.every(id => filters.has(id))
-  if (allOn) return true
-  if (filters.size === 0) return false
-  return filters.has(kind)
-}
-
-/** Lọc nâng cao theo từng cột pr_*; AND = mọi cột có lọc hẹp đều phải có PR khớp (thiếu PR ở cột đó → loại). */
-function rowMatchesPrGhFiltersPerTemplate(
-  row: TrackedBranchRow,
-  activeTemplates: PrCheckpointTemplate[],
-  filtersByTplId: Record<string, PrGhFilterId[]>,
-  /** Chưa có entry trong map → coi như copy bộ lọc đơn (đồng bộ UI merge template). */
-  simpleGhFallback: Set<PrGhFilterId>,
-  combineMode: PrGhAdvancedCombineMode
-): boolean {
-  if (combineMode === 'or') {
-    for (const tpl of activeTemplates) {
-      if (!tpl.code.toLowerCase().startsWith('pr_')) continue
-      const prCp = row.checkpoints.find(c => c.templateId === tpl.id) ?? null
-      if (!prCp?.prNumber) continue
-      const mergeTpl = activeTemplates.find(t => t.code.toLowerCase().startsWith('merge_') && t.targetBranch === tpl.targetBranch)
-      const mergeCp = mergeTpl ? (row.checkpoints.find(c => c.templateId === mergeTpl.id) ?? null) : null
-      const kind = derivePrKind(prCp, mergeCp)
-      const raw = filtersByTplId[tpl.id]
-      const filters: Set<PrGhFilterId> = raw === undefined ? new Set(PR_GH_FILTER_IDS.filter(id => simpleGhFallback.has(id))) : raw.length === 0 ? new Set() : new Set(raw)
-      if (prColumnKindMatchesFilters(kind, filters)) return true
-    }
-    return false
-  }
-
-  let anyPr = false
-  for (const tpl of activeTemplates) {
-    if (!tpl.code.toLowerCase().startsWith('pr_')) continue
-    const raw = filtersByTplId[tpl.id]
-    const filters: Set<PrGhFilterId> = raw === undefined ? new Set(PR_GH_FILTER_IDS.filter(id => simpleGhFallback.has(id))) : raw.length === 0 ? new Set() : new Set(raw)
-    const allStatusesSelected = PR_GH_FILTER_IDS.every(id => filters.has(id))
-
-    const prCp = row.checkpoints.find(c => c.templateId === tpl.id) ?? null
-    if (!prCp?.prNumber) {
-      // AND: lọc hẹp (không phải “tất cả” và có chọn ít nhất 1 trạng thái) → cần PR trên cột này mới có thể khớp
-      if (!allStatusesSelected && filters.size > 0) return false
-      continue
-    }
-
-    anyPr = true
-    const mergeTpl = activeTemplates.find(t => t.code.toLowerCase().startsWith('merge_') && t.targetBranch === tpl.targetBranch)
-    const mergeCp = mergeTpl ? (row.checkpoints.find(c => c.templateId === mergeTpl.id) ?? null) : null
-    const kind = derivePrKind(prCp, mergeCp)
-    if (!prColumnKindMatchesFilters(kind, filters)) return false
-  }
-  return anyPr
 }
 
 /** Bộ lọc bảng (GitHub + remote + no-PR) — theo projectId, giữ khi đóng app. */
@@ -388,6 +318,12 @@ export function PrBoard({ projectId, userId, repos, templates, tracked, loading,
   const [prDetailOpen, setPrDetailOpen] = useState(false)
   const [prDetailRepo, setPrDetailRepo] = useState<PrRepo | null>(null)
   const [prDetailNumber, setPrDetailNumber] = useState<number | null>(null)
+  const [metricsCompareOpen, setMetricsCompareOpen] = useState(false)
+  const [metricsCompareCtx, setMetricsCompareCtx] = useState<{
+    row: TrackedBranchRow
+    repo: PrRepo
+    focus?: 'files' | 'lines'
+  } | null>(null)
   const [fileOverlapOpen, setFileOverlapOpen] = useState(false)
   const [noteDraft, setNoteDraft] = useState<Record<string, string>>({})
   const [githubSyncUi, setGithubSyncUi] = useState<GithubSyncUiState>({ kind: 'idle' })
@@ -700,17 +636,6 @@ export function PrBoard({ projectId, userId, repos, templates, tracked, loading,
   /** Cùng tập nhánh với `remoteFilteredRows` (đồng bộ count filter GitHub / Advanced với bảng). */
   const prGhFilterCountRows = remoteFilteredRows
 
-  const prGhFilterCounts = useMemo(() => {
-    const counts: Record<PrGhFilterId, number> = { open: 0, draft: 0, merged: 0, closed: 0 }
-    for (const row of prGhFilterCountRows) {
-      const kinds = collectRowPrKinds(row, activeTemplates)
-      for (const id of PR_GH_FILTER_IDS) {
-        if (kinds.has(id)) counts[id]++
-      }
-    }
-    return counts
-  }, [prGhFilterCountRows, activeTemplates])
-
   /** Số PR theo trạng thái riêng từng cột pr_* (dùng hiển thị trong Advanced). */
   const prGhAdvancedColumnCounts = useMemo(() => {
     const m: Record<string, Record<PrGhFilterId, number>> = {}
@@ -748,14 +673,23 @@ export function PrBoard({ projectId, userId, repos, templates, tracked, loading,
     return n
   }, [searchRows, remoteExistMap])
 
+  const prGhCombineMode = advancedFiltersOpen ? prGhAdvancedCombineMode : prGhSimpleCombineMode
+
+  const prGhStatusFilterNarrowed = useMemo(
+    () => isPrGhStatusFilterNarrowed(orderedPrCheckpointTemplates, prGhFilters, advancedFiltersOpen, prGhFiltersByTpl),
+    [orderedPrCheckpointTemplates, prGhFilters, advancedFiltersOpen, prGhFiltersByTpl]
+  )
+
   const filteredRows = useMemo(() => {
-    const matchPrRow = (row: TrackedBranchRow) => {
-      if (advancedFiltersOpen) {
-        return rowMatchesPrGhFiltersPerTemplate(row, activeTemplates, prGhFiltersByTpl, prGhFilters, prGhAdvancedCombineMode)
-      }
-      return rowMatchesPrGhFiltersPerTemplate(row, activeTemplates, {}, prGhFilters, prGhSimpleCombineMode)
+    const boardFilterOptions = {
+      advancedFiltersOpen,
+      prGhFilters,
+      prGhFiltersByTpl,
+      combineMode: prGhCombineMode,
     }
-    const fromKind = remoteFilteredRows.filter(matchPrRow)
+    const fromKind = remoteFilteredRows.filter(row =>
+      rowMatchesPrGhBoardFilters(row, orderedPrCheckpointTemplates, activeTemplates, boardFilterOptions)
+    )
     if (!onlyBranchesWithoutPr) return fromKind
     const fromNoPr = remoteFilteredRows.filter(row => {
       if (rowHasAnyPrNumber(row, activeTemplates)) return false
@@ -763,22 +697,35 @@ export function PrBoard({ projectId, userId, repos, templates, tracked, loading,
       if (remoteExistMap == null) return false
       return remoteExistMap[row.id] === true
     })
-    const byId = new Map<string, TrackedBranchRow>()
-    for (const row of fromNoPr) byId.set(row.id, row)
-    for (const row of fromKind) byId.set(row.id, row)
-    return Array.from(byId.values())
+    return mergePrBoardFilteredRows(fromKind, fromNoPr, onlyBranchesWithoutPr, prGhStatusFilterNarrowed)
   }, [
     remoteFilteredRows,
+    orderedPrCheckpointTemplates,
     activeTemplates,
-    prGhFilters,
     advancedFiltersOpen,
-    prGhAdvancedCombineMode,
-    prGhSimpleCombineMode,
+    prGhFilters,
     prGhFiltersByTpl,
+    prGhCombineMode,
     onlyBranchesWithoutPr,
     onlyExistingOnRemote,
     remoteExistMap,
+    prGhStatusFilterNarrowed,
   ])
+
+  /** Số PR theo trạng thái trên các nhánh đang hiện trong bảng (đồng bộ AND/OR + bộ lọc). */
+  const prGhFilterCounts = useMemo(() => {
+    const counts: Record<PrGhFilterId, number> = { open: 0, draft: 0, merged: 0, closed: 0 }
+    for (const row of filteredRows) {
+      for (const tpl of orderedPrCheckpointTemplates) {
+        const prCp = row.checkpoints.find(c => c.templateId === tpl.id) ?? null
+        if (!prCp?.prNumber) continue
+        const mergeTpl = activeTemplates.find(t => t.code.toLowerCase().startsWith('merge_') && t.targetBranch === tpl.targetBranch)
+        const mergeCp = mergeTpl ? (row.checkpoints.find(c => c.templateId === mergeTpl.id) ?? null) : null
+        counts[derivePrKind(prCp, mergeCp)]++
+      }
+    }
+    return counts
+  }, [filteredRows, orderedPrCheckpointTemplates, activeTemplates])
 
   const groupedRows = useMemo(() => {
     const groups = new Map<string, TrackedBranchRow[]>()
@@ -790,14 +737,17 @@ export function PrBoard({ projectId, userId, repos, templates, tracked, loading,
     }
     for (const [, arr] of groups) {
       arr.sort((a, b) => {
-        const aNo = !rowHasAnyPrNumber(a, activeTemplates) ? 0 : 1
-        const bNo = !rowHasAnyPrNumber(b, activeTemplates) ? 0 : 1
-        if (aNo !== bNo) return aNo - bNo
+        const aNoPr = !rowHasAnyPrNumber(a, activeTemplates)
+        const bNoPr = !rowHasAnyPrNumber(b, activeTemplates)
+        if (aNoPr !== bNoPr) {
+          // Khi lọc trạng thái PR hẹp: nhánh có PR lên trước để AND/OR thấy ngay trên trang 1
+          return prGhStatusFilterNarrowed ? (aNoPr ? 1 : -1) : aNoPr ? -1 : 1
+        }
         return a.branchName.localeCompare(b.branchName, undefined, { sensitivity: 'base' })
       })
     }
     return Array.from(groups.entries()).sort((a, b) => a[0].localeCompare(b[0]))
-  }, [filteredRows, activeTemplates])
+  }, [filteredRows, activeTemplates, prGhStatusFilterNarrowed])
 
   const repoBranchTotals = useMemo(() => {
     const m = new Map<string, number>()
@@ -827,11 +777,16 @@ export function PrBoard({ projectId, userId, repos, templates, tracked, loading,
     return m
   }, [groupedRows, orderedPrCheckpointTemplates, activeTemplates])
 
-  const flatOrderedRows = useMemo(() => {
-    const out: TrackedBranchRow[] = []
-    for (const [, rows] of groupedRows) out.push(...rows)
-    return out
-  }, [groupedRows])
+  const flatOrderedRows = useMemo(
+    () =>
+      flattenPrBoardRowsForPaging(
+        groupedRows,
+        row => rowHasAnyPrNumber(row, activeTemplates),
+        prGhStatusFilterNarrowed,
+        onlyBranchesWithoutPr
+      ),
+    [groupedRows, activeTemplates, prGhStatusFilterNarrowed, onlyBranchesWithoutPr]
+  )
 
   const totalRowCount = flatOrderedRows.length
   const totalPages = Math.max(1, Math.ceil(totalRowCount / pageSize))
@@ -881,7 +836,7 @@ export function PrBoard({ projectId, userId, repos, templates, tracked, loading,
     }
   }, [bulkToolbarConfirm, t])
 
-  
+
   const PR_COLUMN_LEGEND_ORDER = ['merged', 'closed', 'draft', 'conflict', 'blocked', 'behind', 'unstable', 'unknown', 'ready'] as const
   const PR_COLUMN_LEGEND_DOT_BRIGHT: Record<(typeof PR_COLUMN_LEGEND_ORDER)[number], string> = {
     merged: 'bg-violet-300 dark:bg-violet-400/95',
@@ -1044,9 +999,9 @@ export function PrBoard({ projectId, userId, repos, templates, tracked, loading,
         ? undefined
         : scope && (scope.repoId !== undefined || scope.trackedBranchId !== undefined)
           ? {
-              ...(scope.repoId !== undefined ? { repoId: scope.repoId } : {}),
-              ...(scope.trackedBranchId !== undefined ? { trackedBranchId: scope.trackedBranchId } : {}),
-            }
+            ...(scope.repoId !== undefined ? { repoId: scope.repoId } : {}),
+            ...(scope.trackedBranchId !== undefined ? { trackedBranchId: scope.trackedBranchId } : {}),
+          }
           : undefined
       bumpUserActivity()
 
@@ -1369,8 +1324,12 @@ export function PrBoard({ projectId, userId, repos, templates, tracked, loading,
   const lockedRepoId = githubSyncUi.kind === 'repo' ? githubSyncUi.repoId : null
 
   const tableViewModelRef = useRef<ReturnType<typeof buildPagedTableViewModel> | null>(null)
+  const tableStabilizeKeyRef = useRef(prGhFilterKey)
 
   const tableViewModel = useMemo(() => {
+    const stabilizeFrom = tableStabilizeKeyRef.current === prGhFilterKey ? tableViewModelRef.current : null
+    tableStabilizeKeyRef.current = prGhFilterKey
+
     const next = buildPagedTableViewModel({
       projectId,
       pagedGroupedRows,
@@ -1391,28 +1350,29 @@ export function PrBoard({ projectId, userId, repos, templates, tracked, loading,
       totalPages,
       safePage,
     })
-    const stabilized = stabilizeTableViewModel(tableViewModelRef.current, next)
+    const stabilized = stabilizeTableViewModel(stabilizeFrom, next)
     tableViewModelRef.current = stabilized
     return stabilized
   }, [
-      projectId,
-      pagedGroupedRows,
-      repoBranchTotals,
-      repoPrKindCountsByTpl,
-      orderedPrCheckpointTemplates,
-      activeTemplates,
-      templateById,
-      statusChangedKeys,
-      tracked,
-      selectedRowIds,
-      lockedRowId,
-      lockedRepoId,
-      branchProtectedMap,
-      pageRowIds,
-      totalRowCount,
-      totalPages,
-      safePage,
-    ]
+    projectId,
+    prGhFilterKey,
+    pagedGroupedRows,
+    repoBranchTotals,
+    repoPrKindCountsByTpl,
+    orderedPrCheckpointTemplates,
+    activeTemplates,
+    templateById,
+    statusChangedKeys,
+    tracked,
+    selectedRowIds,
+    lockedRowId,
+    lockedRepoId,
+    branchProtectedMap,
+    pageRowIds,
+    totalRowCount,
+    totalPages,
+    safePage,
+  ]
   )
 
   const handleNoteChange = useCallback((rowId: string, value: string) => {
@@ -1442,6 +1402,19 @@ export function PrBoard({ projectId, userId, repos, templates, tracked, loading,
         setPrDetailNumber(prNumber)
         setPrDetailOpen(true)
       },
+      openMetricsCompare: (row, focus) => {
+        const r = repoById.get(row.repoId) ?? null
+        if (!r) {
+          toast.error(t('prManager.metricsCompare.noRepo'))
+          return
+        }
+        if (!githubTokenOk) {
+          toast.error(t('prManager.metricsCompare.needGithub'))
+          return
+        }
+        setMetricsCompareCtx({ row, repo: r, focus })
+        setMetricsCompareOpen(true)
+      },
       syncBranch: rowId => void handleSyncFromGithub('manual', { trackedBranchId: rowId }),
       syncRepo: repoId => void handleSyncFromGithub('manual', { repoId }),
       toggleSelect: rowId =>
@@ -1454,7 +1427,7 @@ export function PrBoard({ projectId, userId, repos, templates, tracked, loading,
       openBranchUrl: row => openUrlInDefaultBrowser(githubBranchUrl(row)),
       noteBlur: row => void handleNoteBlur(row),
     }),
-    [repoById, handleSyncFromGithub, handleNoteBlur]
+    [repoById, handleSyncFromGithub, handleNoteBlur, githubTokenOk, t]
   )
 
   const dispatchRowAction = useStableRowActionDispatch(rowById, templateById, rowActions)
@@ -1722,6 +1695,24 @@ export function PrBoard({ projectId, userId, repos, templates, tracked, loading,
         prNumber={prDetailNumber}
         onAfterChange={onRefresh}
       />
+      {metricsCompareCtx ? (
+        <PrMetricsCompareDialog
+          open={metricsCompareOpen}
+          onOpenChange={v => {
+            setMetricsCompareOpen(v)
+            if (!v) setMetricsCompareCtx(null)
+          }}
+          projectId={projectId}
+          row={metricsCompareCtx.row}
+          repo={metricsCompareCtx.repo}
+          prTemplates={orderedPrCheckpointTemplates}
+          onOpenPrDetail={(repo, prNumber) => {
+            setPrDetailRepo(repo)
+            setPrDetailNumber(prNumber)
+            setPrDetailOpen(true)
+          }}
+        />
+      ) : null}
       <PrFileOverlapDialog open={fileOverlapOpen} onOpenChange={setFileOverlapOpen} candidates={prOverlapCandidates} githubTokenOk={githubTokenOk} />
     </div>
   )

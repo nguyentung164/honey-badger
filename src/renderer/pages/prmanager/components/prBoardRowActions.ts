@@ -5,6 +5,7 @@ export type PrBoardRowAction =
   | { type: 'openCreatePr'; rowId: string; tplId: string }
   | { type: 'openMergePr'; rowId: string; tplId: string }
   | { type: 'openPrInApp'; rowId: string; prNumber: number }
+  | { type: 'openMetricsCompare'; rowId: string; focus?: 'files' | 'lines' }
   | { type: 'syncBranch'; rowId: string }
   | { type: 'syncRepo'; repoId: string }
   | { type: 'toggleSelect'; rowId: string }
@@ -15,6 +16,7 @@ export type PrBoardRowActions = {
   openCreatePr: (row: TrackedBranchRow, tpl: PrCheckpointTemplate) => void
   openMergePr: (row: TrackedBranchRow, cp: PrBranchCheckpoint) => void
   openPrInApp: (row: TrackedBranchRow, prNumber: number) => void
+  openMetricsCompare: (row: TrackedBranchRow, focus?: 'files' | 'lines') => void
   syncBranch: (rowId: string) => void
   syncRepo: (repoId: string) => void
   toggleSelect: (rowId: string) => void
@@ -64,6 +66,11 @@ export function useStableRowActionDispatch(
       case 'openPrInApp': {
         const row = rowByIdRef.current.get(action.rowId)
         if (row) a.openPrInApp(row, action.prNumber)
+        break
+      }
+      case 'openMetricsCompare': {
+        const row = rowByIdRef.current.get(action.rowId)
+        if (row) a.openMetricsCompare(row, action.focus)
         break
       }
       case 'syncBranch':

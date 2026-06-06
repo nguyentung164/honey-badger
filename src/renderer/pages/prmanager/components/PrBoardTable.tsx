@@ -119,7 +119,7 @@ export const PrBoardTable = memo(function PrBoardTable({
             <TableRow className="hover:bg-transparent">
               <TableHead
                 className={cn(
-                  'sticky top-0 z-20 w-0 min-w-[200px] max-w-[min(900px,96vw)] whitespace-normal bg-muted/95 px-2 pr-3 text-left align-top backdrop-blur-sm',
+                  'sticky top-0 z-20 w-0 min-w-[220px] max-w-[min(900px,96vw)] whitespace-normal bg-muted/95 px-2 pr-3 text-left align-top backdrop-blur-sm',
                   showTableBorders && COL_DIVIDER_R,
                   showTableBorders && COL_DIVIDER_B
                 )}
@@ -225,10 +225,10 @@ export const PrBoardTable = memo(function PrBoardTable({
               {viewModel.totalRowCount === 0
                 ? t('prManager.board.zeroRows')
                 : t('prManager.board.showRows', {
-                    from: (viewModel.safePage - 1) * pageSize + 1,
-                    to: Math.min(viewModel.safePage * pageSize, viewModel.totalRowCount),
-                    total: viewModel.totalRowCount,
-                  })}
+                  from: (viewModel.safePage - 1) * pageSize + 1,
+                  to: Math.min(viewModel.safePage * pageSize, viewModel.totalRowCount),
+                  total: viewModel.totalRowCount,
+                })}
             </div>
             <div className="flex flex-wrap items-center gap-2 sm:gap-3">
               <div className="flex items-center gap-1.5">
