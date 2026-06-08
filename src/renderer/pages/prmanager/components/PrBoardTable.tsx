@@ -21,7 +21,7 @@ import type { PrBoardTableViewModel } from './prBoardTableModel'
 import {
   COL_BRANCH,
   COL_DIVIDER_B,
-  COL_DIVIDER_R,
+  COL_DIVIDER_RB,
   COL_PR_CHECKPOINT,
   PAGE_SIZE_OPTIONS,
   PR_BOARD_REPO_GROUP_TBODY_HOVER_CLASS,
@@ -120,13 +120,12 @@ export const PrBoardTable = memo(function PrBoardTable({
               <TableHead
                 className={cn(
                   'sticky top-0 z-20 w-0 min-w-[220px] max-w-[min(900px,96vw)] whitespace-normal bg-muted/95 px-2 pr-3 text-left align-top backdrop-blur-sm',
-                  showTableBorders && COL_DIVIDER_R,
-                  showTableBorders && COL_DIVIDER_B
+                  showTableBorders && COL_DIVIDER_RB
                 )}
               >
                 {t('prManager.board.colRepo')}
               </TableHead>
-              <TableHead className={cn(COL_BRANCH, 'sticky top-0 z-20 bg-muted/95 backdrop-blur-sm', showTableBorders && COL_DIVIDER_R, showTableBorders && COL_DIVIDER_B)}>
+              <TableHead className={cn(COL_BRANCH, 'sticky top-0 z-20 bg-muted/95 backdrop-blur-sm', showTableBorders && COL_DIVIDER_RB)}>
                 <span className="block truncate">{t('prManager.board.colBranch')}</span>
               </TableHead>
               {activeTemplates.map(tpl => (
@@ -136,8 +135,7 @@ export const PrBoardTable = memo(function PrBoardTable({
                     'sticky top-0 z-20 min-w-[72px] whitespace-normal px-1.5 text-center align-top backdrop-blur-sm',
                     checkpointTableHeadGroupClass(tpl.headerGroupId),
                     COL_PR_CHECKPOINT,
-                    showTableBorders && COL_DIVIDER_R,
-                    showTableBorders && COL_DIVIDER_B
+                    showTableBorders && COL_DIVIDER_RB
                   )}
                 >
                   <span className="block w-full truncate text-xs font-medium" title={tpl.label}>
@@ -146,7 +144,7 @@ export const PrBoardTable = memo(function PrBoardTable({
                 </TableHead>
               ))}
               {SHOW_NOTE_COLUMN && (
-                <TableHead className={cn('sticky top-0 z-20 min-w-[180px] bg-muted/95 backdrop-blur-sm', showTableBorders && COL_DIVIDER_R, showTableBorders && COL_DIVIDER_B)}>
+                <TableHead className={cn('sticky top-0 z-20 min-w-[180px] bg-muted/95 backdrop-blur-sm', showTableBorders && COL_DIVIDER_RB)}>
                   {t('prManager.board.colNote')}
                 </TableHead>
               )}

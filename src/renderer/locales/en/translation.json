@@ -4360,6 +4360,18 @@
         "alertFilesLink": {
           "title": "Open Files tab on GitHub?",
           "desc": "Open the full diff on github.com (Files tab)."
+        },
+        "markDraft": {
+          "title": "Convert PR to draft?",
+          "desc": "The pull request will be moved to draft status on GitHub. Reviewers will be notified."
+        },
+        "markReady": {
+          "title": "Mark PR as ready for review?",
+          "desc": "The pull request will exit draft status and be open for review on GitHub."
+        },
+        "updateBranch": {
+          "title": "Update branch from base?",
+          "desc": "This will merge the base branch into the head branch on GitHub (same as GitHub's \"Update branch\" button)."
         }
       },
       "continue": "Continue",

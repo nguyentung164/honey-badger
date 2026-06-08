@@ -4351,6 +4351,18 @@
         "alertFilesLink": {
           "title": "Mở tab Files trên GitHub?",
           "desc": "Mở full diff trên github.com (tab Files)."
+        },
+        "markDraft": {
+          "title": "Chuyển PR về trạng thái nháp?",
+          "desc": "Pull request sẽ được đặt về trạng thái nháp trên GitHub. Các reviewer sẽ được thông báo."
+        },
+        "markReady": {
+          "title": "Đánh dấu PR sẵn sàng để review?",
+          "desc": "Pull request sẽ thoát khỏi trạng thái nháp và mở để review trên GitHub."
+        },
+        "updateBranch": {
+          "title": "Cập nhật nhánh từ base?",
+          "desc": "Sẽ gộp nhánh base vào nhánh head trên GitHub (giống nút \"Update branch\" trên GitHub)."
         }
       },
       "continue": "Tiếp tục",

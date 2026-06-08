@@ -14,7 +14,7 @@ import { PrBoardCheckpointCell } from './PrBoardCheckpointCell'
 import { PrBoardScopedSyncIcon, PrSyncStatusChangeDot } from './PrBoardScopedSyncIcon'
 import type { PrBoardRowAction } from './prBoardRowActions'
 import type { PrBoardRowViewModel } from './prBoardTableModel'
-import { COL_BRANCH, COL_DIVIDER_B, COL_DIVIDER_R, COL_PR_CHECKPOINT, SHOW_NOTE_COLUMN } from './prBoardTableConstants'
+import { COL_BRANCH, COL_DIVIDER_B, COL_DIVIDER_RB, COL_PR_CHECKPOINT, SHOW_NOTE_COLUMN } from './prBoardTableConstants'
 import { formatScopedSyncTooltip } from './prBoardSyncStorage'
 
 type PrBoardTableRowProps = {
@@ -73,7 +73,7 @@ export const PrBoardTableRow = memo(function PrBoardTableRow({
       )}
     >
       {repoCell}
-      <TableCell className={cn(COL_BRANCH, showTableBorders && COL_DIVIDER_R, showTableBorders && COL_DIVIDER_B, 'text-xs align-top', rowToneCls)}>
+      <TableCell className={cn(COL_BRANCH, showTableBorders && COL_DIVIDER_RB, 'text-xs align-top', rowToneCls)}>
         <div className="flex min-w-0 items-center gap-0.5">
           <Tooltip>
             <TooltipTrigger asChild>
@@ -152,8 +152,7 @@ export const PrBoardTableRow = memo(function PrBoardTableRow({
             key={tpl.id}
             className={cn(
               COL_PR_CHECKPOINT,
-              showTableBorders && COL_DIVIDER_R,
-              showTableBorders && COL_DIVIDER_B,
+              showTableBorders && COL_DIVIDER_RB,
               'p-1 text-center align-middle !whitespace-normal',
               rowToneCls
             )}
@@ -174,7 +173,7 @@ export const PrBoardTableRow = memo(function PrBoardTableRow({
         )
       })}
       {SHOW_NOTE_COLUMN && (
-        <TableCell className={cn(showTableBorders && COL_DIVIDER_R, showTableBorders && COL_DIVIDER_B, rowToneCls)}>
+        <TableCell className={cn(showTableBorders && COL_DIVIDER_RB, rowToneCls)}>
           <Input
             value={noteDraft ?? noteValue}
             onChange={e => onNoteChange(rowId, e.target.value)}

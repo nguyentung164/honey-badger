@@ -41,10 +41,12 @@ export const CELL_TXT = 'text-xs leading-tight'
 /** Giới hạn rộng cột chữ dài (Branch, PR động, …). */
 export const COL_BRANCH = 'min-w-0 max-w-[200px] overflow-hidden'
 export const COL_PR_CHECKPOINT = 'min-w-0 max-w-[240px] overflow-hidden'
-/** Viền dọc giữa các cột (cùng style `border-r` cột Repo); cột checkbox cuối không dùng. */
+/** Viền dọc giữa các cột; cột checkbox cuối không dùng. */
 export const COL_DIVIDER_R = 'border-r border-r-border/60'
-/** Viền ngang từng ô (dùng khi bật lưới viền bảng). */
+/** Viền ngang từng ô (bật lưới viền bảng). */
 export const COL_DIVIDER_B = 'border-b border-b-border/60'
+/** Viền phải + dưới (gộp cho ô thường). */
+export const COL_DIVIDER_RB = 'border-r border-r-border/60 border-b border-b-border/60'
 export const PR_BOARD_TABLE_BORDERS_LS = 'pr-manager.prBoard.tableBordersV1'
 
 /** Cũ (toàn cục) — chỉ dùng khi đọc tương thích; ghi mới theo từng project. */

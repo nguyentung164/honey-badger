@@ -13,7 +13,7 @@ import type { RepoBaseInsightsMap } from '../repoBaseBranchInsights'
 import { PrBoardRepoColumnPrGroups } from './PrBoardRepoColumnPrGroups'
 import { PrBoardScopedSyncIcon, PrSyncStatusChangeDot } from './PrBoardScopedSyncIcon'
 import type { PrBoardRepoGroupViewModel } from './prBoardTableModel'
-import { COL_DIVIDER_B, COL_DIVIDER_R } from './prBoardTableConstants'
+import { COL_DIVIDER_RB } from './prBoardTableConstants'
 import { formatScopedSyncTooltip } from './prBoardSyncStorage'
 
 type PrBoardTableRepoCellProps = {
@@ -47,8 +47,7 @@ export const PrBoardTableRepoCell = memo(function PrBoardTableRepoCell({
       data-repo-cell
       className={cn(
         'w-0 min-w-[220px] max-w-[min(900px,96vw)] whitespace-normal align-top font-medium p-2 pr-3',
-        showTableBorders && COL_DIVIDER_R,
-        showTableBorders && COL_DIVIDER_B,
+        showTableBorders && COL_DIVIDER_RB,
         group.vis.row,
         group.vis.accent
       )}

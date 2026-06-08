@@ -817,7 +817,9 @@ export async function markPullRequestReadyForReview(owner: string, repo: string,
       if (readyIsDraft !== false) {
         throw new Error('GitHub GraphQL kh\u00f4ng x\u00e1c nh\u1eadn PR \u0111\u00e3 s\u1eb5n s\u00e0ng review (markPullRequestReadyForReview).')
       }
-      return githubClient.getPR(owner, repo, number)
+      // REST API may lag behind GraphQL mutation — override draft with the confirmed value
+      const pr = await githubClient.getPR(owner, repo, number)
+      return { ...pr, draft: false }
     },
     { label: `markReady ${owner}/${repo}#${number}` }
   )
@@ -847,7 +849,9 @@ export async function markPullRequestAsDraft(owner: string, repo: string, number
       if (isDraft !== true) {
         throw new Error('GitHub GraphQL kh\u00f4ng x\u00e1c nh\u1eadn PR \u0111\u00e3 chuy\u1ec3n sang draft (convertPullRequestToDraft).')
       }
-      return githubClient.getPR(owner, repo, number)
+      // REST API may lag behind GraphQL mutation — override draft with the confirmed value
+      const pr = await githubClient.getPR(owner, repo, number)
+      return { ...pr, draft: true }
     },
     { label: `markDraft ${owner}/${repo}#${number}` }
   )

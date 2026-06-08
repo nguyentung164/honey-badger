@@ -107,6 +107,9 @@ export function usePrData(projectId: string | null, userId: string | null): PrDa
   const [automations, setAutomations] = useState<PrAutomation[]>([])
   const [tokenStatus, setTokenStatus] = useState<{ ok: boolean; login?: string; message?: string } | null>(null)
   const abortRef = useRef(0)
+  /** Chỉ áp dụng response trackedList mới nhất — tránh race khi sync broadcast nhiều EVENT_CHECKPOINT_UPDATED. */
+  const trackedRefreshRef = useRef(0)
+  const checkpointRefreshDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   const refreshToken = useCallback(async () => {
     const res = await window.api.pr.tokenCheck()
@@ -115,7 +118,9 @@ export function usePrData(projectId: string | null, userId: string | null): PrDa
 
   const refreshTracked = useCallback(async () => {
     if (!projectId || !userId?.trim()) return
+    const ticket = ++trackedRefreshRef.current
     const res = await window.api.pr.trackedList(userId, projectId)
+    if (ticket !== trackedRefreshRef.current) return
     if (res.status === 'success' && res.data) setTracked(res.data as TrackedBranchRow[])
   }, [projectId, userId])
 
@@ -135,6 +140,7 @@ export function usePrData(projectId: string | null, userId: string | null): PrDa
     }
     const uid = userId.trim()
     const ticket = ++abortRef.current
+    ++trackedRefreshRef.current
     setLoading(true)
     try {
       const [rRepos, rTpl, rTr, rAuto] = await Promise.all([
@@ -159,17 +165,31 @@ export function usePrData(projectId: string | null, userId: string | null): PrDa
   }, [refresh, refreshToken])
 
   useEffect(() => {
+    const scheduleCheckpointRefresh = () => {
+      if (checkpointRefreshDebounceRef.current != null) {
+        clearTimeout(checkpointRefreshDebounceRef.current)
+      }
+      checkpointRefreshDebounceRef.current = setTimeout(() => {
+        checkpointRefreshDebounceRef.current = null
+        void refreshTracked()
+      }, 200)
+    }
+
     const off1 = window.api.pr.onCheckpointUpdated(() => {
-      refreshTracked()
+      scheduleCheckpointRefresh()
     })
     const off2 = window.api.pr.onAutomationFired(() => {
-      refreshTracked()
+      void refreshTracked()
     })
     const off3 = window.api.pr.onTokenInvalid(payload => {
       setTokenStatus({ ok: false, message: payload.message })
       toast.error(payload.message, { id: 'pr-token-invalid' })
     })
     return () => {
+      if (checkpointRefreshDebounceRef.current != null) {
+        clearTimeout(checkpointRefreshDebounceRef.current)
+        checkpointRefreshDebounceRef.current = null
+      }
       off1()
       off2()
       off3()

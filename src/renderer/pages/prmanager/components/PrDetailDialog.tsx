@@ -109,7 +109,7 @@ type PrComment = {
   filePath?: string | null
 }
 
-type ConfirmKind = 'approve' | 'merge' | 'reload' | 'comment' | 'github' | 'folder' | 'githubFiles' | 'alertFilesLink'
+type ConfirmKind = 'approve' | 'merge' | 'reload' | 'comment' | 'github' | 'folder' | 'githubFiles' | 'alertFilesLink' | 'markDraft' | 'markReady' | 'updateBranch'
 
 type Props = {
   open: boolean
@@ -347,6 +347,7 @@ export function PrDetailDialog({ open, onOpenChange, projectId, prRepo, prNumber
   const [commitResetTarget, setCommitResetTarget] = useState<{ sha: string; shortSha: string; message: string } | null>(null)
   const [commitForcePushOpen, setCommitForcePushOpen] = useState(false)
   const [commitBusySha, setCommitBusySha] = useState<string | null>(null)
+  const [resetDoneSha, setResetDoneSha] = useState<string | null>(null)
   const [localMergeConflict, setLocalMergeConflict] = useState<{
     loading: boolean
     hasConflict: boolean
@@ -417,6 +418,7 @@ export function PrDetailDialog({ open, onOpenChange, projectId, prRepo, prNumber
       setCommitResetTarget(null)
       setCommitForcePushOpen(false)
       setCommitBusySha(null)
+      setResetDoneSha(null)
       setMarkingReady(false)
       setUpdatingBranch(false)
       setTitleEditOpen(false)
@@ -710,7 +712,7 @@ export function PrDetailDialog({ open, onOpenChange, projectId, prRepo, prNumber
         opLog.finishSuccess()
         toast.success(t('prManager.detail.titleRenamed'))
         setTitleEditOpen(false)
-        setPr(res.data as PrSummary)
+        await load()
         await Promise.resolve(onAfterChange?.())
       } else {
         const msg = res.message || t('prManager.detail.titleRenameFail')
@@ -726,15 +728,17 @@ export function PrDetailDialog({ open, onOpenChange, projectId, prRepo, prNumber
 
   const doCommitResetHard = async () => {
     if (!commitResetTarget || !prRepo || !headBranch) return
-    if (!opLog.startOperation('prManager.operationLog.titleReset')) return
+    if (!opLog.startOperation('prManager.operationLog.titleReset', undefined, { silent: true })) return
     opLog.appendLine(t('prManager.operationLog.postReset', { shortSha: commitResetTarget.shortSha, branch: headBranch }))
-    setCommitBusySha(commitResetTarget.sha)
+    const targetSha = commitResetTarget.sha
+    setCommitBusySha(targetSha)
     try {
-      const res = await window.api.pr.branchResetHard({ repoId: prRepo.id, branch: headBranch, sha: commitResetTarget.sha })
+      const res = await window.api.pr.branchResetHard({ repoId: prRepo.id, branch: headBranch, sha: targetSha })
       if (res.status === 'success') {
         opLog.appendLine(t('prManager.operationLog.lineOk'))
         opLog.finishSuccess()
         toast.success(res.message || t('prManager.detail.resetOk', { sha: commitResetTarget.shortSha }))
+        setResetDoneSha(targetSha)
         setCommitResetTarget(null)
         await load()
         await Promise.resolve(onAfterChange?.())
@@ -753,7 +757,7 @@ export function PrDetailDialog({ open, onOpenChange, projectId, prRepo, prNumber
 
   const doCommitForcePush = async () => {
     if (!prRepo || !headBranch) return
-    if (!opLog.startOperation('prManager.operationLog.titleForcePush')) return
+    if (!opLog.startOperation('prManager.operationLog.titleForcePush', undefined, { silent: true })) return
     opLog.appendLine(t('prManager.operationLog.postForcePush', { branch: headBranch }))
     setCommitBusySha('__push__')
     try {
@@ -947,7 +951,7 @@ export function PrDetailDialog({ open, onOpenChange, projectId, prRepo, prNumber
                               <HeaderIconBtn
                                 label={t('prManager.detail.markDraftLabel')}
                                 disabled={!prRepo || markingDraft}
-                                onRequest={() => void doMarkDraft()}
+                                onRequest={() => setConfirm('markDraft')}
                                 className="text-amber-600 hover:bg-amber-500/10 hover:text-amber-800 dark:text-amber-400/95 dark:hover:bg-amber-500/15 dark:hover:text-amber-300"
                               >
                                 {markingDraft ? <GlowLoader className="h-3.5 w-3.5" /> : <CircleDashed className="h-3.5 w-3.5" />}
@@ -957,7 +961,7 @@ export function PrDetailDialog({ open, onOpenChange, projectId, prRepo, prNumber
                               <HeaderIconBtn
                                 label={t('prManager.detail.markReadyLabel')}
                                 disabled={!prRepo || markingReady}
-                                onRequest={() => void doMarkReady()}
+                                onRequest={() => setConfirm('markReady')}
                                 className="text-sky-600 hover:bg-sky-500/10 hover:text-sky-800 dark:text-sky-400 dark:hover:bg-sky-500/15 dark:hover:text-sky-300"
                               >
                                 {markingReady ? <GlowLoader className="h-3.5 w-3.5" /> : <Send className="h-3.5 w-3.5" />}
@@ -967,7 +971,7 @@ export function PrDetailDialog({ open, onOpenChange, projectId, prRepo, prNumber
                               <HeaderIconBtn
                                 label={t('prManager.detail.updateBranchLabel')}
                                 disabled={!prRepo || updatingBranch}
-                                onRequest={() => void doUpdateBranch()}
+                                onRequest={() => setConfirm('updateBranch')}
                                 className="text-violet-600 hover:bg-violet-500/10 hover:text-violet-800 dark:text-violet-400 dark:hover:bg-violet-500/15 dark:hover:text-violet-300"
                               >
                                 {updatingBranch ? <GlowLoader className="h-3.5 w-3.5" /> : <ArrowDownToLine className="h-3.5 w-3.5" />}
@@ -1312,7 +1316,13 @@ export function PrDetailDialog({ open, onOpenChange, projectId, prRepo, prNumber
                                 const isBusy = commitBusySha === c.sha
                                 const timeLabel = c.date != null ? formatDistanceToNow(new Date(c.date), { addSuffix: true, locale: dateLoc }) : '—'
                                 return (
-                                  <TableRow key={c.sha} className="align-middle">
+                                  <TableRow
+                                    key={c.sha}
+                                    className={cn(
+                                      'align-middle transition-colors',
+                                      c.sha === resetDoneSha && 'bg-emerald-500/10 dark:bg-emerald-500/12 hover:bg-emerald-500/15 dark:hover:bg-emerald-500/18'
+                                    )}
+                                  >
                                     <TableCell className="whitespace-nowrap py-2.5 text-sm tabular-nums tracking-tight">
                                       <button
                                         type="button"
@@ -1428,6 +1438,9 @@ export function PrDetailDialog({ open, onOpenChange, projectId, prRepo, prNumber
                 else if (k === 'githubFiles' && pr?.htmlUrl) openUrl(prFilesTabUrl(pr.htmlUrl))
                 else if (k === 'folder' && prRepo?.localPath) void window.api.system.open_folder_in_explorer(prRepo.localPath)
                 else if (k === 'alertFilesLink' && pr?.htmlUrl) openUrl(prFilesTabUrl(pr.htmlUrl))
+                else if (k === 'markDraft') void doMarkDraft()
+                else if (k === 'markReady') void doMarkReady()
+                else if (k === 'updateBranch') void doUpdateBranch()
               }}
             >
               {confirm === 'github' || confirm === 'githubFiles' || confirm === 'alertFilesLink' || confirm === 'folder'

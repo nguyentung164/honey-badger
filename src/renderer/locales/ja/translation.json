@@ -4358,6 +4358,18 @@
         "alertFilesLink": {
           "title": "GitHubのFilesタブを開きますか？",
           "desc": "github.com で完全なdiff（Files）を開きます。"
+        },
+        "markDraft": {
+          "title": "PRをドラフトに変換しますか？",
+          "desc": "GitHub上でプルリクエストがドラフト状態になります。レビュワーに通知されます。"
+        },
+        "markReady": {
+          "title": "PRをレビュー可能にしますか？",
+          "desc": "プルリクエストのドラフト状態を解除し、GitHub上でレビューを受け付けます。"
+        },
+        "updateBranch": {
+          "title": "ベースからブランチを更新しますか？",
+          "desc": "GitHub上でベースブランチをヘッドブランチにマージします（GitHubの「Update branch」ボタンと同じ）。"
         }
       },
       "continue": "続行",
