@@ -63,6 +63,32 @@ export type GitFile = {
 
 export type FileData = SvnFile | GitFile
 
+function pruneRowSelection(selection: Record<string, boolean>, validIds: Set<string>): Record<string, boolean> {
+  const pruned: Record<string, boolean> = {}
+  let changed = false
+  for (const [id, selected] of Object.entries(selection)) {
+    if (selected && validIds.has(id)) {
+      pruned[id] = true
+    } else if (selected) {
+      changed = true
+    }
+  }
+  return changed || Object.keys(pruned).length !== Object.keys(selection).length ? pruned : selection
+}
+
+function removePathsFromRowSelection(selection: Record<string, boolean>, pathsToRemove: Set<string>): Record<string, boolean> {
+  const next: Record<string, boolean> = {}
+  let changed = false
+  for (const [id, selected] of Object.entries(selection)) {
+    if (selected && !pathsToRemove.has(id)) {
+      next[id] = true
+    } else if (selected) {
+      changed = true
+    }
+  }
+  return changed ? next : selection
+}
+
 const ROW_HEIGHT = 24 // Đồng bộ với GitStagingTable (h-6 = 24px)
 
 const IndeterminateCheckbox = memo(
@@ -373,6 +399,12 @@ export const SvnFileTable = forwardRef(({ targetPath, onLoadingChange }: SvnFile
   const [fileInfoPath, setFileInfoPath] = useState('')
   const tableRef = useRef<any>(null)
   const isAutoReloadingRef = useRef(false)
+
+  useEffect(() => {
+    const validIds = new Set(data.map(f => f.filePath))
+    setRowSelection(prev => pruneRowSelection(prev, validIds))
+    setSelectedFiles(prev => prev.filter(f => validIds.has(f.filePath)))
+  }, [data])
 
   // Di chuyển hook lên top level
   const { versionControlSystem, sourceFolder } = useConfigurationStore()
@@ -807,6 +839,13 @@ export const SvnFileTable = forwardRef(({ targetPath, onLoadingChange }: SvnFile
     setIsConfirmDialogOpen(true)
   }
 
+  const pruneSelectionAfterRevert = useCallback((revertedPaths: string[]) => {
+    const reverted = new Set(revertedPaths)
+    setRowSelection(prev => removePathsFromRowSelection(prev, reverted))
+    setAnchorRowIndex(null)
+    setSelectedFiles(prev => prev.filter(f => !reverted.has(f.filePath)))
+  }, [])
+
   const revertFile = useCallback(
     async (filePath: string | string[]) => {
       if (versionControlSystem === 'git') {
@@ -816,6 +855,7 @@ export const SvnFileTable = forwardRef(({ targetPath, onLoadingChange }: SvnFile
           const result = await window.api.git.revert(files)
           if (result.status === 'success') {
             toast.success('Files reverted successfully')
+            pruneSelectionAfterRevert(files)
             reloadData(false)
           } else {
             toast.error(result.message || 'Failed to revert files')
@@ -845,6 +885,7 @@ export const SvnFileTable = forwardRef(({ targetPath, onLoadingChange }: SvnFile
               const result = await window.api.svn.revert(files)
               if (result.status === 'success') {
                 toast.success(t('toast.revertSuccess'))
+                pruneSelectionAfterRevert(files)
                 reloadData(false)
               } else {
                 toast.error(result.message || t('toast.revertError'))
@@ -859,7 +900,7 @@ export const SvnFileTable = forwardRef(({ targetPath, onLoadingChange }: SvnFile
         )
       }
     },
-    [versionControlSystem, data, reloadData, showConfirmationDialog, t]
+    [versionControlSystem, data, reloadData, showConfirmationDialog, t, pruneSelectionAfterRevert]
   )
 
   const updateFile = useCallback(
@@ -1048,6 +1089,7 @@ export const SvnFileTable = forwardRef(({ targetPath, onLoadingChange }: SvnFile
   const table = useReactTable({
     data,
     columns,
+    getRowId: row => row.filePath,
     onSortingChange: setSorting,
     onRowSelectionChange: updatedRowSelection => {
       setRowSelection(updatedRowSelection)

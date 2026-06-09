@@ -278,6 +278,32 @@ function pathEntryKindCacheKey(repoKey: string, relativePath: string): string {
   return `${repoKey}\0${relativePath}`
 }
 
+function pruneRowSelection(selection: Record<string, boolean>, validIds: Set<string>): Record<string, boolean> {
+  const pruned: Record<string, boolean> = {}
+  let changed = false
+  for (const [id, selected] of Object.entries(selection)) {
+    if (selected && validIds.has(id)) {
+      pruned[id] = true
+    } else if (selected) {
+      changed = true
+    }
+  }
+  return changed || Object.keys(pruned).length !== Object.keys(selection).length ? pruned : selection
+}
+
+function removePathsFromRowSelection(selection: Record<string, boolean>, pathsToRemove: Set<string>): Record<string, boolean> {
+  const next: Record<string, boolean> = {}
+  let changed = false
+  for (const [id, selected] of Object.entries(selection)) {
+    if (selected && !pathsToRemove.has(id)) {
+      next[id] = true
+    } else if (selected) {
+      changed = true
+    }
+  }
+  return changed ? next : selection
+}
+
 interface GitStagingTableProps {
   onLoadingChange?: (loading: boolean) => void
   /** When set, all git operations (status, add, reset_staged) use this path instead of config sourceFolder */
@@ -455,6 +481,16 @@ export const GitStagingTable = forwardRef(({ onLoadingChange, cwd, label }: GitS
     () => changesData.filter(f => !pathMatchesLocalIgnore(f.filePath, changesIgnorePatterns)),
     [changesData, changesIgnorePatterns]
   )
+
+  useEffect(() => {
+    const validIds = new Set(displayedChangesData.map(f => f.filePath))
+    setChangesRowSelection(prev => pruneRowSelection(prev, validIds))
+  }, [displayedChangesData])
+
+  useEffect(() => {
+    const validIds = new Set(stagedData.map(f => f.filePath))
+    setStagedRowSelection(prev => pruneRowSelection(prev, validIds))
+  }, [stagedData])
 
   const lastChangesClickRef = useRef({ time: 0, rowId: '' })
   const lastStagedClickRef = useRef({ time: 0, rowId: '' })
@@ -676,11 +712,13 @@ export const GitStagingTable = forwardRef(({ onLoadingChange, cwd, label }: GitS
 
   const handleDiscardConfirm = useCallback(async () => {
     if (!discardConfirmPayload || discardConfirmPayload.length === 0) return
+    const discardedPaths = new Set(discardConfirmPayload)
     try {
       const result = await window.api.git.discardChanges(discardConfirmPayload, cwd || sourceFolder || undefined)
       if (result.status === 'success') {
         logger.success(t('toast.revertSuccess'))
-        setChangesRowSelection({})
+        setChangesRowSelection(prev => removePathsFromRowSelection(prev, discardedPaths))
+        setChangesAnchorRowIndex(null)
         await reloadData()
       } else {
         toast.error(result.message || t('toast.revertError'))
@@ -788,6 +826,7 @@ export const GitStagingTable = forwardRef(({ onLoadingChange, cwd, label }: GitS
   const changesTable = useReactTable({
     data: displayedChangesData,
     columns: changesColumns,
+    getRowId: row => row.filePath,
     onSortingChange: setChangesSorting,
     onRowSelectionChange: setChangesRowSelection,
     onGlobalFilterChange: setChangesFilter,
@@ -806,6 +845,7 @@ export const GitStagingTable = forwardRef(({ onLoadingChange, cwd, label }: GitS
   const stagedTable = useReactTable({
     data: stagedData,
     columns: stagedColumns,
+    getRowId: row => row.filePath,
     onSortingChange: setStagedSorting,
     onRowSelectionChange: setStagedRowSelection,
     onGlobalFilterChange: setStagedFilter,
