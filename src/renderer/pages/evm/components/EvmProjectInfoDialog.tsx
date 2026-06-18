@@ -38,6 +38,12 @@ export const EVM_PROJECT_CREATE_STUB: EVMProject = {
 
 const REMINDER_OPTIONS = ['17:00', '17:30', '18:00', '18:30', '19:00', '19:30'] as const
 
+/** Viền mỏng — ghi đè border-input / focus-visible:border-ring / dark:bg-input/30 từ ui/input & ui/button (xem combobox.tsx). */
+const EVM_PROJECT_FIELD_CLASS =
+  'h-8 text-sm border-border/40 bg-background shadow-none ring-0 focus-visible:border-border/60 focus-visible:ring-0 dark:border-border/40 dark:bg-background'
+const EVM_PROJECT_DATE_TRIGGER_CLASS =
+  'w-full justify-start px-3 text-left font-normal border-border/40 shadow-none ring-0 focus-visible:border-border/60 focus-visible:ring-0 dark:border-border/40 dark:bg-background'
+
 export function EvmProjectInfoDialog({
   open,
   onOpenChange,
@@ -158,7 +164,7 @@ export function EvmProjectInfoDialog({
     return req.some(s => !s)
   }, [projectNo, projectName, endUser, startDate, endDate])
 
-  const requiredCn = (empty: boolean) => cn(empty && 'border-rose-400/80 bg-rose-50/70 dark:border-rose-600/70 dark:bg-rose-950/35')
+  const requiredCn = (empty: boolean) => cn(empty && 'border-rose-400/55 bg-rose-50/70 dark:border-rose-600/55 dark:bg-rose-950/35')
 
   const persistReminder = useCallback(
     async (projectId: string) => {
@@ -278,7 +284,7 @@ export function EvmProjectInfoDialog({
             <div className={cn('space-y-1', !(!isCreate && project.id && canEditReminder) && 'sm:col-span-2')}>
               <Label className="text-xs text-muted-foreground">{t('evm.dashboardProjectCode')}</Label>
               <Input
-                className={cn('h-8 text-sm', requiredCn(!projectNo?.trim()))}
+                className={cn(EVM_PROJECT_FIELD_CLASS, requiredCn(!projectNo?.trim()))}
                 value={projectNo}
                 onChange={e => setProjectNo(e.target.value)}
                 disabled={!isCreate && !project.id}
@@ -288,7 +294,7 @@ export function EvmProjectInfoDialog({
               <div className="space-y-1">
                 <Label className="text-xs text-muted-foreground">{t('taskManagement.dailyReportReminderTime')}</Label>
                 <Select value={reminderTime ?? '__off__'} onValueChange={v => setReminderTime(v === '__off__' ? null : v)}>
-                  <SelectTrigger className="h-8 text-sm">
+                  <SelectTrigger className={cn('w-full', EVM_PROJECT_FIELD_CLASS)}>
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
@@ -305,7 +311,7 @@ export function EvmProjectInfoDialog({
             <div className="space-y-1 sm:col-span-2">
               <Label className="text-xs text-muted-foreground">{t('evm.dashboardProjectName')}</Label>
               <Input
-                className={cn('h-8 text-sm', requiredCn(!projectName?.trim()))}
+                className={cn(EVM_PROJECT_FIELD_CLASS, requiredCn(!projectName?.trim()))}
                 value={projectName}
                 onChange={e => setProjectName(e.target.value)}
                 disabled={!isCreate && !project.id}
@@ -325,7 +331,7 @@ export function EvmProjectInfoDialog({
                   </TooltipContent>
                 </Tooltip>
               </div>
-              <Input className={cn('h-8 text-sm', requiredCn(!endUser?.trim()))} value={endUser} onChange={e => setEndUser(e.target.value)} disabled={!isCreate && !project.id} />
+              <Input className={cn(EVM_PROJECT_FIELD_CLASS, requiredCn(!endUser?.trim()))} value={endUser} onChange={e => setEndUser(e.target.value)} disabled={!isCreate && !project.id} />
             </div>
             <Field>
               <FieldLabel htmlFor={startDateFieldId}>{t('evm.dashboardProjectStart')}</FieldLabel>
@@ -338,7 +344,8 @@ export function EvmProjectInfoDialog({
                     size="sm"
                     disabled={dateFieldsDisabled}
                     className={cn(
-                      'h-8 w-full justify-start px-3 text-left text-sm font-normal shadow-none focus-visible:ring-0',
+                      EVM_PROJECT_FIELD_CLASS,
+                      EVM_PROJECT_DATE_TRIGGER_CLASS,
                       requiredCn(!startDate?.trim()),
                       !startDate?.trim() && 'text-muted-foreground'
                     )}
@@ -376,7 +383,8 @@ export function EvmProjectInfoDialog({
                     size="sm"
                     disabled={dateFieldsDisabled}
                     className={cn(
-                      'h-8 w-full justify-start px-3 text-left text-sm font-normal shadow-none focus-visible:ring-0',
+                      EVM_PROJECT_FIELD_CLASS,
+                      EVM_PROJECT_DATE_TRIGGER_CLASS,
                       requiredCn(!endDate?.trim()),
                       !endDate?.trim() && 'text-muted-foreground'
                     )}

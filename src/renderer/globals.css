@@ -2104,6 +2104,24 @@ html[data-font-size="large"] {
   animation: bounceOnce 0.4s ease-in-out;
 }
 
+@keyframes achievementCountPop {
+  0% {
+    transform: scale(0.55);
+    opacity: 0;
+  }
+  70% {
+    transform: scale(1.06);
+    opacity: 1;
+  }
+  100% {
+    transform: scale(1);
+    opacity: 1;
+  }
+}
+.animate-achievement-count-pop {
+  animation: achievementCountPop 0.35s cubic-bezier(0.34, 1.4, 0.64, 1) both;
+}
+
 @keyframes achievementDialogPop {
   0% {
     transform: scale(0.85);
@@ -2821,6 +2839,7 @@ body > canvas {
   .animate-achievement-icon-glow-violet,
   .animate-achievement-asset-dust,
   .animate-achievement-badge-dust-rise,
+  .animate-achievement-count-pop,
   .animate-rank-up-old-leave,
   .animate-rank-up-new-arrive,
   .animate-rank-up-label-old,

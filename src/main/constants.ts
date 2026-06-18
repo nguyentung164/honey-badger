@@ -223,6 +223,7 @@ export const IPC = {
     DETECT_VERSION_CONTROL: 'system:detect-version-control',
     GET_VERSION_CONTROL_DETAILS: 'system:get-version-control-details',
     OPEN_IN_EXTERNAL_EDITOR: 'system:open-in-external-editor',
+    OPEN_FILE_IN_EDITOR: 'system:open-file-in-editor',
     OPEN_TERMINAL: 'system:open-terminal',
     SELECT_AUDIO_FILE: 'system:select-audio-file',
     GET_NOTIFICATION_SOUND_URL: 'system:get-notification-sound-url',

@@ -3230,7 +3230,7 @@ export const TitleBar = ({
                           key={b.achievement_code}
                           className="inline-flex h-[1.125rem] w-[1.125rem] shrink-0 items-center justify-center overflow-hidden align-middle rounded-sm"
                         >
-                          <BadgeCard def={b.def} earned={b} size="3xs" variant="filled" className="h-full w-full min-h-0 min-w-0" />
+                          <BadgeCard def={b.def} earned={b} size="3xs" variant="filled" showCount={false} className="h-full w-full min-h-0 min-w-0" />
                         </span>
                       ))}
                     </Button>

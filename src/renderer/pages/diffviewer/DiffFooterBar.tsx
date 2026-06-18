@@ -54,15 +54,22 @@ export function DiffFooterBar({
   language,
   setLanguage,
   cursorPosition,
+  diffStats,
 }: {
   language: string
   setLanguage: (lang: string) => void
   cursorPosition?: { line: number; column: number }
+  diffStats?: { additions: number; deletions: number }
 }) {
   const [open, setOpen] = useState(false)
   const { t } = useTranslation()
   return (
     <div className="flex h-7 items-center gap-4 border-t bg-muted/50 px-4 text-[10px]">
+      <div className="flex items-center gap-2 tabular-nums">
+        <span className="text-green-600 dark:text-green-400">+{diffStats?.additions ?? 0}</span>
+        <span className="text-red-600 dark:text-red-400">−{diffStats?.deletions ?? 0}</span>
+      </div>
+
       {/* File info */}
       <div className="flex items-center gap-2">
         <div className="flex items-center gap-1">

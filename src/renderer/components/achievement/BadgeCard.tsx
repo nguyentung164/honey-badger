@@ -211,6 +211,29 @@ const TIER_SELECTED_RING: Record<string, string> = {
   negative: 'ring-orange-500',
 }
 
+/** Repeat count chip — tier-colored medallion (not notification-style red dot). */
+const TIER_COUNT_BUBBLE: Record<string, string> = {
+  bronze:
+    'bg-gradient-to-br from-orange-400 via-amber-500 to-orange-600 text-white shadow-[0_1px_3px_rgba(245,158,11,0.45)] border border-white/25',
+  silver:
+    'bg-gradient-to-br from-slate-300 via-slate-400 to-slate-600 text-white shadow-[0_1px_3px_rgba(100,116,139,0.4)] border border-white/30',
+  gold:
+    'bg-gradient-to-br from-yellow-300 via-amber-400 to-yellow-600 text-amber-950 shadow-[0_1px_4px_rgba(202,138,4,0.5)] border border-white/35',
+  special:
+    'bg-gradient-to-br from-violet-400 via-purple-500 to-violet-700 text-white shadow-[0_1px_4px_rgba(124,58,237,0.45)] border border-white/25',
+  negative:
+    'bg-gradient-to-br from-orange-400 via-orange-500 to-red-600 text-white shadow-[0_1px_3px_rgba(234,88,12,0.45)] border border-white/25',
+}
+
+const COUNT_BUBBLE_RING: Record<BadgeSize, string> = {
+  '3xs': 'ring-1 ring-background/95 dark:ring-card/95',
+  '2xs': 'ring-1 ring-background/95 dark:ring-card/95',
+  xs: 'ring-[1.5px] ring-background dark:ring-card',
+  sm: 'ring-2 ring-background dark:ring-card',
+  md: 'ring-2 ring-background dark:ring-card',
+  lg: 'ring-2 ring-background dark:ring-card',
+}
+
 /** Kích thước icon Lucide (px) bên trong frame Figma theo size badge. */
 const SIZE_CONFIG_FRAMED_ICON: Record<BadgeSize, number> = {
   '3xs': 6,
@@ -552,6 +575,26 @@ interface BadgeCardProps {
   inGrid?: boolean
   /** When false, ancestor must provide TooltipProvider (grid dialogs). Default true. */
   embedTooltip?: boolean
+  /** Repeat earn count chip on badge corner. Default true; TitleBar uses false. */
+  showCount?: boolean
+}
+
+function BadgeCountBubble({ count, tier, size, positionClass }: { count: number; tier: string; size: BadgeSize; positionClass: string }) {
+  const tierStyle = TIER_COUNT_BUBBLE[tier] ?? TIER_COUNT_BUBBLE.bronze
+  return (
+    <span
+      className={cn(
+        'absolute z-[2] flex items-center justify-center rounded-full px-1 leading-none',
+        'font-semibold tabular-nums tracking-tight',
+        'animate-achievement-count-pop',
+        tierStyle,
+        COUNT_BUBBLE_RING[size],
+        positionClass
+      )}
+    >
+      {count > 99 ? '99+' : count}
+    </span>
+  )
 }
 
 function getRarityLabel(pct: number): { label: string; color: string } {
@@ -577,6 +620,7 @@ export const BadgeCard = memo(function BadgeCard({
   dustEmphasis = false,
   inGrid = false,
   embedTooltip = true,
+  showCount = true,
 }: BadgeCardProps) {
   const { t, i18n } = useTranslation()
   const tierCfg = TIER_CONFIG[def.tier as keyof typeof TIER_CONFIG] ?? TIER_CONFIG.bronze
@@ -680,16 +724,8 @@ export const BadgeCard = memo(function BadgeCard({
         </div>
 
         {/* Count bubble for repeatable badges */}
-        {earnedCount > 1 && (
-          <span
-            className={cn(
-              'absolute z-[2] flex items-center justify-center rounded-full bg-red-500 text-white font-bold px-1 leading-none',
-              countBubbleClass,
-              'animate-bounce-once'
-            )}
-          >
-            {earnedCount > 99 ? '99+' : earnedCount}
-          </span>
+        {showCount && earnedCount > 1 && (
+          <BadgeCountBubble count={earnedCount} tier={def.tier} size={size} positionClass={countBubbleClass} />
         )}
       </div>
 

@@ -32,6 +32,37 @@ async function resolveReadWriteBase(basePathInput: string | undefined): Promise<
   return top ?? basePathInput.trim()
 }
 
+/** Open file in configured external editor (or VS Code fallback), optionally at a line. */
+function openFileInEditor(payload: { filePath: string; lineNumber?: number; cwd?: string }): { success: boolean; error?: string } {
+  if (!payload?.filePath || typeof payload.filePath !== 'string') {
+    l.warn('open-file-in-editor: No file path provided.')
+    return { success: false, error: 'No file path provided' }
+  }
+  const { externalEditorPath, sourceFolder } = configurationStore.store
+  const editor = externalEditorPath?.trim() || 'code'
+  const baseFolder = payload.cwd?.trim() || sourceFolder
+  const absolutePath = baseFolder ? path.resolve(baseFolder, payload.filePath) : path.resolve(payload.filePath)
+
+  if (!fs.existsSync(absolutePath)) {
+    l.warn(`open-file-in-editor: File not found: ${absolutePath}`)
+    return { success: false, error: 'File not found' }
+  }
+
+  try {
+    const lineNumber = payload.lineNumber && payload.lineNumber > 0 ? payload.lineNumber : undefined
+    if (lineNumber) {
+      spawn(editor, ['--goto', `${absolutePath}:${lineNumber}`], { detached: true, stdio: 'ignore', shell: true })
+    } else {
+      spawn(editor, [absolutePath], { detached: true, stdio: 'ignore', shell: true })
+    }
+    l.info(`Opened file in editor: ${absolutePath}${lineNumber ? `:${lineNumber}` : ''}`)
+    return { success: true }
+  } catch (err: any) {
+    l.error('open-file-in-editor: Error spawning editor:', err)
+    return { success: false, error: err?.message || String(err) }
+  }
+}
+
 export function registerSystemIpcHandlers() {
   l.info('🔄 Registering System IPC Handlers...')
 
@@ -224,31 +255,12 @@ export function registerSystemIpcHandlers() {
     }
   })
 
-  ipcMain.on('open-file-in-editor', (_event, payload: { filePath: string; lineNumber?: number }) => {
-    if (!payload?.filePath || typeof payload.filePath !== 'string') {
-      l.warn('open-file-in-editor: No file path provided.')
-      return
-    }
-    const { externalEditorPath, sourceFolder } = configurationStore.store
-    const editor = externalEditorPath?.trim() || 'code'
-    const absolutePath = sourceFolder ? path.resolve(sourceFolder, payload.filePath) : path.resolve(payload.filePath)
+  ipcMain.handle(IPC.SYSTEM.OPEN_FILE_IN_EDITOR, async (_event, payload: { filePath: string; lineNumber?: number; cwd?: string }) =>
+    openFileInEditor(payload)
+  )
 
-    if (!fs.existsSync(absolutePath)) {
-      l.warn(`open-file-in-editor: File not found: ${absolutePath}`)
-      return
-    }
-
-    try {
-      const lineNumber = payload.lineNumber && payload.lineNumber > 0 ? payload.lineNumber : undefined
-      if (lineNumber) {
-        spawn(editor, ['--goto', `${absolutePath}:${lineNumber}`], { detached: true, stdio: 'ignore', shell: true })
-      } else {
-        spawn(editor, [absolutePath], { detached: true, stdio: 'ignore', shell: true })
-      }
-      l.info(`Opened file in editor: ${absolutePath}${lineNumber ? `:${lineNumber}` : ''}`)
-    } catch (err: any) {
-      l.error('open-file-in-editor: Error spawning editor:', err)
-    }
+  ipcMain.on('open-file-in-editor', (_event, payload: { filePath: string; lineNumber?: number; cwd?: string }) => {
+    openFileInEditor(payload)
   })
 
   ipcMain.handle(IPC.SYSTEM.SELECT_AUDIO_FILE, async () => {

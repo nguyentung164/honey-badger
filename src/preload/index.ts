@@ -367,6 +367,7 @@ declare global {
         detect_version_control: (folderPath: string) => Promise<{ status: string; data?: any; message?: string }>
         get_version_control_details: (folderPath: string) => Promise<{ status: string; data?: any; message?: string }>
         open_in_external_editor: (filePath: string) => Promise<{ success: boolean; error?: string }>
+        open_file_in_editor: (payload: { filePath: string; lineNumber?: number; cwd?: string }) => Promise<{ success: boolean; error?: string }>
         open_terminal: (folderPath?: string) => Promise<{ success: boolean; error?: string }>
         select_audio_file: () => Promise<string>
         get_notification_sound_url: (filePath: string) => Promise<string | null>
@@ -1594,6 +1595,8 @@ contextBridge.exposeInMainWorld('api', {
     detect_version_control: (folderPath: string) => ipcRenderer.invoke(IPC.SYSTEM.DETECT_VERSION_CONTROL, folderPath),
     get_version_control_details: (folderPath: string) => ipcRenderer.invoke(IPC.SYSTEM.GET_VERSION_CONTROL_DETAILS, folderPath),
     open_in_external_editor: (filePath: string) => ipcRenderer.invoke(IPC.SYSTEM.OPEN_IN_EXTERNAL_EDITOR, filePath),
+    open_file_in_editor: (payload: { filePath: string; lineNumber?: number; cwd?: string }) =>
+      ipcRenderer.invoke(IPC.SYSTEM.OPEN_FILE_IN_EDITOR, payload),
     open_terminal: (folderPath?: string) => ipcRenderer.invoke(IPC.SYSTEM.OPEN_TERMINAL, folderPath),
     select_audio_file: () => ipcRenderer.invoke(IPC.SYSTEM.SELECT_AUDIO_FILE),
     get_notification_sound_url: (filePath: string) => ipcRenderer.invoke(IPC.SYSTEM.GET_NOTIFICATION_SOUND_URL, filePath),

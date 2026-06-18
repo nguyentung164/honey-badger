@@ -1,7 +1,8 @@
 'use client'
 import { DiffEditor, type DiffOnMount, useMonaco } from '@monaco-editor/react'
+import type { editor as MonacoEditor } from 'monaco-editor'
 import { IPC } from 'main/constants'
-import { useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { GlowLoader } from '@/components/ui-elements/GlowLoader'
 import toast from '@/components/ui-elements/Toast'
@@ -10,6 +11,9 @@ import logger from '@/services/logger'
 import { useAppearanceStore } from '@/stores/useAppearanceStore'
 import { DiffFooterBar } from './DiffFooterBar'
 import { DiffToolbar } from './DiffToolbar'
+import type { DiffStats } from './diffViewerTypes'
+import { computeDiffStats, getChangePosition, getCurrentLineChange, goToAdjacentChange, goToFirstChange, goToLastChange, resolveDiffViewerRevealPath } from './diffViewerUtils'
+import { buildDiffEditorDisplayOptions, useDiffViewerOptions } from './useDiffViewerOptions'
 
 const EXT_TO_LANG: Record<string, string> = {
   abap: 'abap',
@@ -136,8 +140,48 @@ export function CodeDiffViewer() {
   const [cursorPosition, setCursorPosition] = useState({ line: 1, column: 1 })
   const [isLoading, setIsLoading] = useState(false)
   const [isSaving, setIsSaving] = useState(false)
-  const editorRef = useRef<any>(null)
+  const [changePosition, setChangePosition] = useState({ current: 0, total: 0 })
+  const [diffStats, setDiffStats] = useState<DiffStats>({ additions: 0, deletions: 0 })
+  const editorRef = useRef<MonacoEditor.IStandaloneDiffEditor | null>(null)
   const { t } = useTranslation()
+  const { viewOptions, setViewOption, adjustFontSize } = useDiffViewerOptions()
+  const displayOptions = useMemo(() => buildDiffEditorDisplayOptions(viewOptions), [viewOptions])
+
+  const refreshDiffState = useCallback(() => {
+    const diffEditor = editorRef.current
+    if (!diffEditor) return
+    const changes = diffEditor.getLineChanges() ?? []
+    setChangePosition(getChangePosition(diffEditor, changes))
+    setDiffStats(computeDiffStats(changes))
+  }, [])
+
+  const handlePrevChange = useCallback(() => {
+    const diffEditor = editorRef.current
+    if (!diffEditor) return
+    goToAdjacentChange(diffEditor, 'prev')
+    requestAnimationFrame(refreshDiffState)
+  }, [refreshDiffState])
+
+  const handleNextChange = useCallback(() => {
+    const diffEditor = editorRef.current
+    if (!diffEditor) return
+    goToAdjacentChange(diffEditor, 'next')
+    requestAnimationFrame(refreshDiffState)
+  }, [refreshDiffState])
+
+  const handleFirstChange = useCallback(() => {
+    const diffEditor = editorRef.current
+    if (!diffEditor) return
+    goToFirstChange(diffEditor)
+    requestAnimationFrame(refreshDiffState)
+  }, [refreshDiffState])
+
+  const handleLastChange = useCallback(() => {
+    const diffEditor = editorRef.current
+    if (!diffEditor) return
+    goToLastChange(diffEditor)
+    requestAnimationFrame(refreshDiffState)
+  }, [refreshDiffState])
 
   const filePathRef = useRef(filePath)
   const modifiedCodeRef = useRef(modifiedCode)
@@ -208,6 +252,11 @@ export function CodeDiffViewer() {
         e.preventDefault()
         handleSaveFile()
       }
+      if (e.key === 'F7') {
+        e.preventDefault()
+        if (e.shiftKey) handlePrevChange()
+        else handleNextChange()
+      }
     }
 
     window.addEventListener('keydown', handleKeyDown)
@@ -216,7 +265,7 @@ export function CodeDiffViewer() {
       window.api.removeAllListeners('load-diff-data')
       window.removeEventListener('keydown', handleKeyDown)
     }
-  }, [])
+  }, [handleNextChange, handlePrevChange])
 
   useEffect(() => {
     if (!monaco) return
@@ -260,20 +309,49 @@ export function CodeDiffViewer() {
     const modifiedEditor = editor.getModifiedEditor()
     const originalEditor = editor.getOriginalEditor()
 
+    editor.onDidUpdateDiff(() => {
+      requestAnimationFrame(refreshDiffState)
+    })
+
     modifiedEditor.onDidChangeModelContent(_event => {
       const newModifiedCode = modifiedEditor.getModel()?.getValue() || ''
       setModifiedCode(newModifiedCode)
+      requestAnimationFrame(refreshDiffState)
+    })
+
+    originalEditor.onDidChangeModelContent(() => {
+      requestAnimationFrame(refreshDiffState)
     })
 
     modifiedEditor.onDidChangeCursorPosition(event => {
       const { lineNumber, column } = event.position
       setCursorPosition({ line: lineNumber, column })
+      refreshDiffState()
     })
     originalEditor.onDidChangeCursorPosition(event => {
       const { lineNumber, column } = event.position
       setCursorPosition({ line: lineNumber, column })
+      refreshDiffState()
     })
+
+    requestAnimationFrame(refreshDiffState)
   }
+
+  useEffect(() => {
+    editorRef.current?.updateOptions({
+      wordWrap: viewOptions.wordWrap,
+      ignoreTrimWhitespace: viewOptions.ignoreTrimWhitespace,
+      minimap: { enabled: viewOptions.minimap, showSlider: 'always' },
+      fontSize: viewOptions.fontSize,
+      ...displayOptions,
+    })
+  }, [viewOptions, displayOptions])
+
+  useEffect(() => {
+    if (isLoading) return
+    const timer = window.setTimeout(refreshDiffState, 600)
+    return () => window.clearTimeout(timer)
+  }, [originalCode, modifiedCode, isLoading, refreshDiffState])
 
   const onRefresh = async () => {
     setIsSwapped(false)
@@ -371,6 +449,42 @@ export function CodeDiffViewer() {
     setIsSwapped(prev => !prev)
   }
 
+  const handleOpenInEditor = useCallback(async () => {
+    if (!filePath) return
+    const diffEditor = editorRef.current
+    const change = diffEditor ? getCurrentLineChange(diffEditor) : null
+    const line =
+      change && change.modifiedStartLineNumber > 0
+        ? change.modifiedStartLineNumber
+        : change && change.originalStartLineNumber > 0
+          ? change.originalStartLineNumber
+          : cursorPosition.line
+    const result = await window.api.system.open_file_in_editor({
+      filePath,
+      lineNumber: line,
+      cwd,
+    })
+    if (!result?.success) {
+      toast.error(result?.error || t('dialog.diffViewer.openInEditorFailed'))
+    }
+  }, [filePath, cwd, cursorPosition.line, t])
+
+  const handleRevealInExplorer = useCallback(() => {
+    if (!filePath) return
+    window.api.system.reveal_in_file_explorer(resolveDiffViewerRevealPath(filePath, cwd))
+  }, [filePath, cwd])
+
+  const handleCopyPath = useCallback(async () => {
+    if (!filePath) return
+    const text = resolveDiffViewerRevealPath(filePath, cwd)
+    try {
+      await navigator.clipboard.writeText(text)
+      toast.success(t('toast.copied'))
+    } catch {
+      toast.error(t('toast.copyFailed'))
+    }
+  }, [filePath, cwd, t])
+
   const handleSaveFile = async () => {
     try {
       // Don't save if comparing revisions/commits
@@ -400,9 +514,22 @@ export function CodeDiffViewer() {
         onRefresh={onRefresh}
         onSwapSides={handleSwap}
         onSave={handleSaveFile}
+        onPrevChange={handlePrevChange}
+        onNextChange={handleNextChange}
+        onFirstChange={handleFirstChange}
+        onLastChange={handleLastChange}
+        changePosition={changePosition}
+        disableChangeNav={changePosition.total === 0 || isLoading}
         isSaving={isSaving}
         filePath={filePath}
         disableSave={currentRevision != null || currentCommitHash != null}
+        viewOptions={viewOptions}
+        onViewOptionChange={setViewOption}
+        onFontSizeDecrease={() => adjustFontSize(-1)}
+        onFontSizeIncrease={() => adjustFontSize(1)}
+        onOpenInEditor={handleOpenInEditor}
+        onRevealInExplorer={handleRevealInExplorer}
+        onCopyPath={handleCopyPath}
       />
       {isLoading ? (
         <div className="flex items-center justify-center h-full">
@@ -457,6 +584,7 @@ export function CodeDiffViewer() {
 
       <div className="flex-1 overflow-hidden">
         <DiffEditor
+          key={`diff-${viewOptions.diffOnly ? 'only' : 'full'}-${viewOptions.collapseUnchangedRegions ? 'collapse' : 'nocollapse'}-${viewOptions.renderSideBySide ? 'side' : 'inline'}`}
           height="100%"
           language={language}
           original={originalCode}
@@ -466,7 +594,7 @@ export function CodeDiffViewer() {
           options={{
             renderWhitespace: 'all',
             readOnly: false,
-            fontSize: 12,
+            fontSize: viewOptions.fontSize,
             fontFamily: 'Jetbrains Mono NL, monospace',
             automaticLayout: true,
             padding: { top: 12, bottom: 12 },
@@ -474,9 +602,12 @@ export function CodeDiffViewer() {
             scrollBeyondLastLine: false,
             contextmenu: true,
             renderIndicators: true,
-            renderMarginRevertIcon: true,
             showFoldingControls: 'always',
             smoothScrolling: true,
+            wordWrap: viewOptions.wordWrap,
+            ignoreTrimWhitespace: viewOptions.ignoreTrimWhitespace,
+            ...displayOptions,
+            minimap: { enabled: viewOptions.minimap, showSlider: 'always' },
             scrollbar: {
               verticalScrollbarSize: 8,
               horizontalScrollbarSize: 8,
@@ -486,7 +617,7 @@ export function CodeDiffViewer() {
           }}
         />
       </div>
-      <DiffFooterBar language={language} setLanguage={setLanguage} cursorPosition={cursorPosition} />
+      <DiffFooterBar language={language} setLanguage={setLanguage} cursorPosition={cursorPosition} diffStats={diffStats} />
     </div>
   )
 }
