@@ -1043,3 +1043,190 @@ export async function migrateAiUsageEventsUserIdColumn(): Promise<void> {
   }
   aiUsageEventsUserIdMigrationDone = true
 }
+
+let evmWbsDayUnitFkCascadeMigrationDone = false
+
+/** Ensure `evm_wbs_day_unit.wbs_id` FK cascades when a WBS detail row is deleted (legacy DBs may lack ON DELETE CASCADE). */
+export async function migrateEvmWbsDayUnitFkCascade(): Promise<void> {
+  if (evmWbsDayUnitFkCascadeMigrationDone || !hasDbConfig()) return
+
+  const tableExists = async (table: string): Promise<boolean> => {
+    const rows = await query(
+      `SELECT 1 FROM information_schema.tables
+       WHERE table_schema = current_schema() AND table_name = ? LIMIT 1`,
+      [table]
+    )
+    return Array.isArray(rows) && rows.length > 0
+  }
+
+  try {
+    if (!(await tableExists('evm_wbs_day_unit')) || !(await tableExists('evm_wbs_details'))) {
+      evmWbsDayUnitFkCascadeMigrationDone = true
+      return
+    }
+
+    const fkRows = await query<{ confdeltype: string }>(
+      `SELECT c.confdeltype FROM pg_constraint c
+       INNER JOIN pg_class t ON t.oid = c.conrelid
+       INNER JOIN pg_namespace n ON n.oid = t.relnamespace
+       WHERE c.conname = 'fk_evm_wdu_wbs_detail'
+         AND n.nspname = current_schema()::text
+         AND t.relname = 'evm_wbs_day_unit'
+       LIMIT 1`
+    )
+
+    if (fkRows?.[0]?.confdeltype === 'c') {
+      evmWbsDayUnitFkCascadeMigrationDone = true
+      return
+    }
+
+    if (fkRows?.length) {
+      await query('ALTER TABLE evm_wbs_day_unit DROP CONSTRAINT fk_evm_wdu_wbs_detail')
+    }
+
+    await query(
+      'ALTER TABLE evm_wbs_day_unit ADD CONSTRAINT fk_evm_wdu_wbs_detail FOREIGN KEY (wbs_id) REFERENCES evm_wbs_details(id) ON DELETE CASCADE'
+    )
+  } catch (e) {
+    l.error('[db] migrateEvmWbsDayUnitFkCascade failed', e)
+    return
+  }
+  evmWbsDayUnitFkCascadeMigrationDone = true
+}
+
+let projectFkCascadeMigrationDone = false
+
+const PROJECT_FK_CASCADE_DEFS: { table: string; constraint: string; ddl: string }[] = [
+  {
+    table: 'user_project_roles',
+    constraint: 'fk_upr_project',
+    ddl: 'ALTER TABLE user_project_roles ADD CONSTRAINT fk_upr_project FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE CASCADE',
+  },
+  {
+    table: 'user_project_source_folder',
+    constraint: 'fk_upsf_project',
+    ddl: 'ALTER TABLE user_project_source_folder ADD CONSTRAINT fk_upsf_project FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE CASCADE',
+  },
+  {
+    table: 'tasks',
+    constraint: 'fk_tasks_project',
+    ddl: 'ALTER TABLE tasks ADD CONSTRAINT fk_tasks_project FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE CASCADE',
+  },
+  {
+    table: 'task_ticket_sequences',
+    constraint: 'fk_tts_project',
+    ddl: 'ALTER TABLE task_ticket_sequences ADD CONSTRAINT fk_tts_project FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE CASCADE',
+  },
+  {
+    table: 'evm_wbs',
+    constraint: 'fk_evm_wbs_project',
+    ddl: 'ALTER TABLE evm_wbs ADD CONSTRAINT fk_evm_wbs_project FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE CASCADE',
+  },
+  {
+    table: 'evm_wbs_master',
+    constraint: 'fk_evm_wbs_master_project',
+    ddl: 'ALTER TABLE evm_wbs_master ADD CONSTRAINT fk_evm_wbs_master_project FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE CASCADE',
+  },
+  {
+    table: 'evm_wbs_details',
+    constraint: 'fk_evm_wbs_details_project',
+    ddl: 'ALTER TABLE evm_wbs_details ADD CONSTRAINT fk_evm_wbs_details_project FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE CASCADE',
+  },
+  {
+    table: 'evm_phases',
+    constraint: 'fk_evm_phases_project',
+    ddl: 'ALTER TABLE evm_phases ADD CONSTRAINT fk_evm_phases_project FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE CASCADE',
+  },
+  {
+    table: 'evm_ac',
+    constraint: 'fk_evm_ac_project',
+    ddl: 'ALTER TABLE evm_ac ADD CONSTRAINT fk_evm_ac_project FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE CASCADE',
+  },
+  {
+    table: 'evm_master',
+    constraint: 'fk_evm_master_project',
+    ddl: 'ALTER TABLE evm_master ADD CONSTRAINT fk_evm_master_project FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE CASCADE',
+  },
+  {
+    table: 'evm_ai_insight',
+    constraint: 'fk_evm_ai_insight_project',
+    ddl: 'ALTER TABLE evm_ai_insight ADD CONSTRAINT fk_evm_ai_insight_project FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE CASCADE',
+  },
+  {
+    table: 'coding_rules',
+    constraint: 'fk_coding_rules_project',
+    ddl: 'ALTER TABLE coding_rules ADD CONSTRAINT fk_coding_rules_project FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE CASCADE',
+  },
+  {
+    table: 'pr_repos',
+    constraint: 'fk_pr_repos_project',
+    ddl: 'ALTER TABLE pr_repos ADD CONSTRAINT fk_pr_repos_project FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE CASCADE',
+  },
+  {
+    table: 'pr_checkpoint_templates',
+    constraint: 'fk_pr_tpl_project',
+    ddl: 'ALTER TABLE pr_checkpoint_templates ADD CONSTRAINT fk_pr_tpl_project FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE CASCADE',
+  },
+  {
+    table: 'pr_tracked_branches',
+    constraint: 'fk_pr_track_project',
+    ddl: 'ALTER TABLE pr_tracked_branches ADD CONSTRAINT fk_pr_track_project FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE CASCADE',
+  },
+  {
+    table: 'pr_user_board_skip_branches',
+    constraint: 'fk_pr_ub_skip_project',
+    ddl: 'ALTER TABLE pr_user_board_skip_branches ADD CONSTRAINT fk_pr_ub_skip_project FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE CASCADE',
+  },
+  {
+    table: 'pr_ai_assist_chats',
+    constraint: 'fk_pr_ai_chat_project',
+    ddl: 'ALTER TABLE pr_ai_assist_chats ADD CONSTRAINT fk_pr_ai_chat_project FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE CASCADE',
+  },
+]
+
+/** Ensure child tables referencing `projects(id)` use ON DELETE CASCADE (legacy DBs may use NO ACTION). */
+export async function migrateProjectFkCascade(): Promise<void> {
+  if (projectFkCascadeMigrationDone || !hasDbConfig()) return
+
+  const tableExists = async (table: string): Promise<boolean> => {
+    const rows = await query(
+      `SELECT 1 FROM information_schema.tables
+       WHERE table_schema = current_schema() AND table_name = ? LIMIT 1`,
+      [table]
+    )
+    return Array.isArray(rows) && rows.length > 0
+  }
+
+  try {
+    if (!(await tableExists('projects'))) {
+      projectFkCascadeMigrationDone = true
+      return
+    }
+
+    for (const { table, constraint, ddl } of PROJECT_FK_CASCADE_DEFS) {
+      if (!(await tableExists(table))) continue
+
+      const fkRows = await query<{ confdeltype: string }>(
+        `SELECT c.confdeltype FROM pg_constraint c
+         INNER JOIN pg_class t ON t.oid = c.conrelid
+         INNER JOIN pg_namespace n ON n.oid = t.relnamespace
+         WHERE c.conname = ?
+           AND n.nspname = current_schema()::text
+           AND t.relname = ?
+         LIMIT 1`,
+        [constraint, table]
+      )
+
+      if (fkRows?.[0]?.confdeltype === 'c') continue
+
+      if (fkRows?.length) {
+        await query(`ALTER TABLE ${table} DROP CONSTRAINT ${constraint}`)
+      }
+      await query(ddl)
+    }
+  } catch (e) {
+    l.error('[db] migrateProjectFkCascade failed', e)
+    return
+  }
+  projectFkCascadeMigrationDone = true
+}

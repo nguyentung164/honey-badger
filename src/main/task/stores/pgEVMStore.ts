@@ -3,7 +3,7 @@ import { randomUuidV7 } from 'shared/randomUuidV7'
 import type { ACRow, EVMData, EVMMaster, EVMMasterUpdatePayload, EVMProject, EvmProjectRoleUser, WBSRow, WbsDayUnitRow, WbsMasterRow } from 'shared/types/evm'
 import { dbValueToCalendarYmd, todayCalendarYmd } from '../calendarDate'
 import { query, withTransaction, type TransactionQuery } from '../schema/db'
-import { migrateProjectsDropLegacyPmPlColumns } from '../schema/taskDbPatches'
+import { migrateEvmWbsDayUnitFkCascade, migrateProjectsDropLegacyPmPlColumns } from '../schema/taskDbPatches'
 
 const PROJECT_SELECT_SQL = 'SELECT id, name as project_name, project_no, end_user, start_date, end_date, report_date FROM projects'
 
@@ -264,6 +264,7 @@ type WbsDetailInput = Omit<WBSRow, 'id' | 'projectId' | 'no'> & { masterId?: str
 
 export async function getEVMData(projectId?: string): Promise<EVMData | null> {
   await migrateProjectsDropLegacyPmPlColumns()
+  await migrateEvmWbsDayUnitFkCascade()
   let project: EVMProject | null = null
   const projSql = `${PROJECT_SELECT_SQL} WHERE `
   if (projectId) {
@@ -331,6 +332,7 @@ export async function getEVMData(projectId?: string): Promise<EVMData | null> {
 /** Đảm bảo project có EVM setup (start_date, evm_master). Dùng khi import vào project từ Task Management. */
 export async function ensureProjectForEvm(projectId: string): Promise<EVMProject> {
   await migrateProjectsDropLegacyPmPlColumns()
+  await migrateEvmWbsDayUnitFkCascade()
   const rows = await query<Record<string, unknown>>('SELECT id, name, start_date FROM projects WHERE id = ?', [projectId])
   const row = rows?.[0]
   if (!row) throw new Error('Project not found')
@@ -790,6 +792,7 @@ export async function deleteWbsRow(id: string): Promise<void> {
     const noToId = new Map<number, string>()
     for (const s of snapshot) noToId.set(Number(s.no), String(s.id))
 
+    await tx('DELETE FROM evm_wbs_day_unit WHERE wbs_id = ?', [id])
     await tx('DELETE FROM evm_wbs_details WHERE id = ?', [id])
 
     const rem = (await tx('SELECT id, predecessor FROM evm_wbs_details WHERE project_id = ? ORDER BY no ASC', [projectId])) as { id: string; predecessor: number | null }[]

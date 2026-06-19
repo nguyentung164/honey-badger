@@ -55,11 +55,15 @@ export function DiffFooterBar({
   setLanguage,
   cursorPosition,
   diffStats,
+  charDiffStats,
+  charChangeRegions,
 }: {
   language: string
   setLanguage: (lang: string) => void
   cursorPosition?: { line: number; column: number }
   diffStats?: { additions: number; deletions: number }
+  charDiffStats?: { charAdditions: number; charDeletions: number }
+  charChangeRegions?: number
 }) {
   const [open, setOpen] = useState(false)
   const { t } = useTranslation()
@@ -68,6 +72,16 @@ export function DiffFooterBar({
       <div className="flex items-center gap-2 tabular-nums">
         <span className="text-green-600 dark:text-green-400">+{diffStats?.additions ?? 0}</span>
         <span className="text-red-600 dark:text-red-400">−{diffStats?.deletions ?? 0}</span>
+        {(charDiffStats?.charAdditions ?? 0) > 0 || (charDiffStats?.charDeletions ?? 0) > 0 ? (
+          <span className="text-muted-foreground" title={t('dialog.diffViewer.charChangesHint')}>
+            ({charDiffStats?.charAdditions ?? 0}/{charDiffStats?.charDeletions ?? 0} {t('dialog.diffViewer.chars')})
+          </span>
+        ) : null}
+        {(charChangeRegions ?? 0) > 0 ? (
+          <span className="text-muted-foreground" title={t('dialog.diffViewer.charChangeRegionsHint')}>
+            · {charChangeRegions} {t('dialog.diffViewer.charRegions')}
+          </span>
+        ) : null}
       </div>
 
       {/* File info */}

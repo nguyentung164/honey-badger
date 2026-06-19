@@ -11,9 +11,22 @@ import logger from '@/services/logger'
 import { useAppearanceStore } from '@/stores/useAppearanceStore'
 import { DiffFooterBar } from './DiffFooterBar'
 import { DiffToolbar } from './DiffToolbar'
-import type { DiffStats } from './diffViewerTypes'
-import { computeDiffStats, getChangePosition, getCurrentLineChange, goToAdjacentChange, goToFirstChange, goToLastChange, resolveDiffViewerRevealPath } from './diffViewerUtils'
-import { buildDiffEditorDisplayOptions, useDiffViewerOptions } from './useDiffViewerOptions'
+import type { CharDiffStats, DiffStats } from './diffViewerTypes'
+import {
+  computeCharDiffStats,
+  computeDiffStats,
+  getChangePosition,
+  getCharChangeCount,
+  getCurrentLineChange,
+  goToAdjacentChange,
+  goToFirstChange,
+  goToLastChange,
+  resolveDiffViewerRevealPath,
+  triggerFindReplaceWidget,
+  triggerFindWidget,
+  waitForDiffCompute,
+} from './diffViewerUtils'
+import { buildDiffEditorOptions, useDiffViewerOptions } from './useDiffViewerOptions'
 
 const EXT_TO_LANG: Record<string, string> = {
   abap: 'abap',
@@ -142,10 +155,17 @@ export function CodeDiffViewer() {
   const [isSaving, setIsSaving] = useState(false)
   const [changePosition, setChangePosition] = useState({ current: 0, total: 0 })
   const [diffStats, setDiffStats] = useState<DiffStats>({ additions: 0, deletions: 0 })
+  const [charDiffStats, setCharDiffStats] = useState<CharDiffStats>({ charAdditions: 0, charDeletions: 0 })
+  const [charChangeRegions, setCharChangeRegions] = useState(0)
   const editorRef = useRef<MonacoEditor.IStandaloneDiffEditor | null>(null)
+  const originalEditableRef = useRef(false)
   const { t } = useTranslation()
   const { viewOptions, setViewOption, adjustFontSize } = useDiffViewerOptions()
-  const displayOptions = useMemo(() => buildDiffEditorDisplayOptions(viewOptions), [viewOptions])
+  const editorOptions = useMemo(() => buildDiffEditorOptions(viewOptions), [viewOptions])
+
+  useEffect(() => {
+    originalEditableRef.current = viewOptions.originalEditable
+  }, [viewOptions.originalEditable])
 
   const refreshDiffState = useCallback(() => {
     const diffEditor = editorRef.current
@@ -153,7 +173,16 @@ export function CodeDiffViewer() {
     const changes = diffEditor.getLineChanges() ?? []
     setChangePosition(getChangePosition(diffEditor, changes))
     setDiffStats(computeDiffStats(changes))
+    setCharDiffStats(computeCharDiffStats(changes))
+    setCharChangeRegions(getCharChangeCount(changes))
   }, [])
+
+  const refreshDiffStateAfterCompute = useCallback(async () => {
+    const diffEditor = editorRef.current
+    if (!diffEditor) return
+    await waitForDiffCompute(diffEditor)
+    refreshDiffState()
+  }, [refreshDiffState])
 
   const handlePrevChange = useCallback(() => {
     const diffEditor = editorRef.current
@@ -182,6 +211,18 @@ export function CodeDiffViewer() {
     goToLastChange(diffEditor)
     requestAnimationFrame(refreshDiffState)
   }, [refreshDiffState])
+
+  const handleFind = useCallback(() => {
+    const diffEditor = editorRef.current
+    if (!diffEditor) return
+    triggerFindWidget(diffEditor)
+  }, [])
+
+  const handleFindReplace = useCallback(() => {
+    const diffEditor = editorRef.current
+    if (!diffEditor) return
+    triggerFindReplaceWidget(diffEditor)
+  }, [])
 
   const filePathRef = useRef(filePath)
   const modifiedCodeRef = useRef(modifiedCode)
@@ -257,6 +298,14 @@ export function CodeDiffViewer() {
         if (e.shiftKey) handlePrevChange()
         else handleNextChange()
       }
+      if ((e.ctrlKey || e.metaKey) && e.key === 'f') {
+        e.preventDefault()
+        handleFind()
+      }
+      if ((e.ctrlKey || e.metaKey) && e.key === 'h') {
+        e.preventDefault()
+        handleFindReplace()
+      }
     }
 
     window.addEventListener('keydown', handleKeyDown)
@@ -265,7 +314,7 @@ export function CodeDiffViewer() {
       window.api.removeAllListeners('load-diff-data')
       window.removeEventListener('keydown', handleKeyDown)
     }
-  }, [handleNextChange, handlePrevChange])
+  }, [handleFind, handleFindReplace, handleNextChange, handlePrevChange])
 
   useEffect(() => {
     if (!monaco) return
@@ -320,6 +369,9 @@ export function CodeDiffViewer() {
     })
 
     originalEditor.onDidChangeModelContent(() => {
+      if (originalEditableRef.current) {
+        setOriginalCode(originalEditor.getModel()?.getValue() || '')
+      }
       requestAnimationFrame(refreshDiffState)
     })
 
@@ -334,24 +386,34 @@ export function CodeDiffViewer() {
       refreshDiffState()
     })
 
-    requestAnimationFrame(refreshDiffState)
+    requestAnimationFrame(() => {
+      void refreshDiffStateAfterCompute()
+    })
   }
 
   useEffect(() => {
-    editorRef.current?.updateOptions({
-      wordWrap: viewOptions.wordWrap,
-      ignoreTrimWhitespace: viewOptions.ignoreTrimWhitespace,
-      minimap: { enabled: viewOptions.minimap, showSlider: 'always' },
-      fontSize: viewOptions.fontSize,
-      ...displayOptions,
+    const diffEditor = editorRef.current
+    if (!diffEditor) return
+    diffEditor.updateOptions(buildDiffEditorOptions(viewOptions))
+    requestAnimationFrame(() => {
+      diffEditor.layout()
+      refreshDiffState()
     })
-  }, [viewOptions, displayOptions])
+  }, [viewOptions, refreshDiffState])
+
+  useEffect(() => {
+    return () => {
+      editorRef.current = null
+    }
+  }, [])
 
   useEffect(() => {
     if (isLoading) return
-    const timer = window.setTimeout(refreshDiffState, 600)
+    const timer = window.setTimeout(() => {
+      void refreshDiffStateAfterCompute()
+    }, 600)
     return () => window.clearTimeout(timer)
-  }, [originalCode, modifiedCode, isLoading, refreshDiffState])
+  }, [originalCode, modifiedCode, isLoading, refreshDiffStateAfterCompute])
 
   const onRefresh = async () => {
     setIsSwapped(false)
@@ -530,6 +592,8 @@ export function CodeDiffViewer() {
         onOpenInEditor={handleOpenInEditor}
         onRevealInExplorer={handleRevealInExplorer}
         onCopyPath={handleCopyPath}
+        onFind={handleFind}
+        onFindReplace={handleFindReplace}
       />
       {isLoading ? (
         <div className="flex items-center justify-center h-full">
@@ -584,40 +648,25 @@ export function CodeDiffViewer() {
 
       <div className="flex-1 overflow-hidden">
         <DiffEditor
-          key={`diff-${viewOptions.diffOnly ? 'only' : 'full'}-${viewOptions.collapseUnchangedRegions ? 'collapse' : 'nocollapse'}-${viewOptions.renderSideBySide ? 'side' : 'inline'}`}
           height="100%"
           language={language}
           original={originalCode}
           modified={modifiedCode}
           theme={themeMode === 'dark' ? 'custom-dark' : 'custom-light'}
+          keepCurrentOriginalModel
+          keepCurrentModifiedModel
           onMount={handleEditorMount}
-          options={{
-            renderWhitespace: 'all',
-            readOnly: false,
-            fontSize: viewOptions.fontSize,
-            fontFamily: 'Jetbrains Mono NL, monospace',
-            automaticLayout: true,
-            padding: { top: 12, bottom: 12 },
-            lineNumbers: 'on',
-            scrollBeyondLastLine: false,
-            contextmenu: true,
-            renderIndicators: true,
-            showFoldingControls: 'always',
-            smoothScrolling: true,
-            wordWrap: viewOptions.wordWrap,
-            ignoreTrimWhitespace: viewOptions.ignoreTrimWhitespace,
-            ...displayOptions,
-            minimap: { enabled: viewOptions.minimap, showSlider: 'always' },
-            scrollbar: {
-              verticalScrollbarSize: 8,
-              horizontalScrollbarSize: 8,
-            },
-            diffAlgorithm: 'advanced',
-            renderValidationDecorations: 'off',
-          }}
+          options={editorOptions}
         />
       </div>
-      <DiffFooterBar language={language} setLanguage={setLanguage} cursorPosition={cursorPosition} diffStats={diffStats} />
+      <DiffFooterBar
+        language={language}
+        setLanguage={setLanguage}
+        cursorPosition={cursorPosition}
+        diffStats={diffStats}
+        charDiffStats={charDiffStats}
+        charChangeRegions={charChangeRegions}
+      />
     </div>
   )
 }

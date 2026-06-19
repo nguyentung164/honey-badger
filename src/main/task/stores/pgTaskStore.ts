@@ -4,7 +4,7 @@ import { MANAGEMENT_BOARD_MAX_ROWS } from 'shared/constants'
 import { randomUuidV7 } from 'shared/randomUuidV7'
 import { calendarInputToPgTimestamptzSql, dbValueToCalendarYmd } from '../calendarDate'
 import { exec, query, testConnection, withTransaction } from '../schema/db'
-import { migrateUserProjectRolesProjectIdUkToGenerated } from '../schema/taskDbPatches'
+import { migrateProjectFkCascade, migrateUserProjectRolesProjectIdUkToGenerated } from '../schema/taskDbPatches'
 import { collectRedmineCsvProjectRefsForAuthorization, createTasksFromCsv, createUsersFromCsv, parseCSVRows } from '../seed/importCsv'
 import { getNextTicketId } from '../ticketSequence'
 import { isBooleanColumn, toDbBoolValue } from './pgPrTrackingStore'
@@ -2020,10 +2020,6 @@ export async function updateProject(id: string, name: string, version?: number):
   return { id: row.id, name: row.name, createdAt: row.created_at, version: row.version ?? 1 }
 }
 
-/**
- * Delete project. Order: evm_* first (explicit, FK CASCADE would also delete them), then projects.
- * CASCADE handles: tasks, task_links, task_favorites, user_project_roles, task_ticket_sequences, daily_reports.
- */
 /** Lấy giờ nhắc báo cáo của project. Trả về "HH:mm" hoặc null. */
 export async function getProjectReminderTime(projectId: string): Promise<string | null> {
   const rows = await query<any>('SELECT daily_report_reminder_time FROM projects WHERE id = ?', [projectId])
@@ -2047,8 +2043,48 @@ export async function getProjectsWithReminderAtTime(currentTimeHhMm: string): Pr
   return (rows ?? []).map(r => ({ id: r.id, name: r.name }))
 }
 
+/**
+ * Delete project and all dependent rows. Explicit deletes cover legacy DBs where project FKs lack ON DELETE CASCADE.
+ */
 export async function deleteProject(id: string, version?: number): Promise<void> {
+  await migrateProjectFkCascade()
   await withTransaction(async (txQuery, txExec) => {
+    await txQuery('DELETE FROM task_change_history WHERE task_id IN (SELECT id FROM tasks WHERE project_id = ?)', [id])
+    await txQuery('DELETE FROM task_notifications WHERE task_id IN (SELECT id FROM tasks WHERE project_id = ?)', [id])
+    await txQuery('DELETE FROM task_favorites WHERE task_id IN (SELECT id FROM tasks WHERE project_id = ?)', [id])
+    await txQuery(
+      'DELETE FROM task_links WHERE from_task_id IN (SELECT id FROM tasks WHERE project_id = ?) OR to_task_id IN (SELECT id FROM tasks WHERE project_id = ?)',
+      [id, id]
+    )
+    await txQuery('UPDATE tasks SET parent_id = NULL WHERE project_id = ?', [id])
+    await txQuery('DELETE FROM tasks WHERE project_id = ?', [id])
+    await txQuery('DELETE FROM task_ticket_sequences WHERE project_id = ?', [id])
+
+    await txQuery(
+      'DELETE FROM pr_branch_checkpoints WHERE tracked_branch_id IN (SELECT id FROM pr_tracked_branches WHERE project_id = ?)',
+      [id]
+    )
+    await txQuery('DELETE FROM pr_automations WHERE repo_id IN (SELECT id FROM pr_repos WHERE project_id = ?)', [id])
+    await txQuery('DELETE FROM pr_tracked_branches WHERE project_id = ?', [id])
+    await txQuery('DELETE FROM pr_repos WHERE project_id = ?', [id])
+    await txQuery('DELETE FROM pr_checkpoint_templates WHERE project_id = ?', [id])
+    await txQuery('DELETE FROM pr_user_board_skip_branches WHERE project_id = ?', [id])
+    await txQuery('DELETE FROM pr_ai_assist_chats WHERE project_id = ?', [id])
+
+    await txQuery('DELETE FROM project_user_daily_workload WHERE project_id = ?', [id])
+    await txQuery('DELETE FROM coding_rules WHERE project_id = ?', [id])
+    await txQuery(
+      'DELETE FROM commit_reviews WHERE source_folder_path IN (SELECT source_folder_path FROM user_project_source_folder WHERE project_id = ?)',
+      [id]
+    )
+    await txQuery(
+      'DELETE FROM git_commit_queue WHERE source_folder_path IN (SELECT source_folder_path FROM user_project_source_folder WHERE project_id = ?)',
+      [id]
+    )
+    await txQuery('DELETE FROM user_project_source_folder WHERE project_id = ?', [id])
+    await txQuery('DELETE FROM user_project_roles WHERE project_id = ?', [id])
+
+    await txQuery('DELETE FROM evm_wbs_day_unit WHERE wbs_id IN (SELECT id FROM evm_wbs_details WHERE project_id = ?)', [id])
     await txQuery('DELETE FROM evm_wbs_details WHERE project_id = ?', [id])
     await txQuery('DELETE FROM evm_wbs_master WHERE project_id = ?', [id])
     await txQuery('DELETE FROM evm_phases WHERE project_id = ?', [id])
@@ -2056,6 +2092,7 @@ export async function deleteProject(id: string, version?: number): Promise<void>
     await txQuery('DELETE FROM evm_ac WHERE project_id = ?', [id])
     await txQuery('DELETE FROM evm_master WHERE project_id = ?', [id])
     await txQuery('DELETE FROM evm_ai_insight WHERE project_id = ?', [id])
+
     const sql = version !== undefined ? 'DELETE FROM projects WHERE id = ? AND version = ?' : 'DELETE FROM projects WHERE id = ?'
     const params = version !== undefined ? [id, version] : [id]
     const result = await txExec(sql, params)

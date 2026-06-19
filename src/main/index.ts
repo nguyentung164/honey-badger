@@ -48,6 +48,8 @@ import {
   migrateUserDailySnapshotsUniqueConstraint,
   migrateUserProjectRolesProjectIdUkToGenerated,
   migrateAiUsageEventsUserIdColumn,
+  migrateEvmWbsDayUnitFkCascade,
+  migrateProjectFkCascade,
 } from './task/schema/taskDbPatches'
 import { initAutoUpdater } from './updater'
 import { initDeveloperModeShortcut } from './utils/developerModeShortcut'
@@ -139,6 +141,8 @@ makeAppWithSingleInstanceLock(async () => {
         await migrateAutomationTestTables().catch(() => {})
         await migrateDevPipelineTables().catch(() => {})
         await migrateAiUsageEventsUserIdColumn().catch(() => {})
+        await migrateEvmWbsDayUnitFkCascade().catch(() => {})
+        await migrateProjectFkCascade().catch(() => {})
         const { startPrStatusSync } = await import('./scheduler/prStatusSync')
         startPrStatusSync()
       })()

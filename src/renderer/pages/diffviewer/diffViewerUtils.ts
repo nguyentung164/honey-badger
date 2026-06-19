@@ -1,5 +1,7 @@
 import type { editor as MonacoEditor } from 'monaco-editor'
-import type { ChangePosition, DiffStats } from './diffViewerTypes'
+import type { ChangePosition, CharDiffStats, DiffStats } from './diffViewerTypes'
+
+const DIFF_COMPUTE_TIMEOUT_MS = 10_000
 
 function isEmptySide(start: number, end: number): boolean {
   return start === 0 || end === 0 || end < start
@@ -51,6 +53,11 @@ export function getCurrentLineChange(diffEditor: MonacoEditor.IStandaloneDiffEdi
   return changes[pos.current - 1] ?? null
 }
 
+function charSpan(startColumn: number, endColumn: number): number {
+  if (startColumn <= 0 || endColumn <= 0) return 0
+  return Math.max(0, endColumn - startColumn)
+}
+
 export function computeDiffStats(changes: readonly MonacoEditor.ILineChange[]): DiffStats {
   let additions = 0
   let deletions = 0
@@ -65,6 +72,91 @@ export function computeDiffStats(changes: readonly MonacoEditor.ILineChange[]): 
   }
 
   return { additions, deletions }
+}
+
+export function computeCharDiffStats(changes: readonly MonacoEditor.ILineChange[]): CharDiffStats {
+  let charAdditions = 0
+  let charDeletions = 0
+
+  for (const lineChange of changes) {
+    if (!lineChange.charChanges?.length) continue
+    for (const cc of lineChange.charChanges) {
+      charDeletions += charSpan(cc.originalStartColumn, cc.originalEndColumn)
+      charAdditions += charSpan(cc.modifiedStartColumn, cc.modifiedEndColumn)
+    }
+  }
+
+  return { charAdditions, charDeletions }
+}
+
+export function getCharChangeCount(changes: readonly MonacoEditor.ILineChange[]): number {
+  let count = 0
+  for (const lineChange of changes) {
+    count += lineChange.charChanges?.length ?? 0
+  }
+  return count
+}
+
+/** Wrap diff model in a view model and wait until Monaco finishes computing the diff. */
+export async function waitForDiffCompute(diffEditor: MonacoEditor.IStandaloneDiffEditor): Promise<void> {
+  const model = diffEditor.getModel()
+  if (!model) return
+
+  const viewModelCandidate = model as unknown as MonacoEditor.IDiffEditorViewModel
+  if (typeof viewModelCandidate.waitForDiff === 'function') {
+    await viewModelCandidate.waitForDiff()
+    return
+  }
+
+  try {
+    const viewModel = diffEditor.createViewModel(model)
+    diffEditor.setModel(viewModel)
+    await viewModel.waitForDiff()
+  } catch {
+    await waitForDiffComputeViaEvent(diffEditor)
+  }
+}
+
+function waitForDiffComputeViaEvent(diffEditor: MonacoEditor.IStandaloneDiffEditor): Promise<void> {
+  return new Promise(resolve => {
+    let settled = false
+    const finish = () => {
+      if (settled) return
+      settled = true
+      sub.dispose()
+      window.clearTimeout(timer)
+      resolve()
+    }
+
+    const sub = diffEditor.onDidUpdateDiff(finish)
+    const timer = window.setTimeout(finish, DIFF_COMPUTE_TIMEOUT_MS)
+    if (diffEditor.getLineChanges() !== null) finish()
+  })
+}
+
+export function getFocusedDiffPaneEditor(diffEditor: MonacoEditor.IStandaloneDiffEditor): MonacoEditor.ICodeEditor {
+  const modifiedEditor = diffEditor.getModifiedEditor()
+  const originalEditor = diffEditor.getOriginalEditor()
+  return originalEditor.hasTextFocus() && !modifiedEditor.hasTextFocus() ? originalEditor : modifiedEditor
+}
+
+export function triggerFindWidget(diffEditor: MonacoEditor.IStandaloneDiffEditor): void {
+  const editor = getFocusedDiffPaneEditor(diffEditor)
+  editor.focus()
+  void editor.getAction('actions.find')?.run()
+}
+
+export function triggerFindReplaceWidget(diffEditor: MonacoEditor.IStandaloneDiffEditor): void {
+  const editor = getFocusedDiffPaneEditor(diffEditor)
+  editor.focus()
+  void editor.getAction('editor.action.startFindReplaceAction')?.run()
+}
+
+export function swapDiffEditorModels(diffEditor: MonacoEditor.IStandaloneDiffEditor): boolean {
+  const model = diffEditor.getModel()
+  if (!model) return false
+  diffEditor.setModel({ original: model.modified, modified: model.original })
+  return true
 }
 
 export function goToAdjacentChange(diffEditor: MonacoEditor.IStandaloneDiffEditor, direction: 'prev' | 'next'): void {
