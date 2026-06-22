@@ -1,14 +1,20 @@
 import { execFile, spawn } from 'node:child_process'
 import fs from 'node:fs'
+import { promisify } from 'node:util'
 import { mkdir, readFile, writeFile } from 'node:fs/promises'
 import path from 'node:path'
 import { dialog, ipcMain, shell } from 'electron'
 import l from 'electron-log'
-import { IPC } from 'main/constants'
+import { DIFF_VIEWER_DATA_URL_MAX_BYTES, DIFF_VIEWER_IMAGE_EXTENSIONS, IPC } from 'main/constants'
+import { catBuffer } from 'main/svn/cat'
+import { isGitPathMissingAtRevisionError } from 'main/git/utils'
 import { getAutomationRoot } from '../automation/workspace'
 import configurationStore from '../store/ConfigurationStore'
+import { isBinary } from '../utils/istextorbinary'
 import { getResourcePath, resolvePathRelativeToBase } from '../utils/utils'
 import { detectVersionControl, getVersionControlDetails } from '../utils/versionControlDetector'
+
+const execFilePromise = promisify(execFile)
 
 /** Gắn đường dẫn từ git status với đúng thư mục gốc worktree (cwd có thể là folder con của repo). */
 async function gitWorkTreeRoot(startDir: string): Promise<string | undefined> {
@@ -30,6 +36,36 @@ async function resolveReadWriteBase(basePathInput: string | undefined): Promise<
   if (!basePathInput?.trim()) return undefined
   const top = await gitWorkTreeRoot(basePathInput.trim())
   return top ?? basePathInput.trim()
+}
+
+async function resolveAbsoluteFilePath(filePath: string, cwd?: string): Promise<string> {
+  const basePathRaw = cwd?.trim() || configurationStore.store.sourceFolder
+  const basePath = await resolveReadWriteBase(basePathRaw)
+  const relativePath = resolvePathRelativeToBase(basePath, filePath)
+  return basePath ? path.join(basePath, relativePath) : path.resolve(relativePath)
+}
+
+function mimeForImageExt(ext: string): string | undefined {
+  if (ext === '.png') return 'image/png'
+  if (ext === '.jpg' || ext === '.jpeg') return 'image/jpeg'
+  if (ext === '.webp') return 'image/webp'
+  if (ext === '.gif') return 'image/gif'
+  if (ext === '.svg') return 'image/svg+xml'
+  if (ext === '.ico') return 'image/x-icon'
+  if (ext === '.bmp') return 'image/bmp'
+  return undefined
+}
+
+type FileKindResult = { kind: 'text' | 'image' | 'binary'; mime?: string; size?: number }
+
+function detectKindFromExtension(filePath: string): FileKindResult | null {
+  const ext = path.extname(filePath).toLowerCase()
+  if (DIFF_VIEWER_IMAGE_EXTENSIONS.has(ext)) {
+    return { kind: 'image', mime: mimeForImageExt(ext) }
+  }
+  if (isBinary(filePath) === true) return { kind: 'binary' }
+  if (isBinary(filePath) === false) return { kind: 'text' }
+  return null
 }
 
 /** Open file in configured external editor (or VS Code fallback), optionally at a line. */
@@ -140,6 +176,95 @@ export function registerSystemIpcHandlers() {
       l.error('Error opening external URL:', err)
     }
   })
+
+  ipcMain.handle(IPC.SYSTEM.DETECT_FILE_KIND, async (_event, filePath: string, options?: { cwd?: string }) => {
+    try {
+      if (!filePath?.trim()) return { kind: 'text' as const }
+      const extKind = detectKindFromExtension(filePath)
+      const absolutePath = await resolveAbsoluteFilePath(filePath, options?.cwd)
+      if (!fs.existsSync(absolutePath)) {
+        return extKind ?? { kind: 'text' as const }
+      }
+      const st = fs.statSync(absolutePath)
+      if (extKind?.kind === 'image') {
+        return { kind: 'image' as const, mime: extKind.mime, size: st.size }
+      }
+      const sampleSize = Math.min(st.size, 8192)
+      const buf = await readFile(absolutePath, { encoding: null })
+      const sample = buf.subarray(0, sampleSize)
+      if (isBinary(filePath, sample)) {
+        return { kind: 'binary' as const, size: st.size }
+      }
+      return { kind: 'text' as const, size: st.size }
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err)
+      l.error('detect-file-kind error:', err)
+      return { kind: 'text' as const, error: msg }
+    }
+  })
+
+  ipcMain.handle(
+    IPC.SYSTEM.READ_FILE_DATA_URL,
+    async (
+      _event,
+      filePath: string,
+      options?: { cwd?: string; gitRevision?: string; svnRevision?: string; svnFileStatus?: string }
+    ) => {
+      try {
+        if (!filePath?.trim()) throw new Error('Invalid file path')
+        let buf: Buffer
+
+        if (options && ('svnRevision' in options || options.gitRevision?.trim())) {
+          if ('svnRevision' in options) {
+            const basePathRaw = options?.cwd?.trim() || configurationStore.store.sourceFolder
+            const svnResult = await catBuffer(filePath, options.svnFileStatus ?? '', options.svnRevision, basePathRaw)
+            if (svnResult.status !== 'success') throw new Error(svnResult.message)
+            buf = svnResult.data
+          } else {
+            const gitRevision = options.gitRevision?.trim()
+            if (!gitRevision) throw new Error('Git revision is required')
+            const basePathRaw = options?.cwd?.trim() || configurationStore.store.sourceFolder
+            const basePath = await resolveReadWriteBase(basePathRaw)
+            if (!basePath) throw new Error('Repository root not configured')
+            const relativePath = resolvePathRelativeToBase(basePath, filePath).replace(/\\/g, '/')
+            const spec = `${gitRevision}:${relativePath}`
+            try {
+              buf = await execFilePromise('git', ['-C', basePath, 'show', spec], {
+                encoding: 'buffer',
+                maxBuffer: DIFF_VIEWER_DATA_URL_MAX_BYTES + 1024,
+                windowsHide: true,
+              })
+            } catch (err) {
+              if (isGitPathMissingAtRevisionError(err)) {
+                return { success: false as const, error: 'NOT_IN_REVISION' }
+              }
+              throw err
+            }
+          }
+        } else {
+          const absolutePath = await resolveAbsoluteFilePath(filePath, options?.cwd)
+          if (!fs.existsSync(absolutePath)) throw new Error('File not found')
+          const st = fs.statSync(absolutePath)
+          if (st.size > DIFF_VIEWER_DATA_URL_MAX_BYTES) {
+            return { success: false as const, error: 'FILE_TOO_LARGE', size: st.size }
+          }
+          buf = await readFile(absolutePath)
+        }
+
+        if (buf.byteLength > DIFF_VIEWER_DATA_URL_MAX_BYTES) {
+          return { success: false as const, error: 'FILE_TOO_LARGE', size: buf.byteLength }
+        }
+
+        const mime = mimeForImageExt(path.extname(filePath).toLowerCase()) ?? 'application/octet-stream'
+        const dataUrl = `data:${mime};base64,${buf.toString('base64')}`
+        return { success: true as const, dataUrl, mime, size: buf.byteLength }
+      } catch (err: unknown) {
+        const msg = err instanceof Error ? err.message : String(err)
+        l.error('read-file-data-url error:', err)
+        return { success: false as const, error: msg }
+      }
+    }
+  )
 
   ipcMain.handle(IPC.SYSTEM.GET_PATH_ENTRY_KIND, async (_event, payload: { relativePath: string; cwd?: string }) => {
     try {

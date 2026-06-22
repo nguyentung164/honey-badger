@@ -40,6 +40,7 @@ import 'ldrs/react/Quantum.css'
 import { Copy, File, FileText, Folder, FolderOpen, History, Info, Pencil, Plus, RefreshCw, RotateCcw } from 'lucide-react'
 import { IPC } from 'main/constants'
 import { forwardRef, type HTMLProps, memo, useCallback, useEffect, useImperativeHandle, useMemo, useRef, useState } from 'react'
+import { openSvnWorkingDiff } from '@/lib/diffViewer/openDiffViewer'
 import { STATUS_COLOR_CLASS_MAP, STATUS_TEXT, type SvnStatusCode } from '../../components/shared/constants'
 
 export type SvnFile = {
@@ -679,15 +680,28 @@ export const SvnFileTable = forwardRef(({ targetPath, onLoadingChange }: SvnFile
     [data]
   )
 
-  const handleFilePathDoubleClick = useCallback(async (row: any) => {
-    const { filePath } = row.original
-    try {
-      window.api.svn.open_diff(filePath)
-    } catch (error) {
-      const errorMessage = error instanceof Error ? error.message : String(error)
-      toast.error(errorMessage)
-    }
-  }, [])
+  const handleFilePathDoubleClick = useCallback(
+    async (row: any) => {
+      const { filePath, status } = row.original
+      try {
+        const svnFiles = data
+          .filter((f): f is SvnFile => 'status' in f && typeof f.status === 'string')
+          .map(f => ({ filePath: f.filePath, fileStatus: f.status }))
+        openSvnWorkingDiff({
+          filePath,
+          fileStatus: status ?? 'M',
+          cwd: sourceFolder ?? undefined,
+          svnTargetPath: targetPath || sourceFolder || '',
+          files: svnFiles,
+          currentFileIndex: svnFiles.findIndex(f => f.filePath === filePath),
+        })
+      } catch (error) {
+        const errorMessage = error instanceof Error ? error.message : String(error)
+        toast.error(errorMessage)
+      }
+    },
+    [data, sourceFolder, targetPath]
+  )
 
   const lastClickRef = useRef({ time: 0, rowId: '' })
   const handleRowClick = (event: React.MouseEvent, row: any) => {

@@ -100,8 +100,14 @@ export function registerWindowIpcHandlers() {
     const currentCommitHash = typeof data === 'object' && data.currentCommitHash ? data.currentCommitHash : undefined
     const isRootCommit = typeof data === 'object' && data.isRootCommit === true
     const cwd = typeof data === 'object' && data.cwd ? data.cwd : undefined
+    const mode = typeof data === 'object' && data.mode ? data.mode : undefined
+    const svnTargetPath = typeof data === 'object' && data.svnTargetPath ? data.svnTargetPath : undefined
+    const files = typeof data === 'object' && Array.isArray(data.files) ? data.files : undefined
+    const currentFileIndex = typeof data === 'object' && typeof data.currentFileIndex === 'number' ? data.currentFileIndex : undefined
+    const enableStageActions = typeof data === 'object' && (data.enableStageActions === true || data.mode === 'git-staging')
 
     const diffData = {
+      mode,
       filePath,
       fileStatus,
       revision,
@@ -111,6 +117,10 @@ export function registerWindowIpcHandlers() {
       currentCommitHash,
       isRootCommit,
       cwd,
+      svnTargetPath,
+      files,
+      currentFileIndex,
+      enableStageActions,
     }
 
     const window = new BrowserWindow({
@@ -159,6 +169,12 @@ export function registerWindowIpcHandlers() {
     if (data) {
       win.webContents.send('load-diff-data', data)
       pendingDiffDataByWindowId.delete(win.id)
+    }
+  })
+
+  ipcMain.on(IPC.WINDOW.NOTIFY_STAGING_CHANGED, () => {
+    for (const w of BrowserWindow.getAllWindows()) {
+      if (!w.isDestroyed()) w.webContents.send(IPC.FILES_CHANGED)
     }
   })
 

@@ -32,6 +32,7 @@ import { GlowLoader } from '@/components/ui-elements/GlowLoader'
 import { StatusIcon } from '@/components/ui-elements/StatusIcon'
 import toast from '@/components/ui-elements/Toast'
 import i18n from '@/lib/i18n'
+import { openGitHistoryDiff, openSvnRevisionDiff, openSvnWorkingDiff } from '@/lib/diffViewer/openDiffViewer'
 import { cn } from '@/lib/utils'
 import logger from '@/services/logger'
 import { useButtonVariant } from '@/stores/useAppearanceStore'
@@ -898,12 +899,15 @@ export function ShowLog() {
               const hashToUse = selectedEntry.fullCommitId || selectedRevision
               const opts = effectiveSourceFolder ? { cwd: effectiveSourceFolder } : undefined
               const parentHash = await window.api.git.getParentCommit(hashToUse, opts)
-              window.api.git.open_diff(file.filePath, {
+              openGitHistoryDiff({
+                filePath: file.filePath,
                 fileStatus: file.action,
                 commitHash: hashToUse,
                 currentCommitHash: parentHash ?? undefined,
                 isRootCommit: !parentHash,
                 cwd: effectiveSourceFolder ?? undefined,
+                files: changedFiles,
+                currentFileIndex: changedFiles.findIndex(f => f.filePath === file.filePath),
               })
             } else {
               toast.error('Could not find selected commit')
@@ -913,14 +917,22 @@ export function ShowLog() {
           }
         } else {
           if (selectedRevision) {
-            window.api.svn.open_diff(file.filePath, {
+            openSvnRevisionDiff({
+              filePath: file.filePath,
               fileStatus: file.action,
               revision: selectedRevision,
               currentRevision: currentRevision,
               cwd: effectiveSourceFolder ?? undefined,
+              files: changedFiles,
+              currentFileIndex: changedFiles.findIndex(f => f.filePath === file.filePath),
             })
           } else {
-            window.api.svn.open_diff(file.filePath, { fileStatus: file.action ?? '', cwd: effectiveSourceFolder ?? undefined })
+            openSvnWorkingDiff({
+              filePath: file.filePath,
+              fileStatus: file.action ?? '',
+              cwd: effectiveSourceFolder ?? undefined,
+              svnTargetPath: effectiveSourceFolder ?? undefined,
+            })
           }
         }
       } catch (error) {
@@ -928,7 +940,7 @@ export function ShowLog() {
         toast.error(errorMessage)
       }
     },
-    [effectiveVersionControlSystem, selectedRevision, allLogData, currentRevision, effectiveSourceFolder]
+    [effectiveVersionControlSystem, selectedRevision, allLogData, currentRevision, effectiveSourceFolder, changedFiles]
   )
 
   const totalPages = useMemo(() => {

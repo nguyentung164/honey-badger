@@ -1,5 +1,7 @@
 import { useCallback, useState } from 'react'
+import type { editor as MonacoEditor } from 'monaco-editor'
 import {
+  DIFF_VIEWER_BLAME_LINE_DECORATIONS_WIDTH,
   DIFF_VIEWER_FONT_SIZE_DEFAULT,
   DIFF_VIEWER_FONT_SIZE_MAX,
   DIFF_VIEWER_FONT_SIZE_MIN,
@@ -40,6 +42,8 @@ const DEFAULT_OPTIONS: DiffViewerViewOptions = {
   findOnType: true,
   autoFindInSelection: 'never',
   findAddExtraSpaceOnTop: true,
+  diffAlgorithm: 'advanced',
+  showBlame: false,
 }
 
 function clampFontSize(size: number): number {
@@ -96,6 +100,8 @@ function normalizeOptions(parsed: Partial<DiffViewerViewOptions> | null | undefi
     autoFindInSelection: parseAutoFindInSelection(parsed.autoFindInSelection),
     findAddExtraSpaceOnTop:
       typeof parsed.findAddExtraSpaceOnTop === 'boolean' ? parsed.findAddExtraSpaceOnTop : DEFAULT_OPTIONS.findAddExtraSpaceOnTop,
+    diffAlgorithm: parsed.diffAlgorithm === 'legacy' ? 'legacy' : 'advanced',
+    showBlame: typeof parsed.showBlame === 'boolean' ? parsed.showBlame : DEFAULT_OPTIONS.showBlame,
   }
 }
 
@@ -166,18 +172,25 @@ export function buildDiffEditorDisplayOptions(viewOptions: DiffViewerViewOptions
   }
 }
 
-export function buildDiffEditorOptions(viewOptions: DiffViewerViewOptions) {
+export function buildDiffEditorOptions(
+  viewOptions: DiffViewerViewOptions,
+  overrides?: { readOnly?: boolean }
+) {
+  const readOnly = overrides?.readOnly ?? false
   const displayOptions = buildDiffEditorDisplayOptions(viewOptions)
+  const lineDecorationsWidth = viewOptions.showBlame
+    ? Math.max(DIFF_VIEWER_BLAME_LINE_DECORATIONS_WIDTH, clampLineDecorationsWidth(viewOptions.lineDecorationsWidth))
+    : clampLineDecorationsWidth(viewOptions.lineDecorationsWidth)
 
   return {
     renderWhitespace: 'all' as const,
-    readOnly: false,
+    readOnly,
     fontSize: viewOptions.fontSize,
     fontFamily: 'Jetbrains Mono NL, monospace',
     fontLigatures: viewOptions.fontLigatures,
     fontVariations: viewOptions.fontVariations,
-    glyphMargin: viewOptions.glyphMargin,
-    lineDecorationsWidth: viewOptions.lineDecorationsWidth,
+    glyphMargin: viewOptions.showBlame ? false : viewOptions.glyphMargin,
+    lineDecorationsWidth,
     automaticLayout: true,
     padding: { top: 12, bottom: 12 },
     lineNumbers: 'on' as const,
@@ -190,6 +203,7 @@ export function buildDiffEditorOptions(viewOptions: DiffViewerViewOptions) {
     ignoreTrimWhitespace: viewOptions.ignoreTrimWhitespace,
     codeLens: viewOptions.diffCodeLens,
     ...displayOptions,
+    originalEditable: readOnly ? false : displayOptions.originalEditable,
     minimap: { enabled: viewOptions.minimap, showSlider: 'always' as const },
     scrollbar: {
       verticalScrollbarSize: 8,
@@ -203,9 +217,56 @@ export function buildDiffEditorOptions(viewOptions: DiffViewerViewOptions) {
       addExtraSpaceOnTop: viewOptions.findAddExtraSpaceOnTop,
       cursorMoveOnType: true,
     },
-    diffAlgorithm: 'advanced' as const,
+    diffAlgorithm: viewOptions.diffAlgorithm,
     renderValidationDecorations: 'off' as const,
   }
+}
+
+/** Diff editor options that must be applied to both inner code editors (minimap, blame width, etc.). */
+export function applyDiffViewerEditorOptions(
+  diffEditor: MonacoEditor.IStandaloneDiffEditor,
+  viewOptions: DiffViewerViewOptions,
+  overrides?: { readOnly?: boolean }
+) {
+  const readOnly = overrides?.readOnly ?? false
+  const displayOptions = buildDiffEditorDisplayOptions(viewOptions)
+  const built = buildDiffEditorOptions(viewOptions, { readOnly })
+
+  diffEditor.updateOptions({
+    renderSideBySide: displayOptions.renderSideBySide,
+    hideUnchangedRegions: displayOptions.hideUnchangedRegions,
+    experimental: displayOptions.experimental,
+    compactMode: displayOptions.compactMode,
+    renderOverviewRuler: displayOptions.renderOverviewRuler,
+    diffWordWrap: displayOptions.diffWordWrap,
+    originalEditable: built.originalEditable,
+    readOnly: built.readOnly,
+    ignoreTrimWhitespace: built.ignoreTrimWhitespace,
+    renderIndicators: built.renderIndicators,
+    diffCodeLens: displayOptions.diffCodeLens,
+    diffAlgorithm: built.diffAlgorithm,
+  })
+
+  const paneOptions: MonacoEditor.IEditorOptions = {
+    minimap: built.minimap,
+    glyphMargin: built.glyphMargin,
+    lineDecorationsWidth: built.lineDecorationsWidth,
+    fontSize: built.fontSize,
+    fontFamily: built.fontFamily,
+    fontLigatures: built.fontLigatures,
+    fontVariations: built.fontVariations,
+    wordWrap: built.wordWrap,
+    lineNumbers: built.lineNumbers,
+    padding: built.padding,
+    renderWhitespace: built.renderWhitespace,
+    scrollBeyondLastLine: built.scrollBeyondLastLine,
+    smoothScrolling: built.smoothScrolling,
+    find: built.find,
+    showFoldingControls: built.showFoldingControls,
+    automaticLayout: built.automaticLayout,
+  }
+  diffEditor.getOriginalEditor().updateOptions(paneOptions)
+  diffEditor.getModifiedEditor().updateOptions(paneOptions)
 }
 
 export function useDiffViewerOptions() {

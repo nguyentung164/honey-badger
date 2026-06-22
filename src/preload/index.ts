@@ -84,7 +84,20 @@ declare global {
         update: (filePath?: string | string[], revision?: string) => Promise<any>
         onUpdateStream: (callback: (chunk: string) => void) => () => void
         onCommitStream: (callback: (chunk: string) => void) => () => void
-        open_diff: (filePath: string, options?: { fileStatus?: string; revision?: string; currentRevision?: string; cwd?: string }) => void
+        open_diff: (
+          filePath: string,
+          options?: {
+            fileStatus?: string
+            revision?: string
+            currentRevision?: string
+            cwd?: string
+            mode?: 'git-staging' | 'git-history' | 'git-working' | 'svn-revision' | 'svn-working'
+            svnTargetPath?: string
+            files?: { filePath: string; fileStatus?: string; stagingState?: 'staged' | 'unstaged' }[]
+            currentFileIndex?: number
+            enableStageActions?: boolean
+          }
+        ) => void
         statistics: (filePath: string, options?: { period?: 'day' | 'week' | 'month' | 'year' | 'all'; dateFrom?: string; dateTo?: string }) => Promise<any>
         merge: (options: { sourcePath: string; targetPath: string; dryRun?: boolean; revision?: string }) => Promise<any>
         merge_resolve_conflict: (filePath: string, resolution: 'working' | 'theirs' | 'mine' | 'base' | '', isRevisionConflict?: boolean, targetPath?: string) => Promise<any>
@@ -126,7 +139,22 @@ declare global {
         getCommitDiff: (commitHash: string, filePath?: string, options?: { cwd?: string }) => Promise<any>
         getParentCommit: (commitHash: string, options?: { cwd?: string }) => Promise<string | null>
         cat: (filePath: string, fileStatus: string, commitHash?: string, options?: { cwd?: string }) => Promise<any>
-        open_diff: (filePath: string, options?: { fileStatus: string; commitHash?: string; currentCommitHash?: string; isRootCommit?: boolean; cwd?: string }) => void
+        open_diff: (
+          filePath: string,
+          options?: {
+            fileStatus: string
+            commitHash?: string
+            currentCommitHash?: string
+            isRootCommit?: boolean
+            cwd?: string
+            mode?: 'git-staging' | 'git-history' | 'git-working' | 'svn-revision' | 'svn-working'
+            svnTargetPath?: string
+            files?: { filePath: string; fileStatus?: string; stagingState?: 'staged' | 'unstaged' }[]
+            currentFileIndex?: number
+            enableStageActions?: boolean
+          }
+        ) => void
+        blame: (filePath: string, options?: { cwd?: string; revision?: string }) => Promise<any>
         revert: (filePath: string | string[]) => Promise<any>
         discardChanges: (paths: string[], cwd?: string) => Promise<any>
         discardFiles: (paths: string[], cwd?: string) => Promise<any>
@@ -188,7 +216,6 @@ declare global {
         list_remote_tags: (remote?: string, cwd?: string) => Promise<any>
         delete_tag: (tagName: string, remote?: string, cwd?: string) => Promise<any>
         push_tag: (tagName: string, remote: string, cwd?: string) => Promise<any>
-        blame: (filePath: string) => Promise<any>
         statistics: (filePath: string, options?: { period?: 'day' | 'week' | 'month' | 'year' | 'all'; dateFrom?: string; dateTo?: string }) => Promise<any>
         hooks_get: (cwd?: string) => Promise<any>
         hook_get_content: (hookName: string, cwd?: string) => Promise<any>
@@ -374,6 +401,11 @@ declare global {
         get_default_notification_sound_url: () => Promise<string | null>
         /** Repo-relative path under cwd/sourceFolder; used for context menu labels. */
         get_path_entry_kind: (payload: { relativePath: string; cwd?: string }) => Promise<'file' | 'directory' | 'missing'>
+        detect_file_kind: (filePath: string, options?: { cwd?: string }) => Promise<{ kind: 'text' | 'image' | 'binary'; mime?: string; size?: number }>
+        read_file_data_url: (
+          filePath: string,
+          options?: { cwd?: string; gitRevision?: string; svnRevision?: string; svnFileStatus?: string }
+        ) => Promise<{ success: true; dataUrl: string; mime?: string; size?: number } | { success: false; error: string; size?: number }>
       }
 
       sourcefolder: {
@@ -1442,8 +1474,20 @@ contextBridge.exposeInMainWorld('api', {
       ipcRenderer.on(IPC.SVN.COMMIT_STREAM, handler)
       return () => ipcRenderer.removeListener(IPC.SVN.COMMIT_STREAM, handler)
     },
-    open_diff: (filePath: string, options?: { fileStatus: string; revision?: string; currentRevision?: string }) =>
-      ipcRenderer.send(IPC.WINDOW.DIFF_WINDOWS, { filePath, ...options }),
+    open_diff: (
+      filePath: string,
+      options?: {
+        fileStatus?: string
+        revision?: string
+        currentRevision?: string
+        cwd?: string
+        mode?: string
+        svnTargetPath?: string
+        files?: { filePath: string; fileStatus?: string; stagingState?: 'staged' | 'unstaged' }[]
+        currentFileIndex?: number
+        enableStageActions?: boolean
+      }
+    ) => ipcRenderer.send(IPC.WINDOW.DIFF_WINDOWS, { filePath, ...options }),
     statistics: (filePath: string, options?: { period?: 'day' | 'week' | 'month' | 'year' | 'all'; dateFrom?: string; dateTo?: string }) =>
       ipcRenderer.invoke(IPC.SVN.STATISTICS, filePath, options),
     merge: (options: { sourcePath: string; targetPath: string; dryRun?: boolean; revision?: string }) => ipcRenderer.invoke(IPC.SVN.MERGE, options),
@@ -1482,8 +1526,21 @@ contextBridge.exposeInMainWorld('api', {
     getCommitDiff: (commitHash: string, filePath?: string, options?: { cwd?: string }) => ipcRenderer.invoke(IPC.GIT.GET_COMMIT_DIFF, commitHash, filePath, options),
     getParentCommit: (commitHash: string, options?: { cwd?: string }) => ipcRenderer.invoke(IPC.GIT.GET_PARENT_COMMIT, commitHash, options),
     cat: (filePath: string, fileStatus: string, commitHash?: string, options?: { cwd?: string }) => ipcRenderer.invoke(IPC.GIT.CAT, filePath, fileStatus, commitHash, options),
-    open_diff: (filePath: string, options?: { fileStatus: string; commitHash?: string; currentCommitHash?: string; isRootCommit?: boolean; cwd?: string }) =>
-      ipcRenderer.send(IPC.WINDOW.DIFF_WINDOWS, { filePath, isGit: true, ...options }),
+    open_diff: (
+      filePath: string,
+      options?: {
+        fileStatus: string
+        commitHash?: string
+        currentCommitHash?: string
+        isRootCommit?: boolean
+        cwd?: string
+        mode?: string
+        svnTargetPath?: string
+        files?: { filePath: string; fileStatus?: string; stagingState?: 'staged' | 'unstaged' }[]
+        currentFileIndex?: number
+        enableStageActions?: boolean
+      }
+    ) => ipcRenderer.send(IPC.WINDOW.DIFF_WINDOWS, { filePath, isGit: true, ...options }),
     revert: (filePath: string | string[]) => ipcRenderer.invoke(IPC.GIT.REVERT, filePath),
     discardChanges: (paths: string[], cwd?: string) => ipcRenderer.invoke(IPC.GIT.DISCARD_CHANGES, paths, cwd),
     discardFiles: (paths: string[], cwd?: string) => ipcRenderer.invoke(IPC.GIT.DISCARD_FILES, paths, cwd),
@@ -1558,7 +1615,7 @@ contextBridge.exposeInMainWorld('api', {
     list_remote_tags: (remote?: string, cwd?: string) => ipcRenderer.invoke(IPC.GIT.LIST_REMOTE_TAGS, remote ?? 'origin', cwd),
     delete_tag: (tagName: string, remote?: string, cwd?: string) => ipcRenderer.invoke(IPC.GIT.DELETE_TAG, tagName, remote, cwd),
     push_tag: (tagName: string, remote: string, cwd?: string) => ipcRenderer.invoke(IPC.GIT.PUSH_TAG, tagName, remote, cwd),
-    blame: (filePath: string) => ipcRenderer.invoke(IPC.GIT.BLAME, filePath),
+    blame: (filePath: string, options?: { cwd?: string; revision?: string }) => ipcRenderer.invoke(IPC.GIT.BLAME, filePath, options),
     statistics: (filePath: string, options?: { period?: 'day' | 'week' | 'month' | 'year' | 'all'; dateFrom?: string; dateTo?: string }) =>
       ipcRenderer.invoke(IPC.GIT.STATISTICS, filePath, options),
     hooks_get: (cwd?: string) => ipcRenderer.invoke(IPC.GIT.HOOKS_GET, cwd),
@@ -1602,6 +1659,9 @@ contextBridge.exposeInMainWorld('api', {
     get_notification_sound_url: (filePath: string) => ipcRenderer.invoke(IPC.SYSTEM.GET_NOTIFICATION_SOUND_URL, filePath),
     get_default_notification_sound_url: () => ipcRenderer.invoke(IPC.SYSTEM.GET_DEFAULT_NOTIFICATION_SOUND_URL),
     get_path_entry_kind: (payload: { relativePath: string; cwd?: string }) => ipcRenderer.invoke(IPC.SYSTEM.GET_PATH_ENTRY_KIND, payload),
+    detect_file_kind: (filePath: string, options?: { cwd?: string }) => ipcRenderer.invoke(IPC.SYSTEM.DETECT_FILE_KIND, filePath, options),
+    read_file_data_url: (filePath: string, options?: { cwd?: string; gitRevision?: string }) =>
+      ipcRenderer.invoke(IPC.SYSTEM.READ_FILE_DATA_URL, filePath, options),
   },
 
   sourcefolder: {

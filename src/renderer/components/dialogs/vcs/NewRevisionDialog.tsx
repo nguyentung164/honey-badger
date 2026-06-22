@@ -12,8 +12,10 @@ import { ScrollArea, ScrollBar } from '@/components/ui/scroll-area'
 import { TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 import { Textarea } from '@/components/ui/textarea'
 import { cn } from '@/lib/utils'
+import { openSvnRevisionDiff, openSvnWorkingDiff } from '@/lib/diffViewer/openDiffViewer'
 import logger from '@/services/logger'
 import { useAppearanceStoreSelect } from '@/stores/useAppearanceStore'
+import { useConfigurationStore } from '@/stores/useConfigurationStore'
 import { STATUS_TEXT, type SvnStatusCode } from '../../shared/constants'
 import { GlowLoader } from '../../ui-elements/GlowLoader'
 import { StatusIcon } from '../../ui-elements/StatusIcon'
@@ -62,6 +64,7 @@ type SvnInfo = {
 export function NewRevisionDialog({ open, onOpenChange, onCurRevisionUpdate, isManuallyOpened = false }: NewRevisionDialogProps) {
   const { t, i18n } = useTranslation()
   const buttonVariant = useAppearanceStoreSelect(s => s.buttonVariant)
+  const sourceFolder = useConfigurationStore(s => s.sourceFolder)
   const [isLoading, setLoading] = useState(false)
   const [isCheckingForUpdate, setCheckingForUpdate] = useState(true)
   const [svnInfo, setSvnInfo] = useState<SvnInfo | null>(null)
@@ -523,14 +526,24 @@ export function NewRevisionDialog({ open, onOpenChange, onCurRevisionUpdate, isM
                               className="p-0 h-6 px-2 cursor-pointer break-words whitespace-normal"
                               onClick={() => {
                                 try {
+                                  const repoCwd = sourceFolder ?? undefined
                                   if (selectedRevision && svnInfo) {
-                                    window.api.svn.open_diff(file.filePath, {
+                                    openSvnRevisionDiff({
+                                      filePath: file.filePath,
                                       fileStatus: file.action,
                                       revision: selectedRevision,
                                       currentRevision: svnInfo.curRevision,
+                                      cwd: repoCwd,
+                                      files: changedFiles,
+                                      currentFileIndex: changedFiles.findIndex(f => f.filePath === file.filePath),
                                     })
                                   } else {
-                                    window.api.svn.open_diff(file.filePath)
+                                    openSvnWorkingDiff({
+                                      filePath: file.filePath,
+                                      fileStatus: file.action,
+                                      cwd: repoCwd,
+                                      svnTargetPath: repoCwd,
+                                    })
                                   }
                                 } catch (error) {
                                   const errorMessage = error instanceof Error ? error.message : String(error)

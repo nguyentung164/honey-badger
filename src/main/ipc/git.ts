@@ -277,7 +277,7 @@ export function registerGitIpcHandlers() {
   ipcMain.handle(IPC.GIT.PUSH_TAG, async (_event, tagName: string, remote: string, cwd?: string) => await gitPushTag(tagName, remote, cwd))
 
   // Blame operation
-  ipcMain.handle(IPC.GIT.BLAME, async (_event, filePath: string) => await gitBlame(filePath))
+  ipcMain.handle(IPC.GIT.BLAME, async (_event, filePath: string, options?: { cwd?: string; revision?: string }) => await gitBlame(filePath, options))
 
   // Statistics operation
   ipcMain.handle(IPC.GIT.STATISTICS, async (_event, filePath: string, options?: StatisticsOptions) => await gitGetStatistics(filePath, options))

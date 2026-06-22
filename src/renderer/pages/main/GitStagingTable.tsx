@@ -33,6 +33,7 @@ import { TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/compon
 import { GlowLoader } from '@/components/ui-elements/GlowLoader'
 import toast from '@/components/ui-elements/Toast'
 import { cn } from '@/lib/utils'
+import { openGitStagingDiff } from '@/lib/diffViewer/openDiffViewer'
 import logger from '@/services/logger'
 import { useAppearanceStoreSelect } from '@/stores/useAppearanceStore'
 import { useConfigurationStore } from '@/stores/useConfigurationStore'
@@ -792,9 +793,25 @@ export const GitStagingTable = forwardRef(({ onLoadingChange, cwd, label }: GitS
     async (row: any) => {
       const { filePath, status } = row.original
       try {
-        window.api.git.open_diff(filePath, {
+        const files = [
+          ...displayedChangesData.map(f => ({
+            filePath: f.filePath,
+            fileStatus: f.status,
+            stagingState: 'unstaged' as const,
+          })),
+          ...stagedData.map(f => ({
+            filePath: f.filePath,
+            fileStatus: f.status,
+            stagingState: 'staged' as const,
+          })),
+        ]
+        const currentFileIndex = files.findIndex(f => f.filePath === filePath)
+        openGitStagingDiff({
+          filePath,
           fileStatus: status,
-          ...(cwd ? { cwd } : {}),
+          files,
+          currentFileIndex: Math.max(0, currentFileIndex),
+          cwd,
         })
       } catch (error) {
         const errorMessage = error instanceof Error ? error.message : String(error)
@@ -802,7 +819,7 @@ export const GitStagingTable = forwardRef(({ onLoadingChange, cwd, label }: GitS
         toast.error(errorMessage)
       }
     },
-    [cwd]
+    [cwd, displayedChangesData, stagedData]
   )
 
   const changesColumns = useMemo(

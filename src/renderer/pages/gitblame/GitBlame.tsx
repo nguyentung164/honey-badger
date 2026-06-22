@@ -6,6 +6,7 @@ import { GlowLoader } from '@/components/ui-elements/GlowLoader'
 import toast from '@/components/ui-elements/Toast'
 import { cn } from '@/lib/utils'
 import logger from '@/services/logger'
+import { getCommitColor, BLAME_UNCOMMITTED_COLOR } from '@/pages/diffviewer/blameColors'
 import { GitBlameToolbar } from './GitBlameToolbar'
 
 interface BlameLine {
@@ -22,43 +23,6 @@ interface CommitInfo {
   date: string
   shortCommit: string
   color: string
-}
-
-// Generate a color based on commit hash - optimized for both light and dark mode
-const getCommitColor = (_commit: string, index: number): string => {
-  const colors = [
-    '#2563eb', // blue-600
-    '#059669', // emerald-600
-    '#dc2626', // red-600
-    '#7c3aed', // violet-600
-    '#0891b2', // cyan-600
-    '#db2777', // pink-600
-    '#65a30d', // lime-600
-    '#ea580c', // orange-600
-    '#0d9488', // teal-600
-    '#c026d3', // fuchsia-600
-    '#1d4ed8', // blue-700
-    '#047857', // emerald-700
-    '#b91c1c', // red-700
-    '#6d28d9', // violet-700
-    '#0e7490', // cyan-700
-    '#be185d', // pink-700
-    '#4d7c0f', // lime-700
-    '#c2410c', // orange-700
-    '#0f766e', // teal-700
-    '#a21caf', // fuchsia-700
-    '#1e40af', // blue-800
-    '#065f46', // emerald-800
-    '#991b1b', // red-800
-    '#5b21b6', // violet-800
-    '#155e75', // cyan-800
-    '#9f1239', // pink-800
-    '#3f6212', // lime-800
-    '#9a3412', // orange-800
-    '#115e59', // teal-800
-    '#86198f', // fuchsia-800
-  ]
-  return colors[index % colors.length]
 }
 
 export function GitBlame() {
@@ -80,7 +44,7 @@ export function GitBlame() {
           date: line.date,
           shortCommit: isUncommitted ? 'Chưa commit' : line.commit.substring(0, 7),
           // Use orange-600 for uncommitted - better contrast in both light/dark mode
-          color: isUncommitted ? '#ea580c' : getCommitColor(line.commit, uniqueCommits.size),
+          color: isUncommitted ? BLAME_UNCOMMITTED_COLOR : getCommitColor(line.commit, uniqueCommits.size),
         })
       }
     })

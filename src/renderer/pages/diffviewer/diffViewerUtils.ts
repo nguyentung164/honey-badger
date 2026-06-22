@@ -97,24 +97,17 @@ export function getCharChangeCount(changes: readonly MonacoEditor.ILineChange[])
   return count
 }
 
-/** Wrap diff model in a view model and wait until Monaco finishes computing the diff. */
+/** Wait until Monaco finishes computing the diff (never replaces the editor model). */
 export async function waitForDiffCompute(diffEditor: MonacoEditor.IStandaloneDiffEditor): Promise<void> {
-  const model = diffEditor.getModel()
-  if (!model) return
-
-  const viewModelCandidate = model as unknown as MonacoEditor.IDiffEditorViewModel
-  if (typeof viewModelCandidate.waitForDiff === 'function') {
-    await viewModelCandidate.waitForDiff()
+  const model = diffEditor.getModel() as (MonacoEditor.IDiffEditorModel & { waitForDiff?: () => Promise<void> }) | null
+  if (model?.waitForDiff) {
+    await model.waitForDiff().catch(() => undefined)
     return
   }
-
-  try {
-    const viewModel = diffEditor.createViewModel(model)
-    diffEditor.setModel(viewModel)
-    await viewModel.waitForDiff()
-  } catch {
-    await waitForDiffComputeViaEvent(diffEditor)
+  if (diffEditor.getLineChanges() !== null) {
+    return
   }
+  await waitForDiffComputeViaEvent(diffEditor)
 }
 
 function waitForDiffComputeViaEvent(diffEditor: MonacoEditor.IStandaloneDiffEditor): Promise<void> {

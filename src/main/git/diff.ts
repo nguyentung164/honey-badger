@@ -1,6 +1,6 @@
 import l from 'electron-log'
 import { resolvePathRelativeToBase } from '../utils/utils'
-import { formatGitError, getGitInstance } from './utils'
+import { formatGitError, getGitInstance, isGitNewFileStatus, isGitPathMissingAtRevisionError } from './utils'
 
 interface GitDiffResponse {
   status: 'success' | 'error'
@@ -333,6 +333,15 @@ export async function getFileContent(filePath: string, fileStatus: string, commi
       }
     }
 
+    // New/untracked files have no content at HEAD — diff vs empty baseline
+    if (commitHash && isGitNewFileStatus(fileStatus)) {
+      l.info('File is new/untracked; returning empty content for commit side')
+      return {
+        status: 'success',
+        data: '',
+      }
+    }
+
     // If no commit hash provided, read from working copy
     if (!commitHash) {
       l.info('Reading from working copy')
@@ -364,6 +373,13 @@ export async function getFileContent(filePath: string, fileStatus: string, commi
       try {
         content = await git.show([`${commitHash}:${pathForGit}`])
       } catch (error) {
+        if (isGitPathMissingAtRevisionError(error)) {
+          l.info(`File not present in ${commitHash}, returning empty content`)
+          return {
+            status: 'success',
+            data: '',
+          }
+        }
         l.error(`Error reading file from commit ${commitHash}:`, error)
         return {
           status: 'error',

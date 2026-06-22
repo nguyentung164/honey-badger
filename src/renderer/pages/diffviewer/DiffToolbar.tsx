@@ -1,446 +1,939 @@
 'use client'
+
 import { t } from 'i18next'
+
 import {
-  ChevronDown,
-  ChevronFirst,
-  ChevronLast,
+
+  ArrowLeftRight,
+
+  ChevronLeft,
+
+  ChevronRight,
+
   ChevronUp,
-  Columns,
+
+  ChevronDown as ChevronDownNav,
+
+  ChevronFirst,
+
+  ChevronLast,
+
   Columns2,
+
   ExternalLink,
+
   FoldVertical,
+
   FolderOpen,
-  GitCompareArrows,
+
+  GitCommitHorizontal,
+
   ListFilter,
-  Map,
+
+  Map as MapIcon,
+
   Minus,
+
   RefreshCw,
+
   Replace,
+
   Rows2,
+
   Save,
+
   Search,
+
   Space,
+
   Square,
+
+  SquareMinus,
+
+  SquarePlus,
+
   UnfoldVertical,
+
   WrapText,
+
   X,
-  ZoomIn,
-  ZoomOut,
+
 } from 'lucide-react'
+
 import type React from 'react'
+
 import { Button } from '@/components/ui/button'
+
+import {
+
+  DropdownMenu,
+
+  DropdownMenuContent,
+
+  DropdownMenuItem,
+
+  DropdownMenuLabel,
+
+  DropdownMenuSeparator,
+
+  DropdownMenuSub,
+
+  DropdownMenuSubContent,
+
+  DropdownMenuSubTrigger,
+
+  DropdownMenuTrigger,
+
+} from '@/components/ui/dropdown-menu'
+
+import { Slider } from '@/components/ui/slider'
+
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
+
 import { cn } from '@/lib/utils'
-import { useAppearanceStoreSelect } from '@/stores/useAppearanceStore'
-import { DIFF_VIEWER_FONT_SIZE_DEFAULT, DIFF_VIEWER_FONT_SIZE_MAX, DIFF_VIEWER_FONT_SIZE_MIN, type DiffViewerViewOptionKey, type DiffViewerViewOptions } from './diffViewerTypes'
-import { DiffViewerAdvancedOptions } from './DiffViewerAdvancedOptions'
+
+import { DIFF_VIEWER_FONT_SIZE_MAX, DIFF_VIEWER_FONT_SIZE_MIN, type DiffViewerViewOptionKey, type DiffViewerViewOptions } from './diffViewerTypes'
+
+import { DiffViewerAdvancedOptionsPanel } from './DiffViewerAdvancedOptions'
+
+import { DiffViewerFilePicker } from './DiffViewerFilePicker'
+
+import type { DiffViewerFileEntry } from './diffViewerPayload'
+
+
 
 interface DiffToolbarProps {
+
   onRefresh?: () => void
+
   onSwapSides?: () => void
+
   onSave?: () => void
+
   onPrevChange?: () => void
+
   onNextChange?: () => void
+
   onFirstChange?: () => void
+
   onLastChange?: () => void
+
   changePosition?: { current: number; total: number }
+
   disableChangeNav?: boolean
+
   isSaving?: boolean
+
   filePath: string
+
+  files?: DiffViewerFileEntry[]
+
+  activeFile?: DiffViewerFileEntry
+
+  onSelectFile?: (index: number) => void
+
+  disableFilePicker?: boolean
+
   disableSave: boolean
+
+  isDirty?: boolean
+
+  onCloseRequest?: () => void
+
+  hasMultipleFiles?: boolean
+
+  filePosition?: { current: number; total: number }
+
+  onPrevFile?: () => void
+
+  onNextFile?: () => void
+
+  disableFileNav?: boolean
+
+  disablePrevFile?: boolean
+
+  disableNextFile?: boolean
+
+  showStageActions?: boolean
+
+  stagingState?: 'staged' | 'unstaged'
+
+  onStageToggle?: () => void
+
+  isStaging?: boolean
+
+  showBlameToggle?: boolean
+
+  showBlame?: boolean
+
+  onToggleBlame?: () => void
+
   viewOptions: DiffViewerViewOptions
+
   onViewOptionChange: <K extends DiffViewerViewOptionKey>(key: K, value: DiffViewerViewOptions[K]) => void
-  onFontSizeDecrease?: () => void
-  onFontSizeIncrease?: () => void
+
   onOpenInEditor?: () => void
+
   onRevealInExplorer?: () => void
-  onCopyPath?: () => void
+
   onFind?: () => void
+
   onFindReplace?: () => void
+
 }
 
+
+
 const toggleBtnClass =
+
   'shadow-none focus-visible:ring-0 focus-visible:ring-offset-0 hover:bg-muted transition-colors rounded-sm h-[25px] w-[25px]'
 
-const activeToggleClass = 'text-green-600 dark:text-green-400 hover:text-green-600 dark:hover:text-green-400'
+
+
+const menuTriggerClass =
+
+  'h-7 gap-1 px-2.5 text-xs font-medium shadow-none hover:bg-muted rounded-sm focus-visible:ring-0 focus-visible:ring-offset-0'
+
+
+
+const viewMenuActiveClass = 'text-green-600 dark:text-green-400 focus:text-green-600 dark:focus:text-green-400'
+
+const navLabelClass = 'px-1 text-xs font-medium text-muted-foreground select-none'
+
+const navPositionClass = 'min-w-[2.75rem] px-0.5 text-center text-xs tabular-nums shrink-0'
+
+
+
+const dragStyle = { WebkitAppRegion: 'drag' } as React.CSSProperties
 
 const noDragStyle = { WebkitAppRegion: 'no-drag' } as React.CSSProperties
 
-function toggleClass(active: boolean) {
-  return cn(toggleBtnClass, active && activeToggleClass)
+
+
+function DragGutter({ className }: { className?: string }) {
+
+  return <div className={cn('flex-1 min-w-6 self-stretch', className)} style={dragStyle} aria-hidden />
+
 }
 
-function ToolbarIconGroup({ children, className }: { children: React.ReactNode; className?: string }) {
+
+
+function ToolbarMenus({ style, children }: { style?: React.CSSProperties; children: React.ReactNode }) {
+
   return (
-    <div className={cn('flex items-center h-full shrink-0', className)} style={noDragStyle}>
+
+    <div className="flex items-center h-full gap-0.5 shrink-0" style={style}>
+
       {children}
+
     </div>
+
   )
+
 }
+
+
+
+function MenuTriggerLabel({ label }: { label: string }) {
+  return <span>{label}</span>
+}
+
+
+
+function ViewMenuToggleItem({
+
+  icon: Icon,
+
+  label,
+
+  active,
+
+  disabled,
+
+  onSelect,
+
+}: {
+
+  icon: React.ComponentType<{ className?: string; strokeWidth?: number }>
+
+  label: string
+
+  active?: boolean
+
+  disabled?: boolean
+
+  onSelect: () => void
+
+}) {
+
+  return (
+
+    <DropdownMenuItem
+
+      disabled={disabled}
+
+      onClick={onSelect}
+
+      className={cn('gap-2', active && viewMenuActiveClass)}
+
+    >
+
+      <Icon strokeWidth={1.25} className="h-4 w-4 shrink-0" />
+
+      <span>{label}</span>
+
+    </DropdownMenuItem>
+
+  )
+
+}
+
+
 
 export const DiffToolbar: React.FC<DiffToolbarProps> = ({
+
   onRefresh,
+
   onSwapSides,
+
   onSave,
+
   onPrevChange,
+
   onNextChange,
+
   onFirstChange,
+
   onLastChange,
+
   changePosition,
+
   disableChangeNav = false,
+
   isSaving = false,
+
   filePath,
+
+  files = [],
+
+  activeFile,
+
+  onSelectFile,
+
+  disableFilePicker = false,
+
   disableSave,
+
+  isDirty = false,
+
+  onCloseRequest,
+
+  hasMultipleFiles = false,
+
+  filePosition,
+
+  onPrevFile,
+
+  onNextFile,
+
+  disableFileNav = false,
+
+  disablePrevFile = false,
+
+  disableNextFile = false,
+
+  showStageActions = false,
+
+  stagingState,
+
+  onStageToggle,
+
+  isStaging = false,
+
+  showBlameToggle = false,
+
+  showBlame = false,
+
+  onToggleBlame,
+
   viewOptions,
+
   onViewOptionChange,
-  onFontSizeDecrease,
-  onFontSizeIncrease,
+
   onOpenInEditor,
+
   onRevealInExplorer,
-  onCopyPath,
+
   onFind,
+
   onFindReplace,
+
 }) => {
-  const buttonVariant = useAppearanceStoreSelect(s => s.buttonVariant)
+
   const handleWindow = (action: string) => {
+
+    if (action === 'close' && onCloseRequest) {
+
+      onCloseRequest()
+
+      return
+
+    }
+
     window.api.electron.send('window:action', action)
+
   }
 
-  const fontAtMin = viewOptions.fontSize <= DIFF_VIEWER_FONT_SIZE_MIN
-  const fontAtMax = viewOptions.fontSize >= DIFF_VIEWER_FONT_SIZE_MAX
+
 
   return (
+
     <div
-      className="flex items-center h-8 text-sm select-none gap-1"
+
+      className="flex items-center h-8 text-sm select-none min-w-0"
+
       style={
+
         {
-          WebkitAppRegion: 'drag',
+
+          ...dragStyle,
+
           backgroundColor: 'var(--main-bg)',
+
           color: 'var(--main-fg)',
+
         } as React.CSSProperties
+
       }
+
     >
-      {/* Left — core file actions */}
-      <div className="flex items-center h-full min-w-0 shrink-0">
-        <div className="w-10 h-6 flex justify-center items-center shrink-0">
-          <img src="logo.png" alt="icon" draggable="false" className="w-3.5 h-3.5 dark:brightness-130" />
+
+      {/* Left — logo (draggable) + labeled menus */}
+
+      <div className="flex items-center h-full shrink-0 min-w-0" style={dragStyle}>
+
+        <div className="w-10 h-full flex justify-center items-center shrink-0">
+
+          <img src="logo.png" alt="" draggable={false} className="w-3.5 h-3.5 dark:brightness-130 pointer-events-none" />
+
         </div>
-        <ToolbarIconGroup>
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <Button variant="link" size="sm" onClick={onRefresh} className={toggleBtnClass}>
-                <RefreshCw strokeWidth={1.25} absoluteStrokeWidth size={15} className="h-4 w-4" />
+
+
+
+        <ToolbarMenus style={noDragStyle}>
+
+          <DropdownMenu>
+
+            <DropdownMenuTrigger asChild>
+
+              <Button variant="ghost" size="sm" className={menuTriggerClass}>
+
+                <MenuTriggerLabel label={t('dialog.diffViewer.menuFile')} />
+
               </Button>
-            </TooltipTrigger>
-            <TooltipContent>{t('common.refresh')}</TooltipContent>
-          </Tooltip>
 
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <Button variant="link" size="sm" onClick={onSwapSides} className={toggleBtnClass}>
-                <Columns strokeWidth={1.25} absoluteStrokeWidth size={15} className="h-4 w-4" />
+            </DropdownMenuTrigger>
+
+            <DropdownMenuContent align="start" className="min-w-52" style={noDragStyle}>
+
+              {onRefresh && (
+
+                <DropdownMenuItem onClick={() => void onRefresh()} className="gap-2">
+
+                  <RefreshCw strokeWidth={1.25} className="h-4 w-4 shrink-0" />
+
+                  {t('common.refresh')}
+
+                </DropdownMenuItem>
+
+              )}
+
+              {onSave && (
+
+                <DropdownMenuItem onClick={onSave} disabled={isSaving || disableSave} className="gap-2">
+
+                  <Save strokeWidth={1.25} className="h-4 w-4 shrink-0" />
+
+                  {t('common.save')}
+
+                </DropdownMenuItem>
+
+              )}
+
+              {(onRevealInExplorer || onOpenInEditor) && (onRefresh || onSave) ? <DropdownMenuSeparator /> : null}
+
+              {onRevealInExplorer && (
+
+                <DropdownMenuItem onClick={onRevealInExplorer} disabled={!filePath} className="gap-2">
+
+                  <FolderOpen strokeWidth={1.25} className="h-4 w-4 shrink-0" />
+
+                  {t('dialog.diffViewer.revealInExplorer')}
+
+                </DropdownMenuItem>
+
+              )}
+
+              {onOpenInEditor && (
+
+                <DropdownMenuItem onClick={onOpenInEditor} disabled={!filePath} className="gap-2">
+
+                  <ExternalLink strokeWidth={1.25} className="h-4 w-4 shrink-0" />
+
+                  {t('dialog.diffViewer.openInEditor')}
+
+                </DropdownMenuItem>
+
+              )}
+
+              {(onFind || onFindReplace) && <DropdownMenuSeparator />}
+
+              {onFind && (
+
+                <DropdownMenuItem onClick={onFind} className="gap-2">
+
+                  <Search strokeWidth={1.25} className="h-4 w-4 shrink-0" />
+
+                  {t('dialog.diffViewer.find')}
+
+                </DropdownMenuItem>
+
+              )}
+
+              {onFindReplace && (
+
+                <DropdownMenuItem onClick={onFindReplace} className="gap-2">
+
+                  <Replace strokeWidth={1.25} className="h-4 w-4 shrink-0" />
+
+                  {t('dialog.diffViewer.findReplace')}
+
+                </DropdownMenuItem>
+
+              )}
+
+            </DropdownMenuContent>
+
+          </DropdownMenu>
+
+
+
+          <DropdownMenu>
+
+            <DropdownMenuTrigger asChild>
+
+              <Button variant="ghost" size="sm" className={menuTriggerClass}>
+
+                <MenuTriggerLabel label={t('dialog.diffViewer.menuView')} />
+
               </Button>
-            </TooltipTrigger>
-            <TooltipContent>{t('common.swap')}</TooltipContent>
-          </Tooltip>
 
-          {onSave && (
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <Button variant="link" size="sm" onClick={onSave} disabled={isSaving || disableSave} className={toggleBtnClass}>
-                  <Save strokeWidth={1.25} absoluteStrokeWidth size={15} className="h-4 w-4" />
-                </Button>
-              </TooltipTrigger>
-              <TooltipContent>{t('common.save')}</TooltipContent>
-            </Tooltip>
-          )}
-        </ToolbarIconGroup>
-      </div>
+            </DropdownMenuTrigger>
 
-      {/* Center — draggable gutter; title text only is no-drag */}
-      <div
-        className="flex-1 min-w-0 flex items-center justify-center mx-1"
-        style={{ WebkitAppRegion: 'drag' } as React.CSSProperties}
-      >
-        <Tooltip>
-          <TooltipTrigger asChild>
-            <Button
-              variant={buttonVariant}
-              className="font-medium text-xs w-auto max-w-full min-w-0 truncate cursor-pointer shrink"
-              style={noDragStyle}
-              onClick={onCopyPath}
-              disabled={!filePath}
-            >
-              {t('dialog.diffViewer.title')}: {filePath}
+            <DropdownMenuContent align="start" className="min-w-56" style={noDragStyle}>
+
+              <DropdownMenuLabel className="text-xs text-muted-foreground">{t('dialog.diffViewer.sectionDiff')}</DropdownMenuLabel>
+
+              {onSwapSides && (
+
+                <DropdownMenuItem onClick={onSwapSides} className="gap-2">
+
+                  <ArrowLeftRight strokeWidth={1.25} className="h-4 w-4 shrink-0" />
+
+                  {t('common.swap')}
+
+                </DropdownMenuItem>
+
+              )}
+
+              <ViewMenuToggleItem
+
+                icon={WrapText}
+
+                label={t('dialog.diffViewer.wordWrap')}
+
+                active={viewOptions.wordWrap === 'on'}
+
+                onSelect={() => onViewOptionChange('wordWrap', viewOptions.wordWrap === 'on' ? 'off' : 'on')}
+
+              />
+
+              <ViewMenuToggleItem
+
+                icon={viewOptions.renderSideBySide ? Columns2 : Rows2}
+
+                label={t('dialog.diffViewer.sideBySide')}
+
+                active={viewOptions.renderSideBySide}
+
+                disabled={viewOptions.diffOnly}
+
+                onSelect={() => onViewOptionChange('renderSideBySide', !viewOptions.renderSideBySide)}
+
+              />
+
+              <ViewMenuToggleItem
+
+                icon={Space}
+
+                label={t('dialog.diffViewer.ignoreWhitespace')}
+
+                active={viewOptions.ignoreTrimWhitespace}
+
+                onSelect={() => onViewOptionChange('ignoreTrimWhitespace', !viewOptions.ignoreTrimWhitespace)}
+
+              />
+
+              <ViewMenuToggleItem
+
+                icon={viewOptions.collapseUnchangedRegions ? UnfoldVertical : FoldVertical}
+
+                label={t('dialog.diffViewer.collapseUnchanged')}
+
+                active={viewOptions.collapseUnchangedRegions}
+
+                disabled={viewOptions.diffOnly}
+
+                onSelect={() => onViewOptionChange('collapseUnchangedRegions', !viewOptions.collapseUnchangedRegions)}
+
+              />
+
+              <ViewMenuToggleItem
+
+                icon={ListFilter}
+
+                label={t('dialog.diffViewer.diffOnly')}
+
+                active={viewOptions.diffOnly}
+
+                onSelect={() => onViewOptionChange('diffOnly', !viewOptions.diffOnly)}
+
+              />
+
+              <ViewMenuToggleItem
+
+                icon={MapIcon}
+
+                label={t('dialog.diffViewer.minimap')}
+
+                active={viewOptions.minimap}
+
+                onSelect={() => onViewOptionChange('minimap', !viewOptions.minimap)}
+
+              />
+
+              {showBlameToggle && onToggleBlame && (
+
+                <ViewMenuToggleItem
+
+                  icon={GitCommitHorizontal}
+
+                  label={t('dialog.diffViewer.blameToggle')}
+
+                  active={showBlame}
+
+                  onSelect={() => onToggleBlame()}
+
+                />
+
+              )}
+
+
+
+              <DropdownMenuSeparator />
+
+              <DropdownMenuItem
+
+                className="flex cursor-default flex-col items-stretch gap-2 p-2 focus:bg-accent"
+
+                onSelect={e => e.preventDefault()}
+
+              >
+
+                <div className="flex items-center justify-between gap-2">
+
+                  <span className="text-xs text-muted-foreground">{t('dialog.diffViewer.fontSize')}</span>
+
+                  <span className="text-xs font-medium tabular-nums">{viewOptions.fontSize}</span>
+
+                </div>
+
+                <Slider
+
+                  value={[viewOptions.fontSize]}
+
+                  onValueChange={([size]) => {
+
+                    if (size != null) onViewOptionChange('fontSize', size)
+
+                  }}
+
+                  min={DIFF_VIEWER_FONT_SIZE_MIN}
+
+                  max={DIFF_VIEWER_FONT_SIZE_MAX}
+
+                  step={1}
+
+                  className="w-full"
+
+                  onPointerDown={e => e.stopPropagation()}
+
+                />
+
+              </DropdownMenuItem>
+
+
+
+              <DropdownMenuSeparator />
+
+              <DropdownMenuSub>
+
+                <DropdownMenuSubTrigger className="gap-2">{t('dialog.diffViewer.advancedOptions')}</DropdownMenuSubTrigger>
+
+                <DropdownMenuSubContent className="w-80 max-h-[min(70vh,520px)] overflow-y-auto p-3" style={noDragStyle}>
+
+                  <DiffViewerAdvancedOptionsPanel viewOptions={viewOptions} onViewOptionChange={onViewOptionChange} />
+
+                </DropdownMenuSubContent>
+
+              </DropdownMenuSub>
+
+            </DropdownMenuContent>
+
+          </DropdownMenu>
+
+        </ToolbarMenus>
+
+        {hasMultipleFiles && onPrevFile && onNextFile ? (
+          <div className="ml-1 flex items-center gap-0.5 shrink-0" style={noDragStyle}>
+            <span className={navLabelClass}>{t('dialog.diffViewer.navFiles')}</span>
+            <Button variant="link" size="sm" onClick={onPrevFile} disabled={disableFileNav || disablePrevFile} className={toggleBtnClass} aria-label={t('dialog.diffViewer.prevFile')}>
+              <ChevronLeft strokeWidth={1.25} className="h-4 w-4" />
             </Button>
-          </TooltipTrigger>
-          <TooltipContent>{t('dialog.diffViewer.copyPathHint')}</TooltipContent>
-        </Tooltip>
+            <span
+              className={cn(navPositionClass, 'text-muted-foreground')}
+              title={filePosition ? t('dialog.diffViewer.filePosition', filePosition) : undefined}
+            >
+              {filePosition ? `${filePosition.current}/${filePosition.total}` : '\u00a0'}
+            </span>
+            <Button variant="link" size="sm" onClick={onNextFile} disabled={disableFileNav || disableNextFile} className={toggleBtnClass} aria-label={t('dialog.diffViewer.nextFile')}>
+              <ChevronRight strokeWidth={1.25} className="h-4 w-4" />
+            </Button>
+          </div>
+        ) : null}
+
       </div>
 
-      {/* Right — change nav, view / explorer / editor tools */}
-      <ToolbarIconGroup className="overflow-x-auto max-w-[50%]">
-        {onPrevChange && onNextChange && (
-          <>
+
+
+      <DragGutter />
+
+
+
+      {/* Center — stage + file picker */}
+
+      <div className="flex min-w-0 max-w-lg w-full shrink items-center justify-center gap-0.5" style={noDragStyle}>
+
+        {showStageActions && onStageToggle && (
+
+          <Tooltip>
+
+            <TooltipTrigger asChild>
+
+              <Button
+
+                variant="link"
+
+                size="sm"
+
+                onClick={onStageToggle}
+
+                disabled={isStaging || !filePath}
+
+                className={toggleBtnClass}
+
+                aria-label={stagingState === 'staged' ? t('dialog.diffViewer.unstage') : t('dialog.diffViewer.stage')}
+
+              >
+
+                {stagingState === 'staged' ? (
+
+                  <SquareMinus strokeWidth={1.25} className="h-4 w-4" />
+
+                ) : (
+
+                  <SquarePlus strokeWidth={1.25} className="h-4 w-4" />
+
+                )}
+
+              </Button>
+
+            </TooltipTrigger>
+
+            <TooltipContent>
+
+              {stagingState === 'staged' ? t('dialog.diffViewer.unstage') : t('dialog.diffViewer.stage')}
+
+            </TooltipContent>
+
+          </Tooltip>
+
+        )}
+
+        <DiffViewerFilePicker
+
+          filePath={filePath}
+
+          files={files}
+
+          activeEntry={activeFile}
+
+          showStageIndicators={showStageActions}
+
+          disabled={disableFilePicker}
+
+          isDirty={isDirty}
+
+          onSelectFile={index => onSelectFile?.(index)}
+
+        />
+
+      </div>
+
+
+
+      <DragGutter />
+
+
+
+      {/* Right — change prev-next only */}
+
+      <div className="flex items-center h-full gap-2 shrink-0 pr-1" style={noDragStyle}>
+
+        {(onPrevChange || onNextChange || onFirstChange || onLastChange) && (
+
+          <div className="flex items-center gap-0.5">
+
+            <span className={navLabelClass}>{t('dialog.diffViewer.navChanges')}</span>
+
             {onFirstChange && (
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <Button variant="link" size="sm" onClick={onFirstChange} disabled={disableChangeNav} className={toggleBtnClass}>
-                    <ChevronFirst strokeWidth={1.25} absoluteStrokeWidth size={15} className="h-4 w-4" />
-                  </Button>
-                </TooltipTrigger>
-                <TooltipContent>{t('dialog.diffViewer.firstChange')}</TooltipContent>
-              </Tooltip>
+
+              <Button variant="link" size="sm" onClick={onFirstChange} disabled={disableChangeNav} className={toggleBtnClass} aria-label={t('dialog.diffViewer.firstChange')}>
+
+                <ChevronFirst strokeWidth={1.25} className="h-4 w-4" />
+
+              </Button>
+
             )}
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <Button variant="link" size="sm" onClick={onPrevChange} disabled={disableChangeNav} className={toggleBtnClass}>
-                  <ChevronUp strokeWidth={1.25} absoluteStrokeWidth size={15} className="h-4 w-4" />
-                </Button>
-              </TooltipTrigger>
-              <TooltipContent>{t('dialog.diffViewer.prevChange')}</TooltipContent>
-            </Tooltip>
+
+            {onPrevChange && (
+
+              <Button variant="link" size="sm" onClick={onPrevChange} disabled={disableChangeNav} className={toggleBtnClass} aria-label={t('dialog.diffViewer.prevChange')}>
+
+                <ChevronUp strokeWidth={1.25} className="h-4 w-4" />
+
+              </Button>
+
+            )}
 
             <span
-              className="w-[2.75rem] text-center text-[10px] tabular-nums text-muted-foreground shrink-0"
-              aria-hidden={!changePosition || changePosition.total <= 0}
-            >
-              {changePosition && changePosition.total > 0 ? `${changePosition.current}/${changePosition.total}` : '\u00a0'}
-            </span>
 
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <Button variant="link" size="sm" onClick={onNextChange} disabled={disableChangeNav} className={toggleBtnClass}>
-                  <ChevronDown strokeWidth={1.25} absoluteStrokeWidth size={15} className="h-4 w-4" />
-                </Button>
-              </TooltipTrigger>
-              <TooltipContent>{t('dialog.diffViewer.nextChange')}</TooltipContent>
-            </Tooltip>
-            {onLastChange && (
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <Button variant="link" size="sm" onClick={onLastChange} disabled={disableChangeNav} className={toggleBtnClass}>
-                    <ChevronLast strokeWidth={1.25} absoluteStrokeWidth size={15} className="h-4 w-4" />
-                  </Button>
-                </TooltipTrigger>
-                <TooltipContent>{t('dialog.diffViewer.lastChange')}</TooltipContent>
-              </Tooltip>
-            )}
-            <div className="mx-0.5 h-4 w-px bg-border shrink-0" aria-hidden />
-          </>
-        )}
-
-        {onRevealInExplorer && (
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <Button variant="link" size="sm" onClick={onRevealInExplorer} disabled={!filePath} className={toggleBtnClass}>
-                <FolderOpen strokeWidth={1.25} absoluteStrokeWidth size={15} className="h-4 w-4" />
-              </Button>
-            </TooltipTrigger>
-            <TooltipContent>{t('dialog.diffViewer.revealInExplorer')}</TooltipContent>
-          </Tooltip>
-        )}
-
-        {onOpenInEditor && (
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <Button variant="link" size="sm" onClick={onOpenInEditor} disabled={!filePath} className={toggleBtnClass}>
-                <ExternalLink strokeWidth={1.25} absoluteStrokeWidth size={15} className="h-4 w-4" />
-              </Button>
-            </TooltipTrigger>
-            <TooltipContent>{t('dialog.diffViewer.openInEditor')}</TooltipContent>
-          </Tooltip>
-        )}
-
-        {onFind && (
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <Button variant="link" size="sm" onClick={onFind} className={toggleBtnClass}>
-                <Search strokeWidth={1.25} absoluteStrokeWidth size={15} className="h-4 w-4" />
-              </Button>
-            </TooltipTrigger>
-            <TooltipContent>{t('dialog.diffViewer.find')}</TooltipContent>
-          </Tooltip>
-        )}
-
-        {onFindReplace && (
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <Button variant="link" size="sm" onClick={onFindReplace} className={toggleBtnClass}>
-                <Replace strokeWidth={1.25} absoluteStrokeWidth size={15} className="h-4 w-4" />
-              </Button>
-            </TooltipTrigger>
-            <TooltipContent>{t('dialog.diffViewer.findReplace')}</TooltipContent>
-          </Tooltip>
-        )}
-
-        <DiffViewerAdvancedOptions viewOptions={viewOptions} onViewOptionChange={onViewOptionChange} />
-
-        <div className="mx-0.5 h-4 w-px bg-border shrink-0" aria-hidden />
-
-        {onFontSizeDecrease && onFontSizeIncrease && (
-          <>
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <Button variant="link" size="sm" onClick={onFontSizeDecrease} disabled={fontAtMin} className={toggleBtnClass}>
-                  <ZoomOut strokeWidth={1.25} absoluteStrokeWidth size={15} className="h-4 w-4" />
-                </Button>
-              </TooltipTrigger>
-              <TooltipContent>{t('dialog.diffViewer.fontSizeDecrease')}</TooltipContent>
-            </Tooltip>
-            <span
               className={cn(
-                'min-w-[1.25rem] text-center text-[10px] tabular-nums shrink-0',
-                viewOptions.fontSize !== DIFF_VIEWER_FONT_SIZE_DEFAULT ? 'text-green-600 dark:text-green-400 font-medium' : 'text-muted-foreground'
+
+                navPositionClass,
+
+                changePosition && changePosition.total > 0 ? 'text-muted-foreground' : 'text-muted-foreground/50'
+
               )}
+
+              title={
+
+                changePosition && changePosition.total > 0
+
+                  ? t('dialog.diffViewer.changePosition', changePosition)
+
+                  : t('dialog.diffViewer.noChanges')
+
+              }
+
             >
-              {viewOptions.fontSize}
+
+              {changePosition && changePosition.total > 0 ? `${changePosition.current}/${changePosition.total}` : '—'}
+
             </span>
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <Button variant="link" size="sm" onClick={onFontSizeIncrease} disabled={fontAtMax} className={toggleBtnClass}>
-                  <ZoomIn strokeWidth={1.25} absoluteStrokeWidth size={15} className="h-4 w-4" />
-                </Button>
-              </TooltipTrigger>
-              <TooltipContent>{t('dialog.diffViewer.fontSizeIncrease')}</TooltipContent>
-            </Tooltip>
-            <div className="mx-0.5 h-4 w-px bg-border shrink-0" aria-hidden />
-          </>
+
+            {onNextChange && (
+
+              <Button variant="link" size="sm" onClick={onNextChange} disabled={disableChangeNav} className={toggleBtnClass} aria-label={t('dialog.diffViewer.nextChange')}>
+
+                <ChevronDownNav strokeWidth={1.25} className="h-4 w-4" />
+
+              </Button>
+
+            )}
+
+            {onLastChange && (
+
+              <Button variant="link" size="sm" onClick={onLastChange} disabled={disableChangeNav} className={toggleBtnClass} aria-label={t('dialog.diffViewer.lastChange')}>
+
+                <ChevronLast strokeWidth={1.25} className="h-4 w-4" />
+
+              </Button>
+
+            )}
+
+          </div>
+
         )}
 
-        <Tooltip>
-          <TooltipTrigger asChild>
-            <Button
-              variant="link"
-              size="sm"
-              aria-pressed={viewOptions.wordWrap === 'on'}
-              onClick={() => onViewOptionChange('wordWrap', viewOptions.wordWrap === 'on' ? 'off' : 'on')}
-              className={toggleClass(viewOptions.wordWrap === 'on')}
-            >
-              <WrapText strokeWidth={1.25} absoluteStrokeWidth size={15} className="h-4 w-4" />
-            </Button>
-          </TooltipTrigger>
-          <TooltipContent>{t('dialog.diffViewer.wordWrap')}</TooltipContent>
-        </Tooltip>
+      </div>
 
-        <Tooltip>
-          <TooltipTrigger asChild>
-            <Button
-              variant="link"
-              size="sm"
-              aria-pressed
-              disabled={viewOptions.diffOnly}
-              onClick={() => onViewOptionChange('renderSideBySide', !viewOptions.renderSideBySide)}
-              className={toggleClass(!viewOptions.diffOnly)}
-            >
-              {viewOptions.renderSideBySide ? (
-                <Columns2 strokeWidth={1.25} absoluteStrokeWidth size={15} className="h-4 w-4" />
-              ) : (
-                <Rows2 strokeWidth={1.25} absoluteStrokeWidth size={15} className="h-4 w-4" />
-              )}
-            </Button>
-          </TooltipTrigger>
-          <TooltipContent>
-            {viewOptions.diffOnly
-              ? t('dialog.diffViewer.layoutDisabledByDiffOnly')
-              : viewOptions.renderSideBySide
-                ? t('dialog.diffViewer.sideBySide')
-                : t('dialog.diffViewer.inlineDiff')}
-          </TooltipContent>
-        </Tooltip>
 
-        <Tooltip>
-          <TooltipTrigger asChild>
-            <Button
-              variant="link"
-              size="sm"
-              aria-pressed={viewOptions.ignoreTrimWhitespace}
-              onClick={() => onViewOptionChange('ignoreTrimWhitespace', !viewOptions.ignoreTrimWhitespace)}
-              className={toggleClass(viewOptions.ignoreTrimWhitespace)}
-            >
-              <Space strokeWidth={1.25} absoluteStrokeWidth size={15} className="h-4 w-4" />
-            </Button>
-          </TooltipTrigger>
-          <TooltipContent>{t('dialog.diffViewer.ignoreWhitespace')}</TooltipContent>
-        </Tooltip>
-
-        <Tooltip>
-          <TooltipTrigger asChild>
-            <Button
-              variant="link"
-              size="sm"
-              aria-pressed={viewOptions.collapseUnchangedRegions}
-              disabled={viewOptions.diffOnly}
-              onClick={() => onViewOptionChange('collapseUnchangedRegions', !viewOptions.collapseUnchangedRegions)}
-              className={toggleClass(viewOptions.collapseUnchangedRegions)}
-            >
-              {viewOptions.collapseUnchangedRegions ? (
-                <UnfoldVertical strokeWidth={1.25} absoluteStrokeWidth size={15} className="h-4 w-4" />
-              ) : (
-                <FoldVertical strokeWidth={1.25} absoluteStrokeWidth size={15} className="h-4 w-4" />
-              )}
-            </Button>
-          </TooltipTrigger>
-          <TooltipContent>
-            {viewOptions.diffOnly ? t('dialog.diffViewer.collapseDisabledByDiffOnly') : t('dialog.diffViewer.collapseUnchanged')}
-          </TooltipContent>
-        </Tooltip>
-
-        <Tooltip>
-          <TooltipTrigger asChild>
-            <Button
-              variant="link"
-              size="sm"
-              aria-pressed={viewOptions.diffOnly}
-              onClick={() => onViewOptionChange('diffOnly', !viewOptions.diffOnly)}
-              className={toggleClass(viewOptions.diffOnly)}
-            >
-              {viewOptions.diffOnly ? (
-                <GitCompareArrows strokeWidth={1.25} absoluteStrokeWidth size={15} className="h-4 w-4" />
-              ) : (
-                <ListFilter strokeWidth={1.25} absoluteStrokeWidth size={15} className="h-4 w-4" />
-              )}
-            </Button>
-          </TooltipTrigger>
-          <TooltipContent>{t('dialog.diffViewer.diffOnly')}</TooltipContent>
-        </Tooltip>
-
-        <Tooltip>
-          <TooltipTrigger asChild>
-            <Button
-              variant="link"
-              size="sm"
-              aria-pressed={viewOptions.minimap}
-              onClick={() => onViewOptionChange('minimap', !viewOptions.minimap)}
-              className={toggleClass(viewOptions.minimap)}
-            >
-              <Map strokeWidth={1.25} absoluteStrokeWidth size={15} className="h-4 w-4" />
-            </Button>
-          </TooltipTrigger>
-          <TooltipContent>{t('dialog.diffViewer.minimap')}</TooltipContent>
-        </Tooltip>
-      </ToolbarIconGroup>
 
       {/* Window controls */}
+
       <div className="flex gap-1 shrink-0" style={noDragStyle}>
+
         <button
+
           type="button"
+
           onClick={() => handleWindow('minimize')}
+
           className="w-10 h-8 flex items-center justify-center hover:bg-[var(--hover-bg)] hover:text-[var(--hover-fg)]"
+
         >
+
           <Minus size={15.5} strokeWidth={1} absoluteStrokeWidth />
+
         </button>
+
         <button
+
           type="button"
+
           onClick={() => handleWindow('maximize')}
+
           className="w-10 h-8 flex items-center justify-center hover:bg-[var(--hover-bg)] hover:text-[var(--hover-fg)]"
+
         >
+
           <Square size={14.5} strokeWidth={1} absoluteStrokeWidth />
+
         </button>
+
         <button type="button" onClick={() => handleWindow('close')} className="w-10 h-8 flex items-center justify-center hover:bg-red-600 hover:text-white">
+
           <X size={20} strokeWidth={1} absoluteStrokeWidth />
+
         </button>
+
       </div>
+
     </div>
+
   )
+
 }
+
+

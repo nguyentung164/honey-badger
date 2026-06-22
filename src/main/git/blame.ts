@@ -1,4 +1,5 @@
 import l from 'electron-log'
+import { resolvePathRelativeToBase } from '../utils/utils'
 import { formatGitError, getGitInstance } from './utils'
 
 interface GitBlameResponse {
@@ -23,17 +24,32 @@ interface BlameLine {
   content: string
 }
 
-export async function blame(filePath: string): Promise<GitBlameResponse> {
+export async function blame(filePath: string, options?: { cwd?: string; revision?: string }): Promise<GitBlameResponse> {
   try {
-    const git = await getGitInstance()
+    const git = await getGitInstance(options?.cwd)
     if (!git) {
       return { status: 'error', message: 'Not a git repository or error initializing git' }
     }
 
-    l.info(`Getting git blame for file: ${filePath}`)
+    l.info(`Getting git blame for file: ${filePath}${options?.revision ? ` @ ${options.revision}` : ''}`)
 
-    // Use git.raw() to execute git blame command
-    const blameOutput = await git.raw(['blame', '--porcelain', filePath])
+    const repoRoot = (await git.revparse(['--show-toplevel'])).trim()
+    const baseForResolve = options?.cwd ?? repoRoot
+    const pathForGit = resolvePathRelativeToBase(baseForResolve, filePath).replace(/^[/\\]+/, '').replace(/\\/g, '/')
+
+    if (!pathForGit) {
+      return { status: 'error', message: 'Invalid file path for blame' }
+    }
+
+    l.info(`Git blame path (relative): ${pathForGit}`)
+
+    const args = ['blame', '--porcelain']
+    if (options?.revision?.trim()) {
+      args.push(options.revision.trim())
+    }
+    args.push('--', pathForGit)
+
+    const blameOutput = await git.raw(args)
 
     l.info('Git blame fetched successfully')
 

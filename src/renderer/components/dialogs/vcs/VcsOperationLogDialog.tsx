@@ -6,6 +6,7 @@ import { useTranslation } from 'react-i18next'
 import { ContextMenu, ContextMenuContent, ContextMenuItem, ContextMenuSeparator, ContextMenuTrigger } from '@/components/ui/context-menu'
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { useConfigurationStore } from '@/stores/useConfigurationStore'
+import { openGitHeadDiff, openSvnRevisionDiff, openSvnWorkingDiff } from '@/lib/diffViewer/openDiffViewer'
 import type { GitStatusCode, SvnStatusCode, SvnUpdateStatusCode } from '../../shared/constants'
 import { StatusIcon } from '../../ui-elements/StatusIcon'
 import toast from '../../ui-elements/Toast'
@@ -399,18 +400,27 @@ export function VcsOperationLogDialog({
           if (vcsType === 'svn') {
             const currentRev = await window.api.svn.getCurrentRevision(cwd)
             if (currentRev) {
-              // revision=currentRev để cat(revision) và cat(revision-1). currentRevision=currentRev để swap=false → Trái=cũ, Phải=mới
-              window.api.svn.open_diff(p, { fileStatus: code, revision: currentRev, currentRevision: currentRev, cwd })
+              openSvnRevisionDiff({
+                filePath: p,
+                fileStatus: code,
+                revision: currentRev,
+                currentRevision: currentRev,
+                cwd,
+              })
             } else {
-              window.api.svn.open_diff(p, { fileStatus: code, cwd })
+              openSvnWorkingDiff({
+                filePath: p,
+                fileStatus: code,
+                cwd,
+                svnTargetPath: cwd,
+              })
             }
           } else {
             const parentHash = await window.api.git.getParentCommit('HEAD', cwd ? { cwd } : undefined)
-            window.api.git.open_diff(p, {
+            openGitHeadDiff({
+              filePath: p,
               fileStatus: code,
-              commitHash: 'HEAD',
-              currentCommitHash: parentHash ?? undefined,
-              isRootCommit: !parentHash,
+              parentHash,
               cwd,
             })
           }

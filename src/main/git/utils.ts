@@ -93,6 +93,23 @@ export function formatGitError(error: unknown): string {
   return String(error)
 }
 
+/** File is new to the repo — no blob exists at HEAD/parent for diff baseline. */
+export function isGitNewFileStatus(fileStatus: string): boolean {
+  const s = (fileStatus || '').trim().toLowerCase()
+  return s === 'a' || s === 'added' || s === 'untracked' || s === 'u' || s === '??'
+}
+
+/** git show failed because the path is not tracked at the requested revision. */
+export function isGitPathMissingAtRevisionError(error: unknown): boolean {
+  const msg = (error instanceof Error ? error.message : String(error)).toLowerCase()
+  return (
+    msg.includes('exists on disk, but not in') ||
+    msg.includes('exists on disk but not in') ||
+    msg.includes('does not exist in') ||
+    (msg.includes('path') && msg.includes('does not exist'))
+  )
+}
+
 /**
  * Check if Git refused checkout because local changes would be overwritten.
  * Per Git docs: checkout is only blocked when switching would overwrite

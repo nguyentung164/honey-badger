@@ -108,7 +108,7 @@ function Combobox({
 
   const selectedOption = options.find(opt => opt.value === value)
   const displayLabel = selectedOption?.label ?? placeholder
-  const triggerDisplay = selectedOption == null ? placeholder : selectedOption.listRender != null ? selectedOption.label : (selectedOption.render ?? selectedOption.label)
+  const triggerDisplay = selectedOption == null ? placeholder : (selectedOption.render ?? selectedOption.label)
 
   const handleSelect = (optValue: string) => {
     onValueChange(optValue)
@@ -186,7 +186,7 @@ function Combobox({
             style={triggerStyle}
             className={cn(
               'data-[placeholder]:text-muted-foreground [&_svg]:text-muted-foreground font-normal w-full min-w-0 shrink',
-              'grid grid-cols-[minmax(0,1fr)_auto] gap-2',
+              'grid grid-cols-[minmax(0,1fr)_auto] items-center gap-2',
               /* Ghi đè ring từ buttonVariants — tránh border + ring chồng (Tailwind v4 không luôn bị globals.css tắt hết) */
               'shadow-none ring-0 focus-visible:ring-0',
               variant === 'outline' && 'border-input',
@@ -196,7 +196,7 @@ function Combobox({
               triggerClassName
             )}
           >
-            <span className="truncate min-w-0 text-left overflow-hidden text-ellipsis whitespace-nowrap inline-flex items-center gap-1.5" title={displayLabel}>
+            <span className="flex min-h-0 min-w-0 items-center gap-1.5 overflow-hidden text-ellipsis whitespace-nowrap text-left leading-none" title={displayLabel}>
               {triggerDisplay}
             </span>
             <ChevronsUpDownIcon className="size-4 shrink-0 opacity-50" />

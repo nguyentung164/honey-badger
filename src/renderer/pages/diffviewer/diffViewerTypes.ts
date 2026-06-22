@@ -11,8 +11,10 @@ export const DIFF_VIEWER_FONT_SIZE_MAX = 24
 export const DIFF_VIEWER_FONT_SIZE_DEFAULT = 12
 
 export const DIFF_VIEWER_LINE_DECORATIONS_WIDTH_MIN = 5
-export const DIFF_VIEWER_LINE_DECORATIONS_WIDTH_MAX = 30
+export const DIFF_VIEWER_LINE_DECORATIONS_WIDTH_MAX = 220
 export const DIFF_VIEWER_LINE_DECORATIONS_WIDTH_DEFAULT = 10
+/** Width for date + author blame column (immediately after line numbers). */
+export const DIFF_VIEWER_BLAME_LINE_DECORATIONS_WIDTH = 176
 
 export type DiffViewerViewOptions = {
   wordWrap: DiffViewerWordWrap
@@ -38,6 +40,8 @@ export type DiffViewerViewOptions = {
   findOnType: boolean
   autoFindInSelection: AutoFindInSelection
   findAddExtraSpaceOnTop: boolean
+  diffAlgorithm: 'advanced' | 'legacy'
+  showBlame: boolean
 }
 
 export type DiffViewerViewOptionKey = keyof DiffViewerViewOptions

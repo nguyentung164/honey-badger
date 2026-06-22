@@ -1,3 +1,8 @@
+/** Max bytes for diff viewer image data URLs (~10MB). */
+export const DIFF_VIEWER_DATA_URL_MAX_BYTES = 10 * 1024 * 1024
+
+export const DIFF_VIEWER_IMAGE_EXTENSIONS = new Set(['.png', '.jpg', '.jpeg', '.gif', '.webp', '.svg', '.ico', '.bmp'])
+
 export const IPC = {
   APP_LOGS: { READ: 'app-logs:read' },
   WINDOW: {
@@ -9,6 +14,7 @@ export const IPC = {
     TASK_MANAGEMENT_DOCK_REQUEST: 'window:task-management-dock-request',
     DIFF_WINDOWS: 'window:diff-windows',
     REQUEST_DIFF_DATA: 'window:request-diff-data',
+    NOTIFY_STAGING_CHANGED: 'window:notify-staging-changed',
     REQUEST_CONFLICT_RESOLVER_DATA: 'window:request-conflict-resolver-data',
     SHOW_LOG: 'window:show-log',
     CHECK_CODING_RULES: 'window:check-coding-rules',
@@ -229,6 +235,8 @@ export const IPC = {
     GET_NOTIFICATION_SOUND_URL: 'system:get-notification-sound-url',
     GET_DEFAULT_NOTIFICATION_SOUND_URL: 'system:get-default-notification-sound-url',
     GET_PATH_ENTRY_KIND: 'system:get-path-entry-kind',
+    DETECT_FILE_KIND: 'system:detect-file-kind',
+    READ_FILE_DATA_URL: 'system:read-file-data-url',
   },
   UPDATER: {
     CHECK_FOR_UPDATES: 'updater:check-for-updates',
