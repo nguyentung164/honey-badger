@@ -51,9 +51,10 @@ function getFallbackSoundUrl(): string {
   }
 }
 
-export function useNotificationSound() {
-  const user = useTaskAuthStore(s => s.user)
-  const playNotificationSound = useConfigurationStore(s => s.playNotificationSound ?? true)
+const ACHIEVEMENT_DIALOG_SOUND_TYPES = new Set(['achievement_unlocked', 'rank_up'])
+
+/** Resolve configured notification sound URL (custom file or default). */
+export function useCelebrationSoundUrl(): string | null {
   const notificationSoundPath = useConfigurationStore(s => s.notificationSoundPath ?? '')
   const [resolvedSoundUrl, setResolvedSoundUrl] = useState<string | null>(null)
 
@@ -84,11 +85,29 @@ export function useNotificationSound() {
     }
   }, [notificationSoundPath])
 
+  return resolvedSoundUrl
+}
+
+/** Play celebration sound for achievement / rank-up dialogs. */
+export function playCelebrationSound(resolvedSoundUrl?: string | null): void {
+  const playNotificationSound = useConfigurationStore.getState().playNotificationSound ?? true
+  if (!playNotificationSound) return
+  const url = resolvedSoundUrl ?? getFallbackSoundUrl()
+  playSound(url)
+}
+
+export function useNotificationSound() {
+  const user = useTaskAuthStore(s => s.user)
+  const playNotificationSound = useConfigurationStore(s => s.playNotificationSound ?? true)
+  const resolvedSoundUrl = useCelebrationSoundUrl()
+
   useEffect(() => {
     if (!window.api?.on || !window.api?.removeListener) return
     const handler = (_event: unknown, payload: { targetUserId: string; title: string; body: string; type?: string }) => {
       if (user?.id !== payload.targetUserId) return
       if (!playNotificationSound) return
+      // Achievement / rank-up dialogs play sound when shown (queue may defer rank-up).
+      if (payload.type && ACHIEVEMENT_DIALOG_SOUND_TYPES.has(payload.type)) return
       const url = resolvedSoundUrl ?? getFallbackSoundUrl()
       playSound(url)
     }

@@ -198,8 +198,6 @@ const menuTriggerClass =
 
 const viewMenuActiveClass = 'text-green-600 dark:text-green-400 focus:text-green-600 dark:focus:text-green-400'
 
-const navLabelClass = 'px-1 text-xs font-medium text-muted-foreground select-none'
-
 const navPositionClass = 'min-w-[2.75rem] px-0.5 text-center text-xs tabular-nums shrink-0'
 
 
@@ -207,6 +205,52 @@ const navPositionClass = 'min-w-[2.75rem] px-0.5 text-center text-xs tabular-num
 const dragStyle = { WebkitAppRegion: 'drag' } as React.CSSProperties
 
 const noDragStyle = { WebkitAppRegion: 'no-drag' } as React.CSSProperties
+
+
+
+function NavIconButton({
+
+  onClick,
+
+  disabled,
+
+  label,
+
+  children,
+
+}: {
+
+  onClick: () => void
+
+  disabled?: boolean
+
+  label: string
+
+  children: React.ReactNode
+
+}) {
+
+  return (
+
+    <Tooltip>
+
+      <TooltipTrigger asChild>
+
+        <Button variant="link" size="sm" onClick={onClick} disabled={disabled} className={toggleBtnClass} aria-label={label}>
+
+          {children}
+
+        </Button>
+
+      </TooltipTrigger>
+
+      <TooltipContent>{label}</TooltipContent>
+
+    </Tooltip>
+
+  )
+
+}
 
 
 
@@ -704,24 +748,6 @@ export const DiffToolbar: React.FC<DiffToolbarProps> = ({
 
         </ToolbarMenus>
 
-        {hasMultipleFiles && onPrevFile && onNextFile ? (
-          <div className="ml-1 flex items-center gap-0.5 shrink-0" style={noDragStyle}>
-            <span className={navLabelClass}>{t('dialog.diffViewer.navFiles')}</span>
-            <Button variant="link" size="sm" onClick={onPrevFile} disabled={disableFileNav || disablePrevFile} className={toggleBtnClass} aria-label={t('dialog.diffViewer.prevFile')}>
-              <ChevronLeft strokeWidth={1.25} className="h-4 w-4" />
-            </Button>
-            <span
-              className={cn(navPositionClass, 'text-muted-foreground')}
-              title={filePosition ? t('dialog.diffViewer.filePosition', filePosition) : undefined}
-            >
-              {filePosition ? `${filePosition.current}/${filePosition.total}` : '\u00a0'}
-            </span>
-            <Button variant="link" size="sm" onClick={onNextFile} disabled={disableFileNav || disableNextFile} className={toggleBtnClass} aria-label={t('dialog.diffViewer.nextFile')}>
-              <ChevronRight strokeWidth={1.25} className="h-4 w-4" />
-            </Button>
-          </div>
-        ) : null}
-
       </div>
 
 
@@ -780,23 +806,51 @@ export const DiffToolbar: React.FC<DiffToolbarProps> = ({
 
         )}
 
-        <DiffViewerFilePicker
+        <div className="flex min-w-0 items-center gap-0 shrink">
 
-          filePath={filePath}
+          <DiffViewerFilePicker
 
-          files={files}
+            filePath={filePath}
 
-          activeEntry={activeFile}
+            files={files}
 
-          showStageIndicators={showStageActions}
+            activeEntry={activeFile}
 
-          disabled={disableFilePicker}
+            showStageIndicators={showStageActions}
 
-          isDirty={isDirty}
+            disabled={disableFilePicker}
 
-          onSelectFile={index => onSelectFile?.(index)}
+            isDirty={isDirty}
 
-        />
+            onSelectFile={index => onSelectFile?.(index)}
+
+          />
+
+          {hasMultipleFiles && onPrevFile && onNextFile ? (
+            <div className="flex items-center gap-0 shrink-0 -ml-0.5">
+              <NavIconButton onClick={onPrevFile} disabled={disableFileNav || disablePrevFile} label={t('dialog.diffViewer.prevFile')}>
+                <ChevronLeft strokeWidth={1.25} className="h-4 w-4" />
+              </NavIconButton>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <span
+                    className={cn(navPositionClass, 'text-muted-foreground cursor-default')}
+                    tabIndex={-1}
+                  >
+                    {filePosition ? `${filePosition.current}/${filePosition.total}` : '\u00a0'}
+                  </span>
+                </TooltipTrigger>
+                {filePosition ? (
+                  <TooltipContent>{t('dialog.diffViewer.filePosition', filePosition)}</TooltipContent>
+                ) : null}
+              </Tooltip>
+              <NavIconButton onClick={onNextFile} disabled={disableFileNav || disableNextFile} label={t('dialog.diffViewer.nextFile')}>
+                <ChevronRight strokeWidth={1.25} className="h-4 w-4" />
+              </NavIconButton>
+            </div>
+          ) : null}
+
+        </div>
 
       </div>
 
@@ -814,71 +868,81 @@ export const DiffToolbar: React.FC<DiffToolbarProps> = ({
 
           <div className="flex items-center gap-0.5">
 
-            <span className={navLabelClass}>{t('dialog.diffViewer.navChanges')}</span>
-
             {onFirstChange && (
 
-              <Button variant="link" size="sm" onClick={onFirstChange} disabled={disableChangeNav} className={toggleBtnClass} aria-label={t('dialog.diffViewer.firstChange')}>
+              <NavIconButton onClick={onFirstChange} disabled={disableChangeNav} label={t('dialog.diffViewer.firstChange')}>
 
                 <ChevronFirst strokeWidth={1.25} className="h-4 w-4" />
 
-              </Button>
+              </NavIconButton>
 
             )}
 
             {onPrevChange && (
 
-              <Button variant="link" size="sm" onClick={onPrevChange} disabled={disableChangeNav} className={toggleBtnClass} aria-label={t('dialog.diffViewer.prevChange')}>
+              <NavIconButton onClick={onPrevChange} disabled={disableChangeNav} label={t('dialog.diffViewer.prevChange')}>
 
                 <ChevronUp strokeWidth={1.25} className="h-4 w-4" />
 
-              </Button>
+              </NavIconButton>
 
             )}
 
-            <span
+            <Tooltip>
 
-              className={cn(
+              <TooltipTrigger asChild>
 
-                navPositionClass,
+                <span
 
-                changePosition && changePosition.total > 0 ? 'text-muted-foreground' : 'text-muted-foreground/50'
+                  className={cn(
 
-              )}
+                    navPositionClass,
 
-              title={
+                    'cursor-default',
 
-                changePosition && changePosition.total > 0
+                    changePosition && changePosition.total > 0 ? 'text-muted-foreground' : 'text-muted-foreground/50'
+
+                  )}
+
+                  tabIndex={-1}
+
+                >
+
+                  {changePosition && changePosition.total > 0 ? `${changePosition.current}/${changePosition.total}` : '—'}
+
+                </span>
+
+              </TooltipTrigger>
+
+              <TooltipContent>
+
+                {changePosition && changePosition.total > 0
 
                   ? t('dialog.diffViewer.changePosition', changePosition)
 
-                  : t('dialog.diffViewer.noChanges')
+                  : t('dialog.diffViewer.noChanges')}
 
-              }
+              </TooltipContent>
 
-            >
-
-              {changePosition && changePosition.total > 0 ? `${changePosition.current}/${changePosition.total}` : '—'}
-
-            </span>
+            </Tooltip>
 
             {onNextChange && (
 
-              <Button variant="link" size="sm" onClick={onNextChange} disabled={disableChangeNav} className={toggleBtnClass} aria-label={t('dialog.diffViewer.nextChange')}>
+              <NavIconButton onClick={onNextChange} disabled={disableChangeNav} label={t('dialog.diffViewer.nextChange')}>
 
                 <ChevronDownNav strokeWidth={1.25} className="h-4 w-4" />
 
-              </Button>
+              </NavIconButton>
 
             )}
 
             {onLastChange && (
 
-              <Button variant="link" size="sm" onClick={onLastChange} disabled={disableChangeNav} className={toggleBtnClass} aria-label={t('dialog.diffViewer.lastChange')}>
+              <NavIconButton onClick={onLastChange} disabled={disableChangeNav} label={t('dialog.diffViewer.lastChange')}>
 
                 <ChevronLast strokeWidth={1.25} className="h-4 w-4" />
 
-              </Button>
+              </NavIconButton>
 
             )}
 

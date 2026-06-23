@@ -22,6 +22,7 @@ import {
   registerAchievementToastCallback,
   useAchievementNotification,
 } from '@/hooks/useAchievementNotification'
+import { playCelebrationSound, useCelebrationSoundUrl } from '@/hooks/useNotificationSound'
 import { ACHIEVEMENT_RANKS, type RankCode } from 'shared/achievementRanks'
 import { cn } from '@/lib/utils'
 import { useAchievementStore } from '@/stores/useAchievementStore'
@@ -454,6 +455,7 @@ const OUTSIDE_DISMISS_GRACE_MS = 450
 export function AchievementUnlockDialog() {
   const [queue, setQueue] = useState<AchievementToastItem[]>([])
   const ignoreOutsideDismissRef = useRef(false)
+  const resolvedSoundUrl = useCelebrationSoundUrl()
 
   useAchievementNotification()
 
@@ -492,9 +494,10 @@ export function AchievementUnlockDialog() {
 
   useEffect(() => {
     if (!currentItem) return
+    playCelebrationSound(resolvedSoundUrl)
     const frame = requestAnimationFrame(() => fireConfetti(currentItem))
     return () => cancelAnimationFrame(frame)
-  }, [currentItem?.id])
+  }, [currentItem?.id, resolvedSoundUrl])
 
   return (
     <Dialog
