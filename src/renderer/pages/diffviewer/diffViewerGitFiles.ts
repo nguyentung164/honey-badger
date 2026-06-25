@@ -133,6 +133,12 @@ export function findDiffViewerFileIndex(
   return files.findIndex(f => pathsEqual(f.filePath, filePath))
 }
 
+/** After stage/revert, keep the same list slot so the next file slides into view. */
+export function resolveAutoAdvanceTargetIndex(fromIndex: number, fileCount: number): number | null {
+  if (fileCount <= 0) return null
+  return Math.min(Math.max(0, fromIndex), fileCount - 1)
+}
+
 export function resolveDiffViewerFilesRefresh(
   nextFiles: DiffViewerFileEntry[],
   currentFilePath: string,

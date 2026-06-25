@@ -19,7 +19,6 @@ interface DiffViewerFilePickerProps {
   activeEntry?: DiffViewerFileEntry
   showStageIndicators?: boolean
   disabled?: boolean
-  isDirty?: boolean
   onSelectFile: (index: number) => void
 }
 
@@ -58,7 +57,6 @@ export function DiffViewerFilePicker({
   activeEntry,
   showStageIndicators = false,
   disabled,
-  isDirty,
   onSelectFile,
 }: DiffViewerFilePickerProps) {
   const { t } = useTranslation()
@@ -118,11 +116,6 @@ export function DiffViewerFilePicker({
         lazyList={{ maxResults: 80, enableWhenOptionCountAtLeast: 50 }}
         lazySearchHint={t('dialog.diffViewer.searchFileHint')}
       />
-      {isDirty ? (
-        <span className="shrink-0 text-amber-500 font-bold text-xs" title={t('dialog.diffViewer.unsavedChanges')}>
-          *
-        </span>
-      ) : null}
     </div>
   )
 }
