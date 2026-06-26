@@ -13,14 +13,23 @@ import {
 
 interface DiffViewerDiscardConfirmProps {
   open: boolean
-  filePath: string | null
+  filePath?: string | null
+  filePaths?: string[]
   isDirty?: boolean
   onOpenChange: (open: boolean) => void
   onConfirm: () => void | Promise<void>
 }
 
-export function DiffViewerDiscardConfirm({ open, filePath, isDirty = false, onOpenChange, onConfirm }: DiffViewerDiscardConfirmProps) {
+export function DiffViewerDiscardConfirm({
+  open,
+  filePath = null,
+  filePaths,
+  isDirty = false,
+  onOpenChange,
+  onConfirm,
+}: DiffViewerDiscardConfirmProps) {
   const { t } = useTranslation()
+  const paths = filePaths?.length ? filePaths : filePath ? [filePath] : []
 
   return (
     <AlertDialog open={open} onOpenChange={onOpenChange}>
@@ -35,11 +44,13 @@ export function DiffViewerDiscardConfirm({ open, filePath, isDirty = false, onOp
                   {t('dialog.diffViewer.unsavedChangesRevertHint')}
                 </p>
               ) : null}
-              {filePath ? (
+              {paths.length > 0 ? (
                 <ul className="mt-2 max-h-40 min-w-0 w-full max-w-full overflow-y-auto overflow-x-hidden space-y-1 text-left text-destructive font-medium">
-                  <li className="min-w-0 max-w-full break-all [overflow-wrap:anywhere]" title={filePath}>
-                    {filePath}
-                  </li>
+                  {paths.map(path => (
+                    <li key={path} className="min-w-0 max-w-full break-all [overflow-wrap:anywhere]" title={path}>
+                      {path}
+                    </li>
+                  ))}
                 </ul>
               ) : null}
             </div>

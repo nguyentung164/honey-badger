@@ -6,6 +6,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { GlowLoader } from '@/components/ui-elements/GlowLoader'
 import toast from '@/components/ui-elements/Toast'
+import { ResizableHandle, ResizablePanel, ResizablePanelGroup } from '@/components/ui/resizable'
 import { SYNCED_EVENT, type UiSettingsSyncedDetail } from '@/lib/syncUiSettings'
 import logger from '@/services/logger'
 import { useAppearanceStore } from '@/stores/useAppearanceStore'
@@ -14,6 +15,7 @@ import { DiffFooterBar } from './DiffFooterBar'
 import { DiffToolbar } from './DiffToolbar'
 import { DiffViewerCloseConfirm } from './DiffViewerCloseConfirm'
 import { DiffViewerDiscardConfirm } from './DiffViewerDiscardConfirm'
+import { DiffViewerFileTreePanel, type DiffViewerFileTreeBulkAction } from './DiffViewerFileTreePanel'
 import { DiffViewerLoadState } from './DiffViewerLoadState'
 import type { DiffViewerFileKind, DiffViewerLoadPayload, DiffViewerMode, ImageLoadContext } from './diffViewerPayload'
 import { deriveDiffViewerMode, diffViewerSupportsFileListRefresh, diffViewerSupportsStageActions, enrichDiffViewerPayload } from './diffViewerPayload'
@@ -46,6 +48,7 @@ import { useDiffViewerPaneLabels } from './useDiffViewerPaneLabels'
 import { useDiffViewerDirty } from './useDiffViewerDirty'
 import { useDiffViewerAutoAdvance } from './useDiffViewerAutoAdvance'
 import { useDiffViewerFileNav } from './useDiffViewerFileNav'
+import { useDiffViewerTreePanelWidth } from './useDiffViewerTreePanelWidth'
 import { buildDiffEditorOptions, applyDiffViewerEditorOptions, useDiffViewerOptions } from './useDiffViewerOptions'
 
 const EXT_TO_LANG: Record<string, string> = {
@@ -193,6 +196,7 @@ export function CodeDiffViewer() {
   const [isFormatting, setIsFormatting] = useState(false)
   const [isRemovingEmptyLines, setIsRemovingEmptyLines] = useState(false)
   const [showDiscardConfirm, setShowDiscardConfirm] = useState(false)
+  const [discardConfirmPaths, setDiscardConfirmPaths] = useState<string[]>([])
   const [loadError, setLoadError] = useState<string | null>(null)
   const [fileKind, setFileKind] = useState<DiffViewerFileKind>('text')
   const [originalDataUrl, setOriginalDataUrl] = useState<string | null>(null)
@@ -217,6 +221,7 @@ export function CodeDiffViewer() {
 
   const { viewOptions, setViewOption } = useDiffViewerOptions()
   const { autoAdvance, toggleAutoAdvance } = useDiffViewerAutoAdvance()
+  const { treePanelWidth, handleTreePanelResize } = useDiffViewerTreePanelWidth()
 
   const editable = currentRevision == null && currentCommitHash == null
   const editorOptions = useMemo(
@@ -863,26 +868,30 @@ export function CodeDiffViewer() {
   const handleRevertRequest = useCallback(() => {
     if (!filePath || !diffViewerSupportsStageActions(diffViewerMode)) return
     if (stagingHintForRefresh === 'staged') return
+    setDiscardConfirmPaths([filePath])
     setShowDiscardConfirm(true)
   }, [filePath, diffViewerMode, stagingHintForRefresh])
 
   const handleRevertConfirm = useCallback(async () => {
-    if (!filePath || !diffViewerSupportsStageActions(diffViewerMode)) return
+    const pathsToRevert = discardConfirmPaths.length > 0 ? discardConfirmPaths : filePath ? [filePath] : []
+    if (pathsToRevert.length === 0 || !diffViewerSupportsStageActions(diffViewerMode)) return
     const advanceFromIndex = activeIndex
+    const actedFilePath = filePath
     const repoCwd = cwd ?? loadContextRef.current?.cwd
     setShowDiscardConfirm(false)
+    setDiscardConfirmPaths([])
     setIsReverting(true)
     isGitActionInProgressRef.current = true
     try {
-      const result = await window.api.git.discardChanges([filePath], repoCwd)
+      const result = await window.api.git.discardChanges(pathsToRevert, repoCwd)
       if (result.status === 'success') {
         toast.success(t('toast.revertSuccess'))
         const refreshed = repoCwd
-          ? await refreshFilesFromGit(repoCwd, filePath, 'unstaged')
+          ? await refreshFilesFromGit(repoCwd, actedFilePath, 'unstaged')
           : null
         const ctx = loadContextRef.current
         if (!ctx) return
-        applyGitActionRefresh(advanceFromIndex, filePath, refreshed, ctx)
+        applyGitActionRefresh(advanceFromIndex, actedFilePath, refreshed, ctx)
         window.api.electron.send(IPC.WINDOW.NOTIFY_STAGING_CHANGED)
       } else {
         toast.error(result.message || t('toast.revertError'))
@@ -893,7 +902,133 @@ export function CodeDiffViewer() {
       isGitActionInProgressRef.current = false
       setIsReverting(false)
     }
-  }, [filePath, diffViewerMode, activeIndex, cwd, t, refreshFilesFromGit, applyGitActionRefresh])
+  }, [
+    discardConfirmPaths,
+    filePath,
+    diffViewerMode,
+    activeIndex,
+    cwd,
+    t,
+    refreshFilesFromGit,
+    applyGitActionRefresh,
+  ])
+
+  const refreshAfterTreeBulkGitAction = useCallback(
+    async (actedFilePath: string, lookupStagingState?: 'staged' | 'unstaged') => {
+      const repoCwd = cwd ?? loadContextRef.current?.cwd
+      if (!repoCwd) return
+      const refreshed = await refreshFilesFromGit(repoCwd, actedFilePath, lookupStagingState)
+      const ctx = loadContextRef.current
+      if (!ctx) return
+      applyGitActionRefresh(activeIndex, actedFilePath, refreshed, ctx)
+      window.api.electron.send(IPC.WINDOW.NOTIFY_STAGING_CHANGED)
+    },
+    [activeIndex, applyGitActionRefresh, cwd, refreshFilesFromGit]
+  )
+
+  const handleTreeBulkAction = useCallback(
+    async (action: DiffViewerFileTreeBulkAction, indices: number[]) => {
+      if (indices.length === 0) return
+      const uniqueIndices = [...new Set(indices)].filter(index => index >= 0 && index < files.length)
+      if (uniqueIndices.length === 0) return
+
+      const selectedPaths = [...new Set(uniqueIndices.map(index => files[index]?.filePath).filter(Boolean) as string[])]
+      const actedFilePath = files[activeIndex]?.filePath ?? selectedPaths[0] ?? filePath
+
+      if (action === 'reveal') {
+        for (const path of selectedPaths) {
+          window.api.system.reveal_in_file_explorer(resolveDiffViewerRevealPath(path, cwd))
+        }
+        return
+      }
+
+      if (action === 'openInEditor') {
+        const path = selectedPaths[0]
+        if (!path) return
+        const result = await window.api.system.open_file_in_editor({ filePath: path, cwd })
+        if (!result?.success) {
+          toast.error(result?.error || t('dialog.diffViewer.openInEditorFailed'))
+        }
+        return
+      }
+
+      if (!diffViewerSupportsStageActions(diffViewerMode)) return
+      const repoCwd = cwd ?? loadContextRef.current?.cwd
+      if (!repoCwd) return
+
+      if (action === 'revert') {
+        const unstagedPaths = [
+          ...new Set(
+            uniqueIndices
+              .filter(index => files[index]?.stagingState !== 'staged')
+              .map(index => files[index]?.filePath)
+              .filter(Boolean) as string[]
+          ),
+        ]
+        if (unstagedPaths.length === 0) return
+        setDiscardConfirmPaths(unstagedPaths)
+        setShowDiscardConfirm(true)
+        return
+      }
+
+      isGitActionInProgressRef.current = true
+      setIsStaging(true)
+      try {
+        if (action === 'stage') {
+          const unstagedPaths = [
+            ...new Set(
+              uniqueIndices
+                .filter(index => files[index]?.stagingState !== 'staged')
+                .map(index => files[index]?.filePath)
+                .filter(Boolean) as string[]
+            ),
+          ]
+          if (unstagedPaths.length === 0) return
+          const result = await window.api.git.add(unstagedPaths, { cwd: repoCwd })
+          if (result.status === 'success') {
+            toast.success(t('dialog.diffViewer.stageSuccess'))
+            await refreshAfterTreeBulkGitAction(actedFilePath, 'staged')
+          } else {
+            toast.error(result.message || t('toast.gitAddError'))
+          }
+          return
+        }
+
+        if (action === 'unstage') {
+          const stagedPaths = [
+            ...new Set(
+              uniqueIndices
+                .filter(index => files[index]?.stagingState === 'staged')
+                .map(index => files[index]?.filePath)
+                .filter(Boolean) as string[]
+            ),
+          ]
+          if (stagedPaths.length === 0) return
+          const result = await window.api.git.reset_staged(stagedPaths, { cwd: repoCwd })
+          if (result.status === 'success') {
+            toast.success(t('dialog.diffViewer.unstageSuccess'))
+            await refreshAfterTreeBulkGitAction(actedFilePath, 'staged')
+          } else {
+            toast.error(result.message || t('toast.gitUnstageError'))
+          }
+        }
+      } catch (error) {
+        toast.error(formatLoadError(error))
+      } finally {
+        isGitActionInProgressRef.current = false
+        setIsStaging(false)
+      }
+    },
+    [
+      files,
+      activeIndex,
+      filePath,
+      cwd,
+      diffViewerMode,
+      t,
+      refreshAfterTreeBulkGitAction,
+    ]
+  )
 
   useEffect(() => {
     if (diffViewerMode !== 'git-staging' || !cwd) return
@@ -1410,7 +1545,31 @@ export function CodeDiffViewer() {
         onFindReplace={handleFindReplace}
       />
 
-      <div className="flex flex-1 flex-col min-h-0 overflow-hidden">{renderMainContent()}</div>
+      <div className="flex flex-1 min-h-0 overflow-hidden">
+        <ResizablePanelGroup direction="horizontal" className="h-full w-full">
+          <ResizablePanel
+            defaultSize={treePanelWidth}
+            minSize={14}
+            maxSize={42}
+            onResize={handleTreePanelResize}
+            className="min-h-0"
+          >
+            <DiffViewerFileTreePanel
+              files={files}
+              activeIndex={activeIndex}
+              splitStaging={diffViewerMode === 'git-staging'}
+              showStageActions={diffViewerSupportsStageActions(diffViewerMode)}
+              disabled={isLoading || isStaging || isReverting}
+              onSelectFile={requestNavigateToFile}
+              onBulkAction={(action, indices) => void handleTreeBulkAction(action, indices)}
+            />
+          </ResizablePanel>
+          <ResizableHandle withHandle />
+          <ResizablePanel defaultSize={100 - treePanelWidth} minSize={45} className="flex min-h-0 min-w-0 flex-col">
+            {renderMainContent()}
+          </ResizablePanel>
+        </ResizablePanelGroup>
+      </div>
 
       {fileKind === 'text' && filePath && !loadError ? (
         <DiffFooterBar
@@ -1438,9 +1597,13 @@ export function CodeDiffViewer() {
 
       <DiffViewerDiscardConfirm
         open={showDiscardConfirm}
+        filePaths={discardConfirmPaths}
         filePath={filePath || null}
         isDirty={isDirty}
-        onOpenChange={setShowDiscardConfirm}
+        onOpenChange={open => {
+          setShowDiscardConfirm(open)
+          if (!open) setDiscardConfirmPaths([])
+        }}
         onConfirm={handleRevertConfirm}
       />
     </div>
