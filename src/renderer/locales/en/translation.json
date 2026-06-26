@@ -2489,6 +2489,7 @@
       "menuNavigate": "Navigate",
       "changePosition": "Change {{current}} of {{total}}",
       "noChanges": "No diff changes in this file",
+      "noChangesChip": "No visible changes",
       "filePosition": "{{current}} / {{total}}",
       "stage": "Stage file",
       "unstage": "Unstage file",

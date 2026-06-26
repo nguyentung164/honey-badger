@@ -2480,6 +2480,7 @@
       "menuNavigate": "Điều hướng",
       "changePosition": "Thay đổi {{current}}/{{total}}",
       "noChanges": "Không có thay đổi trong file này",
+      "noChangesChip": "Không có thay đổi hiển thị",
       "filePosition": "{{current}} / {{total}}",
       "stage": "Stage file",
       "unstage": "Unstage file",

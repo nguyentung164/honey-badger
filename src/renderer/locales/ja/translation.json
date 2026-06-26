@@ -2488,6 +2488,7 @@
       "menuNavigate": "移動",
       "changePosition": "変更 {{current}}/{{total}}",
       "noChanges": "このファイルに差分はありません",
+      "noChangesChip": "表示される変更なし",
       "filePosition": "{{current}} / {{total}}",
       "stage": "ステージ",
       "unstage": "アンステージ",
