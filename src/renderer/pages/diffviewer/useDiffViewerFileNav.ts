@@ -39,8 +39,9 @@ export function useDiffViewerFileNav(initialFiles?: DiffViewerFileEntry[], initi
   }, [])
 
   const goToFile = useCallback(
-    (index: number) => {
-      if (index < 0 || index >= files.length) return false
+    (index: number, fileCount?: number) => {
+      const len = fileCount ?? files.length
+      if (index < 0 || index >= len) return false
       setActiveIndex(index)
       return true
     },

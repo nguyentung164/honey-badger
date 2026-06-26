@@ -134,9 +134,36 @@ export function findDiffViewerFileIndex(
 }
 
 /** After stage/revert, keep the same list slot so the next file slides into view. */
-export function resolveAutoAdvanceTargetIndex(fromIndex: number, fileCount: number): number | null {
+export function resolveAutoAdvanceTargetIndex(
+  fromIndex: number,
+  files: DiffViewerFileEntry[],
+  actedFilePath?: string
+): number | null {
+  if (files.length <= 0) return null
+
+  let targetIndex = Math.min(Math.max(0, fromIndex), files.length - 1)
+
+  if (actedFilePath) {
+    const normalizedActed = normalizeGitPath(actedFilePath)
+    if (pathsEqual(files[targetIndex]?.filePath ?? '', normalizedActed)) {
+      if (files.length === 1) return null
+      targetIndex = (targetIndex + 1) % files.length
+      let attempts = 0
+      while (attempts < files.length && pathsEqual(files[targetIndex]?.filePath ?? '', normalizedActed)) {
+        targetIndex = (targetIndex + 1) % files.length
+        attempts++
+      }
+      if (pathsEqual(files[targetIndex]?.filePath ?? '', normalizedActed)) return null
+    }
+  }
+
+  return targetIndex
+}
+
+/** Circular file navigation: at 1/N prev → N/N, at N/N next → 1/N. */
+export function wrapFileNavIndex(currentIndex: number, delta: number, fileCount: number): number | null {
   if (fileCount <= 0) return null
-  return Math.min(Math.max(0, fromIndex), fileCount - 1)
+  return (currentIndex + delta + fileCount) % fileCount
 }
 
 export function resolveDiffViewerFilesRefresh(

@@ -17,7 +17,7 @@ import { DiffViewerDiscardConfirm } from './DiffViewerDiscardConfirm'
 import { DiffViewerLoadState } from './DiffViewerLoadState'
 import type { DiffViewerFileKind, DiffViewerLoadPayload, DiffViewerMode, ImageLoadContext } from './diffViewerPayload'
 import { deriveDiffViewerMode, diffViewerSupportsFileListRefresh, diffViewerSupportsStageActions, enrichDiffViewerPayload } from './diffViewerPayload'
-import { mergeGitFilesRefreshIntoContext, normalizeGitPath, pathsEqual, resolveAutoAdvanceTargetIndex, resolveDisplayedFileEntry, type DiffViewerFilesRefreshResult } from './diffViewerGitFiles'
+import { mergeGitFilesRefreshIntoContext, normalizeGitPath, pathsEqual, resolveAutoAdvanceTargetIndex, resolveDisplayedFileEntry, wrapFileNavIndex, type DiffViewerFilesRefreshResult } from './diffViewerGitFiles'
 import type { CharDiffStats, DiffStats } from './diffViewerTypes'
 import {
   computeCharDiffStats,
@@ -212,6 +212,7 @@ export function CodeDiffViewer() {
   const loadContextRef = useRef<DiffViewerLoadPayload | null>(null)
   const pendingCloseRef = useRef(false)
   const loadGenerationRef = useRef(0)
+  const isGitActionInProgressRef = useRef(false)
   const isLoadingRef = useRef(false)
 
   const { viewOptions, setViewOption } = useDiffViewerOptions()
@@ -661,11 +662,15 @@ export function CodeDiffViewer() {
   )
 
   const handlePrevFile = useCallback(() => {
-    if (activeIndex > 0) requestNavigateToFile(activeIndex - 1)
-  }, [activeIndex, requestNavigateToFile])
+    if (files.length <= 1) return
+    const nextIndex = wrapFileNavIndex(activeIndex, -1, files.length)
+    if (nextIndex != null) requestNavigateToFile(nextIndex)
+  }, [activeIndex, files.length, requestNavigateToFile])
 
   const handleNextFile = useCallback(() => {
-    if (activeIndex < files.length - 1) requestNavigateToFile(activeIndex + 1)
+    if (files.length <= 1) return
+    const nextIndex = wrapFileNavIndex(activeIndex, 1, files.length)
+    if (nextIndex != null) requestNavigateToFile(nextIndex)
   }, [activeIndex, files.length, requestNavigateToFile])
 
   const handleCloseRequest = useCallback(() => {
@@ -744,6 +749,7 @@ export function CodeDiffViewer() {
   const applyGitActionRefresh = useCallback(
     (
       advanceFromIndex: number,
+      actedFilePath: string,
       refreshed: DiffViewerFilesRefreshResult | null,
       ctx: DiffViewerLoadPayload,
       options?: { stagingStateHint?: 'staged' | 'unstaged' }
@@ -757,16 +763,22 @@ export function CodeDiffViewer() {
       const nextCtx = mergeGitFilesRefreshIntoContext(ctx, refreshed)
       loadContextRef.current = nextCtx
 
+      if (refreshed.files.length === 0) {
+        setFilePath('')
+        setIsSwapped(false)
+        return
+      }
+
       const targetIndex =
-        autoAdvance && refreshed.files.length > 0
-          ? resolveAutoAdvanceTargetIndex(advanceFromIndex, refreshed.files.length)
+        autoAdvance
+          ? resolveAutoAdvanceTargetIndex(advanceFromIndex, refreshed.files, actedFilePath)
           : refreshed.currentInList
             ? refreshed.activeIndex
             : null
 
       if (targetIndex != null && refreshed.files[targetIndex]) {
         const entry = refreshed.files[targetIndex]
-        goToFile(targetIndex)
+        goToFile(targetIndex, refreshed.files.length)
         const navCtx = enrichDiffViewerPayload({
           ...nextCtx,
           filePath: entry.filePath,
@@ -783,7 +795,7 @@ export function CodeDiffViewer() {
       }
 
       if (refreshed.currentInList && refreshed.activeFile) {
-        if (refreshed.activeFile.filePath !== filePath) {
+        if (!pathsEqual(refreshed.activeFile.filePath, filePath)) {
           setFilePath(normalizeGitPath(refreshed.activeFile.filePath))
           setLanguage(detectLanguage(refreshed.activeFile.filePath))
         }
@@ -810,6 +822,7 @@ export function CodeDiffViewer() {
     const advanceFromIndex = activeIndex
     const repoCwd = cwd ?? loadContextRef.current?.cwd
     setIsStaging(true)
+    isGitActionInProgressRef.current = true
     try {
       const opts = repoCwd ? { cwd: repoCwd } : undefined
       const result = isStaged
@@ -818,19 +831,21 @@ export function CodeDiffViewer() {
       if (result.status === 'success') {
         setActiveEntryStagingState(activeIndex, filePath, nextStagingState)
         toast.success(isStaged ? t('dialog.diffViewer.unstageSuccess') : t('dialog.diffViewer.stageSuccess'))
+        const lookupStagingState = isStaged ? 'staged' : nextStagingState
         const refreshed = repoCwd
-          ? await refreshFilesFromGit(repoCwd, filePath, nextStagingState)
+          ? await refreshFilesFromGit(repoCwd, filePath, lookupStagingState)
           : null
-        window.api.electron.send(IPC.WINDOW.NOTIFY_STAGING_CHANGED)
         const ctx = loadContextRef.current
         if (!ctx) return
-        applyGitActionRefresh(advanceFromIndex, refreshed, ctx, { stagingStateHint: nextStagingState })
+        applyGitActionRefresh(advanceFromIndex, filePath, refreshed, ctx, { stagingStateHint: nextStagingState })
+        window.api.electron.send(IPC.WINDOW.NOTIFY_STAGING_CHANGED)
       } else {
         toast.error(result.message || t('toast.gitAddError'))
       }
     } catch (error) {
       toast.error(formatLoadError(error))
     } finally {
+      isGitActionInProgressRef.current = false
       setIsStaging(false)
     }
   }, [
@@ -857,21 +872,25 @@ export function CodeDiffViewer() {
     const repoCwd = cwd ?? loadContextRef.current?.cwd
     setShowDiscardConfirm(false)
     setIsReverting(true)
+    isGitActionInProgressRef.current = true
     try {
       const result = await window.api.git.discardChanges([filePath], repoCwd)
       if (result.status === 'success') {
         toast.success(t('toast.revertSuccess'))
-        window.api.electron.send(IPC.WINDOW.NOTIFY_STAGING_CHANGED)
-        const refreshed = repoCwd ? await refreshFilesFromGit(repoCwd, filePath) : null
+        const refreshed = repoCwd
+          ? await refreshFilesFromGit(repoCwd, filePath, 'unstaged')
+          : null
         const ctx = loadContextRef.current
         if (!ctx) return
-        applyGitActionRefresh(advanceFromIndex, refreshed, ctx)
+        applyGitActionRefresh(advanceFromIndex, filePath, refreshed, ctx)
+        window.api.electron.send(IPC.WINDOW.NOTIFY_STAGING_CHANGED)
       } else {
         toast.error(result.message || t('toast.revertError'))
       }
     } catch (error) {
       toast.error(formatLoadError(error))
     } finally {
+      isGitActionInProgressRef.current = false
       setIsReverting(false)
     }
   }, [filePath, diffViewerMode, activeIndex, cwd, t, refreshFilesFromGit, applyGitActionRefresh])
@@ -879,6 +898,7 @@ export function CodeDiffViewer() {
   useEffect(() => {
     if (diffViewerMode !== 'git-staging' || !cwd) return
     const handleFilesChanged = () => {
+      if (isGitActionInProgressRef.current) return
       const ctx = loadContextRef.current
       if (!ctx?.filePath || !ctx.cwd) return
       void refreshFromContext(ctx, stagingHintRef.current).then(outcome => {
@@ -1285,6 +1305,12 @@ export function CodeDiffViewer() {
   const showFormatButton = fileKind === 'text' && (editable || viewOptions.originalEditable)
   const showBlameToggle = isGit && fileKind === 'text'
 
+  const isModifiedWithoutDiffChanges =
+    !isLoading &&
+    fileKind === 'text' &&
+    changePosition.total === 0 &&
+    ['modified', 'M'].includes((displayedFileEntry?.fileStatus ?? '').toLowerCase())
+
   const renderMainContent = () => {
     if (!filePath) {
       return <DiffViewerLoadState variant="empty" />
@@ -1339,6 +1365,7 @@ export function CodeDiffViewer() {
         onLastChange={handleLastChange}
         changePosition={changePosition}
         disableChangeNav={changePosition.total === 0 || isLoading || fileKind !== 'text'}
+        showNoChangesBadge={isModifiedWithoutDiffChanges}
         isSaving={isSaving}
         filePath={filePath}
         files={files}
@@ -1353,8 +1380,7 @@ export function CodeDiffViewer() {
         onPrevFile={handlePrevFile}
         onNextFile={handleNextFile}
         disableFileNav={isLoading}
-        disablePrevFile={activeIndex <= 0}
-        disableNextFile={activeIndex >= files.length - 1}
+        wrapFileNav={hasMultipleFiles}
         showStageActions={showStageButton}
         stagingState={displayedFileEntry?.stagingState}
         onStageToggle={() => void handleStageToggle()}

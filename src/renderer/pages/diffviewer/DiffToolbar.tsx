@@ -63,6 +63,7 @@ interface DiffToolbarProps {
   onLastChange?: () => void
   changePosition?: { current: number; total: number }
   disableChangeNav?: boolean
+  showNoChangesBadge?: boolean
   isSaving?: boolean
   filePath: string
   files?: DiffViewerFileEntry[]
@@ -79,6 +80,7 @@ interface DiffToolbarProps {
   disableFileNav?: boolean
   disablePrevFile?: boolean
   disableNextFile?: boolean
+  wrapFileNav?: boolean
   showStageActions?: boolean
   stagingState?: 'staged' | 'unstaged'
   onStageToggle?: () => void
@@ -188,6 +190,7 @@ export const DiffToolbar: React.FC<DiffToolbarProps> = ({
   onLastChange,
   changePosition,
   disableChangeNav = false,
+  showNoChangesBadge = false,
   isSaving = false,
   filePath,
   files = [],
@@ -204,6 +207,7 @@ export const DiffToolbar: React.FC<DiffToolbarProps> = ({
   disableFileNav = false,
   disablePrevFile = false,
   disableNextFile = false,
+  wrapFileNav = false,
   showStageActions = false,
   stagingState,
   onStageToggle,
@@ -452,7 +456,7 @@ export const DiffToolbar: React.FC<DiffToolbarProps> = ({
           ) : null}
           {hasMultipleFiles && onPrevFile && onNextFile ? (
             <div className="flex items-center gap-0 shrink-0">
-              <NavIconButton onClick={onPrevFile} disabled={disableFileNav || disablePrevFile} label={t('dialog.diffViewer.prevFile')}>
+              <NavIconButton onClick={onPrevFile} disabled={disableFileNav || (!wrapFileNav && disablePrevFile)} label={t('dialog.diffViewer.prevFile')}>
                 <ChevronLeft strokeWidth={1.25} className="h-4 w-4" />
               </NavIconButton>
               <Tooltip>
@@ -468,7 +472,7 @@ export const DiffToolbar: React.FC<DiffToolbarProps> = ({
                   <TooltipContent>{t('dialog.diffViewer.filePosition', filePosition)}</TooltipContent>
                 ) : null}
               </Tooltip>
-              <NavIconButton onClick={onNextFile} disabled={disableFileNav || disableNextFile} label={t('dialog.diffViewer.nextFile')}>
+              <NavIconButton onClick={onNextFile} disabled={disableFileNav || (!wrapFileNav && disableNextFile)} label={t('dialog.diffViewer.nextFile')}>
                 <ChevronRight strokeWidth={1.25} className="h-4 w-4" />
               </NavIconButton>
             </div>
@@ -561,7 +565,19 @@ export const DiffToolbar: React.FC<DiffToolbarProps> = ({
       <DragGutter />
       {/* Right — change prev-next only */}
       <div className="flex items-center h-full gap-2 shrink-0 pr-1" style={noDragStyle}>
-        {(onPrevChange || onNextChange || onFirstChange || onLastChange) && (
+        {showNoChangesBadge ? (
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <span
+                className="inline-flex shrink-0 items-center rounded px-1.5 py-0 text-[9px] leading-4 font-medium bg-muted text-muted-foreground cursor-default"
+                tabIndex={-1}
+              >
+                {t('dialog.diffViewer.noChangesChip')}
+              </span>
+            </TooltipTrigger>
+            <TooltipContent>{t('dialog.diffViewer.noChanges')}</TooltipContent>
+          </Tooltip>
+        ) : (onPrevChange || onNextChange || onFirstChange || onLastChange) ? (
           <div className="flex items-center gap-0.5">
             {onFirstChange && (
               <NavIconButton onClick={onFirstChange} disabled={disableChangeNav} label={t('dialog.diffViewer.firstChange')}>
@@ -603,7 +619,7 @@ export const DiffToolbar: React.FC<DiffToolbarProps> = ({
               </NavIconButton>
             )}
           </div>
-        )}
+        ) : null}
       </div>
       {/* Window controls */}
       <div className="flex gap-1 shrink-0" style={noDragStyle}>
