@@ -5,8 +5,11 @@ export type DiffViewerFileEntry = {
 }
 
 /** How the diff viewer was opened — drives refresh strategy and toolbar capabilities. */
+export type GitConflictType = 'merge' | 'rebase' | 'cherry-pick'
+
 export type DiffViewerMode =
   | 'git-staging'
+  | 'git-conflict'
   | 'git-history'
   | 'git-working'
   | 'svn-revision'
@@ -27,8 +30,12 @@ export type DiffViewerLoadPayload = {
   svnTargetPath?: string
   files?: DiffViewerFileEntry[]
   currentFileIndex?: number
+  /** Active list entry staging side — drives VS Code-style diff (HEAD↔Index vs Index↔WT). */
+  stagingState?: 'staged' | 'unstaged'
   /** @deprecated Prefer `mode === 'git-staging'` */
   enableStageActions?: boolean
+  /** Active merge/rebase/cherry-pick when `mode === 'git-conflict'`. */
+  conflictType?: GitConflictType
 }
 
 export function deriveDiffViewerMode(payload: Partial<DiffViewerLoadPayload>): DiffViewerMode {
@@ -61,7 +68,17 @@ export function diffViewerSupportsStageActions(mode: DiffViewerMode): boolean {
 }
 
 export function diffViewerSupportsFileListRefresh(mode: DiffViewerMode): boolean {
-  return mode === 'git-staging' || mode === 'git-history' || mode === 'svn-working' || mode === 'svn-revision'
+  return (
+    mode === 'git-staging' ||
+    mode === 'git-conflict' ||
+    mode === 'git-history' ||
+    mode === 'svn-working' ||
+    mode === 'svn-revision'
+  )
+}
+
+export function diffViewerIsGitConflictMode(mode: DiffViewerMode): boolean {
+  return mode === 'git-conflict'
 }
 
 export type DiffViewerFileKind = 'text' | 'image' | 'binary'

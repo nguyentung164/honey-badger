@@ -155,6 +155,7 @@ export const IPC = {
     STASH_SHOW_FILE_CONTENT: 'git:stash-show-file-content',
     STASH_IS_LIKELY_APPLIED: 'git:stash-is-likely-applied',
     STASH_BRANCH: 'git:stash-branch',
+    STASH_RENAME: 'git:stash-rename',
     // Merge operations
     MERGE: 'git:merge',
     ABORT_MERGE: 'git:abort-merge',

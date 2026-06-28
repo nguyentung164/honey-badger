@@ -33,6 +33,7 @@ function toStructuredCloneable<T>(value: T): T {
 declare global {
   interface Window {
     api: {
+      [x: string]: any
       electron: {
         send: (channel: string, data?: any) => void
       }
@@ -91,7 +92,8 @@ declare global {
             revision?: string
             currentRevision?: string
             cwd?: string
-            mode?: 'git-staging' | 'git-history' | 'git-working' | 'svn-revision' | 'svn-working'
+            mode?: 'git-staging' | 'git-conflict' | 'git-history' | 'git-working' | 'svn-revision' | 'svn-working'
+            conflictType?: 'merge' | 'rebase' | 'cherry-pick'
             svnTargetPath?: string
             files?: { filePath: string; fileStatus?: string; stagingState?: 'staged' | 'unstaged' }[]
             currentFileIndex?: number
@@ -147,7 +149,8 @@ declare global {
             currentCommitHash?: string
             isRootCommit?: boolean
             cwd?: string
-            mode?: 'git-staging' | 'git-history' | 'git-working' | 'svn-revision' | 'svn-working'
+            mode?: 'git-staging' | 'git-conflict' | 'git-history' | 'git-working' | 'svn-revision' | 'svn-working'
+            conflictType?: 'merge' | 'rebase' | 'cherry-pick'
             svnTargetPath?: string
             files?: { filePath: string; fileStatus?: string; stagingState?: 'staged' | 'unstaged' }[]
             currentFileIndex?: number
@@ -192,6 +195,7 @@ declare global {
         stash_drop: (stashIndex: number, cwd?: string) => Promise<any>
         stash_clear: (cwd?: string) => Promise<any>
         stash_branch: (stashIndex: number, branchName: string, cwd?: string) => Promise<any>
+        stash_rename: (stashIndex: number, message: string, cwd?: string) => Promise<any>
         merge: (branchName: string, strategy?: string, cwd?: string) => Promise<any>
         abort_merge: (cwd?: string) => Promise<any>
         resolve_conflict: (filePath: string, resolution: 'ours' | 'theirs' | 'both', cwd?: string) => Promise<any>
@@ -1535,6 +1539,7 @@ contextBridge.exposeInMainWorld('api', {
         isRootCommit?: boolean
         cwd?: string
         mode?: string
+        conflictType?: 'merge' | 'rebase' | 'cherry-pick'
         svnTargetPath?: string
         files?: { filePath: string; fileStatus?: string; stagingState?: 'staged' | 'unstaged' }[]
         currentFileIndex?: number
@@ -1591,6 +1596,7 @@ contextBridge.exposeInMainWorld('api', {
     stash_drop: (stashIndex: number, cwd?: string) => ipcRenderer.invoke(IPC.GIT.STASH_DROP, stashIndex, cwd),
     stash_clear: (cwd?: string) => ipcRenderer.invoke(IPC.GIT.STASH_CLEAR, cwd),
     stash_branch: (stashIndex: number, branchName: string, cwd?: string) => ipcRenderer.invoke(IPC.GIT.STASH_BRANCH, stashIndex, branchName, cwd),
+    stash_rename: (stashIndex: number, message: string, cwd?: string) => ipcRenderer.invoke(IPC.GIT.STASH_RENAME, stashIndex, message, cwd),
     merge: (branchName: string, strategy?: string, cwd?: string) => ipcRenderer.invoke(IPC.GIT.MERGE, branchName, strategy, cwd),
     abort_merge: (cwd?: string) => ipcRenderer.invoke(IPC.GIT.ABORT_MERGE, cwd),
     resolve_conflict: (filePath: string, resolution: 'ours' | 'theirs' | 'both', cwd?: string) => ipcRenderer.invoke(IPC.GIT.RESOLVE_CONFLICT, filePath, resolution, cwd),

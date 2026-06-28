@@ -108,6 +108,7 @@ import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import toast from '@/components/ui-elements/Toast'
 import { cn, normalizePathForCompare } from '@/lib/utils'
+import { openGitConflictDiffFromStatus } from '@/lib/diffViewer/openDiffViewer'
 import logger from '@/services/logger'
 import { useAchievementStore } from '@/stores/useAchievementStore'
 import { getConfigDataRelevantSnapshot, useConfigurationStore } from '@/stores/useConfigurationStore'
@@ -1291,10 +1292,14 @@ export const TitleBar = ({
   }
 
   const openConflictResolverWindow = () => {
-    if (!isLoading) {
-      const data = versionControlSystem === 'git' && gitContextPath ? { path: gitContextPath, versionControlSystem: 'git' as const } : undefined
-      window.api.electron.send(IPC.WINDOW.CONFLICT_RESOLVER, data)
+    if (isLoading) return
+    if (versionControlSystem === 'git') {
+      if (gitContextPath) {
+        void openGitConflictDiffFromStatus(gitContextPath)
+      }
+      return
     }
+    window.api.electron.send(IPC.WINDOW.CONFLICT_RESOLVER, { versionControlSystem: 'svn' as const })
   }
 
   const openShowLogWindow = () => {

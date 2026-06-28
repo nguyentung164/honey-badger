@@ -4,8 +4,26 @@ export function normalizeGitPath(filePath: string): string {
   return filePath.replace(/\\/g, '/').replace(/\/+$/, '')
 }
 
+/** Repo root for git IPC — matches GitStagingTable fallback to configured source folder. */
+export function resolveDiffViewerRepoCwd(
+  payloadCwd?: string,
+  stateCwd?: string,
+  sourceFolder?: string
+): string | undefined {
+  const candidate = (stateCwd ?? payloadCwd ?? sourceFolder ?? '').trim()
+  return candidate || undefined
+}
+
 export function pathsEqual(a: string, b: string): boolean {
   return normalizeGitPath(a) === normalizeGitPath(b)
+}
+
+export function isGitEntryStaged(entry?: DiffViewerFileEntry): boolean {
+  return entry?.stagingState === 'staged'
+}
+
+export function isGitEntryUnstaged(entry?: DiffViewerFileEntry): boolean {
+  return !isGitEntryStaged(entry)
 }
 
 /** Stable combobox value — file path alone is not unique (staged + unstaged share path). */
@@ -203,6 +221,7 @@ export function mergeGitFilesRefreshIntoContext(
   if (refreshed.currentInList && refreshed.activeFile) {
     next.filePath = refreshed.activeFile.filePath
     next.fileStatus = refreshed.activeFile.fileStatus ?? ctx.fileStatus
+    next.stagingState = refreshed.activeFile.stagingState
   }
 
   return next

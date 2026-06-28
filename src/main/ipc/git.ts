@@ -72,6 +72,7 @@ import {
   stashIsLikelyApplied as gitStashIsLikelyApplied,
   stashList as gitStashList,
   stashPop as gitStashPop,
+  stashRename as gitStashRename,
   stashShow as gitStashShow,
   stashShowFileContent as gitStashShowFileContent,
   stashShowFileDiff as gitStashShowFileDiff,
@@ -217,6 +218,7 @@ export function registerGitIpcHandlers() {
   ipcMain.handle(IPC.GIT.STASH_SHOW_FILE_CONTENT, async (_event, stashIndex: number, filePath: string, cwd?: string) => await gitStashShowFileContent(stashIndex, filePath, cwd))
   ipcMain.handle(IPC.GIT.STASH_IS_LIKELY_APPLIED, async (_event, stashIndex: number, cwd?: string) => await gitStashIsLikelyApplied(stashIndex, cwd))
   ipcMain.handle(IPC.GIT.STASH_BRANCH, async (_event, stashIndex: number, branchName: string, cwd?: string) => await gitStashBranch(stashIndex, branchName, cwd))
+  ipcMain.handle(IPC.GIT.STASH_RENAME, async (_event, stashIndex: number, message: string, cwd?: string) => await gitStashRename(stashIndex, message, cwd))
 
   // Merge operations
   ipcMain.handle(IPC.GIT.MERGE, async (_event, branchName: string, strategy?: string, cwd?: string) => {

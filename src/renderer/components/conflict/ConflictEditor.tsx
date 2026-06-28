@@ -28,15 +28,20 @@ const CONFLICT_VISUAL_DEBOUNCE_MS = 120
 
 export type ConflictEditorPrimaryAction = 'save' | 'markResolved'
 
+export type ConflictEditorChrome = 'full' | 'embedded'
+
 interface ConflictEditorProps {
   filePath: string
   initialContent: string
   language?: string
   onSave: (content: string) => Promise<void>
-  onCancel: () => void
+  onCancel?: () => void
   primaryAction?: ConflictEditorPrimaryAction
   disablePrimaryWhenConflicted?: boolean
   enableConflictCodeLens?: boolean
+  /** `embedded` hides filepath/cancel — toolbar lives in Diff Viewer chrome. */
+  chrome?: ConflictEditorChrome
+  onDirtyChange?: (dirty: boolean) => void
 }
 
 function conflictStartLines(content: string): number[] {
@@ -53,6 +58,8 @@ export function ConflictEditor({
   primaryAction = 'save',
   disablePrimaryWhenConflicted = false,
   enableConflictCodeLens = true,
+  chrome = 'full',
+  onDirtyChange,
 }: ConflictEditorProps) {
   const { t } = useTranslation()
   const { themeMode } = useAppearanceStore()
@@ -61,10 +68,16 @@ export function ConflictEditor({
   const decorationsRef = useRef<string[]>([])
   const mountDisposablesRef = useRef<Monaco.IDisposable[]>([])
   const conflictVisualTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const baselineContentRef = useRef(initialContent.replace(/\r\n/g, '\n'))
   const [isSaving, setIsSaving] = useState(false)
   const [showUnresolvedConfirm, setShowUnresolvedConfirm] = useState(false)
   const [conflictCount, setConflictCount] = useState(() => extractGitConflictHunks(initialContent.replace(/\r\n/g, '\n')).length)
   const [hasMarkers, setHasMarkers] = useState(() => hasConflictMarkers(initialContent))
+
+  useEffect(() => {
+    baselineContentRef.current = initialContent.replace(/\r\n/g, '\n')
+    onDirtyChange?.(false)
+  }, [filePath, initialContent, onDirtyChange])
 
   useEffect(() => {
     return () => {
@@ -169,6 +182,10 @@ export function ConflictEditor({
       mountDisposablesRef.current.push(
         editor.onDidChangeModelContent(() => {
           scheduleConflictVisuals(editor, monaco)
+          if (onDirtyChange) {
+            const norm = editor.getValue().replace(/\r\n/g, '\n')
+            onDirtyChange(norm !== baselineContentRef.current)
+          }
         })
       )
 
@@ -242,7 +259,7 @@ export function ConflictEditor({
         )
       }
     },
-    [clearConflictVisualDebounce, enableConflictCodeLens, flushConflictVisuals, language, scheduleConflictVisuals, t]
+    [clearConflictVisualDebounce, enableConflictCodeLens, flushConflictVisuals, language, onDirtyChange, scheduleConflictVisuals, t]
   )
 
   const doSave = useCallback(
@@ -250,13 +267,15 @@ export function ConflictEditor({
       setIsSaving(true)
       try {
         await onSave(value)
+        baselineContentRef.current = value.replace(/\r\n/g, '\n')
+        onDirtyChange?.(false)
       } catch (_error) {
         toast.error(t('git.conflict.resolveError'))
       } finally {
         setIsSaving(false)
       }
     },
-    [onSave, t]
+    [onDirtyChange, onSave, t]
   )
 
   const handleSaveClick = useCallback(() => {
@@ -301,15 +320,20 @@ export function ConflictEditor({
   }, [enableConflictCodeLens, initialContent])
 
   const primaryLabel = primaryAction === 'markResolved' ? t('conflictEditor.markAsResolved') : t('common.save')
+  const embeddedChrome = chrome === 'embedded'
 
   return (
     <TooltipProvider>
       <div className="flex flex-col h-full min-h-[400px] rounded-lg border bg-destructive/5 border-destructive/30 overflow-hidden">
         <div className="flex flex-col gap-2 p-2 border-b shrink-0">
           <div className="flex items-center justify-between gap-2 min-w-0">
-            <span className="text-sm font-medium truncate flex-1 min-w-0 font-mono" title={filePath}>
-              {filePath}
-            </span>
+            {!embeddedChrome ? (
+              <span className="text-sm font-medium truncate flex-1 min-w-0 font-mono" title={filePath}>
+                {filePath}
+              </span>
+            ) : (
+              <div className="flex-1 min-w-0" />
+            )}
             <div className="flex items-center gap-1 shrink-0 flex-wrap justify-end">
               {conflictCount > 0 && (
                 <>
@@ -334,10 +358,12 @@ export function ConflictEditor({
                   </Button>
                 </>
               )}
-              <Button type="button" variant="outline" size="sm" onClick={onCancel} disabled={isSaving}>
-                <X className="h-3 w-3 mr-1" />
-                {t('common.cancel')}
-              </Button>
+              {onCancel ? (
+                <Button type="button" variant="outline" size="sm" onClick={onCancel} disabled={isSaving}>
+                  <X className="h-3 w-3 mr-1" />
+                  {t('common.cancel')}
+                </Button>
+              ) : null}
               <Button type="button" size="sm" onClick={handleSaveClick} disabled={primaryDisabled}>
                 {isSaving ? <Loader2 className="h-3 w-3 animate-spin mr-1" /> : <Save className="h-3 w-3 mr-1" />}
                 {primaryLabel}

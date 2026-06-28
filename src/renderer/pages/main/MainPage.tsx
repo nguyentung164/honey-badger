@@ -19,6 +19,7 @@ import {
 } from 'shared/mainShellView'
 import { ChangePasswordDialog } from '@/components/dialogs/auth/ChangePasswordDialog'
 import { LoginDialog } from '@/components/dialogs/auth/LoginDialog'
+import { CommitMessageHistoryDialog } from '@/components/dialogs/app/CommitMessageHistoryDialog'
 import { VcsOperationLogDialog } from '@/components/dialogs/vcs/VcsOperationLogDialog'
 import { LANGUAGES } from '@/components/shared/constants'
 import { TranslatePanel } from '@/components/shared/TranslatePanel'
@@ -36,8 +37,8 @@ import { OverlayLoader } from '@/components/ui-elements/OverlayLoader'
 import toast from '@/components/ui-elements/Toast'
 import { cn } from '@/lib/utils'
 import { validateCommitMessage } from '@/lib/validateCommitMessage'
-import { GitStagingTable } from '@/pages/main/GitStagingTable'
 import { AutomationToolbarPortalContext } from '@/pages/main/AutomationToolbarPortalContext'
+import { GitStagingTable } from '@/pages/main/GitStagingTable'
 import { PrManagerToolbarPortalContext } from '@/pages/main/PrManagerToolbarPortalContext'
 import { QuickCreatePrDialog } from '@/pages/main/QuickCreatePrDialog'
 import { type FileData, SvnFileTable } from '@/pages/main/SvnFileTable'
@@ -185,41 +186,41 @@ export function MainPage() {
       return
     }
     let cancelled = false
-    ;(async () => {
-      const res = await window.api.task.getSourceFoldersByProject(selectedProjectId)
-      if (cancelled) return
-      if (res.status !== 'success' || !Array.isArray(res.data) || res.data.length === 0) {
-        effectivePathsRef.current = []
-        setEffectivePaths([])
-        setEffectiveLabels([])
-        setEffectiveMultiRepo([], [])
-        return
-      }
-      const paths: string[] = []
-      const labels: string[] = []
-      for (const folder of res.data) {
-        const p = (folder.path ?? '').trim()
-        if (!p) continue
-        const det = await window.api.system.detect_version_control(p)
+      ; (async () => {
+        const res = await window.api.task.getSourceFoldersByProject(selectedProjectId)
         if (cancelled) return
-        if (det.status === 'success' && det.data?.type === 'git' && det.data?.isValid) {
-          paths.push(p)
-          labels.push(folder.name ?? p.split(/[/\\]/).filter(Boolean).pop() ?? p)
+        if (res.status !== 'success' || !Array.isArray(res.data) || res.data.length === 0) {
+          effectivePathsRef.current = []
+          setEffectivePaths([])
+          setEffectiveLabels([])
+          setEffectiveMultiRepo([], [])
+          return
         }
-      }
-      if (cancelled) return
-      const limit = 5
-      const truncated = paths.length > limit
-      const finalPaths = truncated ? paths.slice(0, limit) : paths
-      const finalLabels = truncated ? labels.slice(0, limit) : labels
-      effectivePathsRef.current = finalPaths
-      setEffectivePaths(finalPaths)
-      setEffectiveLabels(finalLabels)
-      setEffectiveMultiRepo(finalPaths, finalLabels)
-      if (truncated && !cancelled) {
-        toast.warning(t('settings.versioncontrol.multiRepoTooManyTruncated', 'Chỉ hiển thị tối đa 5 repo; các repo còn lại bị ẩn'))
-      }
-    })()
+        const paths: string[] = []
+        const labels: string[] = []
+        for (const folder of res.data) {
+          const p = (folder.path ?? '').trim()
+          if (!p) continue
+          const det = await window.api.system.detect_version_control(p)
+          if (cancelled) return
+          if (det.status === 'success' && det.data?.type === 'git' && det.data?.isValid) {
+            paths.push(p)
+            labels.push(folder.name ?? p.split(/[/\\]/).filter(Boolean).pop() ?? p)
+          }
+        }
+        if (cancelled) return
+        const limit = 5
+        const truncated = paths.length > limit
+        const finalPaths = truncated ? paths.slice(0, limit) : paths
+        const finalLabels = truncated ? labels.slice(0, limit) : labels
+        effectivePathsRef.current = finalPaths
+        setEffectivePaths(finalPaths)
+        setEffectiveLabels(finalLabels)
+        setEffectiveMultiRepo(finalPaths, finalLabels)
+        if (truncated && !cancelled) {
+          toast.warning(t('settings.versioncontrol.multiRepoTooManyTruncated', 'Chỉ hiển thị tối đa 5 repo; các repo còn lại bị ẩn'))
+        }
+      })()
     return () => {
       cancelled = true
     }
@@ -248,13 +249,13 @@ export function MainPage() {
   // Sync multi-repo watch paths to main (byProject: paths from effectivePaths; else or empty → main uses sourceFolder)
   useEffect(() => {
     if (versionControlSystem !== 'git' || !multiRepoEnabled) {
-      window.api.configuration.setMultirepoWatchPaths([]).catch(() => {})
+      window.api.configuration.setMultirepoWatchPaths([]).catch(() => { })
       return
     }
     if (effectivePaths.length > 0) {
-      window.api.configuration.setMultirepoWatchPaths(effectivePaths).catch(() => {})
+      window.api.configuration.setMultirepoWatchPaths(effectivePaths).catch(() => { })
     } else {
-      window.api.configuration.setMultirepoWatchPaths([]).catch(() => {})
+      window.api.configuration.setMultirepoWatchPaths([]).catch(() => { })
     }
   }, [versionControlSystem, multiRepoEnabled, effectivePaths])
 
@@ -673,6 +674,7 @@ export function MainPage() {
   const [commitCompletionMessage, setCommitCompletionMessage] = useState('')
   const [commitOperationStatus, setCommitOperationStatus] = useState<'success' | 'error' | undefined>(undefined)
   const [quickPrDialogOpen, setQuickPrDialogOpen] = useState(false)
+  const [commitMessageHistoryOpen, setCommitMessageHistoryOpen] = useState(false)
 
   const [panelSizes, setPanelSizes] = useState<MainPanelSizes>({
     topPanelSize: 50,
@@ -1428,6 +1430,15 @@ export function MainPage() {
 
               {/* Footer Buttons */}
               <div className="flex flex-shrink-0 flex-wrap justify-center items-center gap-x-3 mt-4">
+                <svg width="0" height="0" className="absolute pointer-events-none" aria-hidden="true">
+                  <defs>
+                    <linearGradient id="generate-commit-grad" x1="0%" y1="0%" x2="100%" y2="0%">
+                      <stop offset="0%" stopColor="#8b5cf6" />
+                      <stop offset="50%" stopColor="#d946ef" />
+                      <stop offset="100%" stopColor="#f59e0b" />
+                    </linearGradient>
+                  </defs>
+                </svg>
                 {/* Commit Message History + Generate Commit Message button group */}
                 <div className="inline-flex rounded-md overflow-hidden [&_button]:rounded-none [&_button:first-child]:rounded-l-md [&_button:last-child]:rounded-r-md">
                   <Tooltip>
@@ -1438,7 +1449,7 @@ export function MainPage() {
                         size="icon"
                         onClick={() => {
                           if (!isAnyLoading) {
-                            window.api.electron.send(IPC.WINDOW.COMMIT_MESSAGE_HISTORY, undefined)
+                            setCommitMessageHistoryOpen(true)
                           }
                         }}
                         disabled={isAnyLoading}
@@ -1451,7 +1462,7 @@ export function MainPage() {
                   </Tooltip>
                   <Button
                     id="generate-button"
-                    className={`relative ${isLoadingGenerate ? 'border-effect' : ''} ${isAnyLoading ? 'cursor-progress' : ''} text-foreground`}
+                    className={cn('relative', isLoadingGenerate && 'border-effect', isAnyLoading && 'cursor-progress')}
                     variant={variant}
                     onClick={() => {
                       if (!isAnyLoading) {
@@ -1459,13 +1470,16 @@ export function MainPage() {
                       }
                     }}
                   >
-                    {isLoadingGenerate ? <GlowLoader /> : <Sparkles className="h-4 w-4" />} {t('common.generate')}
+                    <span className="inline-flex items-center gap-1.5 bg-gradient-to-r from-violet-600 via-fuchsia-500 to-amber-500 bg-clip-text text-transparent dark:from-violet-400 dark:via-fuchsia-400 dark:to-amber-300">
+                      {isLoadingGenerate ? <GlowLoader className="h-4 w-4 shrink-0" /> : <Sparkles className="h-4 w-4 shrink-0" style={{ stroke: 'url(#generate-commit-grad)' }} />}
+                      {t('common.generate')}
+                    </span>
                   </Button>
                 </div>
 
                 <Button
                   id="check-button"
-                  className={`relative ${isAnyLoading ? 'cursor-progress' : ''} text-foreground`}
+                  className={cn('relative text-yellow-600 dark:text-yellow-400', isAnyLoading && 'cursor-progress')}
                   variant={variant}
                   onClick={() => {
                     if (!isAnyLoading) {
@@ -1477,7 +1491,7 @@ export function MainPage() {
                 </Button>
                 <Button
                   id="spotbugs-button"
-                  className={`relative ${isAnyLoading ? 'cursor-progress' : ''} text-foreground`}
+                  className={cn('relative text-yellow-600 dark:text-yellow-400', isAnyLoading && 'cursor-progress')}
                   variant={variant}
                   onClick={() => {
                     if (!isAnyLoading) {
@@ -1711,6 +1725,8 @@ export function MainPage() {
         )}
 
         <QuickCreatePrDialog open={quickPrDialogOpen} onOpenChange={setQuickPrDialogOpen} cwd={quickPrCwd} projectId={selectedProjectId} userId={user?.id ?? null} />
+
+        <CommitMessageHistoryDialog open={commitMessageHistoryOpen} onOpenChange={setCommitMessageHistoryOpen} />
 
         {/* Commit/Push Realtime Log Dialog */}
         <VcsOperationLogDialog

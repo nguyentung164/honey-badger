@@ -303,11 +303,17 @@ interface GitFileContentResponse {
   data?: string
 }
 
+/** Git index (staging area) — matches VS Code git URI ref for staged diff right side. */
+export function isGitIndexRef(commitHash?: string): boolean {
+  const ref = (commitHash ?? '').trim()
+  return ref === ':index' || ref.toLowerCase() === 'index'
+}
+
 /**
  * Get file content from Git
  * @param filePath - Path to the file
  * @param fileStatus - File status (A, M, D, etc.)
- * @param commitHash - Commit hash or reference (HEAD, branch name, etc.). If not provided, reads from working copy
+ * @param commitHash - Commit hash or reference (HEAD, branch name, `:index`, etc.). If not provided, reads from working copy
  * @param cwd - Working directory (repo root). If not provided, uses config store.
  * @returns File content
  */
@@ -324,9 +330,9 @@ export async function getFileContent(filePath: string, fileStatus: string, commi
 
     let content: string
 
-    // If file is deleted, return empty content
-    if (fileStatus === 'D' || fileStatus === 'deleted') {
-      l.info('File is deleted, returning empty content')
+    // Deleted from working tree — empty only when reading the working copy (not a revision like HEAD).
+    if (!commitHash && (fileStatus === 'D' || fileStatus === 'deleted')) {
+      l.info('File is deleted from working tree, returning empty content')
       return {
         status: 'success',
         data: '',
@@ -334,12 +340,31 @@ export async function getFileContent(filePath: string, fileStatus: string, commi
     }
 
     // New/untracked files have no content at HEAD — diff vs empty baseline
-    if (commitHash && isGitNewFileStatus(fileStatus)) {
+    if (commitHash && !isGitIndexRef(commitHash) && isGitNewFileStatus(fileStatus)) {
       l.info('File is new/untracked; returning empty content for commit side')
       return {
         status: 'success',
         data: '',
       }
+    }
+
+    if (isGitIndexRef(commitHash)) {
+      l.info('Reading from git index (staging area)')
+      const pathForGit = resolvePathRelativeToBase(cwd, filePath).replace(/^[/\\]+/, '')
+      try {
+        content = await git.show([`:${pathForGit}`])
+      } catch (error) {
+        if (isGitPathMissingAtRevisionError(error)) {
+          l.info('Path not in index, returning empty content')
+          return { status: 'success', data: '' }
+        }
+        l.error(`Error reading file from index: ${error}`)
+        return {
+          status: 'error',
+          message: `Error reading file from index: ${formatGitError(error)}`,
+        }
+      }
+      return { status: 'success', data: content }
     }
 
     // If no commit hash provided, read from working copy

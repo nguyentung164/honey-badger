@@ -2951,7 +2951,8 @@ body > canvas {
 }
 
 /* CodeDiffViewer — pane labels aligned to each diff side (VS Code style) */
-.monaco-diff-editor.side-by-side .editor {
+.monaco-diff-editor.side-by-side .editor.original,
+.monaco-diff-editor.side-by-side .editor.modified {
   position: relative;
 }
 

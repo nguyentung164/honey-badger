@@ -1,8 +1,8 @@
 'use client'
 
 import { DiffEditor, useMonaco } from '@monaco-editor/react'
-import { Archive, Eye, GitBranch, Loader2, Trash2 } from 'lucide-react'
-import { useEffect, useState } from 'react'
+import { Archive, Eye, GitBranch, Loader2, Pencil, Trash2 } from 'lucide-react'
+import { useEffect, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { formatDateTime } from 'shared/utils'
 import {
@@ -35,6 +35,21 @@ interface StashEntry {
   message: string
   author_name?: string
   author_email?: string
+}
+
+function stashRenameErrorKey(code?: string): string {
+  switch (code) {
+    case 'STASH_MESSAGE_REQUIRED':
+      return 'git.stash.renameErrorMessageRequired'
+    case 'STASH_NOT_FOUND':
+      return 'git.stash.renameErrorNotFound'
+    case 'STASH_RENAME_DROP_FAILED':
+      return 'git.stash.renameErrorDropFailed'
+    case 'NOT_A_REPO':
+      return 'git.stash.renameErrorNotRepo'
+    default:
+      return 'git.stash.renameError'
+  }
 }
 
 interface GitStashDialogProps {
@@ -124,7 +139,14 @@ export function GitStashDialog({ open, onOpenChange, onStashApplied, cwd }: GitS
   const [branchDialogStashIndex, setBranchDialogStashIndex] = useState<number | null>(null)
   const [branchNameInput, setBranchNameInput] = useState('')
   const [isBranching, setIsBranching] = useState(false)
+  const [renameDialogStashIndex, setRenameDialogStashIndex] = useState<number | null>(null)
+  const [renameMessageInput, setRenameMessageInput] = useState('')
+  const [renameOriginalMessage, setRenameOriginalMessage] = useState('')
+  const [isRenaming, setIsRenaming] = useState(false)
+  const renameInputRef = useRef<HTMLInputElement>(null)
   const [restoreIndex, setRestoreIndex] = useState(false)
+
+  const isStashListBusy = operatingIndex !== null || isRenaming || isBranching || isCreating
 
   const loadStashList = async () => {
     setIsLoading(true)
@@ -164,6 +186,14 @@ export function GitStashDialog({ open, onOpenChange, onStashApplied, cwd }: GitS
       loadStashList()
     }
   }, [open, cwd])
+
+  useEffect(() => {
+    if (renameDialogStashIndex === null) return
+    const input = renameInputRef.current
+    if (!input) return
+    input.focus()
+    input.select()
+  }, [renameDialogStashIndex])
 
   const handleApply = async (index: number) => {
     setOperatingIndex(index)
@@ -325,8 +355,56 @@ export function GitStashDialog({ open, onOpenChange, onStashApplied, cwd }: GitS
   }
 
   const handleOpenBranchDialog = (index: number) => {
+    if (isStashListBusy) return
     setBranchDialogStashIndex(index)
     setBranchNameInput('')
+  }
+
+  const handleOpenRenameDialog = (index: number, currentMessage: string) => {
+    if (isStashListBusy) return
+    setRenameDialogStashIndex(index)
+    setRenameMessageInput(currentMessage)
+    setRenameOriginalMessage(currentMessage)
+  }
+
+  const handleStashRenameConfirm = async () => {
+    if (renameDialogStashIndex === null || !renameMessageInput.trim()) return
+    const index = renameDialogStashIndex
+    const message = renameMessageInput.trim()
+
+    if (renameOriginalMessage.trim() === message) {
+      toast.info(t('git.stash.renameUnchanged'))
+      setRenameDialogStashIndex(null)
+      setRenameMessageInput('')
+      setRenameOriginalMessage('')
+      return
+    }
+
+    setIsRenaming(true)
+    setOperatingIndex(index)
+    try {
+      const result = await window.api.git.stash_rename(index, message, cwd)
+      if (result.status === 'success') {
+        if (result.data?.unchanged) {
+          toast.info(t('git.stash.renameUnchanged'))
+        } else {
+          toast.success(t('git.stash.renameSuccess'))
+        }
+        setRenameDialogStashIndex(null)
+        setRenameMessageInput('')
+        setRenameOriginalMessage('')
+        await loadStashList()
+      } else {
+        toast.error(t(stashRenameErrorKey(result.code)))
+        logger.error('Stash rename failed:', result.message)
+      }
+    } catch (error) {
+      logger.error('Error renaming stash:', error)
+      toast.error(t('git.stash.renameError'))
+    } finally {
+      setIsRenaming(false)
+      setOperatingIndex(null)
+    }
   }
 
   const handleStashBranchConfirm = async () => {
@@ -434,9 +512,15 @@ export function GitStashDialog({ open, onOpenChange, onStashApplied, cwd }: GitS
                                 </span>
                               )}
                             </div>
-                            <p className="font-medium break-words [overflow-wrap:anywhere]" title={stash.message}>
+                            <button
+                              type="button"
+                              className="font-medium break-words [overflow-wrap:anywhere] text-left hover:underline disabled:cursor-not-allowed disabled:no-underline disabled:opacity-70"
+                              onClick={() => handleOpenRenameDialog(stash.index, stash.message)}
+                              disabled={isStashListBusy}
+                              title={t('git.stash.renameTitle')}
+                            >
                               {stash.message}
-                            </p>
+                            </button>
                             {stash.author_name && (
                               <p className="text-xs text-muted-foreground mt-1 break-words [overflow-wrap:anywhere]">
                                 {t('git.stash.byAuthor', { name: `${stash.author_name}${stash.author_email ? ` <${stash.author_email}>` : ''}` })}
@@ -445,15 +529,33 @@ export function GitStashDialog({ open, onOpenChange, onStashApplied, cwd }: GitS
                             <p className="text-xs text-muted-foreground mt-1 font-mono break-all">{stash.hash}</p>
                           </div>
                           <div className="flex shrink-0 flex-wrap gap-2 sm:justify-end">
-                            <Button size="sm" variant={buttonVariant} onClick={() => handleViewStash(stash.index)} title={t('git.stash.viewTitle')}>
+                            <Button
+                              size="sm"
+                              variant={buttonVariant}
+                              onClick={() => handleViewStash(stash.index)}
+                              disabled={isStashListBusy}
+                              title={t('git.stash.viewTitle')}
+                              aria-label={t('git.stash.viewTitle')}
+                            >
                               <Eye className="h-3 w-3" />
                             </Button>
                             <Button
                               size="sm"
                               variant={buttonVariant}
+                              onClick={() => handleOpenRenameDialog(stash.index, stash.message)}
+                              disabled={isStashListBusy}
+                              title={t('git.stash.renameTitle')}
+                              aria-label={t('git.stash.renameTitle')}
+                            >
+                              <Pencil className="h-3 w-3" />
+                            </Button>
+                            <Button
+                              size="sm"
+                              variant={buttonVariant}
                               onClick={() => handleOpenBranchDialog(stash.index)}
-                              disabled={operatingIndex === stash.index}
+                              disabled={isStashListBusy}
                               title={t('git.stash.branch')}
+                              aria-label={t('git.stash.branchTitle')}
                             >
                               <GitBranch className="h-3 w-3" />
                             </Button>
@@ -461,8 +563,9 @@ export function GitStashDialog({ open, onOpenChange, onStashApplied, cwd }: GitS
                               size="sm"
                               variant={buttonVariant}
                               onClick={() => handleApply(stash.index)}
-                              disabled={operatingIndex === stash.index}
+                              disabled={isStashListBusy}
                               title={t('git.stash.applyTitle')}
+                              aria-label={t('git.stash.applyTitle')}
                             >
                               {operatingIndex === stash.index ? <Loader2 className="h-3 w-3 animate-spin" /> : t('git.stash.apply')}
                             </Button>
@@ -470,8 +573,9 @@ export function GitStashDialog({ open, onOpenChange, onStashApplied, cwd }: GitS
                               size="sm"
                               variant={buttonVariant}
                               onClick={() => handlePop(stash.index)}
-                              disabled={operatingIndex === stash.index}
+                              disabled={isStashListBusy}
                               title={t('git.stash.popTitle')}
+                              aria-label={t('git.stash.popTitle')}
                             >
                               {operatingIndex === stash.index ? <Loader2 className="h-3 w-3 animate-spin" /> : t('git.stash.pop')}
                             </Button>
@@ -479,8 +583,9 @@ export function GitStashDialog({ open, onOpenChange, onStashApplied, cwd }: GitS
                               size="sm"
                               variant="destructive"
                               onClick={() => handleDropClick(stash.index)}
-                              disabled={operatingIndex === stash.index}
+                              disabled={isStashListBusy}
                               title={t('git.stash.dropTitle')}
+                              aria-label={t('git.stash.dropTitle')}
                             >
                               {operatingIndex === stash.index ? <Loader2 className="h-3 w-3 animate-spin" /> : <Trash2 className="h-3 w-3" />}
                             </Button>
@@ -497,7 +602,7 @@ export function GitStashDialog({ open, onOpenChange, onStashApplied, cwd }: GitS
           <DialogFooter className="flex items-center justify-between">
             <div>
               {stashList.length > 0 && (
-                <Button variant="destructive" size="sm" onClick={handleClearAllClick} disabled={isLoading}>
+                <Button variant="destructive" size="sm" onClick={handleClearAllClick} disabled={isLoading || isStashListBusy}>
                   <Trash2 className="h-3 w-3 mr-2" />
                   {t('git.stash.clearAll')}
                 </Button>
@@ -567,6 +672,67 @@ export function GitStashDialog({ open, onOpenChange, onStashApplied, cwd }: GitS
             <Button variant={buttonVariant} onClick={handleStashBranchConfirm} disabled={!branchNameInput.trim() || isBranching}>
               {isBranching ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : null}
               {t('git.stash.branch')}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog
+        open={renameDialogStashIndex !== null}
+        onOpenChange={open => {
+          if (!open && !isRenaming) {
+            setRenameDialogStashIndex(null)
+            setRenameMessageInput('')
+            setRenameOriginalMessage('')
+          }
+        }}
+      >
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>{t('git.stash.renameTitle')}</DialogTitle>
+            <DialogDescription>{t('git.stash.renameDescription', { n: renameDialogStashIndex })}</DialogDescription>
+          </DialogHeader>
+          <div className="py-4">
+            <Label htmlFor="stash-rename-message">{t('git.stash.renamePlaceholder')}</Label>
+            <Input
+              id="stash-rename-message"
+              ref={renameInputRef}
+              className="mt-2"
+              placeholder={t('git.stash.renamePlaceholder')}
+              value={renameMessageInput}
+              onChange={e => setRenameMessageInput(e.target.value)}
+              disabled={isRenaming}
+              onKeyDown={e => {
+                if (e.key === 'Enter') {
+                  e.preventDefault()
+                  handleStashRenameConfirm()
+                }
+              }}
+            />
+          </div>
+          <DialogFooter>
+            <Button
+              variant={buttonVariant}
+              onClick={() => {
+                setRenameDialogStashIndex(null)
+                setRenameMessageInput('')
+                setRenameOriginalMessage('')
+              }}
+              disabled={isRenaming}
+            >
+              {t('common.cancel')}
+            </Button>
+            <Button
+              variant={buttonVariant}
+              onClick={handleStashRenameConfirm}
+              disabled={
+                !renameMessageInput.trim() ||
+                isRenaming ||
+                renameOriginalMessage.trim() === renameMessageInput.trim()
+              }
+            >
+              {isRenaming ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : null}
+              {t('git.stash.rename')}
             </Button>
           </DialogFooter>
         </DialogContent>

@@ -1,5 +1,9 @@
 import l from 'electron-log'
+import { getStashDropIndexAfterRenameStore, isStashRenameNoOp, type StashRenameErrorCode } from './stashRenameUtils'
 import { formatGitError, getGitInstance } from './utils'
+
+export type { StashRenameErrorCode } from './stashRenameUtils'
+export { getStashDropIndexAfterRenameStore, isStashRenameNoOp } from './stashRenameUtils'
 
 export interface StashOptions {
   includeUntracked?: boolean
@@ -10,6 +14,8 @@ export interface GitStashResponse {
   status: 'success' | 'error'
   message?: string
   data?: any
+  /** Machine-readable error code for localized UI messages. */
+  code?: StashRenameErrorCode
   /** Set when stash pop failed due to merge conflicts; stash entry is left in list. */
   conflict?: boolean
 }
@@ -356,6 +362,79 @@ export async function stashIsLikelyApplied(stashIndex: number, cwd?: string): Pr
     return {
       status: 'error',
       message: `Error checking stash: ${formatGitError(error)}`,
+    }
+  }
+}
+
+async function readStashCommitMessage(git: NonNullable<Awaited<ReturnType<typeof getGitInstance>>>, ref: string): Promise<string> {
+  try {
+    return (await git.raw(['log', '-1', '--format=%s', ref])).trim()
+  } catch {
+    return ''
+  }
+}
+
+/**
+ * Rename a stash message via `git stash store` (Git has no native rename).
+ * Re-stores the stash commit with a new message, then drops the old entry.
+ */
+export async function stashRename(stashIndex: number, message: string, cwd?: string): Promise<GitStashResponse> {
+  try {
+    const git = await getGitInstance(cwd)
+    if (!git) {
+      return { status: 'error', code: 'NOT_A_REPO', message: 'Not a git repository or error initializing git' }
+    }
+
+    const messageTrimmed = message.trim()
+    if (!messageTrimmed) {
+      return { status: 'error', code: 'STASH_MESSAGE_REQUIRED', message: 'Stash message is required' }
+    }
+
+    const ref = `stash@{${stashIndex}}`
+    let stashHash: string
+    try {
+      stashHash = (await git.raw(['rev-parse', ref])).trim()
+    } catch {
+      return { status: 'error', code: 'STASH_NOT_FOUND', message: `Stash ${ref} not found` }
+    }
+
+    const currentMessage = await readStashCommitMessage(git, ref)
+    if (isStashRenameNoOp(currentMessage, messageTrimmed)) {
+      return { status: 'success', data: { unchanged: true } }
+    }
+
+    l.info(`Renaming stash at index: ${stashIndex}`, { message: messageTrimmed })
+
+    await git.raw(['stash', 'store', '-m', messageTrimmed, stashHash])
+
+    const dropIndex = getStashDropIndexAfterRenameStore(stashIndex)
+    try {
+      await git.stash(['drop', `stash@{${dropIndex}}`])
+    } catch (dropError) {
+      l.error('Error dropping old stash after rename store; rolling back', dropError)
+      try {
+        await git.stash(['drop', 'stash@{0}'])
+      } catch (rollbackError) {
+        l.error('Rollback after failed stash rename drop also failed', rollbackError)
+      }
+      return {
+        status: 'error',
+        code: 'STASH_RENAME_DROP_FAILED',
+        message: `Error dropping old stash after rename: ${formatGitError(dropError)}`,
+      }
+    }
+
+    l.info('Stash renamed successfully')
+    return {
+      status: 'success',
+      message: 'Stash renamed successfully',
+    }
+  } catch (error) {
+    l.error('Error renaming stash:', error)
+    return {
+      status: 'error',
+      code: 'STASH_RENAME_FAILED',
+      message: `Error renaming stash: ${formatGitError(error)}`,
     }
   }
 }

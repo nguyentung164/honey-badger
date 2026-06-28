@@ -1,12 +1,13 @@
 'use client'
 
-import { FileWarning, Minus, Square, X } from 'lucide-react'
+import { FileWarning, Minus, RefreshCw, Square, X } from 'lucide-react'
 import { IPC } from 'main/constants'
 import type React from 'react'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { GitConflictPanel } from '@/components/conflict/GitConflictPanel'
 import { SvnConflictPanel } from '@/components/conflict/SvnConflictPanel'
+import { Button } from '@/components/ui/button'
+import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import { GlowLoader } from '@/components/ui-elements/GlowLoader'
 import { getConfigDataRelevantSnapshot, useConfigurationStore } from '@/stores/useConfigurationStore'
 
@@ -21,10 +22,10 @@ export function ConflictResolver() {
   const versionControlSystem = useConfigurationStore(s => s.versionControlSystem)
   const isConfigLoaded = useConfigurationStore(s => s.isConfigLoaded)
   const dataSnapshotRef = useRef<string | null>(null)
-  const checkSeqRef = useRef(0)
-  const [hasConflict, setHasConflict] = useState<boolean | null>(null)
-  const [initialData, setInitialData] = useState<{ path?: string; versionControlSystem?: 'git' | 'svn' } | null>(null)
-  // false = chưa nhận phản hồi REQUEST_CONFLICT_RESOLVER_DATA lần đầu
+  const refreshPanelRef = useRef<(() => void) | null>(null)
+  const [conflictCount, setConflictCount] = useState<number | null>(null)
+  const conflictBaselineRef = useRef(0)
+  const [initialData, setInitialData] = useState<{ path?: string; versionControlSystem?: 'svn' } | null>(null)
   const [contextReady, setContextReady] = useState(false)
 
   const effectiveSourceFolder = initialData?.path ?? sourceFolder
@@ -35,15 +36,13 @@ export function ConflictResolver() {
   }, [loadConfigurationConfig])
 
   useEffect(() => {
-    const handler = (_event: any, data: { path?: string; versionControlSystem?: 'git' | 'svn' }) => {
+    const handler = (_event: unknown, data: { path?: string; versionControlSystem?: 'svn' }) => {
       setInitialData(data)
       setContextReady(true)
-      // Reset để re-check với path đúng
-      setHasConflict(null)
+      setConflictCount(null)
     }
     window.api.on('load-conflict-resolver-data', handler)
     window.api.electron.send(IPC.WINDOW.REQUEST_CONFLICT_RESOLVER_DATA)
-    // Nếu không có pending data, main sẽ không respond → dùng sourceFolder từ store
     const fallbackTimer = setTimeout(() => setContextReady(true), 200)
     return () => {
       window.api.removeListener('load-conflict-resolver-data', handler)
@@ -52,31 +51,33 @@ export function ConflictResolver() {
   }, [])
 
   const checkConflict = useCallback(async () => {
-    if (!effectiveSourceFolder || !effectiveVcs) {
-      setHasConflict(false)
+    if (!effectiveSourceFolder || effectiveVcs !== 'svn') {
+      setConflictCount(0)
       return
     }
-    const seq = ++checkSeqRef.current
     try {
-      if (effectiveVcs === 'git') {
-        const r = await window.api.git.get_conflict_status(effectiveSourceFolder)
-        if (seq !== checkSeqRef.current) return
-        setHasConflict(r.status === 'success' && r.data?.hasConflict === true)
+      const r = await window.api.svn.get_conflict_status(effectiveSourceFolder)
+      if (r.status === 'success' && r.data) {
+        const count = r.data.conflictedFiles?.length ?? 0
+        if (r.data.hasConflict && count > conflictBaselineRef.current) {
+          conflictBaselineRef.current = count
+        }
+        if (!r.data.hasConflict) {
+          conflictBaselineRef.current = 0
+        }
+        setConflictCount(r.data.hasConflict ? count : 0)
       } else {
-        const r = await window.api.svn.get_conflict_status(effectiveSourceFolder)
-        if (seq !== checkSeqRef.current) return
-        setHasConflict(r.status === 'success' && r.data?.hasConflict === true)
+        setConflictCount(0)
       }
     } catch {
-      if (seq !== checkSeqRef.current) return
-      setHasConflict(false)
+      setConflictCount(0)
     }
+    refreshPanelRef.current?.()
   }, [effectiveSourceFolder, effectiveVcs])
 
-  // Chỉ chạy checkConflict sau khi context sẵn sàng
   useEffect(() => {
     if (!contextReady) return
-    checkConflict()
+    void checkConflict()
   }, [checkConflict, contextReady])
 
   useEffect(() => {
@@ -86,26 +87,33 @@ export function ConflictResolver() {
         return
       }
       dataSnapshotRef.current = newSnapshot
-      checkConflict()
+      void checkConflict()
     }
-    const handleBranchChange = () => checkConflict()
-    // Khi main window resolve conflict, cửa sổ này cũng cần refresh
-    const handleConflictResolved = () => checkConflict()
     window.addEventListener('configuration-changed', handleConfigChange)
-    window.addEventListener('git-branch-changed', handleBranchChange)
-    window.api.on('git-conflict-resolved', handleConflictResolved)
-    return () => {
-      window.removeEventListener('configuration-changed', handleConfigChange)
-      window.removeEventListener('git-branch-changed', handleBranchChange)
-      window.api.removeListener('git-conflict-resolved', handleConflictResolved)
-    }
+    return () => window.removeEventListener('configuration-changed', handleConfigChange)
   }, [checkConflict])
+
+  const handleRefresh = () => {
+    void checkConflict()
+  }
+
+  const handleConflictCountChange = useCallback((remaining: number) => {
+    if (remaining > conflictBaselineRef.current) {
+      conflictBaselineRef.current = remaining
+    }
+    setConflictCount(remaining)
+  }, [])
+
+  const resolvedConflictCount =
+    conflictBaselineRef.current > 0 && conflictCount != null
+      ? Math.max(0, conflictBaselineRef.current - conflictCount)
+      : 0
+  const totalConflictCount = conflictBaselineRef.current > 0 ? conflictBaselineRef.current : (conflictCount ?? 0)
 
   return (
     <div className="flex h-screen w-full flex-col">
-      {/* Title Bar */}
       <div
-        className="flex items-center h-8 text-sm select-none shrink-0"
+        className="flex items-center h-8 text-sm select-none shrink-0 border-b"
         style={
           {
             WebkitAppRegion: 'drag',
@@ -119,10 +127,23 @@ export function ConflictResolver() {
             <img src="logo.png" alt="icon" draggable="false" className="w-3.5 h-3.5 dark:brightness-130" />
           </div>
         </div>
-        <div className="flex-1 flex justify-center">
+        <div className="flex-1 flex items-center justify-center gap-2 min-w-0" style={{ WebkitAppRegion: 'drag' } as React.CSSProperties}>
           <span className="font-medium text-xs">{t('conflictResolver.title')}</span>
+          {conflictCount != null && conflictCount > 0 ? (
+            <span className="text-xs text-muted-foreground tabular-nums">
+              {t('dialog.diffViewer.conflictMode.progress', { resolved: resolvedConflictCount, total: totalConflictCount })}
+            </span>
+          ) : null}
         </div>
-        <div className="flex gap-1 shrink-0" style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties}>
+        <div className="flex gap-1 shrink-0 items-center pr-1" style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties}>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button variant="ghost" size="icon" className="h-7 w-7" onClick={handleRefresh}>
+                <RefreshCw className="h-3.5 w-3.5" />
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent>{t('common.refresh')}</TooltipContent>
+          </Tooltip>
           <button
             type="button"
             onClick={() => handleWindow('minimize')}
@@ -143,8 +164,7 @@ export function ConflictResolver() {
         </div>
       </div>
 
-      {/* Content */}
-      <div className="flex-1 flex flex-col min-h-0 p-4 overflow-auto">
+      <div className="flex-1 flex flex-col min-h-0 overflow-hidden">
         {!isConfigLoaded ? (
           <div className="flex items-center justify-center flex-1">
             <GlowLoader className="w-10 h-10" />
@@ -154,59 +174,33 @@ export function ConflictResolver() {
             <FileWarning className="h-12 w-12 mb-4 opacity-50" />
             <p className="text-sm">{t('conflictResolver.noSourceFolder')}</p>
           </div>
-        ) : effectiveVcs === 'git' ? (
-          hasConflict === null ? (
-            <div className="flex items-center justify-center flex-1">
-              <GlowLoader className="w-10 h-10" />
-            </div>
-          ) : hasConflict === false ? (
-            <div className="flex flex-col items-center justify-center flex-1 text-muted-foreground">
-              <FileWarning className="h-12 w-12 mb-4 opacity-50" />
-              <p className="text-sm">{t('conflictResolver.noConflicts')}</p>
-            </div>
-          ) : (
-            <GitConflictPanel
-              sourceFolder={effectiveSourceFolder}
-              compact={false}
-              onStatusChanged={() => {
-                window.api.electron.send(IPC.WINDOW.NOTIFY_CONFLICT_RESOLVED)
-                checkConflict()
-              }}
-              onResolved={() => {
-                checkConflict()
-                window.dispatchEvent(new CustomEvent('configuration-changed', { detail: { type: 'configuration' } }))
-              }}
-              onAbort={() => {
-                checkConflict()
-                window.dispatchEvent(new CustomEvent('configuration-changed', { detail: { type: 'configuration' } }))
-              }}
-            />
-          )
-        ) : effectiveVcs === 'svn' ? (
-          hasConflict === null ? (
-            <div className="flex items-center justify-center flex-1">
-              <GlowLoader className="w-10 h-10" />
-            </div>
-          ) : hasConflict === false ? (
-            <div className="flex flex-col items-center justify-center flex-1 text-muted-foreground">
-              <FileWarning className="h-12 w-12 mb-4 opacity-50" />
-              <p className="text-sm">{t('conflictResolver.noConflicts')}</p>
-            </div>
-          ) : (
-            <SvnConflictPanel
-              sourceFolder={effectiveSourceFolder}
-              compact={false}
-              onResolved={() => {
-                checkConflict()
-                window.dispatchEvent(new CustomEvent('configuration-changed', { detail: { type: 'configuration' } }))
-              }}
-            />
-          )
-        ) : (
+        ) : effectiveVcs !== 'svn' ? (
+          <div className="flex flex-col items-center justify-center flex-1 text-muted-foreground p-4 text-center">
+            <FileWarning className="h-12 w-12 mb-4 opacity-50" />
+            <p className="text-sm">{t('conflictResolver.svnOnlyHint')}</p>
+          </div>
+        ) : conflictCount === null ? (
+          <div className="flex items-center justify-center flex-1">
+            <GlowLoader className="w-10 h-10" />
+          </div>
+        ) : conflictCount === 0 ? (
           <div className="flex flex-col items-center justify-center flex-1 text-muted-foreground">
             <FileWarning className="h-12 w-12 mb-4 opacity-50" />
-            <p className="text-sm">{t('conflictResolver.unsupportedVcs')}</p>
+            <p className="text-sm">{t('conflictResolver.noConflicts')}</p>
           </div>
+        ) : (
+          <SvnConflictPanel
+            sourceFolder={effectiveSourceFolder}
+            compact={false}
+            onRegisterRefresh={fn => {
+              refreshPanelRef.current = fn
+            }}
+            onConflictCountChange={handleConflictCountChange}
+            onResolved={() => {
+              void checkConflict()
+              window.dispatchEvent(new CustomEvent('configuration-changed', { detail: { type: 'configuration' } }))
+            }}
+          />
         )}
       </div>
     </div>

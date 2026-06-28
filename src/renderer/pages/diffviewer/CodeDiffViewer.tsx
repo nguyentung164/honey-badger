@@ -2,14 +2,14 @@
 import { DiffEditor, type DiffOnMount, useMonaco } from '@monaco-editor/react'
 import type { editor as MonacoEditor } from 'monaco-editor'
 import { IPC } from 'main/constants'
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState, forwardRef, useImperativeHandle } from 'react'
 import { useTranslation } from 'react-i18next'
-import { GlowLoader } from '@/components/ui-elements/GlowLoader'
 import toast from '@/components/ui-elements/Toast'
 import { ResizableHandle, ResizablePanel, ResizablePanelGroup } from '@/components/ui/resizable'
 import { SYNCED_EVENT, type UiSettingsSyncedDetail } from '@/lib/syncUiSettings'
 import logger from '@/services/logger'
 import { useAppearanceStore } from '@/stores/useAppearanceStore'
+import { useConfigurationStore } from '@/stores/useConfigurationStore'
 import { BinaryDiffPanel } from './BinaryDiffPanel'
 import { DiffFooterBar } from './DiffFooterBar'
 import { DiffToolbar } from './DiffToolbar'
@@ -18,8 +18,8 @@ import { DiffViewerDiscardConfirm } from './DiffViewerDiscardConfirm'
 import { DiffViewerFileTreePanel, type DiffViewerFileTreeBulkAction } from './DiffViewerFileTreePanel'
 import { DiffViewerLoadState } from './DiffViewerLoadState'
 import type { DiffViewerFileKind, DiffViewerLoadPayload, DiffViewerMode, ImageLoadContext } from './diffViewerPayload'
-import { deriveDiffViewerMode, diffViewerSupportsFileListRefresh, diffViewerSupportsStageActions, enrichDiffViewerPayload } from './diffViewerPayload'
-import { mergeGitFilesRefreshIntoContext, normalizeGitPath, pathsEqual, resolveAutoAdvanceTargetIndex, resolveDisplayedFileEntry, wrapFileNavIndex, type DiffViewerFilesRefreshResult } from './diffViewerGitFiles'
+import { deriveDiffViewerMode, diffViewerIsGitConflictMode, diffViewerSupportsFileListRefresh, diffViewerSupportsStageActions, enrichDiffViewerPayload } from './diffViewerPayload'
+import { mergeGitFilesRefreshIntoContext, normalizeGitPath, pathsEqual, resolveAutoAdvanceTargetIndex, resolveDisplayedFileEntry, resolveDiffViewerRepoCwd, isGitEntryStaged, isGitEntryUnstaged, wrapFileNavIndex, type DiffViewerFilesRefreshResult } from './diffViewerGitFiles'
 import type { CharDiffStats, DiffStats } from './diffViewerTypes'
 import {
   computeCharDiffStats,
@@ -38,6 +38,7 @@ import {
   formatDiffEditor,
   readDiffEditorPaneText,
   removeEmptyLinesFromDiffEditor,
+  resetDiffEditorCursors,
   stabilizeDiffEditorAfterEdit,
   syncDiffEditorModelLanguage,
   waitForDiffCompute,
@@ -45,11 +46,34 @@ import {
 import { useDiffViewerBlame } from './useDiffViewerBlame'
 import { useDiffViewerMinimapHighlights } from './useDiffViewerMinimapHighlights'
 import { useDiffViewerPaneLabels } from './useDiffViewerPaneLabels'
+import { loadGitStagingDiffContent, resolveStagingDiffProfile, resolveStagingPaneLabels } from './diffViewerStagingDiff'
 import { useDiffViewerDirty } from './useDiffViewerDirty'
 import { useDiffViewerAutoAdvance } from './useDiffViewerAutoAdvance'
 import { useDiffViewerFileNav } from './useDiffViewerFileNav'
-import { useDiffViewerTreePanelWidth } from './useDiffViewerTreePanelWidth'
+import {
+  DIFF_VIEWER_EDITOR_PANEL_ID,
+  DIFF_VIEWER_TREE_PANEL_ID,
+  DIFF_VIEWER_TREE_PANEL_MAX_WIDTH,
+  DIFF_VIEWER_TREE_PANEL_MIN_WIDTH,
+  useDiffViewerTreePanelWidth,
+} from './useDiffViewerTreePanelWidth'
 import { buildDiffEditorOptions, applyDiffViewerEditorOptions, useDiffViewerOptions } from './useDiffViewerOptions'
+import { buildEmbeddedGitConflictPayloadSyncKey, buildEmbeddedGitStagingPayloadSyncKey } from '@/lib/diffViewer/openDiffViewer'
+import { GitConflictDiffView } from './GitConflictDiffView'
+
+export type CodeDiffViewerHandle = {
+  /** Run after user saves/discards or when there are no unsaved edits. */
+  requestLayoutLeave: (onProceed: () => void) => void
+}
+
+export type CodeDiffViewerProps = {
+  /** Render inside MainPage git staging area instead of a dedicated window. */
+  embedded?: boolean
+  /** Parent-driven payload when `embedded` (git staging vertical layout). */
+  embeddedPayload?: DiffViewerLoadPayload | null
+  /** Host element for toolbar controls (Git Staging title row). */
+  embeddedToolbarHost?: HTMLElement | null
+}
 
 const EXT_TO_LANG: Record<string, string> = {
   abap: 'abap',
@@ -136,11 +160,19 @@ function isLikelyGitUnmergedWorkingTree(fileStatus: string): boolean {
   return /^(UU|DD|AA|AU|UA|UD|DU|DA|AD)$/i.test(s)
 }
 
+function isGitDeletedFromWorkingTree(fileStatus: string): boolean {
+  const s = (fileStatus || '').trim().toLowerCase()
+  return s === 'deleted' || s === 'd'
+}
+
 async function readGitWorkingTreeForDiff(filePath: string, fileStatus: string, catOpts?: { cwd?: string }): Promise<string> {
   if (isLikelyGitUnmergedWorkingTree(fileStatus)) {
     const r = await window.api.git.read_conflict_working_content(filePath, catOpts?.cwd)
     if (r.status === 'success' && typeof r.data === 'string') return r.data
     throw new Error(r.message || 'read_conflict_working_content failed')
+  }
+  if (isGitDeletedFromWorkingTree(fileStatus)) {
+    return ''
   }
   try {
     return await window.api.system.read_file(filePath, catOpts)
@@ -148,8 +180,7 @@ async function readGitWorkingTreeForDiff(filePath: string, fileStatus: string, c
     const msg = err instanceof Error ? err.message : String(err)
     const looksMissing = msg.includes('ENOENT') || /no such file|cannot find|not found|The system cannot find the file/i.test(msg)
     if (looksMissing) {
-      const r = await window.api.git.read_conflict_working_content(filePath, catOpts?.cwd)
-      if (r.status === 'success' && typeof r.data === 'string') return r.data
+      return ''
     }
     throw err
   }
@@ -172,7 +203,10 @@ function formatLoadError(error: unknown): string {
   return String(error)
 }
 
-export function CodeDiffViewer() {
+export const CodeDiffViewer = forwardRef<CodeDiffViewerHandle, CodeDiffViewerProps>(function CodeDiffViewer(
+  { embedded = false, embeddedPayload = null, embeddedToolbarHost = null },
+  ref
+) {
   const monaco = useMonaco()
   const { themeMode } = useAppearanceStore()
   const { t } = useTranslation()
@@ -185,11 +219,18 @@ export function CodeDiffViewer() {
   const [commitHash, setCommitHash] = useState<string | undefined>(undefined)
   const [currentCommitHash, setCurrentCommitHash] = useState<string | undefined>(undefined)
   const [cwd, setCwd] = useState<string | undefined>(undefined)
+  const sourceFolder = useConfigurationStore(s => s.sourceFolder)
+  const getRepoCwd = useCallback(
+    (payloadCwd?: string) => resolveDiffViewerRepoCwd(payloadCwd ?? loadContextRef.current?.cwd, cwd, sourceFolder),
+    [cwd, sourceFolder]
+  )
   const [diffViewerMode, setDiffViewerMode] = useState<DiffViewerMode>('git-working')
+  const [gitConflictPayload, setGitConflictPayload] = useState<DiffViewerLoadPayload | null>(null)
   const [isSwapped, setIsSwapped] = useState(false)
   const [language, setLanguage] = useState('javascript')
   const [cursorPosition, setCursorPosition] = useState({ line: 1, column: 1 })
   const [isLoading, setIsLoading] = useState(false)
+  const [isTreeRefreshing, setIsTreeRefreshing] = useState(false)
   const [isSaving, setIsSaving] = useState(false)
   const [isStaging, setIsStaging] = useState(false)
   const [isReverting, setIsReverting] = useState(false)
@@ -212,26 +253,24 @@ export function CodeDiffViewer() {
   const [showCloseConfirm, setShowCloseConfirm] = useState(false)
 
   const editorRef = useRef<MonacoEditor.IStandaloneDiffEditor | null>(null)
+  const rootRef = useRef<HTMLDivElement | null>(null)
   const originalEditableRef = useRef(false)
   const loadContextRef = useRef<DiffViewerLoadPayload | null>(null)
   const pendingCloseRef = useRef(false)
+  const pendingLayoutLeaveRef = useRef<(() => void) | null>(null)
   const loadGenerationRef = useRef(0)
+  const autoFocusFirstChangeKeyRef = useRef('')
   const isGitActionInProgressRef = useRef(false)
   const isLoadingRef = useRef(false)
+  const filePathRef = useRef(filePath)
+  const fileKindRef = useRef(fileKind)
+  const modifiedCodeRef = useRef(modifiedCode)
 
   const { viewOptions, setViewOption } = useDiffViewerOptions()
   const { autoAdvance, toggleAutoAdvance } = useDiffViewerAutoAdvance()
-  const { treePanelWidth, handleTreePanelResize } = useDiffViewerTreePanelWidth()
+  const { panelGroupRef, initialLayout, handleLayoutChanged } = useDiffViewerTreePanelWidth()
 
-  const editable = currentRevision == null && currentCommitHash == null
-  const editorOptions = useMemo(
-    () => buildDiffEditorOptions(viewOptions, { readOnly: !editable }),
-    [viewOptions, editable]
-  )
-
-  const { isDirty, setBaseline, notifyContentChange } = useDiffViewerDirty(editable)
-  const notifyContentChangeRef = useRef(notifyContentChange)
-  notifyContentChangeRef.current = notifyContentChange
+  const notifyContentChangeRef = useRef<((event: { isFlush?: boolean }) => void) | null>(null)
   const { files, activeIndex, activeFile, initFiles, goToFile, refreshFilesFromGit, refreshFromContext, hasMultipleFiles, setActiveEntryStagingState } =
     useDiffViewerFileNav()
 
@@ -241,19 +280,59 @@ export function CodeDiffViewer() {
     }
     return resolveDisplayedFileEntry(files, filePath, {
       fileStatus: loadContextRef.current?.fileStatus,
-      stagingState: undefined,
+      stagingState: loadContextRef.current?.stagingState,
     })
   }, [files, filePath, activeFile])
 
   const stagingHintForRefresh =
     activeFile && pathsEqual(activeFile.filePath, filePath) ? activeFile.stagingState : undefined
 
+  const stagingDiffProfile = useMemo(() => {
+    if (diffViewerMode !== 'git-staging') return null
+    const state = stagingHintForRefresh ?? displayedFileEntry?.stagingState
+    if (state !== 'staged' && state !== 'unstaged') return null
+    return resolveStagingDiffProfile(state)
+  }, [diffViewerMode, stagingHintForRefresh, displayedFileEntry?.stagingState])
+
+  const hasStagedEntryForPath = useMemo(
+    () => Boolean(filePath) && files.some(f => pathsEqual(f.filePath, filePath) && isGitEntryStaged(f)),
+    [files, filePath]
+  )
+
+  const stagingPaneLabels = useMemo(() => {
+    if (diffViewerMode !== 'git-staging') return null
+    const state = stagingHintForRefresh ?? displayedFileEntry?.stagingState
+    if (state !== 'staged' && state !== 'unstaged') return null
+    return resolveStagingPaneLabels(state, {
+      hasStagedEntryForPath,
+      fileStatus: displayedFileEntry?.fileStatus,
+    })
+  }, [diffViewerMode, stagingHintForRefresh, displayedFileEntry?.stagingState, displayedFileEntry?.fileStatus, hasStagedEntryForPath])
+
+  const baseVcsEditable = currentRevision == null && currentCommitHash == null
+  const editable = baseVcsEditable && (stagingDiffProfile?.modifiedEditable ?? true)
+  const editorViewOptions = useMemo(
+    () =>
+      stagingDiffProfile
+        ? { ...viewOptions, originalEditable: stagingDiffProfile.originalEditable && viewOptions.originalEditable }
+        : viewOptions,
+    [viewOptions, stagingDiffProfile]
+  )
+
+  const editorOptions = useMemo(
+    () => buildDiffEditorOptions(editorViewOptions, { readOnly: !editable }),
+    [editorViewOptions, editable]
+  )
+
+  const { isDirty, setBaseline, notifyContentChange, beginProgrammaticUpdate, endProgrammaticUpdate } = useDiffViewerDirty(editable)
+  notifyContentChangeRef.current = notifyContentChange
+
   const stagingHintRef = useRef(stagingHintForRefresh)
   stagingHintRef.current = stagingHintForRefresh
 
   useEffect(() => {
-    originalEditableRef.current = viewOptions.originalEditable
-  }, [viewOptions.originalEditable])
+    originalEditableRef.current = editorViewOptions.originalEditable
+  }, [editorViewOptions.originalEditable])
 
   const blameRevision = useMemo(() => {
     if (!isGit) return undefined
@@ -308,6 +387,35 @@ export function CodeDiffViewer() {
     await waitForDiffCompute(diffEditor)
     refreshDiffState()
   }, [refreshDiffState])
+
+  useEffect(() => {
+    if (fileKind !== 'text') return
+
+    const focusKey = `${contentEpoch}:${editorMountEpoch}`
+    if (autoFocusFirstChangeKeyRef.current === focusKey) return
+
+    const diffEditor = editorRef.current
+    if (!diffEditor) return
+
+    const generation = loadGenerationRef.current
+    let cancelled = false
+
+    void (async () => {
+      await waitForDiffCompute(diffEditor)
+      if (cancelled || generation !== loadGenerationRef.current) return
+
+      const changes = diffEditor.getLineChanges() ?? []
+      autoFocusFirstChangeKeyRef.current = focusKey
+      if (changes.length === 0) return
+
+      goToFirstChange(diffEditor)
+      refreshDiffState()
+    })()
+
+    return () => {
+      cancelled = true
+    }
+  }, [contentEpoch, editorMountEpoch, fileKind, refreshDiffState])
 
   const loadImageDataUrl = useCallback(
     async (
@@ -381,6 +489,35 @@ export function CodeDiffViewer() {
     [loadImageDataUrl]
   )
 
+  const applyLoadedTextContent = useCallback(
+    (nextOriginal: string, nextModified: string) => {
+      beginProgrammaticUpdate()
+      resetDiffEditorCursors(editorRef.current)
+      const diffEditor = editorRef.current
+      if (diffEditor) {
+        const originalModel = diffEditor.getOriginalEditor().getModel()
+        const modifiedModel = diffEditor.getModifiedEditor().getModel()
+        if (originalModel && originalModel.getValue() !== nextOriginal) {
+          originalModel.setValue(nextOriginal)
+        }
+        if (modifiedModel && modifiedModel.getValue() !== nextModified) {
+          modifiedModel.setValue(nextModified)
+        }
+      }
+      setCursorPosition({ line: 1, column: 1 })
+      setOriginalCode(nextOriginal)
+      setModifiedCode(nextModified)
+      setBaseline(nextModified)
+      setContentEpoch(e => e + 1)
+      requestAnimationFrame(() => {
+        requestAnimationFrame(() => {
+          endProgrammaticUpdate()
+        })
+      })
+    },
+    [beginProgrammaticUpdate, endProgrammaticUpdate, setBaseline]
+  )
+
   const handleRefresh = useCallback(
     async (path: string, status: string, rev?: string, curRev?: string, cwdOverride?: string) => {
       const generation = ++loadGenerationRef.current
@@ -388,7 +525,10 @@ export function CodeDiffViewer() {
 
       try {
         setLoadError(null)
-        setIsLoading(true)
+        const switchingTextFile = fileKindRef.current === 'text' && Boolean(filePathRef.current)
+        if (!switchingTextFile) {
+          setIsLoading(true)
+        }
         const catOpts = cwdOverride ? { cwd: cwdOverride } : undefined
         const kindResult = await window.api.system.detect_file_kind(path, catOpts)
         if (isStale()) return
@@ -441,10 +581,7 @@ export function CodeDiffViewer() {
           nextModified = originalResult.data
         }
 
-        setOriginalCode(nextOriginal)
-        setModifiedCode(nextModified)
-        setBaseline(nextModified)
-        setContentEpoch(e => e + 1)
+        applyLoadedTextContent(nextOriginal, nextModified)
       } catch (error) {
         if (isStale()) return
         const message = formatLoadError(error)
@@ -456,17 +593,28 @@ export function CodeDiffViewer() {
         }
       }
     },
-    [loadImageSides, setBaseline]
+    [applyLoadedTextContent, loadImageSides, setBaseline]
   )
 
   const handleRefreshGit = useCallback(
-    async (path: string, status: string, hash?: string, curHash?: string, rootCommit?: boolean, cwdOverride?: string) => {
+    async (
+      path: string,
+      status: string,
+      hash?: string,
+      curHash?: string,
+      rootCommit?: boolean,
+      cwdOverride?: string,
+      stagingState?: 'staged' | 'unstaged'
+    ) => {
       const generation = ++loadGenerationRef.current
       const isStale = () => generation !== loadGenerationRef.current
 
       try {
         setLoadError(null)
-        setIsLoading(true)
+        const switchingTextFile = fileKindRef.current === 'text' && Boolean(filePathRef.current)
+        if (!switchingTextFile) {
+          setIsLoading(true)
+        }
         const catOpts = cwdOverride ? { cwd: cwdOverride } : undefined
         const kindResult = await window.api.system.detect_file_kind(path, catOpts)
         if (isStale()) return
@@ -518,6 +666,11 @@ export function CodeDiffViewer() {
           nextOriginal = originalResult.data || ''
           nextModified = await readGitWorkingTreeForDiff(path, status, catOpts)
           if (isStale()) return
+        } else if (!hash && !curHash && stagingState) {
+          const sides = await loadGitStagingDiffContent(path, status, stagingState, catOpts)
+          if (isStale()) return
+          nextOriginal = sides.original
+          nextModified = sides.modified
         } else {
           const originalResult = await window.api.git.cat(path, status, 'HEAD', catOpts)
           if (isStale()) return
@@ -526,10 +679,7 @@ export function CodeDiffViewer() {
           if (isStale()) return
         }
 
-        setOriginalCode(nextOriginal)
-        setModifiedCode(nextModified)
-        setBaseline(nextModified)
-        setContentEpoch(e => e + 1)
+        applyLoadedTextContent(nextOriginal, nextModified)
       } catch (error) {
         if (isStale()) return
         const message = formatLoadError(error)
@@ -541,7 +691,7 @@ export function CodeDiffViewer() {
         }
       }
     },
-    [loadImageSides, setBaseline]
+    [applyLoadedTextContent, loadImageSides, setBaseline]
   )
 
   const runLoad = useCallback(
@@ -549,7 +699,7 @@ export function CodeDiffViewer() {
       const enriched = enrichDiffViewerPayload({
         ...ctx,
         filePath: ctx.filePath ? normalizeGitPath(ctx.filePath) : ctx.filePath,
-        cwd: ctx.cwd ?? cwd,
+        cwd: resolveDiffViewerRepoCwd(ctx.cwd, cwd, sourceFolder),
         isGit: ctx.isGit ?? isGit,
         files: ctx.files?.map(f => ({ ...f, filePath: normalizeGitPath(f.filePath) })),
       })
@@ -558,43 +708,65 @@ export function CodeDiffViewer() {
       if (!path) return
       setIsSwapped(false)
       if (enriched.isGit) {
+        const mode = deriveDiffViewerMode(enriched)
         void handleRefreshGit(
           path,
           enriched.fileStatus ?? '',
           enriched.commitHash,
           enriched.currentCommitHash,
           enriched.isRootCommit,
-          enriched.cwd
+          enriched.cwd,
+          mode === 'git-staging' ? enriched.stagingState : undefined
         )
       } else {
         void handleRefresh(path, enriched.fileStatus ?? '', enriched.revision, enriched.currentRevision, enriched.cwd)
       }
     },
-    [handleRefresh, handleRefreshGit, cwd, isGit]
+    [handleRefresh, handleRefreshGit, cwd, isGit, sourceFolder]
   )
 
   const applyPayload = useCallback(
     (data: DiffViewerLoadPayload) => {
       const enriched = enrichDiffViewerPayload(data)
+      const mode = deriveDiffViewerMode(enriched)
+      if (diffViewerIsGitConflictMode(mode)) {
+        setGitConflictPayload({
+          ...enriched,
+          filePath: enriched.filePath ? normalizeGitPath(enriched.filePath) : enriched.filePath,
+          files: enriched.files?.map(f => ({ ...f, filePath: normalizeGitPath(f.filePath) })),
+          cwd: resolveDiffViewerRepoCwd(enriched.cwd, undefined, sourceFolder),
+        })
+        setDiffViewerMode(mode)
+        return
+      }
+      setGitConflictPayload(null)
       const path = enriched.filePath ? normalizeGitPath(enriched.filePath) : ''
       const normalizedFiles = enriched.files?.map(f => ({ ...f, filePath: normalizeGitPath(f.filePath) }))
-      const mode = deriveDiffViewerMode(enriched)
+      const resolvedCwd = resolveDiffViewerRepoCwd(enriched.cwd, undefined, sourceFolder)
       setFilePath(path)
       setRevision(enriched.revision)
       setCurrentRevision(enriched.currentRevision)
       setIsGit(enriched.isGit || false)
       setCommitHash(enriched.commitHash)
       setCurrentCommitHash(enriched.currentCommitHash)
-      setCwd(enriched.cwd)
+      setCwd(resolvedCwd)
       setDiffViewerMode(mode)
       initFiles(normalizedFiles, enriched.currentFileIndex)
       setLanguage(detectLanguage(path))
       setLoadError(null)
 
+      const activeEntry = normalizedFiles?.[Math.max(0, enriched.currentFileIndex ?? 0)]
+
       if (!path) return
-      runLoad({ ...enriched, filePath: path, files: normalizedFiles })
+      runLoad({
+        ...enriched,
+        filePath: path,
+        files: normalizedFiles,
+        cwd: resolvedCwd,
+        stagingState: activeEntry?.stagingState,
+      })
     },
-    [initFiles, runLoad]
+    [initFiles, runLoad, sourceFolder]
   )
 
   const onRefresh = useCallback(async () => {
@@ -621,7 +793,7 @@ export function CodeDiffViewer() {
         runLoad(
           refreshed.currentInList
             ? nextCtx
-            : { ...nextCtx, filePath: ctx.filePath, fileStatus: ctx.fileStatus }
+            : { ...nextCtx, filePath: ctx.filePath, fileStatus: ctx.fileStatus, stagingState: ctx.stagingState }
         )
         return
       }
@@ -630,6 +802,15 @@ export function CodeDiffViewer() {
     setIsSwapped(false)
     runLoad(ctx)
   }, [runLoad, refreshFromContext, stagingHintForRefresh, filePath])
+
+  const handleTreeRefresh = useCallback(async () => {
+    setIsTreeRefreshing(true)
+    try {
+      await onRefresh()
+    } finally {
+      setIsTreeRefreshing(false)
+    }
+  }, [onRefresh])
 
   const navigateToFile = useCallback(
     (index: number) => {
@@ -640,6 +821,7 @@ export function CodeDiffViewer() {
         ...base,
         filePath: entry.filePath,
         fileStatus: entry.fileStatus ?? '',
+        stagingState: entry.stagingState,
         files,
         currentFileIndex: index,
       })
@@ -678,38 +860,88 @@ export function CodeDiffViewer() {
     if (nextIndex != null) requestNavigateToFile(nextIndex)
   }, [activeIndex, files.length, requestNavigateToFile])
 
+  const embeddedPayloadSyncKeyRef = useRef('')
+
+  const clearEmbeddedViewerState = useCallback(() => {
+    embeddedPayloadSyncKeyRef.current = ''
+    autoFocusFirstChangeKeyRef.current = ''
+    loadContextRef.current = null
+    loadGenerationRef.current += 1
+    setFilePath('')
+    setOriginalCode('')
+    setModifiedCode('')
+    setBaseline('')
+    setLoadError(null)
+    setFileKind('text')
+    setOriginalDataUrl(null)
+    setModifiedDataUrl(null)
+    setIsSwapped(false)
+    initFiles([], 0)
+    setContentEpoch(e => e + 1)
+  }, [initFiles, setBaseline])
+
+  const requestLayoutLeave = useCallback(
+    (onProceed: () => void) => {
+      if (!isDirty) {
+        onProceed()
+        return
+      }
+      pendingLayoutLeaveRef.current = onProceed
+      setShowCloseConfirm(true)
+    },
+    [isDirty]
+  )
+
+  useImperativeHandle(ref, () => ({ requestLayoutLeave }), [requestLayoutLeave])
+
+  const completePendingLeaveAction = useCallback(() => {
+    if (pendingNavIndex != null) {
+      const idx = pendingNavIndex
+      setPendingNavIndex(null)
+      goToFile(idx)
+      navigateToFile(idx)
+      return true
+    }
+    if (pendingLayoutLeaveRef.current) {
+      const proceed = pendingLayoutLeaveRef.current
+      pendingLayoutLeaveRef.current = null
+      proceed()
+      return true
+    }
+    if (pendingCloseRef.current) {
+      pendingCloseRef.current = false
+      if (!embedded) {
+        window.api.electron.send('window:action', 'close')
+      }
+      return true
+    }
+    return false
+  }, [embedded, pendingNavIndex, goToFile, navigateToFile])
+
   const handleCloseRequest = useCallback(() => {
+    if (embedded) return
     if (isDirty) {
       pendingCloseRef.current = true
       setShowCloseConfirm(true)
       return
     }
     window.api.electron.send('window:action', 'close')
-  }, [isDirty])
+  }, [embedded, isDirty])
 
   const handleDiscardAndClose = useCallback(() => {
     setShowCloseConfirm(false)
-    if (pendingNavIndex != null) {
-      const idx = pendingNavIndex
-      setPendingNavIndex(null)
-      goToFile(idx)
-      navigateToFile(idx)
-      return
-    }
-    if (pendingCloseRef.current) {
-      pendingCloseRef.current = false
-      window.api.electron.send('window:action', 'close')
-    }
-  }, [pendingNavIndex, goToFile, navigateToFile])
+    completePendingLeaveAction()
+  }, [completePendingLeaveAction])
 
-  const filePathRef = useRef(filePath)
-  const modifiedCodeRef = useRef(modifiedCode)
   useEffect(() => {
     modifiedCodeRef.current = modifiedCode
   }, [modifiedCode])
   useEffect(() => {
     filePathRef.current = filePath
   }, [filePath])
+  useEffect(() => {
+    fileKindRef.current = fileKind
+  }, [fileKind])
 
   const handleSaveFile = useCallback(async () => {
     try {
@@ -738,18 +970,8 @@ export function CodeDiffViewer() {
     const saved = await handleSaveFile()
     if (!saved) return
     setShowCloseConfirm(false)
-    if (pendingNavIndex != null) {
-      const idx = pendingNavIndex
-      setPendingNavIndex(null)
-      goToFile(idx)
-      navigateToFile(idx)
-      return
-    }
-    if (pendingCloseRef.current) {
-      pendingCloseRef.current = false
-      window.api.electron.send('window:action', 'close')
-    }
-  }, [handleSaveFile, pendingNavIndex, goToFile, navigateToFile])
+    completePendingLeaveAction()
+  }, [handleSaveFile, completePendingLeaveAction])
 
   const applyGitActionRefresh = useCallback(
     (
@@ -825,7 +1047,7 @@ export function CodeDiffViewer() {
     const isStaged = stagingHintForRefresh === 'staged'
     const nextStagingState = isStaged ? 'unstaged' : 'staged'
     const advanceFromIndex = activeIndex
-    const repoCwd = cwd ?? loadContextRef.current?.cwd
+    const repoCwd = getRepoCwd()
     setIsStaging(true)
     isGitActionInProgressRef.current = true
     try {
@@ -858,7 +1080,7 @@ export function CodeDiffViewer() {
     diffViewerMode,
     stagingHintForRefresh,
     activeIndex,
-    cwd,
+    getRepoCwd,
     t,
     setActiveEntryStagingState,
     refreshFilesFromGit,
@@ -877,7 +1099,7 @@ export function CodeDiffViewer() {
     if (pathsToRevert.length === 0 || !diffViewerSupportsStageActions(diffViewerMode)) return
     const advanceFromIndex = activeIndex
     const actedFilePath = filePath
-    const repoCwd = cwd ?? loadContextRef.current?.cwd
+    const repoCwd = getRepoCwd()
     setShowDiscardConfirm(false)
     setDiscardConfirmPaths([])
     setIsReverting(true)
@@ -907,23 +1129,29 @@ export function CodeDiffViewer() {
     filePath,
     diffViewerMode,
     activeIndex,
-    cwd,
+    getRepoCwd,
     t,
     refreshFilesFromGit,
     applyGitActionRefresh,
   ])
 
   const refreshAfterTreeBulkGitAction = useCallback(
-    async (actedFilePath: string, lookupStagingState?: 'staged' | 'unstaged') => {
-      const repoCwd = cwd ?? loadContextRef.current?.cwd
+    async (
+      actedFilePath: string,
+      lookupStagingState?: 'staged' | 'unstaged',
+      stagingStateHint?: 'staged' | 'unstaged'
+    ) => {
+      const repoCwd = getRepoCwd()
       if (!repoCwd) return
       const refreshed = await refreshFilesFromGit(repoCwd, actedFilePath, lookupStagingState)
       const ctx = loadContextRef.current
       if (!ctx) return
-      applyGitActionRefresh(activeIndex, actedFilePath, refreshed, ctx)
+      applyGitActionRefresh(activeIndex, actedFilePath, refreshed, ctx, {
+        stagingStateHint: stagingStateHint ?? lookupStagingState,
+      })
       window.api.electron.send(IPC.WINDOW.NOTIFY_STAGING_CHANGED)
     },
-    [activeIndex, applyGitActionRefresh, cwd, refreshFilesFromGit]
+    [activeIndex, applyGitActionRefresh, getRepoCwd, refreshFilesFromGit]
   )
 
   const handleTreeBulkAction = useCallback(
@@ -932,8 +1160,17 @@ export function CodeDiffViewer() {
       const uniqueIndices = [...new Set(indices)].filter(index => index >= 0 && index < files.length)
       if (uniqueIndices.length === 0) return
 
-      const selectedPaths = [...new Set(uniqueIndices.map(index => files[index]?.filePath).filter(Boolean) as string[])]
-      const actedFilePath = files[activeIndex]?.filePath ?? selectedPaths[0] ?? filePath
+      const selectedPaths = [
+        ...new Set(
+          uniqueIndices
+            .map(index => files[index]?.filePath)
+            .filter(Boolean)
+            .map(path => normalizeGitPath(path as string)) as string[]
+        ),
+      ]
+      const actedFilePath = normalizeGitPath(
+        files[uniqueIndices[0]]?.filePath ?? files[activeIndex]?.filePath ?? filePath ?? selectedPaths[0] ?? ''
+      )
 
       if (action === 'reveal') {
         for (const path of selectedPaths) {
@@ -952,17 +1189,21 @@ export function CodeDiffViewer() {
         return
       }
 
-      if (!diffViewerSupportsStageActions(diffViewerMode)) return
-      const repoCwd = cwd ?? loadContextRef.current?.cwd
-      if (!repoCwd) return
+      const ctx = loadContextRef.current
+      const mode = ctx ? deriveDiffViewerMode(ctx) : diffViewerMode
+      if (!diffViewerSupportsStageActions(mode)) return
+
+      const repoCwd = getRepoCwd(ctx?.cwd)
+      const gitCwdOpts = repoCwd ? { cwd: repoCwd } : undefined
 
       if (action === 'revert') {
         const unstagedPaths = [
           ...new Set(
             uniqueIndices
-              .filter(index => files[index]?.stagingState !== 'staged')
+              .filter(index => isGitEntryUnstaged(files[index]))
               .map(index => files[index]?.filePath)
-              .filter(Boolean) as string[]
+              .filter(Boolean)
+              .map(path => normalizeGitPath(path as string)) as string[]
           ),
         ]
         if (unstagedPaths.length === 0) return
@@ -971,23 +1212,36 @@ export function CodeDiffViewer() {
         return
       }
 
+      const unstagedPaths = [
+        ...new Set(
+          uniqueIndices
+            .filter(index => isGitEntryUnstaged(files[index]))
+            .map(index => files[index]?.filePath)
+            .filter(Boolean)
+            .map(path => normalizeGitPath(path as string)) as string[]
+        ),
+      ]
+      const stagedPaths = [
+        ...new Set(
+          uniqueIndices
+            .filter(index => isGitEntryStaged(files[index]))
+            .map(index => files[index]?.filePath)
+            .filter(Boolean)
+            .map(path => normalizeGitPath(path as string)) as string[]
+        ),
+      ]
+
+      if (action === 'stage' && unstagedPaths.length === 0) return
+      if (action === 'unstage' && stagedPaths.length === 0) return
+
       isGitActionInProgressRef.current = true
       setIsStaging(true)
       try {
         if (action === 'stage') {
-          const unstagedPaths = [
-            ...new Set(
-              uniqueIndices
-                .filter(index => files[index]?.stagingState !== 'staged')
-                .map(index => files[index]?.filePath)
-                .filter(Boolean) as string[]
-            ),
-          ]
-          if (unstagedPaths.length === 0) return
-          const result = await window.api.git.add(unstagedPaths, { cwd: repoCwd })
+          const result = await window.api.git.add(unstagedPaths, gitCwdOpts)
           if (result.status === 'success') {
             toast.success(t('dialog.diffViewer.stageSuccess'))
-            await refreshAfterTreeBulkGitAction(actedFilePath, 'staged')
+            await refreshAfterTreeBulkGitAction(actedFilePath, 'staged', 'staged')
           } else {
             toast.error(result.message || t('toast.gitAddError'))
           }
@@ -995,19 +1249,10 @@ export function CodeDiffViewer() {
         }
 
         if (action === 'unstage') {
-          const stagedPaths = [
-            ...new Set(
-              uniqueIndices
-                .filter(index => files[index]?.stagingState === 'staged')
-                .map(index => files[index]?.filePath)
-                .filter(Boolean) as string[]
-            ),
-          ]
-          if (stagedPaths.length === 0) return
-          const result = await window.api.git.reset_staged(stagedPaths, { cwd: repoCwd })
+          const result = await window.api.git.reset_staged(stagedPaths, gitCwdOpts)
           if (result.status === 'success') {
             toast.success(t('dialog.diffViewer.unstageSuccess'))
-            await refreshAfterTreeBulkGitAction(actedFilePath, 'staged')
+            await refreshAfterTreeBulkGitAction(actedFilePath, 'unstaged', 'unstaged')
           } else {
             toast.error(result.message || t('toast.gitUnstageError'))
           }
@@ -1023,7 +1268,7 @@ export function CodeDiffViewer() {
       files,
       activeIndex,
       filePath,
-      cwd,
+      getRepoCwd,
       diffViewerMode,
       t,
       refreshAfterTreeBulkGitAction,
@@ -1031,19 +1276,22 @@ export function CodeDiffViewer() {
   )
 
   useEffect(() => {
-    if (diffViewerMode !== 'git-staging' || !cwd) return
+    const repoCwd = getRepoCwd()
+    if (diffViewerMode !== 'git-staging' || !repoCwd) return
     const handleFilesChanged = () => {
       if (isGitActionInProgressRef.current) return
       const ctx = loadContextRef.current
-      if (!ctx?.filePath || !ctx.cwd) return
-      void refreshFromContext(ctx, stagingHintRef.current).then(outcome => {
+      if (!ctx?.filePath) return
+      const refreshCwd = getRepoCwd(ctx.cwd)
+      if (!refreshCwd) return
+      void refreshFromContext({ ...ctx, cwd: refreshCwd }, stagingHintRef.current).then(outcome => {
         if (!outcome || !loadContextRef.current) return
         loadContextRef.current = outcome.nextCtx
       })
     }
     window.api.on(IPC.FILES_CHANGED, handleFilesChanged)
     return () => window.api.removeListener(IPC.FILES_CHANGED, handleFilesChanged)
-  }, [diffViewerMode, cwd, refreshFromContext])
+  }, [diffViewerMode, getRepoCwd, refreshFromContext])
 
   const handlePrevChange = useCallback(() => {
     const diffEditor = editorRef.current
@@ -1089,18 +1337,18 @@ export function CodeDiffViewer() {
     (diffEditor: MonacoEditor.IStandaloneDiffEditor) => {
       const { original, modified } = readDiffEditorPaneText(diffEditor)
       setModifiedCode(modified)
-      if (editable && viewOptions.originalEditable) {
+      if (editable && editorViewOptions.originalEditable) {
         setOriginalCode(original)
       }
     },
-    [editable, viewOptions.originalEditable]
+    [editable, editorViewOptions.originalEditable]
   )
 
   const handleFormat = useCallback(async () => {
     const diffEditor = editorRef.current
     if (!diffEditor || !monaco || isLoadingRef.current || fileKind !== 'text') return
     const modifiedEditable = editable
-    const originalEditable = editable && viewOptions.originalEditable
+    const originalEditable = editable && editorViewOptions.originalEditable
     if (!modifiedEditable && !originalEditable) return
 
     setIsFormatting(true)
@@ -1134,14 +1382,14 @@ export function CodeDiffViewer() {
     syncEditorTextFromModel,
     refreshDiffStateAfterCompute,
     t,
-    viewOptions.originalEditable,
+    editorViewOptions.originalEditable,
   ])
 
   const handleRemoveEmptyLines = useCallback(async () => {
     const diffEditor = editorRef.current
     if (!diffEditor || isLoadingRef.current || fileKind !== 'text') return
     const modifiedEditable = editable
-    const originalEditable = editable && viewOptions.originalEditable
+    const originalEditable = editable && editorViewOptions.originalEditable
     if (!modifiedEditable && !originalEditable) return
 
     setIsRemovingEmptyLines(true)
@@ -1172,7 +1420,7 @@ export function CodeDiffViewer() {
     syncEditorTextFromModel,
     refreshDiffStateAfterCompute,
     t,
-    viewOptions.originalEditable,
+    editorViewOptions.originalEditable,
   ])
 
   const handleSwap = useCallback(() => {
@@ -1210,7 +1458,7 @@ export function CodeDiffViewer() {
 
   const handleEditorMount: DiffOnMount = (editor, _monaco) => {
     editorRef.current = editor
-    applyDiffViewerEditorOptions(editor, viewOptions, { readOnly: !editable })
+    applyDiffViewerEditorOptions(editor, editorViewOptions, { readOnly: !editable })
     setEditorMountEpoch(e => e + 1)
     const modifiedEditor = editor.getModifiedEditor()
     const originalEditor = editor.getOriginalEditor()
@@ -1262,13 +1510,90 @@ export function CodeDiffViewer() {
   }, [monaco, language, filePath, fileKind, editorMountEpoch])
 
   useEffect(() => {
+    if (!embedded) return
+    if (embeddedPayload) return
+    clearEmbeddedViewerState()
+  }, [embedded, embeddedPayload, clearEmbeddedViewerState])
+
+  useEffect(() => {
+    if (!embedded || !embeddedPayload) return
+
+    if (embeddedPayload.mode === 'git-conflict') {
+      setGitConflictPayload(null)
+      const syncKey = buildEmbeddedGitConflictPayloadSyncKey(embeddedPayload)
+      if (syncKey !== embeddedPayloadSyncKeyRef.current) {
+        embeddedPayloadSyncKeyRef.current = syncKey
+      }
+      return
+    }
+
+    setGitConflictPayload(null)
+
+    const syncKey = buildEmbeddedGitStagingPayloadSyncKey(embeddedPayload)
+    if (syncKey === embeddedPayloadSyncKeyRef.current) return
+
+    const hadPriorSync = embeddedPayloadSyncKeyRef.current.length > 0
+    embeddedPayloadSyncKeyRef.current = syncKey
+
+    const currentPath = loadContextRef.current?.filePath || filePathRef.current
+    const files = embeddedPayload.files ?? []
+    const hasActiveFile = Boolean(currentPath) && files.some(f => pathsEqual(f.filePath, currentPath))
+
+    if (hadPriorSync && hasActiveFile && files.length > 0) {
+      const ctx = loadContextRef.current
+      if (ctx) {
+        const activeEntry =
+          files.find(
+            f =>
+              pathsEqual(f.filePath, currentPath) &&
+              (f.stagingState === ctx.stagingState || f.stagingState === stagingHintRef.current)
+          ) ?? files.find(f => pathsEqual(f.filePath, currentPath))
+        const activeIndex = activeEntry ? files.indexOf(activeEntry) : Math.max(0, ctx.currentFileIndex ?? 0)
+        const nextStaging = activeEntry?.stagingState ?? ctx.stagingState
+        const stagingChanged = nextStaging !== ctx.stagingState
+        const nextCtx = enrichDiffViewerPayload({
+          ...ctx,
+          files,
+          cwd: embeddedPayload.cwd ?? ctx.cwd,
+          currentFileIndex: activeIndex,
+          stagingState: nextStaging,
+        })
+        loadContextRef.current = nextCtx
+        initFiles(files, activeIndex)
+        if (stagingChanged) {
+          runLoad({
+            ...nextCtx,
+            filePath: activeEntry?.filePath ?? currentPath,
+            fileStatus: activeEntry?.fileStatus ?? ctx.fileStatus,
+            stagingState: nextStaging,
+          })
+        }
+        return
+      }
+    }
+
+    applyPayload(embeddedPayload)
+  }, [embedded, embeddedPayload, applyPayload, initFiles, runLoad])
+
+  useEffect(() => {
+    if (embedded) return
     const handler = (_event: unknown, data: DiffViewerLoadPayload) => {
       applyPayload(data)
     }
     window.api.on('load-diff-data', handler)
     window.api.electron.send(IPC.WINDOW.REQUEST_DIFF_DATA)
+    return () => {
+      window.api.removeListener('load-diff-data', handler)
+    }
+  }, [embedded, applyPayload])
 
+  useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
+      if (embedded) {
+        const root = rootRef.current
+        const target = e.target
+        if (!root || !(target instanceof Node) || !root.contains(target)) return
+      }
       if ((e.ctrlKey || e.metaKey) && e.key === 's') {
         e.preventDefault()
         void handleSaveFile()
@@ -1302,11 +1627,10 @@ export function CodeDiffViewer() {
 
     window.addEventListener('keydown', handleKeyDown)
     return () => {
-      window.api.removeListener('load-diff-data', handler)
       window.removeEventListener('keydown', handleKeyDown)
     }
   }, [
-    applyPayload,
+    embedded,
     handleFind,
     handleFindReplace,
     handleFormat,
@@ -1318,6 +1642,7 @@ export function CodeDiffViewer() {
   ])
 
   useEffect(() => {
+    if (embedded) return
     const handleBeforeUnload = (e: BeforeUnloadEvent) => {
       if (!isDirty) return
       e.preventDefault()
@@ -1325,7 +1650,7 @@ export function CodeDiffViewer() {
     }
     window.addEventListener('beforeunload', handleBeforeUnload)
     return () => window.removeEventListener('beforeunload', handleBeforeUnload)
-  }, [isDirty])
+  }, [embedded, isDirty])
 
   useEffect(() => {
     const handleUiSettingsSynced = (e: CustomEvent<UiSettingsSyncedDetail>) => {
@@ -1380,12 +1705,12 @@ export function CodeDiffViewer() {
   useEffect(() => {
     const diffEditor = editorRef.current
     if (!diffEditor) return
-    applyDiffViewerEditorOptions(diffEditor, viewOptions, { readOnly: !editable })
+    applyDiffViewerEditorOptions(diffEditor, editorViewOptions, { readOnly: !editable })
     requestAnimationFrame(() => {
       diffEditor.layout()
       refreshDiffState()
     })
-  }, [viewOptions, editable, refreshDiffState])
+  }, [editorViewOptions, editable, refreshDiffState])
 
   useEffect(() => {
     return () => {
@@ -1402,6 +1727,9 @@ export function CodeDiffViewer() {
   }, [originalCode, modifiedCode, isLoading, fileKind, refreshDiffStateAfterCompute])
 
   const originalLabel = useMemo(() => {
+    if (stagingPaneLabels && isGit && !commitHash && !currentCommitHash) {
+      return t(stagingPaneLabels.originalLabelKey)
+    }
     if (isGit) {
       if (isSwapped) {
         return currentCommitHash ? (commitHash?.substring(0, 8) ?? '') : 'Working Copy'
@@ -1410,9 +1738,12 @@ export function CodeDiffViewer() {
     }
     if (isSwapped) return currentRevision ? (revision ?? '') : 'Working Copy'
     return currentRevision ? String(Number(revision) - 1) : 'Working Base'
-  }, [isGit, isSwapped, currentCommitHash, commitHash, currentRevision, revision])
+  }, [stagingPaneLabels, isGit, isSwapped, currentCommitHash, commitHash, currentRevision, revision, t])
 
   const modifiedLabel = useMemo(() => {
+    if (stagingPaneLabels && isGit && !commitHash && !currentCommitHash) {
+      return t(stagingPaneLabels.modifiedLabelKey)
+    }
     if (isGit) {
       if (isSwapped) {
         return currentCommitHash ? currentCommitHash.substring(0, 8) : commitHash ? commitHash.substring(0, 8) : 'HEAD'
@@ -1421,9 +1752,7 @@ export function CodeDiffViewer() {
     }
     if (isSwapped) return currentRevision ? String(Number(revision) - 1) : 'Working Base'
     return currentRevision ? (revision ?? '') : 'Working Copy'
-  }, [isGit, isSwapped, currentCommitHash, commitHash, currentRevision, revision])
-
-  const showSideBySideLabels = viewOptions.renderSideBySide && !viewOptions.diffOnly
+  }, [stagingPaneLabels, isGit, isSwapped, currentCommitHash, commitHash, currentRevision, revision, t])
 
   useDiffViewerPaneLabels({
     enabled: fileKind === 'text' && Boolean(filePath) && !loadError,
@@ -1431,13 +1760,12 @@ export function CodeDiffViewer() {
     editorMountEpoch,
     originalLabel,
     modifiedLabel,
-    renderSideBySide: showSideBySideLabels,
   })
 
   const showStageButton = diffViewerSupportsStageActions(diffViewerMode) && fileKind === 'text'
   const showRevertButton =
     showStageButton && stagingHintForRefresh !== 'staged' && displayedFileEntry?.stagingState !== 'staged'
-  const showFormatButton = fileKind === 'text' && (editable || viewOptions.originalEditable)
+  const showFormatButton = fileKind === 'text' && (editable || editorViewOptions.originalEditable)
   const showBlameToggle = isGit && fileKind === 'text'
 
   const isModifiedWithoutDiffChanges =
@@ -1468,11 +1796,6 @@ export function CodeDiffViewer() {
     }
     return (
       <div className="relative flex-1 overflow-hidden">
-        {isLoading ? (
-          <div className="absolute inset-0 z-10 flex items-center justify-center bg-background/80">
-            <GlowLoader className="w-10 h-10" />
-          </div>
-        ) : null}
         <DiffEditor
           height="100%"
           language={language}
@@ -1488,84 +1811,121 @@ export function CodeDiffViewer() {
     )
   }
 
-  return (
-    <div className="flex flex-col w-full h-full">
-      <DiffToolbar
-        onRefresh={onRefresh}
-        onSwapSides={handleSwap}
-        onSave={() => void handleSaveFile()}
-        onPrevChange={handlePrevChange}
-        onNextChange={handleNextChange}
-        onFirstChange={handleFirstChange}
-        onLastChange={handleLastChange}
-        changePosition={changePosition}
-        disableChangeNav={changePosition.total === 0 || isLoading || fileKind !== 'text'}
-        showNoChangesBadge={isModifiedWithoutDiffChanges}
-        isSaving={isSaving}
-        filePath={filePath}
-        files={files}
-        activeFile={displayedFileEntry}
-        onSelectFile={requestNavigateToFile}
-        disableFilePicker={!filePath && files.length === 0}
-        disableSave={!editable || fileKind !== 'text'}
-        isDirty={isDirty}
-        onCloseRequest={handleCloseRequest}
-        hasMultipleFiles={hasMultipleFiles}
-        filePosition={hasMultipleFiles ? { current: activeIndex + 1, total: files.length } : undefined}
-        onPrevFile={handlePrevFile}
-        onNextFile={handleNextFile}
-        disableFileNav={isLoading}
-        wrapFileNav={hasMultipleFiles}
-        showStageActions={showStageButton}
-        stagingState={displayedFileEntry?.stagingState}
-        onStageToggle={() => void handleStageToggle()}
-        isStaging={isStaging}
-        showRevertAction={showRevertButton}
-        onRevert={handleRevertRequest}
-        isReverting={isReverting}
-        showFormatAction={showFormatButton}
-        onFormat={() => void handleFormat()}
-        isFormatting={isFormatting}
-        disableFormat={isLoading || !filePath}
-        showRemoveEmptyLinesAction={showFormatButton}
-        onRemoveEmptyLines={() => void handleRemoveEmptyLines()}
-        isRemovingEmptyLines={isRemovingEmptyLines}
-        disableRemoveEmptyLines={isLoading || !filePath}
-        showAutoAdvanceToggle={showStageButton}
-        autoAdvance={autoAdvance}
-        onToggleAutoAdvance={toggleAutoAdvance}
-        showBlameToggle={showBlameToggle}
-        showBlame={viewOptions.showBlame}
-        onToggleBlame={() => setViewOption('showBlame', !viewOptions.showBlame)}
-        viewOptions={viewOptions}
-        onViewOptionChange={setViewOption}
-        onOpenInEditor={handleOpenInEditor}
-        onRevealInExplorer={handleRevealInExplorer}
-        onFind={handleFind}
-        onFindReplace={handleFindReplace}
-      />
+  const conflictEmbeddedPayload =
+    embedded && embeddedPayload?.mode === 'git-conflict'
+      ? embeddedPayload
+      : embedded
+        ? null
+        : gitConflictPayload
 
-      <div className="flex flex-1 min-h-0 overflow-hidden">
-        <ResizablePanelGroup direction="horizontal" className="h-full w-full">
+  if (conflictEmbeddedPayload || (!embedded && gitConflictPayload)) {
+    return (
+      <GitConflictDiffView
+        ref={ref}
+        embedded={embedded}
+        embeddedPayload={conflictEmbeddedPayload ?? gitConflictPayload}
+        embeddedToolbarHost={embeddedToolbarHost}
+      />
+    )
+  }
+
+  const toolbarProps = {
+    embedded,
+    headerPortalTarget: embedded ? embeddedToolbarHost : null,
+    onRefresh,
+    onSwapSides: handleSwap,
+    onSave: () => void handleSaveFile(),
+    onPrevChange: handlePrevChange,
+    onNextChange: handleNextChange,
+    onFirstChange: handleFirstChange,
+    onLastChange: handleLastChange,
+    changePosition,
+    disableChangeNav: changePosition.total === 0 || isLoading || fileKind !== 'text',
+    showNoChangesBadge: isModifiedWithoutDiffChanges,
+    isSaving,
+    filePath,
+    files,
+    activeFile: displayedFileEntry,
+    onSelectFile: requestNavigateToFile,
+    disableFilePicker: !filePath && files.length === 0,
+    disableSave: !editable || fileKind !== 'text',
+    isDirty,
+    onCloseRequest: embedded ? undefined : handleCloseRequest,
+    hasMultipleFiles,
+    filePosition: hasMultipleFiles ? { current: activeIndex + 1, total: files.length } : undefined,
+    onPrevFile: handlePrevFile,
+    onNextFile: handleNextFile,
+    disableFileNav: isLoading,
+    wrapFileNav: hasMultipleFiles,
+    showStageActions: showStageButton,
+    stagingState: displayedFileEntry?.stagingState,
+    onStageToggle: () => void handleStageToggle(),
+    isStaging,
+    showRevertAction: showRevertButton,
+    onRevert: handleRevertRequest,
+    isReverting,
+    showFormatAction: showFormatButton,
+    onFormat: () => void handleFormat(),
+    isFormatting,
+    disableFormat: isLoading || !filePath,
+    showRemoveEmptyLinesAction: showFormatButton,
+    onRemoveEmptyLines: () => void handleRemoveEmptyLines(),
+    isRemovingEmptyLines,
+    disableRemoveEmptyLines: isLoading || !filePath,
+    showAutoAdvanceToggle: showStageButton,
+    autoAdvance,
+    onToggleAutoAdvance: toggleAutoAdvance,
+    showBlameToggle,
+    showBlame: viewOptions.showBlame,
+    onToggleBlame: () => setViewOption('showBlame', !viewOptions.showBlame),
+    viewOptions,
+    onViewOptionChange: setViewOption,
+    onOpenInEditor: handleOpenInEditor,
+    onRevealInExplorer: handleRevealInExplorer,
+    onFind: handleFind,
+    onFindReplace: handleFindReplace,
+  }
+
+  return (
+    <div ref={rootRef} className="flex flex-col w-full h-full">
+      {(!embedded || embeddedToolbarHost) && <DiffToolbar {...toolbarProps} />}
+
+      <div className="flex flex-1 min-h-0 h-full flex-col overflow-hidden">
+        <ResizablePanelGroup
+          orientation="horizontal"
+          className="h-full"
+          groupRef={panelGroupRef}
+          defaultLayout={initialLayout}
+          onLayoutChanged={handleLayoutChanged}
+        >
           <ResizablePanel
-            defaultSize={treePanelWidth}
-            minSize={14}
-            maxSize={42}
-            onResize={handleTreePanelResize}
-            className="min-h-0"
+            id={DIFF_VIEWER_TREE_PANEL_ID}
+            minSize={`${DIFF_VIEWER_TREE_PANEL_MIN_WIDTH}%`}
+            maxSize={`${DIFF_VIEWER_TREE_PANEL_MAX_WIDTH}%`}
+            className="h-full"
           >
-            <DiffViewerFileTreePanel
-              files={files}
-              activeIndex={activeIndex}
-              splitStaging={diffViewerMode === 'git-staging'}
-              showStageActions={diffViewerSupportsStageActions(diffViewerMode)}
-              disabled={isLoading || isStaging || isReverting}
-              onSelectFile={requestNavigateToFile}
-              onBulkAction={(action, indices) => void handleTreeBulkAction(action, indices)}
-            />
+            <div className="h-full pr-2 flex flex-col min-h-0 overflow-hidden">
+              <DiffViewerFileTreePanel
+                files={files}
+                activeIndex={activeIndex}
+                splitStaging={diffViewerMode === 'git-staging'}
+                showStageActions={diffViewerSupportsStageActions(diffViewerMode)}
+                disabled={isStaging || isReverting}
+                isRefreshing={isTreeRefreshing}
+                onSelectFile={requestNavigateToFile}
+                onBulkAction={(action, indices) => void handleTreeBulkAction(action, indices)}
+                onRefresh={handleTreeRefresh}
+              />
+            </div>
           </ResizablePanel>
-          <ResizableHandle withHandle />
-          <ResizablePanel defaultSize={100 - treePanelWidth} minSize={45} className="flex min-h-0 min-w-0 flex-col">
+
+          <ResizableHandle className="bg-transparent" />
+
+          <ResizablePanel
+            id={DIFF_VIEWER_EDITOR_PANEL_ID}
+            minSize="45%"
+            className="h-full flex flex-col min-h-0"
+          >
             {renderMainContent()}
           </ResizablePanel>
         </ResizablePanelGroup>
@@ -1589,6 +1949,7 @@ export function CodeDiffViewer() {
             setShowCloseConfirm(false)
             setPendingNavIndex(null)
             pendingCloseRef.current = false
+            pendingLayoutLeaveRef.current = null
           }
         }}
         onSaveAndClose={handleSaveAndClose}
@@ -1608,4 +1969,4 @@ export function CodeDiffViewer() {
       />
     </div>
   )
-}
+})

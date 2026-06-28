@@ -16,9 +16,7 @@ import {
 type Props = {
   code: SvnStatusCode | SvnUpdateStatusCode | GitStatusCode
   className?: string
-  /** Override VCS (e.g. for Dashboard showing multiple repos) */
   vcsType?: 'git' | 'svn'
-  /** Use SVN update status (U, G, E) instead of regular status */
   svnUpdateMode?: boolean
 }
 

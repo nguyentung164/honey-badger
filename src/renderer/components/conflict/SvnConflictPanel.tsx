@@ -1,7 +1,7 @@
 'use client'
 
 import { DiffEditor, Editor, useMonaco } from '@monaco-editor/react'
-import { FileWarning, Loader2, Pencil } from 'lucide-react'
+import { ChevronLeft, ChevronRight, FileWarning, FolderOpen, Loader2, Pencil, RefreshCw } from 'lucide-react'
 import { IPC } from 'main/constants'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
@@ -105,10 +105,18 @@ interface SvnConflictFile {
 interface SvnConflictPanelProps {
   sourceFolder?: string
   onResolved?: () => void
+  onRegisterRefresh?: (refresh: () => void) => void
+  onConflictCountChange?: (count: number) => void
   compact?: boolean
 }
 
-export function SvnConflictPanel({ sourceFolder, onResolved, compact = false }: SvnConflictPanelProps) {
+export function SvnConflictPanel({
+  sourceFolder,
+  onResolved,
+  onRegisterRefresh,
+  onConflictCountChange,
+  compact = false,
+}: SvnConflictPanelProps) {
   const { t } = useTranslation()
   const buttonVariant = useAppearanceStoreSelect(s => s.buttonVariant)
   const { themeMode } = useAppearanceStore()
@@ -147,6 +155,7 @@ export function SvnConflictPanel({ sourceFolder, onResolved, compact = false }: 
       const currentSelected = selectedFileRef.current
       if (result.status === 'success' && result.data) {
         setConflictData(result.data)
+        onConflictCountChange?.(result.data.hasConflict ? result.data.conflictedFiles.length : 0)
         if (!result.data.hasConflict) {
           setSelectedFile(null)
           setConflictDetail(null)
@@ -157,6 +166,7 @@ export function SvnConflictPanel({ sourceFolder, onResolved, compact = false }: 
       } else {
         if (!mountedRef.current) return
         setConflictData({ hasConflict: false, conflictedFiles: [] })
+        onConflictCountChange?.(0)
         setSelectedFile(null)
         setConflictDetail(null)
       }
@@ -174,6 +184,56 @@ export function SvnConflictPanel({ sourceFolder, onResolved, compact = false }: 
   useEffect(() => {
     loadConflictStatus()
   }, [sourceFolder, loadConflictStatus])
+
+  useEffect(() => {
+    onRegisterRefresh?.(() => {
+      void loadConflictStatus()
+    })
+  }, [loadConflictStatus, onRegisterRefresh])
+
+  const selectAdjacentFile = useCallback(
+    (direction: -1 | 1) => {
+      if (!conflictData?.conflictedFiles.length) return
+      const files = conflictData.conflictedFiles
+      const idx = selectedFile ? files.findIndex(f => f.path === selectedFile.path) : -1
+      const next = idx < 0 ? 0 : (idx + direction + files.length) % files.length
+      setSelectedFile(files[next])
+      setConflictDetail(null)
+    },
+    [conflictData?.conflictedFiles, selectedFile]
+  )
+
+  const advanceAfterResolve = useCallback(
+    (resolvedPath: string) => {
+      const files = conflictData?.conflictedFiles ?? []
+      const idx = files.findIndex(f => f.path === resolvedPath)
+      if (idx < 0) return
+      const remaining = files.filter(f => f.path !== resolvedPath)
+      if (remaining.length === 0) {
+        setSelectedFile(null)
+        return
+      }
+      const next = remaining[Math.min(idx, remaining.length - 1)]
+      setSelectedFile(next)
+    },
+    [conflictData?.conflictedFiles]
+  )
+
+  useEffect(() => {
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (compact) return
+      if (e.key === 'ArrowUp' && !e.ctrlKey && !e.metaKey) {
+        e.preventDefault()
+        selectAdjacentFile(-1)
+      }
+      if (e.key === 'ArrowDown' && !e.ctrlKey && !e.metaKey) {
+        e.preventDefault()
+        selectAdjacentFile(1)
+      }
+    }
+    window.addEventListener('keydown', onKeyDown)
+    return () => window.removeEventListener('keydown', onKeyDown)
+  }, [compact, selectAdjacentFile])
 
   useEffect(() => {
     const handleConfigChange = () => {
@@ -225,6 +285,26 @@ export function SvnConflictPanel({ sourceFolder, onResolved, compact = false }: 
     }
   }, [selectedFile, sourceFolder])
 
+  const prefetchedDetailPathsRef = useRef(new Set<string>())
+
+  useEffect(() => {
+    prefetchedDetailPathsRef.current.clear()
+  }, [conflictData?.conflictedFiles])
+
+  useEffect(() => {
+    if (!conflictData?.conflictedFiles.length || !selectedFile) return
+    const files = conflictData.conflictedFiles
+    const idx = files.findIndex(f => f.path === selectedFile.path)
+    if (idx < 0 || idx >= files.length - 1) return
+    const next = files[idx + 1]
+    if (!next || next.isBinary || next.isRevisionConflict) return
+    if (prefetchedDetailPathsRef.current.has(next.path)) return
+    prefetchedDetailPathsRef.current.add(next.path)
+    void window.api.svn.get_conflict_detail(next.path, sourceFolder).catch(() => {
+      prefetchedDetailPathsRef.current.delete(next.path)
+    })
+  }, [conflictData?.conflictedFiles, selectedFile, sourceFolder])
+
   useEffect(() => {
     if (conflictData?.hasConflict && conflictData.conflictedFiles.length > 0 && !selectedFile) {
       setSelectedFile(conflictData.conflictedFiles[0])
@@ -255,6 +335,7 @@ export function SvnConflictPanel({ sourceFolder, onResolved, compact = false }: 
         if (result.status === 'success') {
           toast.success(t('svn.conflict.resolveSuccess'))
           await loadConflictStatus()
+          advanceAfterResolve(filePath)
           onResolved?.()
         } else {
           toast.error(result.message || t('svn.conflict.resolveError'))
@@ -337,6 +418,7 @@ export function SvnConflictPanel({ sourceFolder, onResolved, compact = false }: 
       if (result.status === 'success') {
         toast.success(t('svn.conflict.resolveSuccess'))
         await loadConflictStatus()
+        advanceAfterResolve(filePath)
         onResolved?.()
       } else {
         toast.error(result.message || t('svn.conflict.resolveError'))
@@ -405,9 +487,31 @@ export function SvnConflictPanel({ sourceFolder, onResolved, compact = false }: 
   }
 
   return (
-    <div className="border rounded-lg overflow-hidden bg-destructive/5 border-destructive/30 flex-1 flex flex-col min-h-0">
-      <div className="p-2 border-b">
+    <div className="flex-1 flex flex-col min-h-0 overflow-hidden bg-destructive/5">
+      <div className="p-2 border-b flex items-center justify-between gap-2 shrink-0">
         <Label className="text-destructive font-medium">{t('svn.conflict.title')}</Label>
+        <div className="flex items-center gap-1">
+          <Button type="button" variant="ghost" size="icon" className="h-7 w-7" onClick={() => selectAdjacentFile(-1)}>
+            <ChevronLeft className="h-4 w-4" />
+          </Button>
+          <Button type="button" variant="ghost" size="icon" className="h-7 w-7" onClick={() => selectAdjacentFile(1)}>
+            <ChevronRight className="h-4 w-4" />
+          </Button>
+          <Button type="button" variant="ghost" size="icon" className="h-7 w-7" onClick={() => void loadConflictStatus()}>
+            <RefreshCw className="h-3.5 w-3.5" />
+          </Button>
+          {selectedFile ? (
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon"
+              className="h-7 w-7"
+              onClick={() => void window.api.system.reveal_in_file_explorer(selectedFile.path)}
+            >
+              <FolderOpen className="h-3.5 w-3.5" />
+            </Button>
+          ) : null}
+        </div>
       </div>
       <ResizablePanelGroup orientation="horizontal" className="flex-1 min-h-0">
         <ResizablePanel defaultSize={40} minSize={15} className="flex flex-col">

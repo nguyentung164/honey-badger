@@ -44,7 +44,7 @@ export function GitFileStatusBadge({ status, size = 'sm', className }: GitFileSt
     <span
       className={cn(
         'inline-flex shrink-0 items-center justify-center rounded-sm font-bold',
-        size === 'sm' ? 'size-3.5 text-[9px]' : 'size-4 text-[10px]',
+        size === 'sm' ? 'size-3.5 text-[8px]' : 'size-4 text-[10px]',
         STATUS_BG[code],
         className
       )}

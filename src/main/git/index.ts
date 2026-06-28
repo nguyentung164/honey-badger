@@ -50,6 +50,7 @@ export {
   stashIsLikelyApplied,
   stashList,
   stashPop,
+  stashRename,
   stashShow,
   stashShowFileContent,
   stashShowFileDiff,

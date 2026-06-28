@@ -1,5 +1,8 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
+import type { GroupImperativeHandle } from 'react-resizable-panels'
 
+export const DIFF_VIEWER_TREE_PANEL_ID = 'diff-viewer-tree-panel'
+export const DIFF_VIEWER_EDITOR_PANEL_ID = 'diff-viewer-editor-panel'
 export const DIFF_VIEWER_TREE_PANEL_WIDTH_KEY = 'diff-viewer-tree-panel-width'
 export const DIFF_VIEWER_TREE_PANEL_DEFAULT_WIDTH = 22
 export const DIFF_VIEWER_TREE_PANEL_MIN_WIDTH = 14
@@ -21,33 +24,59 @@ function writeTreePanelWidth(width: number) {
   try {
     localStorage.setItem(DIFF_VIEWER_TREE_PANEL_WIDTH_KEY, String(width))
   } catch {
-    // ignore quota / private mode errors
+    // ignore
   }
 }
 
-export function useDiffViewerTreePanelWidth() {
-  const [treePanelWidth, setTreePanelWidth] = useState(() => readTreePanelWidth())
-  const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null)
-  const latestWidthRef = useRef(treePanelWidth)
-  latestWidthRef.current = treePanelWidth
+function clampTreePanelWidth(width: number): number {
+  return Math.min(DIFF_VIEWER_TREE_PANEL_MAX_WIDTH, Math.max(DIFF_VIEWER_TREE_PANEL_MIN_WIDTH, width))
+}
 
-  const handleTreePanelResize = useCallback((size: number) => {
-    const next = Math.min(DIFF_VIEWER_TREE_PANEL_MAX_WIDTH, Math.max(DIFF_VIEWER_TREE_PANEL_MIN_WIDTH, size))
-    latestWidthRef.current = next
-    if (debounceRef.current) clearTimeout(debounceRef.current)
-    debounceRef.current = setTimeout(() => {
-      setTreePanelWidth(next)
-      writeTreePanelWidth(next)
-      debounceRef.current = null
-    }, 120)
-  }, [])
+function buildInitialLayout(treeWidth: number): Record<string, number> {
+  const tree = clampTreePanelWidth(treeWidth)
+  return {
+    [DIFF_VIEWER_TREE_PANEL_ID]: tree,
+    [DIFF_VIEWER_EDITOR_PANEL_ID]: 100 - tree,
+  }
+}
+
+export function toTreePanelPercent(width: number): `${number}%` {
+  return `${clampTreePanelWidth(width)}%`
+}
+
+export function useDiffViewerTreePanelWidth() {
+  const initialTreeWidthRef = useRef(readTreePanelWidth())
+  const [treePanelWidth, setTreePanelWidth] = useState(initialTreeWidthRef.current)
+  const panelGroupRef = useRef<GroupImperativeHandle | null>(null)
+  const treePanelWidthRef = useRef(treePanelWidth)
+  const persistDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const initialLayoutRef = useRef(buildInitialLayout(initialTreeWidthRef.current))
+  treePanelWidthRef.current = treePanelWidth
 
   useEffect(() => {
     return () => {
-      if (debounceRef.current) clearTimeout(debounceRef.current)
-      writeTreePanelWidth(latestWidthRef.current)
+      if (persistDebounceRef.current) clearTimeout(persistDebounceRef.current)
+      writeTreePanelWidth(treePanelWidthRef.current)
     }
   }, [])
 
-  return { treePanelWidth, handleTreePanelResize }
+  const handleLayoutChanged = useCallback((layout: Record<string, number | undefined>) => {
+    const tree = layout[DIFF_VIEWER_TREE_PANEL_ID]
+    if (typeof tree !== 'number') return
+    const next = clampTreePanelWidth(tree)
+    treePanelWidthRef.current = next
+    setTreePanelWidth(next)
+    if (persistDebounceRef.current) clearTimeout(persistDebounceRef.current)
+    persistDebounceRef.current = setTimeout(() => {
+      writeTreePanelWidth(next)
+      persistDebounceRef.current = null
+    }, 150)
+  }, [])
+
+  return {
+    treePanelWidth,
+    panelGroupRef,
+    initialLayout: initialLayoutRef.current,
+    handleLayoutChanged,
+  }
 }

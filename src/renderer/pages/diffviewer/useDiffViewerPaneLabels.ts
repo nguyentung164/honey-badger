@@ -3,6 +3,9 @@ import { useEffect, useRef } from 'react'
 import {
   createDiffViewerPaneLabelHost,
   DIFF_VIEWER_PANE_LABEL_HOST_CLASS,
+  getDiffEditorPaneElement,
+  getDiffEditorRootElement,
+  isDiffEditorShowingSideBySidePanes,
   syncDiffViewerPaneBadgeElement,
 } from './diffViewerPaneLabel'
 
@@ -12,17 +15,10 @@ interface UseDiffViewerPaneLabelsOptions {
   editorMountEpoch?: number
   originalLabel: string
   modifiedLabel: string
-  renderSideBySide: boolean
 }
 
 const RETRY_MS = 120
 const MAX_RETRIES = 50
-
-function getPaneWrapper(editor: MonacoEditor.IStandaloneCodeEditor): HTMLElement | null {
-  const node = editor.getDomNode()
-  if (!node) return null
-  return (node.closest('.editor') as HTMLElement | null) ?? node.parentElement
-}
 
 function ensureLabelHost(paneWrapper: HTMLElement, side: 'original' | 'modified'): HTMLDivElement {
   const attr = `data-diff-pane-label-${side}`
@@ -41,7 +37,6 @@ export function useDiffViewerPaneLabels({
   editorMountEpoch = 0,
   originalLabel,
   modifiedLabel,
-  renderSideBySide,
 }: UseDiffViewerPaneLabelsOptions) {
   const hostsRef = useRef<{ original: HTMLDivElement | null; modified: HTMLDivElement | null }>({
     original: null,
@@ -67,11 +62,13 @@ export function useDiffViewerPaneLabels({
     }
 
     const sync = () => {
+      const diffEditor = editorRef.current
       const originalHost = hostsRef.current.original
       const modifiedHost = hostsRef.current.modified
-      if (!originalHost || !modifiedHost) return
+      if (!diffEditor || !originalHost || !modifiedHost) return
 
-      if (!renderSideBySide) {
+      const showLabels = isDiffEditorShowingSideBySidePanes(diffEditor)
+      if (!showLabels) {
         originalHost.style.display = 'none'
         modifiedHost.style.display = 'none'
         return
@@ -89,7 +86,7 @@ export function useDiffViewerPaneLabels({
     const attach = () => {
       disposeListeners()
 
-      if (!enabled || !renderSideBySide) {
+      if (!enabled) {
         removeHosts()
         return
       }
@@ -105,8 +102,8 @@ export function useDiffViewerPaneLabels({
 
       const originalEditor = diffEditor.getOriginalEditor()
       const modifiedEditor = diffEditor.getModifiedEditor()
-      const originalWrapper = getPaneWrapper(originalEditor)
-      const modifiedWrapper = getPaneWrapper(modifiedEditor)
+      const originalWrapper = getDiffEditorPaneElement(diffEditor, 'original')
+      const modifiedWrapper = getDiffEditorPaneElement(diffEditor, 'modified')
       if (!originalWrapper || !modifiedWrapper) {
         if (!cancelled && retryCount < MAX_RETRIES) {
           retryCount++
@@ -120,6 +117,15 @@ export function useDiffViewerPaneLabels({
       hostsRef.current = { original: originalHost, modified: modifiedHost }
 
       sync()
+
+      const diffRoot = getDiffEditorRootElement(diffEditor)
+      if (diffRoot) {
+        const classObserver = new MutationObserver(() => {
+          sync()
+        })
+        classObserver.observe(diffRoot, { attributes: true, attributeFilter: ['class'] })
+        disposables.push({ dispose: () => classObserver.disconnect() })
+      }
 
       disposables.push(
         diffEditor.onDidUpdateDiff(sync),
@@ -136,5 +142,5 @@ export function useDiffViewerPaneLabels({
       disposeListeners()
       removeHosts()
     }
-  }, [enabled, renderSideBySide, editorRef, editorMountEpoch, originalLabel, modifiedLabel])
+  }, [enabled, editorRef, editorMountEpoch, originalLabel, modifiedLabel])
 }

@@ -207,6 +207,17 @@ export function clampEditorPosition(editor: MonacoEditor.ICodeEditor): void {
   }
 }
 
+/** Reset both diff panes to line 1 before swapping model content (avoids Monaco illegal lineNumber). */
+export function resetDiffEditorCursors(diffEditor: MonacoEditor.IStandaloneDiffEditor | null): void {
+  if (!diffEditor) return
+  try {
+    diffEditor.getOriginalEditor().setPosition({ lineNumber: 1, column: 1 })
+    diffEditor.getModifiedEditor().setPosition({ lineNumber: 1, column: 1 })
+  } catch {
+    // model may be mid-update
+  }
+}
+
 export function triggerFindWidget(diffEditor: MonacoEditor.IStandaloneDiffEditor): void {
   const editor = getFocusedDiffPaneEditor(diffEditor)
   editor.focus()
@@ -436,7 +447,20 @@ export function goToAdjacentChange(diffEditor: MonacoEditor.IStandaloneDiffEdito
 }
 
 export function goToFirstChange(diffEditor: MonacoEditor.IStandaloneDiffEditor): void {
+  const changes = diffEditor.getLineChanges() ?? []
+  if (changes.length === 0) return
+
+  const first = changes[0]
   diffEditor.revealFirstDiff()
+
+  const preferModified = first.modifiedStartLineNumber > 0
+  const line = preferModified
+    ? first.modifiedStartLineNumber
+    : Math.max(1, first.originalStartLineNumber)
+  const editor = preferModified ? diffEditor.getModifiedEditor() : diffEditor.getOriginalEditor()
+  editor.setPosition({ lineNumber: line, column: 1 })
+  editor.revealLineInCenter(line)
+  editor.focus()
 }
 
 export function goToLastChange(diffEditor: MonacoEditor.IStandaloneDiffEditor): void {

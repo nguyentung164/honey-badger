@@ -3,7 +3,7 @@ import { type ColumnDef, flexRender, getCoreRowModel, getFilteredRowModel, getSo
 import { t } from 'i18next'
 import { Check, Columns2, Copy, Folder, FolderOpen, History, ListFilter, Pencil, Plus, RotateCcw, Rows2, SquareMinus, SquarePlus, Trash2, X } from 'lucide-react'
 import { IPC } from 'main/constants'
-import { forwardRef, type HTMLProps, useCallback, useEffect, useImperativeHandle, useMemo, useRef, useState } from 'react'
+import { forwardRef, type HTMLProps, lazy, Suspense, useCallback, useEffect, useImperativeHandle, useMemo, useRef, useState } from 'react'
 import {
   AlertDialog,
   AlertDialogAction,
@@ -15,7 +15,6 @@ import {
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog'
 import { Button } from '@/components/ui/button'
-import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import {
   ContextMenu,
   ContextMenuContent,
@@ -27,16 +26,21 @@ import {
   ContextMenuSubTrigger,
   ContextMenuTrigger,
 } from '@/components/ui/context-menu'
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { Input } from '@/components/ui/input'
 import { ResizableHandle, ResizablePanel, ResizablePanelGroup } from '@/components/ui/resizable'
 import { TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 import { GlowLoader } from '@/components/ui-elements/GlowLoader'
 import toast from '@/components/ui-elements/Toast'
+import { createEmbeddedGitConflictPayload, createEmbeddedGitStagingDiffPayload, gitStagingLayoutStorageKey, openGitStagingDiff, readGitStagingLayoutDirection } from '@/lib/diffViewer/openDiffViewer'
+import { isGitConflictedFileStatus } from '@/pages/diffviewer/diffViewerConflictPayload'
 import { cn } from '@/lib/utils'
-import { openGitStagingDiff } from '@/lib/diffViewer/openDiffViewer'
+import type { CodeDiffViewerHandle } from '@/pages/diffviewer/CodeDiffViewer'
 import logger from '@/services/logger'
 import { useAppearanceStoreSelect } from '@/stores/useAppearanceStore'
 import { useConfigurationStore } from '@/stores/useConfigurationStore'
+
+const CodeDiffViewer = lazy(() => import('@/pages/diffviewer/CodeDiffViewer').then(m => ({ default: m.CodeDiffViewer })))
 
 export type GitFile = {
   filePath: string
@@ -323,26 +327,40 @@ export const GitStagingTable = forwardRef(({ onLoadingChange, cwd, label }: GitS
   const [changesRowSelection, setChangesRowSelection] = useState({})
   const [stagedRowSelection, setStagedRowSelection] = useState({})
   const [stagedAnchorRowIndex, setStagedAnchorRowIndex] = useState<number | null>(null)
-  const [layoutDirection, setLayoutDirection] = useState<'horizontal' | 'vertical'>(() => {
-    const saved = localStorage.getItem('git-dual-table-layout')
-    return (saved as 'horizontal' | 'vertical') || 'horizontal'
-  })
+  const [layoutDirection, setLayoutDirection] = useState<'horizontal' | 'vertical'>(() => readGitStagingLayoutDirection('__none__'))
+  const [embeddedDiffAnchor, setEmbeddedDiffAnchor] = useState<{
+    filePath: string
+    stagingState?: 'staged' | 'unstaged'
+  } | null>(null)
+  const [embeddedToolbarHost, setEmbeddedToolbarHost] = useState<HTMLDivElement | null>(null)
+  const embeddedDiffViewerRef = useRef<CodeDiffViewerHandle>(null)
   const [discardConfirmOpen, setDiscardConfirmOpen] = useState(false)
   const [discardConfirmPayload, setDiscardConfirmPayload] = useState<string[] | null>(null)
   const [changesAnchorRowIndex, setChangesAnchorRowIndex] = useState<number | null>(null)
   const [changesFilter, setChangesFilter] = useState('')
   const [stagedFilter, setStagedFilter] = useState('')
   const { sourceFolder } = useConfigurationStore()
-  const repoRootKey = useMemo(
-    () => normalizeRepoRootPath((cwd ?? sourceFolder ?? '').trim() || '__none__'),
-    [cwd, sourceFolder]
-  )
+  const repoCwd = cwd ?? sourceFolder
+  const repoRootKey = useMemo(() => normalizeRepoRootPath((cwd ?? sourceFolder ?? '').trim() || '__none__'), [cwd, sourceFolder])
   const [changesIgnorePatterns, setChangesIgnorePatterns] = useState<string[]>([])
   const [changesIgnoreListOpen, setChangesIgnoreListOpen] = useState(false)
   const [localIgnoreCustomInput, setLocalIgnoreCustomInput] = useState('')
   const [editingIgnoreOld, setEditingIgnoreOld] = useState<string | null>(null)
   const [editingIgnoreDraft, setEditingIgnoreDraft] = useState('')
   const [pathEntryKinds, setPathEntryKinds] = useState<Record<string, 'file' | 'directory' | 'missing'>>({})
+
+  useEffect(() => {
+    setLayoutDirection(readGitStagingLayoutDirection(repoRootKey))
+    setEmbeddedDiffAnchor(null)
+  }, [repoRootKey])
+
+  useEffect(() => {
+    try {
+      localStorage.setItem(gitStagingLayoutStorageKey(repoRootKey), layoutDirection)
+    } catch {
+      // ignore quota errors
+    }
+  }, [layoutDirection, repoRootKey])
 
   useEffect(() => {
     const map = readLocalIgnoreRegexMap()
@@ -478,10 +496,7 @@ export const GitStagingTable = forwardRef(({ onLoadingChange, cwd, label }: GitS
     [repoRootKey, t]
   )
 
-  const displayedChangesData = useMemo(
-    () => changesData.filter(f => !pathMatchesLocalIgnore(f.filePath, changesIgnorePatterns)),
-    [changesData, changesIgnorePatterns]
-  )
+  const displayedChangesData = useMemo(() => changesData.filter(f => !pathMatchesLocalIgnore(f.filePath, changesIgnorePatterns)), [changesData, changesIgnorePatterns])
 
   useEffect(() => {
     const validIds = new Set(displayedChangesData.map(f => f.filePath))
@@ -791,6 +806,7 @@ export const GitStagingTable = forwardRef(({ onLoadingChange, cwd, label }: GitS
 
   const handleFilePathDoubleClick = useCallback(
     async (row: any) => {
+      if (layoutDirection === 'vertical') return
       const { filePath, status } = row.original
       try {
         const files = [
@@ -811,7 +827,7 @@ export const GitStagingTable = forwardRef(({ onLoadingChange, cwd, label }: GitS
           fileStatus: status,
           files,
           currentFileIndex: Math.max(0, currentFileIndex),
-          cwd,
+          cwd: repoCwd,
         })
       } catch (error) {
         const errorMessage = error instanceof Error ? error.message : String(error)
@@ -819,7 +835,7 @@ export const GitStagingTable = forwardRef(({ onLoadingChange, cwd, label }: GitS
         toast.error(errorMessage)
       }
     },
-    [cwd, displayedChangesData, stagedData]
+    [layoutDirection, repoCwd, displayedChangesData, stagedData]
   )
 
   const changesColumns = useMemo(
@@ -912,9 +928,12 @@ export const GitStagingTable = forwardRef(({ onLoadingChange, cwd, label }: GitS
       } else {
         changesTable.setRowSelection({ [row.id]: true })
         setChangesAnchorRowIndex(currentRowIndex)
+        if (layoutDirection === 'vertical') {
+          setEmbeddedDiffAnchor({ filePath: row.original.filePath, stagingState: 'unstaged' })
+        }
       }
     },
-    [changesAnchorRowIndex, changesTable]
+    [changesAnchorRowIndex, changesTable, layoutDirection]
   )
 
   const handleStagedRowClick = useCallback(
@@ -951,16 +970,83 @@ export const GitStagingTable = forwardRef(({ onLoadingChange, cwd, label }: GitS
       } else {
         stagedTable.setRowSelection({ [row.id]: true })
         setStagedAnchorRowIndex(currentRowIndex)
+        if (layoutDirection === 'vertical') {
+          setEmbeddedDiffAnchor({ filePath: row.original.filePath, stagingState: 'staged' })
+        }
       }
     },
-    [stagedAnchorRowIndex, stagedTable]
+    [layoutDirection, stagedAnchorRowIndex, stagedTable]
   )
 
-  const toggleLayout = () => {
+  const embeddedDiffPayload = useMemo(() => {
+    if (layoutDirection !== 'vertical') return null
+    const anchorPath = embeddedDiffAnchor?.filePath
+    const anchorInChanges = anchorPath ? displayedChangesData.find(f => f.filePath === anchorPath) : undefined
+    const anchorInStaged = anchorPath ? stagedData.find(f => f.filePath === anchorPath) : undefined
+    const anchorStatus = anchorInChanges?.status ?? anchorInStaged?.status
+    const conflictedPaths = displayedChangesData.filter(f => isGitConflictedFileStatus(f.status)).map(f => f.filePath)
+
+    if (anchorPath && isGitConflictedFileStatus(anchorStatus)) {
+      return createEmbeddedGitConflictPayload({
+        filePath: anchorPath,
+        cwd: repoCwd,
+        conflictedFiles: conflictedPaths.length > 0 ? conflictedPaths : [anchorPath],
+      })
+    }
+
+    return createEmbeddedGitStagingDiffPayload({
+      filePath: embeddedDiffAnchor?.filePath,
+      stagingState: embeddedDiffAnchor?.stagingState,
+      cwd: repoCwd,
+      changesFiles: displayedChangesData,
+      stagedFiles: stagedData,
+    })
+  }, [layoutDirection, embeddedDiffAnchor, repoCwd, displayedChangesData, stagedData])
+
+  const pickEmbeddedDiffAnchorFromSelection = useCallback(() => {
+    const changesSelected = Object.keys(changesRowSelection).filter(id => changesRowSelection[id as keyof typeof changesRowSelection])
+    if (changesSelected.length > 0) {
+      const file = displayedChangesData.find(f => f.filePath === changesSelected[0])
+      if (file) return { filePath: file.filePath, stagingState: 'unstaged' as const }
+    }
+    const stagedSelected = Object.keys(stagedRowSelection).filter(id => stagedRowSelection[id as keyof typeof stagedRowSelection])
+    if (stagedSelected.length > 0) {
+      const file = stagedData.find(f => f.filePath === stagedSelected[0])
+      if (file) return { filePath: file.filePath, stagingState: 'staged' as const }
+    }
+    const firstChange = displayedChangesData[0]
+    if (firstChange) return { filePath: firstChange.filePath, stagingState: 'unstaged' as const }
+    const firstStaged = stagedData[0]
+    if (firstStaged) return { filePath: firstStaged.filePath, stagingState: 'staged' as const }
+    return null
+  }, [changesRowSelection, stagedRowSelection, displayedChangesData, stagedData])
+
+  useEffect(() => {
+    if (layoutDirection !== 'vertical' || embeddedDiffAnchor) return
+    const anchor = pickEmbeddedDiffAnchorFromSelection()
+    if (!anchor) return
+    setEmbeddedDiffAnchor(anchor)
+  }, [layoutDirection, embeddedDiffAnchor, pickEmbeddedDiffAnchorFromSelection, displayedChangesData.length, stagedData.length])
+
+  const applyLayoutDirection = useCallback(
+    (direction: 'horizontal' | 'vertical') => {
+      if (direction === 'vertical') {
+        setEmbeddedDiffAnchor(pickEmbeddedDiffAnchorFromSelection())
+      }
+      setLayoutDirection(direction)
+    },
+    [pickEmbeddedDiffAnchorFromSelection]
+  )
+
+  const toggleLayout = useCallback(() => {
     const newDirection = layoutDirection === 'horizontal' ? 'vertical' : 'horizontal'
-    setLayoutDirection(newDirection)
-    localStorage.setItem('git-dual-table-layout', newDirection)
-  }
+    const switchLayout = () => applyLayoutDirection(newDirection)
+    if (layoutDirection === 'vertical' && newDirection === 'horizontal') {
+      embeddedDiffViewerRef.current?.requestLayoutLeave(switchLayout)
+      return
+    }
+    switchLayout()
+  }, [applyLayoutDirection, layoutDirection])
 
   const renderTableContent = (table: any, title: string, isStaged: boolean) => {
     const localIgnoreMenuI18nKey = (base: 'addToLocalIgnore' | 'addFolderToLocalIgnore', paths: string[]) => {
@@ -984,7 +1070,7 @@ export const GitStagingTable = forwardRef(({ onLoadingChange, cwd, label }: GitS
                 variant={buttonVariant}
                 className="h-6 w-6 p-0"
                 onClick={toggleLayout}
-                title={layoutDirection === 'horizontal' ? 'Chuyển sang xếp dọc' : 'Chuyển sang xếp ngang'}
+                title={layoutDirection === 'horizontal' ? t('git.layoutToggleToDiff') : t('git.layoutToggleToTable')}
               >
                 {layoutDirection === 'horizontal' ? <Rows2 className="h-2.5 w-2.5" /> : <Columns2 className="h-2.5 w-2.5" />}
               </Button>
@@ -1275,19 +1361,50 @@ export const GitStagingTable = forwardRef(({ onLoadingChange, cwd, label }: GitS
             <GlowLoader className="h-10 w-10" />
           </div>
         )}
-        <ResizablePanelGroup direction={layoutDirection} className="h-full">
-          <ResizablePanel defaultSize={50} minSize={30}>
-            <div className={cn('h-full overflow-hidden', layoutDirection === 'horizontal' ? 'rounded-l-md' : 'rounded-t-md')}>
-              {renderTableContent(changesTable, t('git.changes'), false)}
+        {layoutDirection === 'vertical' ? (
+          <div className="flex h-full min-h-0 flex-col overflow-hidden rounded-md">
+            <div className="flex shrink-0 items-center gap-2 border-b bg-muted/30 px-2 py-1 min-h-8">
+              <Button
+                size="sm"
+                variant={buttonVariant}
+                className="h-6 w-6 shrink-0 p-0"
+                onClick={toggleLayout}
+                title={t('git.layoutToggleToTable')}
+              >
+                <Columns2 className="h-2.5 w-2.5" />
+              </Button>
+              {label ? <span className="shrink-0 text-xs font-medium text-muted-foreground">{label}</span> : null}
+              <span className="shrink-0 text-sm font-semibold">{t('git.diffView')}</span>
+              <div ref={setEmbeddedToolbarHost} className="flex min-w-0 flex-1 items-center overflow-hidden" />
             </div>
-          </ResizablePanel>
-          <ResizableHandle />
-          <ResizablePanel defaultSize={50} minSize={30}>
-            <div className={cn('h-full overflow-hidden', layoutDirection === 'horizontal' ? 'rounded-r-md' : 'rounded-b-md')}>
-              {renderTableContent(stagedTable, t('git.stagedChanges'), true)}
+            <div className="min-h-0 flex-1 overflow-hidden">
+              <Suspense
+                fallback={
+                  <div className="flex h-full items-center justify-center">
+                    <GlowLoader className="h-10 w-10" />
+                  </div>
+                }
+              >
+                <CodeDiffViewer
+                  ref={embeddedDiffViewerRef}
+                  embedded
+                  embeddedPayload={embeddedDiffPayload}
+                  embeddedToolbarHost={embeddedToolbarHost}
+                />
+              </Suspense>
             </div>
-          </ResizablePanel>
-        </ResizablePanelGroup>
+          </div>
+        ) : (
+          <ResizablePanelGroup direction="horizontal" className="h-full">
+            <ResizablePanel defaultSize={50} minSize={30}>
+              <div className="h-full overflow-hidden rounded-l-md">{renderTableContent(changesTable, t('git.changes'), false)}</div>
+            </ResizablePanel>
+            <ResizableHandle />
+            <ResizablePanel defaultSize={50} minSize={30}>
+              <div className="h-full overflow-hidden rounded-r-md">{renderTableContent(stagedTable, t('git.stagedChanges'), true)}</div>
+            </ResizablePanel>
+          </ResizablePanelGroup>
+        )}
         <Dialog open={changesIgnoreListOpen} onOpenChange={setChangesIgnoreListOpen}>
           <DialogContent className="max-w-lg">
             <DialogHeader>

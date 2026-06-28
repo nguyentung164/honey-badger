@@ -2,6 +2,7 @@ import fs from 'node:fs'
 import path from 'node:path'
 import l from 'electron-log'
 import configurationStore from '../store/ConfigurationStore'
+import { resolvePathRelativeToBase } from '../utils/utils'
 import { mergeConflictedPathsForStatus } from './status'
 import { formatGitError, getGitInstance } from './utils'
 
@@ -93,14 +94,31 @@ export async function resetStaged(files?: string[], cwd?: string): Promise<GitRe
 
 export async function add(files: string[], cwd?: string): Promise<GitRevertResponse> {
   try {
-    const git = await getGitInstance(cwd)
+    const workingDir = path.resolve(cwd || configurationStore.store.sourceFolder || '')
+    if (!workingDir) {
+      return { status: 'error', message: 'Source folder is not configured' }
+    }
+
+    const git = await getGitInstance(workingDir)
     if (!git) {
       return { status: 'error', message: 'Not a git repository or error initializing git' }
     }
 
-    l.info('Adding files to staging area:', files)
+    const normalizedPaths = [
+      ...new Set(
+        files
+          .map(file => resolvePathRelativeToBase(workingDir, file).replace(/\\/g, '/').replace(/^\/+/, ''))
+          .filter(Boolean)
+      ),
+    ]
+
+    if (normalizedPaths.length === 0) {
+      return { status: 'error', message: 'No valid file paths to stage' }
+    }
+
+    l.info('Adding files to staging area:', normalizedPaths)
     // Dùng -A để stage cả file mới, sửa và xóa (file đã xóa cần -A trên Windows)
-    await git.raw(['add', '-A', '--', ...files])
+    await git.raw(['add', '-A', '--', ...normalizedPaths])
 
     l.info('Files added to staging area successfully')
 

@@ -105,6 +105,7 @@ export function registerWindowIpcHandlers() {
     const files = typeof data === 'object' && Array.isArray(data.files) ? data.files : undefined
     const currentFileIndex = typeof data === 'object' && typeof data.currentFileIndex === 'number' ? data.currentFileIndex : undefined
     const enableStageActions = typeof data === 'object' && (data.enableStageActions === true || data.mode === 'git-staging')
+    const conflictType = typeof data === 'object' && data.conflictType ? data.conflictType : undefined
 
     const diffData = {
       mode,
@@ -121,6 +122,7 @@ export function registerWindowIpcHandlers() {
       files,
       currentFileIndex,
       enableStageActions,
+      conflictType,
     }
 
     const window = new BrowserWindow({
