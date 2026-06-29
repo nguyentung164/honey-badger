@@ -23,7 +23,6 @@ function periodToDateRange(period: TrendPeriod): { from: string; to: string } {
 const METRICS: Array<{ id: TrendMetric; label: string; color: string }> = [
   { id: 'commits', label: 'Commits', color: 'var(--chart-1)' },
   { id: 'tasks', label: 'Tasks', color: 'var(--chart-2)' },
-  { id: 'reviews', label: 'Reviews', color: 'var(--chart-3)' },
   { id: 'lines_added', label: 'Lines', color: 'var(--chart-4)' },
   { id: 'reports', label: 'Reports', color: 'var(--chart-5)' },
 ]
@@ -99,7 +98,6 @@ export const TrendCharts = memo(function TrendCharts({
       ...d,
       commits: Number(d.commits ?? 0),
       tasks: Number(d.tasks ?? 0),
-      reviews: Number(d.reviews ?? 0),
       reports: Number(d.reports ?? 0),
       lines_added: Math.round(Number(d.lines_added ?? 0) / 100),
     }))
@@ -112,7 +110,7 @@ export const TrendCharts = memo(function TrendCharts({
     const prev = data.slice(0, half)
     const curr = data.slice(half)
     const sum = (arr: typeof data, key: keyof (typeof data)[0]) => arr.reduce((s, d) => s + Number(d[key] ?? 0), 0)
-    const metrics: TrendMetric[] = ['commits', 'tasks', 'reviews']
+    const metrics: TrendMetric[] = ['commits', 'tasks']
     return metrics.map(m => ({
       key: m,
       prev: sum(prev, m as any),
@@ -230,7 +228,6 @@ export const TrendCharts = memo(function TrendCharts({
                     <Area yAxisId="left" dataKey="lines_added" fill="var(--chart-4)" fillOpacity={0.18} stroke="var(--chart-4)" strokeWidth={1.5} dot={false} name="Lines (×100)" />
                   )}
                   {effMetrics.includes('tasks') && <Line yAxisId={lineAxisId} dataKey="tasks" stroke="var(--chart-2)" strokeWidth={2} dot={false} />}
-                  {effMetrics.includes('reviews') && <Line yAxisId={lineAxisId} dataKey="reviews" stroke="var(--chart-3)" strokeWidth={2} dot={false} strokeDasharray="4 2" />}
                   {effMetrics.includes('reports') && <Line yAxisId={lineAxisId} dataKey="reports" stroke="var(--chart-5)" strokeWidth={1.5} dot={false} />}
                 </ComposedChart>
               )

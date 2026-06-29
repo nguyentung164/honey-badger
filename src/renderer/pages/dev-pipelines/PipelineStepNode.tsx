@@ -50,6 +50,9 @@ function runVisualToIndicator(visual: PipelineStepRunVisual | undefined): NodeSt
 function kindSubtitle(d: PipelineStepNodeData): string {
   if (d.stepKind === 'delay') return `delay ${d.params?.ms ?? 600}ms`
   if (d.stepKind === 'noop') return 'noop'
+  if (d.stepKind === 'coding-rules') return 'coding-rules'
+  if (d.stepKind === 'spotbugs') return 'spotbugs'
+  if (d.stepKind === 'playwright') return 'playwright'
   if (d.stepKind === 'approval') return d.approvalMessage?.trim() || 'approval'
   if (d.stepKind === 'http-check') {
     const url = d.params?.url?.trim()
@@ -256,6 +259,7 @@ function PipelineStepNodeInner({ id, data, selected }: NodeProps) {
                   variant="ghost"
                   size="icon"
                   className="nodrag nopan size-7 text-muted-foreground hover:bg-muted hover:text-foreground"
+                  disabled={toolbar.canDuplicateStep === false}
                   aria-label={t('devPipelines.toolbarDuplicate')}
                   title={t('devPipelines.toolbarDuplicate')}
                   onPointerDown={e => e.stopPropagation()}

@@ -970,16 +970,18 @@ export function registerAutomationTestIpcHandlers(): void {
 
       const pageIds = (request.pageIds ?? []).filter(Boolean)
       const groupIds = (request.groupIds ?? []).filter(Boolean)
+      const flowIds = (request.flowIds ?? []).filter(Boolean)
       const manualCaseIds = (request.caseIds ?? []).filter(Boolean)
       let mergedCaseIds = [...new Set(manualCaseIds)]
       let pageSequence = request.pageSequence
       let caseIdsByPageId = request.caseIdsByPageId
       const useOrderedFlow = request.ordered === true || Boolean(pageSequence?.length)
 
-      if (pageIds.length > 0 || groupIds.length > 0) {
+      if (pageIds.length > 0 || groupIds.length > 0 || flowIds.length > 0) {
         const scope = await resolveRunScope(request.projectId, {
           pageIds,
           groupIds,
+          flowIds,
           ordered: useOrderedFlow,
           startPageId: request.startPageId,
         })

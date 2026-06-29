@@ -1,6 +1,11 @@
 import { lazy, Suspense, useEffect } from 'react'
 import { Navigate, Route, HashRouter as Router, Routes } from 'react-router-dom'
+import { handoffDevPipelinesToMainShell, handoffShowLogToMainShell } from 'shared/mainShellView'
+import { canOpenDevPipelinesEmbedded } from '@/lib/mainShellTabAccess'
+import { canOpenShowLogEmbedded } from '@/lib/openShowLog'
 import { NotificationSoundProvider } from '@/components/provider/NotificationSoundProvider'
+import { CommitWorkflowGlobalDialogs } from '@/components/commit-workflow/CommitWorkflowGlobalDialogs'
+import { useCommitWorkflowStore } from '@/lib/commitWorkflow/commitWorkflowUtils'
 import { TaskAuthStorageSync } from '@/components/provider/TaskAuthStorageSync'
 import { GlowLoader } from '@/components/ui-elements/GlowLoader'
 import i18n from '../lib/i18n'
@@ -8,8 +13,9 @@ import { MainPage } from '../pages/main/MainPage'
 import { useAppearanceStoreSelect } from '../stores/useAppearanceStore'
 
 const CodeDiffViewer = lazy(() => import('../pages/diffviewer/CodeDiffViewer').then(m => ({ default: m.CodeDiffViewer })))
-const Dashboard = lazy(() => import('../pages/dashboard/Dashboard').then(m => ({ default: m.Dashboard })))
-const ShowLog = lazy(() => import('../pages/showlog/ShowLog').then(m => ({ default: m.ShowLog })))
+const ShowLogPageStandalone = lazy(() =>
+  import('../pages/showlog/ShowLog').then(m => ({ default: () => <m.default mode="standalone" /> }))
+)
 const SpotBugs = lazy(() => import('../pages/spotbugs/SpotBugs').then(m => ({ default: m.SpotBugs })))
 const CheckCodingRules = lazy(() => import('../pages/checkcodingrule/CheckCodingRules').then(m => ({ default: m.CheckCodingRules })))
 const CommitMessageHistory = lazy(() => import('../pages/commitmessagehistory/CommitMessageHistory').then(m => ({ default: m.CommitMessageHistory })))
@@ -27,7 +33,35 @@ const PrManager = lazy(() => import('../pages/prmanager/PrManager').then(m => ({
 const AutomationPageStandalone = lazy(() =>
   import('../pages/automation/AutomationPage').then(m => ({ default: () => <m.AutomationPage mode="standalone" /> }))
 )
-const DevPipelinesPage = lazy(() => import('../pages/dev-pipelines/DevPipelinesPage').then(m => ({ default: m.default })))
+const DevPipelinesPageStandalone = lazy(() =>
+  import('../pages/dev-pipelines/DevPipelinesPage').then(m => ({ default: () => <m.default mode="standalone" /> }))
+)
+
+/** Legacy #/dev-pipelines trong main window → tab Dev Pipelines trên /main (guest → standalone). */
+function DevPipelinesMainShellRedirect() {
+  if (canOpenDevPipelinesEmbedded()) {
+    handoffDevPipelinesToMainShell()
+    return <Navigate to="/main" replace />
+  }
+  return <Navigate to="/dev-pipelines-standalone" replace />
+}
+
+/** Legacy #/show-log trong main window → tab Show Log trên /main (guest → standalone). */
+function ShowLogMainShellRedirect() {
+  if (canOpenShowLogEmbedded()) {
+    handoffShowLogToMainShell()
+    return <Navigate to="/main" replace />
+  }
+  return <Navigate to="/show-log-standalone" replace />
+}
+
+/** Legacy hash routes — open dialog instead of standalone pages. */
+function CommitQualityLegacyRedirect() {
+  useEffect(() => {
+    useCommitWorkflowStore.getState().setQualityDialogOpen(true)
+  }, [])
+  return <Navigate to="/main" replace />
+}
 
 function PageFallback() {
   return (
@@ -60,13 +94,14 @@ export function AppRoutes() {
     <Router>
       <TaskAuthStorageSync />
       <NotificationSoundProvider />
+      <CommitWorkflowGlobalDialogs />
       <Suspense fallback={<PageFallback />}>
         <Routes>
           <Route path="/" element={<Navigate to="/main" replace />} />
           <Route path="/main" element={<MainPage />} />
           <Route path="/code-diff-viewer" element={<CodeDiffViewer />} />
-          <Route path="/dashboard" element={<Dashboard />} />
-          <Route path="/show-log" element={<ShowLog />} />
+          <Route path="/show-log" element={<ShowLogMainShellRedirect />} />
+          <Route path="/show-log-standalone" element={<ShowLogPageStandalone />} />
           <Route path="/app-logs" element={<AppLogViewer />} />
           <Route path="/spotbugs" element={<SpotBugs />} />
           <Route path="/check-coding-rules" element={<CheckCodingRules />} />
@@ -83,7 +118,10 @@ export function AppRoutes() {
           <Route path="/report-manager" element={<ReportManagerPage />} />
           <Route path="/pr-manager" element={<PrManager />} />
           <Route path="/automation" element={<AutomationPageStandalone />} />
-          <Route path="/dev-pipelines" element={<DevPipelinesPage />} />
+          <Route path="/dev-pipelines" element={<DevPipelinesMainShellRedirect />} />
+          <Route path="/dev-pipelines-standalone" element={<DevPipelinesPageStandalone />} />
+          <Route path="/commit-quality" element={<CommitQualityLegacyRedirect />} />
+          <Route path="/commit-workflow-editor" element={<DevPipelinesMainShellRedirect />} />
         </Routes>
       </Suspense>
     </Router>

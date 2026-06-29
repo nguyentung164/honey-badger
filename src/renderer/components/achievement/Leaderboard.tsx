@@ -304,12 +304,12 @@ export function Leaderboard({ open = true, isAdmin = false, projectId, onUserCli
           {projectId ? (
             <>
               <p className="text-sm font-medium">Dự án này chưa có dữ liệu XP</p>
-              <p className="text-xs opacity-70 max-w-[220px]">Thành viên trong dự án cần thực hiện commit, task hoặc review để tích lũy XP.</p>
+              <p className="text-xs opacity-70 max-w-[220px]">Thành viên trong dự án cần thực hiện commit, task hoặc báo cáo hàng ngày để tích lũy XP.</p>
             </>
           ) : (
             <>
               <p className="text-sm font-medium">Chưa có dữ liệu</p>
-              <p className="text-xs opacity-70 max-w-[220px]">Bắt đầu commit, hoàn thành task, review code để tích lũy XP và leo bảng xếp hạng!</p>
+              <p className="text-xs opacity-70 max-w-[220px]">Bắt đầu commit, hoàn thành task và gửi báo cáo hàng ngày để tích lũy XP và leo bảng xếp hạng!</p>
             </>
           )}
           <XpInfoButton />

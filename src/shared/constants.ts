@@ -31,7 +31,14 @@ export const AUTOMATION_RENDERER_CHANNELS = {
   WINDOW_CLOSED: 'automation:window-closed',
 } as const
 
-/** Main process → renderer (cửa sổ chính): Dev Pipelines window đóng. */
+/** Main process → renderer (cửa sổ chính): trạng thái Dev Pipelines window tách/gộp. */
 export const DEV_PIPELINE_RENDERER_CHANNELS = {
+  DOCKED_TO_MAIN: 'dev-pipeline:docked-to-main',
   WINDOW_CLOSED: 'dev-pipeline:window-closed',
+} as const
+
+/** Main process → renderer (cửa sổ chính): trạng thái Show Log window tách/gộp. */
+export const SHOW_LOG_RENDERER_CHANNELS = {
+  DOCKED_TO_MAIN: 'show-log:docked-to-main',
+  WINDOW_CLOSED: 'show-log:window-closed',
 } as const

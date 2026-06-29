@@ -155,7 +155,6 @@ export const MonthlyHighlights = memo(function MonthlyHighlights({ userId }: { u
                 prev={t('progress.prevMonth')}
                 isNew={isNewTaskRecord && d.tasks_done > 0}
               />
-              <BigStatCard label={t('progress.reviews')} value={d.reviews_done} delta={{ curr: d.reviews_done, prev: d.prev_reviews }} prev={t('progress.prevMonth')} />
               <BigStatCard label={t('progress.longestStreak')} value={`${d.longest_streak} ${t('progress.days')}`} />
               <BigStatCard label={t('progress.reportDays')} value={`${d.report_days}/${d.working_days}`} delta={{ curr: d.report_days, prev: d.prev_report_days }} />
               <BigStatCard label={t('progress.linesAdded')} value={`+${d.lines_inserted.toLocaleString()}`} isNew={isNewLineRecord && d.lines_inserted > 0} />

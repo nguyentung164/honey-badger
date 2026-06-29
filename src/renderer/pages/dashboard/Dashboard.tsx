@@ -30,6 +30,7 @@ import {
   Turtle,
   X,
 } from 'lucide-react'
+import { requestOpenShowLog } from '@/lib/openShowLog'
 import { IPC } from 'main/constants'
 import type React from 'react'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
@@ -578,7 +579,7 @@ export function Dashboard() {
   const handleOpenShowLog = async (row: RepoRow) => {
     if (row.vcsType === 'none' || row.error) return
     try {
-      window.api.electron.send(IPC.WINDOW.SHOW_LOG, {
+      requestOpenShowLog({
         path: '.',
         sourceFolder: row.path,
         versionControlSystem: row.vcsType,
@@ -1055,7 +1056,7 @@ export function Dashboard() {
                                   className="h-7 px-2 shrink-0"
                                   onClick={e => {
                                     e.stopPropagation()
-                                    window.api.electron.send(IPC.WINDOW.SHOW_LOG, {
+                                    requestOpenShowLog({
                                       path: '.',
                                       sourceFolder: repo.path,
                                       versionControlSystem: repo.vcsType,
@@ -1209,7 +1210,7 @@ export function Dashboard() {
                                               className="h-7 px-2"
                                               onClick={e => {
                                                 e.stopPropagation()
-                                                window.api.electron.send(IPC.WINDOW.SHOW_LOG, {
+                                                requestOpenShowLog({
                                                   path: '.',
                                                   sourceFolder: repo.path,
                                                   versionControlSystem: repo.vcsType,

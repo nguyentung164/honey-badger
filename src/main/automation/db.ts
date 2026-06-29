@@ -20,6 +20,7 @@ import type {
   TestStep,
   TestSuite,
 } from 'shared/automation/types'
+import { catalogScopeFlowSqlClause } from 'shared/automation/catalogScopeFlowSql'
 import { parseConnectionStyleJson, parseNodeVisualStyleJson, stringifyNodeVisualStyle } from 'shared/flowDiagramStyle'
 import { buildCasePageLookupMaps, resolvePageIdForCaseResult } from 'shared/automation/pageMapRunStatus'
 import { computeFlowPageSequence } from 'shared/automation/flowPageSequence'
@@ -67,6 +68,24 @@ export async function getProject(id: string): Promise<TestProject | null> {
   const rows = await query<ProjectRow>('SELECT id, name, base_url, description, browsers, workspace_path, created_by, created_at, updated_at FROM test_projects WHERE id = ?', [id])
   if (!rows.length) return null
   return rowToProject(rows[0])
+}
+
+/** Task `projects.id` → automation `test_projects` (same id, else match by name). */
+export async function resolveTestProjectForTaskProject(taskProjectId: string): Promise<TestProject | null> {
+  const trimmed = taskProjectId.trim()
+  if (!trimmed) return null
+  const direct = await getProject(trimmed)
+  if (direct) return direct
+  const taskRows = await query<{ name: string }>('SELECT name FROM projects WHERE id = ?', [trimmed])
+  const taskName = taskRows[0]?.name?.trim()
+  if (!taskName) return null
+  const testRows = await query<ProjectRow>(
+    `SELECT id, name, base_url, description, browsers, workspace_path, created_by, created_at, updated_at
+     FROM test_projects WHERE LOWER(TRIM(name)) = LOWER(TRIM(?)) LIMIT 1`,
+    [taskName]
+  )
+  if (!testRows.length) return null
+  return rowToProject(testRows[0])
 }
 
 export async function createProject(input: {
@@ -881,7 +900,7 @@ export async function caseCountByCatalogGroupForProject(projectId: string): Prom
 
 export async function resolveRunScope(
   projectId: string,
-  opts: { pageIds?: string[]; groupIds?: string[]; ordered?: boolean; startPageId?: string },
+  opts: { pageIds?: string[]; groupIds?: string[]; flowIds?: string[]; ordered?: boolean; startPageId?: string },
 ): Promise<RunScopeResolution> {
   const pageIds = [...new Set((opts.pageIds ?? []).filter(Boolean))]
   const requestedGroupIds = [...new Set((opts.groupIds ?? []).filter(Boolean))]
@@ -924,7 +943,7 @@ export async function resolveRunScope(
     mergedPageIds.push(...expanded.pageIds)
   }
 
-  const base = await resolveRunScopeForCatalogPages(projectId, mergedPageIds)
+  const base = await resolveRunScopeForCatalogPages(projectId, mergedPageIds, opts.flowIds)
   const warnings = [...extraWarnings, ...base.warnings]
 
   const caseIdsByGroupId: Record<string, string[]> = {}
@@ -975,7 +994,11 @@ export async function resolveRunScope(
 /**
  * Gom tất cả test case (có flow) thuộc các catalog page đã chọn trong project.
  */
-export async function resolveRunScopeForCatalogPages(projectId: string, pageIds: string[]): Promise<RunScopeResolution> {
+export async function resolveRunScopeForCatalogPages(
+  projectId: string,
+  pageIds: string[],
+  flowIds?: string[]
+): Promise<RunScopeResolution> {
   const uniquePageIds = [...new Set(pageIds.filter(Boolean))]
   const warnings: string[] = []
   const caseIdsByPageId: Record<string, string[]> = {}
@@ -1004,14 +1027,16 @@ export async function resolveRunScopeForCatalogPages(projectId: string, pageIds:
   }
 
   const ph2 = validPageIds.map(() => '?').join(', ')
+  const { sql: flowClause, params: flowParams } = catalogScopeFlowSqlClause(flowIds)
+  const queryParams: string[] = [projectId, ...validPageIds, ...flowParams]
   const rows = await query<{ id: string; page_id: string }>(
     `SELECT tc.id, tf.page_id
      FROM test_cases tc
      INNER JOIN test_flows tf ON tf.id = tc.flow_id
      INNER JOIN test_catalog_pages p ON p.id = tf.page_id
-     WHERE p.project_id = ? AND tf.page_id IN (${ph2})
+     WHERE p.project_id = ? AND tf.page_id IN (${ph2})${flowClause}
      ORDER BY p.sort_order ASC, tc.code ASC`,
-    [projectId, ...validPageIds]
+    queryParams
   )
 
   const allIds: string[] = []

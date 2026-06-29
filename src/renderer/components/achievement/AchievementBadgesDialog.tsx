@@ -21,7 +21,7 @@ interface AchievementBadgesDialogProps {
   userName?: string
 }
 
-const CATEGORY_ORDER = ['task', 'git', 'review', 'report', 'quality', 'streak']
+const CATEGORY_ORDER = ['task', 'git', 'report', 'quality', 'streak']
 
 const GRID_CLASS = 'grid grid-cols-4 sm:grid-cols-5 md:grid-cols-5 gap-3 items-start'
 

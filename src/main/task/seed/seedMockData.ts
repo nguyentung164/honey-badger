@@ -761,7 +761,6 @@ interface DevUser {
   neverDailyReport?: boolean
   noReportLastWorkingDays?: number
   breakReportSecondLastWorkingDay?: boolean
-  neverReviewsOthers?: boolean
   joinOnLastWorkingDay?: boolean
 }
 
@@ -862,23 +861,18 @@ function pickSeedTaskUpdatedById(rnd: () => number, status: string, assigneeId: 
   return r < 0.14 ? pickRng(rnd, others) : assigneeId
 }
 
-/** true = không được assign làm reviewer */
-function isNoReviewReviewer(dev: DevUser): boolean {
-  return dev.neverReviewsOthers === true || dev.seedActivity === 'none'
-}
-
 function isStreakTailDay(dev: DevUser, dayIdx: number, workingDaysLen: number): boolean {
   const n = reportStreakTailDaysOf(dev)
   return n != null && n > 0 && dayIdx >= workingDaysLen - n
 }
 
-const PROFILE_CONFIG: Record<DevProfile, { tasksPerDay: [number, number]; commitsPerDay: [number, number]; donePercent: number; reportPercent: number; reviewPercent: number }> = {
-  star: { tasksPerDay: [6, 8], commitsPerDay: [15, 22], donePercent: 98, reportPercent: 100, reviewPercent: 90 },
-  good: { tasksPerDay: [5, 7], commitsPerDay: [10, 16], donePercent: 92, reportPercent: 98, reviewPercent: 80 },
-  average: { tasksPerDay: [4, 5], commitsPerDay: [7, 12], donePercent: 85, reportPercent: 95, reviewPercent: 70 },
-  below: { tasksPerDay: [3, 4], commitsPerDay: [4, 9], donePercent: 72, reportPercent: 85, reviewPercent: 55 },
-  bad: { tasksPerDay: [2, 3], commitsPerDay: [2, 7], donePercent: 58, reportPercent: 70, reviewPercent: 40 },
-  terrible: { tasksPerDay: [0, 2], commitsPerDay: [0, 4], donePercent: 45, reportPercent: 45, reviewPercent: 20 },
+const PROFILE_CONFIG: Record<DevProfile, { tasksPerDay: [number, number]; commitsPerDay: [number, number]; donePercent: number; reportPercent: number }> = {
+  star: { tasksPerDay: [6, 8], commitsPerDay: [15, 22], donePercent: 98, reportPercent: 100 },
+  good: { tasksPerDay: [5, 7], commitsPerDay: [10, 16], donePercent: 92, reportPercent: 98 },
+  average: { tasksPerDay: [4, 5], commitsPerDay: [7, 12], donePercent: 85, reportPercent: 95 },
+  below: { tasksPerDay: [3, 4], commitsPerDay: [4, 9], donePercent: 72, reportPercent: 85 },
+  bad: { tasksPerDay: [2, 3], commitsPerDay: [2, 7], donePercent: 58, reportPercent: 70 },
+  terrible: { tasksPerDay: [0, 2], commitsPerDay: [0, 4], donePercent: 45, reportPercent: 45 },
 }
 
 /** Giới hạn mock: mỗi user tối đa N task tạo trong cùng một ngày lịch, gộp cả P1 + P2 + P3 — tránh rank × scale tạo hàng chục task/ngày và chồng plan. */
@@ -911,15 +905,6 @@ const PROFILE_SPOTBUGS_P: Record<DevProfile, number> = {
   below: 0.58,
   bad: 0.45,
   terrible: 0.32,
-}
-/** Giới hạn review ghi nhận/ngày → radar Reviewing/Collab không bão hòa 100 */
-const PROFILE_REVIEW_DAILY_CAP: Record<DevProfile, number> = {
-  star: 5,
-  good: 4,
-  average: 3,
-  below: 2,
-  bad: 2,
-  terrible: 1,
 }
 
 /**
@@ -1625,7 +1610,6 @@ async function runSeedMockCore(): Promise<void> {
       lateTaskPercent: 85,
       commitVariance: 'burst',
       targetRank: 'newbie',
-      neverReviewsOthers: true,
     },
     {
       id: randomUUID(),
@@ -1884,7 +1868,6 @@ async function runSeedMockCore(): Promise<void> {
     await query(`DELETE FROM evm_phases WHERE project_id IN (${ph})`, oldPids)
     await query(`DELETE FROM daily_reports WHERE project_id IN (${ph})`, oldPids)
     await query(`DELETE FROM project_user_daily_workload WHERE project_id IN (${ph})`, oldPids)
-    await query(`DELETE FROM commit_reviews WHERE source_folder_path IN (SELECT source_folder_path FROM user_project_source_folder WHERE project_id IN (${ph}))`, oldPids)
     await query(`DELETE FROM git_commit_queue WHERE source_folder_path IN (SELECT source_folder_path FROM user_project_source_folder WHERE project_id IN (${ph}))`, oldPids)
     await query(`DELETE FROM user_project_source_folder WHERE project_id IN (${ph})`, oldPids)
     await query(`DELETE FROM user_project_roles WHERE project_id IN (${ph})`, oldPids)
@@ -2266,13 +2249,6 @@ async function runSeedMockCore(): Promise<void> {
     exec,
     ' ON CONFLICT (commit_hash) DO UPDATE SET commit_user = EXCLUDED.commit_user'
   )
-  const batchReviews = createBatchInserter(
-    'commit_reviews',
-    ['id', 'source_folder_path', 'commit_id', 'vcs_type', 'reviewed_at', 'reviewer_user_id', 'note'],
-    '(?, ?, ?, ?, ?, ?, ?)',
-    exec,
-    ' ON CONFLICT (source_folder_path, commit_id) DO UPDATE SET reviewer_user_id = EXCLUDED.reviewer_user_id'
-  )
   const batchEvmAc = createBatchInserter(
     'evm_ac',
     [
@@ -2312,19 +2288,17 @@ async function runSeedMockCore(): Promise<void> {
       'tasks_done',
       'tasks_done_on_time',
       'tasks_overdue_opened',
-      'reviews_done',
       'has_daily_report',
       'evm_hours_logged',
     ],
-    '(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+    '(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
     exec,
-    ' ON CONFLICT (user_id, snapshot_date) DO UPDATE SET commits_count = EXCLUDED.commits_count, lines_inserted = EXCLUDED.lines_inserted, lines_deleted = EXCLUDED.lines_deleted, files_changed = EXCLUDED.files_changed, commits_with_rule_check = EXCLUDED.commits_with_rule_check, commits_with_spotbugs = EXCLUDED.commits_with_spotbugs, commits_total_in_queue = EXCLUDED.commits_total_in_queue, tasks_done = EXCLUDED.tasks_done, tasks_done_on_time = EXCLUDED.tasks_done_on_time, tasks_overdue_opened = EXCLUDED.tasks_overdue_opened, reviews_done = EXCLUDED.reviews_done, has_daily_report = EXCLUDED.has_daily_report, evm_hours_logged = EXCLUDED.evm_hours_logged'
+    ' ON CONFLICT (user_id, snapshot_date) DO UPDATE SET commits_count = EXCLUDED.commits_count, lines_inserted = EXCLUDED.lines_inserted, lines_deleted = EXCLUDED.lines_deleted, files_changed = EXCLUDED.files_changed, commits_with_rule_check = EXCLUDED.commits_with_rule_check, commits_with_spotbugs = EXCLUDED.commits_with_spotbugs, commits_total_in_queue = EXCLUDED.commits_total_in_queue, tasks_done = EXCLUDED.tasks_done, tasks_done_on_time = EXCLUDED.tasks_done_on_time, tasks_overdue_opened = EXCLUDED.tasks_overdue_opened, has_daily_report = EXCLUDED.has_daily_report, evm_hours_logged = EXCLUDED.evm_hours_logged'
   )
   type DevAccum = {
     tasks: number
     commits: number
     reports: number
-    reviews: number
     onTime: number
     early: number
     late: number
@@ -2345,7 +2319,6 @@ async function runSeedMockCore(): Promise<void> {
     tasks: 0,
     commits: 0,
     reports: 0,
-    reviews: 0,
     onTime: 0,
     early: 0,
     late: 0,
@@ -2465,9 +2438,7 @@ async function runSeedMockCore(): Promise<void> {
     }
   }
   const reportedByUserDay = new Map<string, Set<number>>()
-  const reviewedByUserDay = new Map<string, Set<number>>()
   const committedByDay = new Map<number, { hash: string; path: string }[]>()
-  const reviewedHashes = new Set<string>()
   /** Cùng 1 user + ngày: P1 & P2 cùng tuân “ngày không push” (radar coding_days) */
   const radarCommitDayDecision = new Map<string, boolean>()
   const pendingDailyReportRows: PendingDailyReportRowTuple[] = []
@@ -2831,29 +2802,6 @@ async function runSeedMockCore(): Promise<void> {
       if (rnd() < 0.06) acc.branches++
       if (rnd() < 0.03) acc.rebases++
 
-      const reviewRatio = rnd() < 0.05 ? 0.6 : cfg.reviewPercent / 100
-      const rawReview = Math.floor(commitsForDay.length * reviewRatio)
-      const revCap = PROFILE_REVIEW_DAILY_CAP[dev.profile]
-      const toReview = commitsForDay.slice(0, Math.min(rawReview, revCap))
-      const reviewers = devsP1.filter(d => d.id !== dev.id && !isNoReviewReviewer(d))
-      if (reviewers.length > 0) {
-        acc.reviews += toReview.length
-        for (let r = 0; r < toReview.length; r++) {
-          const rev = toReview[r]
-          const reviewer = reviewers[r % reviewers.length]
-          if (!reviewer) continue
-          reviewedHashes.add(rev.hash)
-          batchReviews.add([randomUUID(), pathP, rev.hash, 'git', toDateTimeStr(addHours(day, 16)), reviewer.id, 'OK'])
-          await batchReviews.maybeFlush()
-          let revSet = reviewedByUserDay.get(reviewer.id)
-          if (!revSet) {
-            revSet = new Set<number>()
-            reviewedByUserDay.set(reviewer.id, revSet)
-          }
-          revSet.add(dayIdx)
-        }
-      }
-
       const isOffDay = taskFactor === 0 && commitFactor === 0
       const activeWbsP1 = lookupEvmWbsSegment(evmWbsSegmentsP1, dev.id, dateStr)
       const evmHours = isOffDay ? 0 : randBetweenRng(rnd, 6, 8)
@@ -2953,34 +2901,10 @@ async function runSeedMockCore(): Promise<void> {
         isOffDay ? 0 : doneToday,
         isOffDay ? 0 : onTimeDoneToday,
         isOffDay ? 0 : tasksOverdueOpenedToday,
-        toReview.length,
         doReport ? 1 : 0,
         evmHours,
       ])
       await batchSnapshots.maybeFlush()
-    }
-
-    const onboardingDevs = devsP1.filter(d => !isNoReviewReviewer(d) && (dayTypeByKey.get(`${d.id}-${dayIdx}`) ?? 'normal') === 'onboarding_support')
-    const dayCommits = committedByDay.get(dayIdx) ?? []
-    const unreviewed = dayCommits.filter(c => !reviewedHashes.has(c.hash))
-    const rndOnboardDay = userDayRng(`onboarding-day-${dayIdx}`, dayIdx)
-    for (const obDev of onboardingDevs) {
-      const extraReviews = Math.min(randBetweenRng(rndOnboardDay, 2, 4), unreviewed.length)
-      for (let e = 0; e < extraReviews && e < unreviewed.length; e++) {
-        const c = unreviewed[e]
-        if (reviewedHashes.has(c.hash)) continue
-        reviewedHashes.add(c.hash)
-        const accOb = devStatsAccum.get(obDev.id)
-        if (accOb) accOb.reviews++
-        batchReviews.add([randomUUID(), c.path, c.hash, 'git', toDateTimeStr(addHours(day, 17)), obDev.id, 'OK'])
-        await batchReviews.maybeFlush()
-        let revSet = reviewedByUserDay.get(obDev.id)
-        if (!revSet) {
-          revSet = new Set<number>()
-          reviewedByUserDay.set(obDev.id, revSet)
-        }
-        revSet.add(dayIdx)
-      }
     }
 
     if (day >= project2Start) {
@@ -3167,28 +3091,6 @@ async function runSeedMockCore(): Promise<void> {
         if (rndP2() < 0.06) acc.branches++
         if (rndP2() < 0.03) acc.rebases++
 
-        const reviewRatioP2 = rndP2() < 0.05 ? 0.6 : cfg.reviewPercent / 100
-        const rawReviewP2 = Math.floor(commitsForDayP2.length * reviewRatioP2)
-        const revCapP2 = PROFILE_REVIEW_DAILY_CAP[dev.profile]
-        const toReviewP2 = commitsForDayP2.slice(0, Math.min(rawReviewP2, revCapP2))
-        const reviewersP2 = devsP2.filter(d => d.id !== dev.id && !isNoReviewReviewer(d))
-        if (reviewersP2.length > 0) {
-          acc.reviews += toReviewP2.length
-          for (let r = 0; r < toReviewP2.length; r++) {
-            const rev = toReviewP2[r]
-            const reviewer = reviewersP2[r % reviewersP2.length]
-            if (!reviewer) continue
-            batchReviews.add([randomUUID(), pathP, rev.hash, 'git', toDateTimeStr(addHours(day, 16)), reviewer.id, 'OK'])
-            await batchReviews.maybeFlush()
-            let revSetP2 = reviewedByUserDay.get(reviewer.id)
-            if (!revSetP2) {
-              revSetP2 = new Set<number>()
-              reviewedByUserDay.set(reviewer.id, revSetP2)
-            }
-            revSetP2.add(dayIdx)
-          }
-        }
-
         const isOffDayP2 = taskFactorP2 === 0 && commitFactorP2 === 0
         const activeWbsP2 = lookupEvmWbsSegment(evmWbsSegmentsP2, dev.id, dateStr)
         const evmHoursP2 = isOffDayP2 ? 0 : randBetweenRng(rndP2, 6, 8)
@@ -3287,8 +3189,8 @@ async function runSeedMockCore(): Promise<void> {
           `INSERT INTO user_daily_snapshots (
             id, user_id, snapshot_date, commits_count, lines_inserted, lines_deleted, files_changed,
             commits_with_rule_check, commits_with_spotbugs, commits_total_in_queue,
-            tasks_done, tasks_done_on_time, tasks_overdue_opened, reviews_done, has_daily_report, evm_hours_logged
-          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            tasks_done, tasks_done_on_time, tasks_overdue_opened, has_daily_report, evm_hours_logged
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
           ON CONFLICT (user_id, snapshot_date) DO UPDATE SET
             commits_count = user_daily_snapshots.commits_count + EXCLUDED.commits_count,
             lines_inserted = user_daily_snapshots.lines_inserted + EXCLUDED.lines_inserted,
@@ -3300,7 +3202,6 @@ async function runSeedMockCore(): Promise<void> {
             tasks_done = user_daily_snapshots.tasks_done + EXCLUDED.tasks_done,
             tasks_done_on_time = user_daily_snapshots.tasks_done_on_time + EXCLUDED.tasks_done_on_time,
             tasks_overdue_opened = user_daily_snapshots.tasks_overdue_opened + EXCLUDED.tasks_overdue_opened,
-            reviews_done = user_daily_snapshots.reviews_done + EXCLUDED.reviews_done,
             has_daily_report = (GREATEST(user_daily_snapshots.has_daily_report::int, EXCLUDED.has_daily_report::int))::boolean,
             evm_hours_logged = user_daily_snapshots.evm_hours_logged + EXCLUDED.evm_hours_logged`,
           [
@@ -3317,7 +3218,6 @@ async function runSeedMockCore(): Promise<void> {
             snapDoneP2,
             snapOnTimeP2,
             snapOverdueP2,
-            toReviewP2.length,
             hasReport,
             evmHoursP2,
           ]
@@ -3500,27 +3400,6 @@ async function runSeedMockCore(): Promise<void> {
         batchCommits.add([hash, dev.email, toDateTimeStr(commitTimeT), msg, '[]', '[]', '[]', hasRuleT, hasSpotT, null, insT, delT, chgT, pathT])
         await batchCommits.maybeFlush()
       }
-      const reviewRatioT = rndT() < 0.05 ? 0.6 : cfgT.reviewPercent / 100
-      const rawRevT = Math.floor(commitsForDayT.length * reviewRatioT)
-      const toReviewT = commitsForDayT.slice(0, Math.min(rawRevT, PROFILE_REVIEW_DAILY_CAP[dev.profile]))
-      const reviewersT = tinyTeamDevs.filter(d => d.id !== dev.id && !isNoReviewReviewer(d))
-      if (reviewersT.length > 0) {
-        accT.reviews += toReviewT.length
-        for (let r = 0; r < toReviewT.length; r++) {
-          const rev = toReviewT[r]
-          const reviewer = reviewersT[r % reviewersT.length]
-          if (!reviewer) continue
-          reviewedHashes.add(rev.hash)
-          batchReviews.add([randomUUID(), pathT, rev.hash, 'git', toDateTimeStr(addHours(day, 16)), reviewer.id, 'OK'])
-          await batchReviews.maybeFlush()
-          let rs = reviewedByUserDay.get(reviewer.id)
-          if (!rs) {
-            rs = new Set<number>()
-            reviewedByUserDay.set(reviewer.id, rs)
-          }
-          rs.add(dayIdx)
-        }
-      }
       const isOffT = taskFactorT === 0 && commitFactorT === 0
       const activeWbsP3 = lookupEvmWbsSegment(evmWbsSegmentsP3, dev.id, dateStr)
       const evmHoursT = isOffT ? 0 : randBetweenRng(rndT, 6, 8)
@@ -3618,7 +3497,6 @@ async function runSeedMockCore(): Promise<void> {
         isOffT ? 0 : doneTodayT,
         isOffT ? 0 : onTimeDoneTodayT,
         isOffT ? 0 : tasksOverdueOpenedTodayT,
-        toReviewT.length,
         doReportT ? 1 : 0,
         evmHoursT,
       ])
@@ -3630,7 +3508,6 @@ async function runSeedMockCore(): Promise<void> {
 
   await batchTasks.flush()
   await batchCommits.flush()
-  await batchReviews.flush()
   await batchEvmAc.flush()
   await batchSnapshots.flush()
   console.log('Batch inserts flushed')
@@ -4304,7 +4181,7 @@ async function runSeedMockCore(): Promise<void> {
   }
   for (let i = 0; i < randBetween(8, 15); i++) {
     const targetDev = pick(allDevs)
-    const achCode = pick(['task_10', 'task_50', 'git_first_commit', 'report_first', 'review_first'])
+    const achCode = pick(['task_10', 'task_50', 'git_first_commit', 'report_first'])
     await query(
       `INSERT INTO task_notifications (id, target_user_id, type, title, body, task_id, is_read)
        VALUES (?, ?, 'achievement_unlocked', ?, ?, NULL, ?)`,
@@ -4339,12 +4216,6 @@ async function runSeedMockCore(): Promise<void> {
     for (let i = lastDayIdx; i >= 0 && !reportedByUserDay.get(userId)?.has(i); i--) count++
     return count
   }
-  const computeConsecutiveNoReview = (userId: string): number => {
-    if (reviewedByUserDay.get(userId)?.has(lastDayIdx)) return 0
-    let count = 0
-    for (let i = lastDayIdx; i >= 0 && !reviewedByUserDay.get(userId)?.has(i); i--) count++
-    return count
-  }
   const earnedAchievementsByUser = new Map<string, string[]>()
   for (const dev of allDevs) {
     const acc = devStatsAccum.get(dev.id) ?? defaultAccum()
@@ -4352,28 +4223,25 @@ async function runSeedMockCore(): Promise<void> {
     const TASKS_DONE = acc.onTime + acc.early + acc.late
     const COMMITS = acc.commits
     const REPORTS = acc.reports
-    const REVIEWS = acc.reviews
     const XP_BASE = 100
-    const xp = XP_BASE + TASKS_DONE * 5 + COMMITS + REVIEWS * 2 + REPORTS
+    const xp = XP_BASE + TASKS_DONE * 5 + COMMITS + REPORTS
     const rank = calculateRank(xp)
     const reportStreak = computeReportStreak(dev.id)
     const activityStreak = Math.min(7, reportStreak)
     const consecutiveNoReport = computeConsecutiveNoReport(dev.id)
-    const consecutiveNoReview = computeConsecutiveNoReview(dev.id)
 
     await query(
       `INSERT INTO user_stats (user_id, xp, current_rank, current_streak_days, current_report_streak_days,
-        last_activity_date, total_tasks_done, total_tasks_created, total_commits, total_reviews, total_reports,
+        last_activity_date, total_tasks_done, total_tasks_created, total_commits, total_reports,
         total_tasks_on_time, total_tasks_early, total_tasks_late, total_tasks_bug_done, total_tasks_feature_done, total_tasks_critical_done,
         total_spotbugs_clean, total_spotbugs_fails, total_pushes, total_merges, total_branches_created, total_rebases,
-        total_files_committed, total_insertions, consecutive_no_report_days, consecutive_no_review_days,
-        last_commit_date, last_review_date, last_report_date)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        total_files_committed, total_insertions, consecutive_no_report_days,
+        last_commit_date, last_report_date)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
        ON CONFLICT (user_id) DO UPDATE SET
         total_tasks_done = EXCLUDED.total_tasks_done,
         total_tasks_created = EXCLUDED.total_tasks_created,
         total_commits = EXCLUDED.total_commits,
-        total_reviews = EXCLUDED.total_reviews,
         total_reports = EXCLUDED.total_reports,
         total_tasks_on_time = EXCLUDED.total_tasks_on_time,
         total_tasks_early = EXCLUDED.total_tasks_early,
@@ -4390,7 +4258,6 @@ async function runSeedMockCore(): Promise<void> {
         total_files_committed = EXCLUDED.total_files_committed,
         total_insertions = EXCLUDED.total_insertions,
         consecutive_no_report_days = EXCLUDED.consecutive_no_report_days,
-        consecutive_no_review_days = EXCLUDED.consecutive_no_review_days,
         xp = EXCLUDED.xp,
         current_rank = EXCLUDED.current_rank,
         current_streak_days = EXCLUDED.current_streak_days,
@@ -4406,7 +4273,6 @@ async function runSeedMockCore(): Promise<void> {
         TASKS_DONE,
         TOTAL_TASKS,
         COMMITS,
-        REVIEWS,
         REPORTS,
         acc.onTime,
         acc.early,
@@ -4423,9 +4289,7 @@ async function runSeedMockCore(): Promise<void> {
         acc.filesCommitted,
         acc.insertions,
         consecutiveNoReport,
-        consecutiveNoReview,
         COMMITS > 0 ? toDateStr(endDate) : null,
-        REVIEWS > 0 ? toDateStr(endDate) : null,
         REPORTS > 0 ? toDateStr(endDate) : null,
       ]
     )
@@ -4438,7 +4302,6 @@ async function runSeedMockCore(): Promise<void> {
       { code: 'git_first_commit', check: COMMITS >= 1 },
       { code: 'git_commits_50', check: COMMITS >= 50 },
       { code: 'git_commits_200', check: COMMITS >= 200 },
-      { code: 'review_first', check: REVIEWS >= 1 },
       { code: 'report_first', check: REPORTS >= 1 },
       { code: 'report_50', check: REPORTS >= 50 },
     ]

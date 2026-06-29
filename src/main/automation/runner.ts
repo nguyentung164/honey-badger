@@ -163,6 +163,10 @@ export function isRunBusy(projectId: string): boolean {
   return projectLocks.has(projectId)
 }
 
+export function getActiveRunIdForProject(projectId: string): string | undefined {
+  return projectLocks.get(projectId)?.runId
+}
+
 export function getRun(runId: string): ActiveRun | undefined {
   return runIndex.get(runId)
 }

@@ -987,6 +987,21 @@ CREATE TABLE IF NOT EXISTS dev_pipeline_runs (
   created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
 )`)
     await query('CREATE INDEX IF NOT EXISTS idx_dev_pipeline_runs_flow ON dev_pipeline_runs(flow_id, started_at DESC)')
+
+    const devFlowCols = [
+      { name: 'kind', ddl: "VARCHAR(30) NOT NULL DEFAULT 'pipeline'" },
+      { name: 'project_id', ddl: 'VARCHAR(36) NULL REFERENCES projects(id) ON DELETE SET NULL' },
+      { name: 'settings_json', ddl: "JSONB NULL DEFAULT '{}'::jsonb" },
+    ] as const
+    for (const col of devFlowCols) {
+      const rows = await query(
+        `SELECT 1 FROM information_schema.columns WHERE table_schema = current_schema() AND table_name = 'dev_pipeline_flows' AND column_name = ? LIMIT 1`,
+        [col.name]
+      )
+      if (!Array.isArray(rows) || rows.length === 0) {
+        await query(`ALTER TABLE dev_pipeline_flows ADD COLUMN ${col.name} ${col.ddl}`)
+      }
+    }
   } catch (e) {
     l.error('[db] migrateDevPipelineTables failed', e)
     return
@@ -1229,4 +1244,177 @@ export async function migrateProjectFkCascade(): Promise<void> {
     return
   }
   projectFkCascadeMigrationDone = true
+}
+
+let commitWorkflowTablesMigrationDone = false
+
+/** Commit Workflow: per-project quality graphs + run history. */
+export async function migrateCommitWorkflowTables(): Promise<void> {
+  if (commitWorkflowTablesMigrationDone || !hasDbConfig()) return
+  try {
+    await query(`
+CREATE TABLE IF NOT EXISTS project_commit_workflows (
+  id VARCHAR(36) PRIMARY KEY,
+  project_id VARCHAR(36) NOT NULL UNIQUE REFERENCES projects(id) ON DELETE CASCADE,
+  version INT NOT NULL DEFAULT 1,
+  graph_json JSONB NOT NULL,
+  settings_json JSONB NOT NULL DEFAULT '{}'::jsonb,
+  updated_by VARCHAR(36) NULL REFERENCES users(id) ON DELETE SET NULL,
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
+)`)
+    await query('CREATE INDEX IF NOT EXISTS idx_pcw_project ON project_commit_workflows(project_id)')
+
+    await query(`
+CREATE TABLE IF NOT EXISTS commit_workflow_runs (
+  id VARCHAR(36) PRIMARY KEY,
+  project_id VARCHAR(36) NULL REFERENCES projects(id) ON DELETE SET NULL,
+  user_id VARCHAR(36) NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  commit_hash VARCHAR(40) NOT NULL,
+  repo_path VARCHAR(500) NOT NULL,
+  workflow_id VARCHAR(36) NULL,
+  workflow_version INT NOT NULL DEFAULT 1,
+  graph_snapshot JSONB NOT NULL,
+  status VARCHAR(20) NOT NULL DEFAULT 'queued',
+  context_snapshot JSONB NOT NULL DEFAULT '{}'::jsonb,
+  started_at TIMESTAMPTZ NULL,
+  finished_at TIMESTAMPTZ NULL,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
+)`)
+    await query('CREATE INDEX IF NOT EXISTS idx_cwr_user_created ON commit_workflow_runs(user_id, created_at DESC)')
+    await query('CREATE INDEX IF NOT EXISTS idx_cwr_project_created ON commit_workflow_runs(project_id, created_at DESC)')
+    await query('CREATE INDEX IF NOT EXISTS idx_cwr_commit ON commit_workflow_runs(commit_hash)')
+    await query('CREATE INDEX IF NOT EXISTS idx_cwr_repo ON commit_workflow_runs(repo_path, created_at DESC)')
+
+    await query(`
+CREATE TABLE IF NOT EXISTS commit_workflow_steps (
+  id VARCHAR(36) PRIMARY KEY,
+  run_id VARCHAR(36) NOT NULL REFERENCES commit_workflow_runs(id) ON DELETE CASCADE,
+  step_key VARCHAR(50) NOT NULL,
+  step_kind VARCHAR(30) NOT NULL,
+  sort_order INT NOT NULL DEFAULT 0,
+  status VARCHAR(20) NOT NULL DEFAULT 'pending',
+  started_at TIMESTAMPTZ NULL,
+  finished_at TIMESTAMPTZ NULL,
+  summary_json JSONB NULL,
+  external_ref VARCHAR(36) NULL,
+  UNIQUE (run_id, step_key)
+)`)
+    await query('CREATE INDEX IF NOT EXISTS idx_cws_run ON commit_workflow_steps(run_id, sort_order)')
+
+    const hasWorkflowRunId = await query(
+      `SELECT 1 FROM information_schema.columns WHERE table_schema = current_schema() AND table_name = 'git_commit_queue' AND column_name = 'workflow_run_id' LIMIT 1`
+    )
+    if (!Array.isArray(hasWorkflowRunId) || hasWorkflowRunId.length === 0) {
+      await query('ALTER TABLE git_commit_queue ADD COLUMN workflow_run_id VARCHAR(36) NULL')
+      await query('ALTER TABLE git_commit_queue ADD COLUMN user_id VARCHAR(36) NULL')
+      await query('ALTER TABLE git_commit_queue ADD COLUMN project_id VARCHAR(36) NULL')
+    }
+
+    const snapCols = [
+      'commits_with_rule_pass',
+      'commits_with_spotbugs_pass',
+      'commits_with_playwright_pass',
+      'commits_with_workflow_completed',
+    ] as const
+    for (const col of snapCols) {
+      const rows = await query(
+        `SELECT 1 FROM information_schema.columns WHERE table_schema = current_schema() AND table_name = 'user_daily_snapshots' AND column_name = ? LIMIT 1`,
+        [col]
+      )
+      if (!Array.isArray(rows) || rows.length === 0) {
+        await query(`ALTER TABLE user_daily_snapshots ADD COLUMN ${col} INT DEFAULT 0`)
+      }
+    }
+
+    const hasSupersedes = await query(
+      `SELECT 1 FROM information_schema.columns WHERE table_schema = current_schema() AND table_name = 'commit_workflow_runs' AND column_name = 'supersedes_run_id' LIMIT 1`
+    )
+    if (!Array.isArray(hasSupersedes) || hasSupersedes.length === 0) {
+      await query('ALTER TABLE commit_workflow_runs ADD COLUMN supersedes_run_id VARCHAR(36) NULL REFERENCES commit_workflow_runs(id) ON DELETE SET NULL')
+      await query('CREATE INDEX IF NOT EXISTS idx_cwr_supersedes ON commit_workflow_runs(supersedes_run_id)')
+    }
+  } catch (e) {
+    l.error('[db] migrateCommitWorkflowTables failed', e)
+    return
+  }
+  commitWorkflowTablesMigrationDone = true
+}
+
+let commitWorkflowDevPipelineCleanupDone = false
+
+/** Remove legacy commit_workflow template rows from Dev Pipelines (config now per-commit via dialog). */
+export async function migrateCommitWorkflowDevPipelineCleanup(): Promise<void> {
+  if (commitWorkflowDevPipelineCleanupDone || !hasDbConfig()) return
+  try {
+    await query("DELETE FROM dev_pipeline_flows WHERE kind = 'commit_workflow'")
+    await query('DELETE FROM project_commit_workflows')
+    await query('DROP INDEX IF EXISTS idx_dev_pipeline_flows_commit_wf_project')
+    await query('DROP TABLE IF EXISTS project_commit_workflows')
+  } catch (e) {
+    l.error('[db] migrateCommitWorkflowDevPipelineCleanup failed', e)
+    return
+  }
+  commitWorkflowDevPipelineCleanupDone = true
+}
+
+let dropCommitReviewsTableDone = false
+let commitReviewLegacyCleanupDone = false
+
+const COMMIT_REVIEW_ACHIEVEMENT_CODES = [
+  'review_first',
+  'review_25',
+  'review_100',
+  'review_500',
+  'review_250',
+  'review_1000',
+  'neg_ghost_reviewer',
+] as const
+
+/** Drop legacy commit_reviews table + review stats columns (Show Log PL review removed). */
+export async function migrateDropCommitReviewsTable(): Promise<void> {
+  if (!hasDbConfig()) return
+
+  if (!dropCommitReviewsTableDone) {
+    try {
+      await query('DROP TRIGGER IF EXISTS tr_commit_reviews_updated ON commit_reviews')
+      await query('DROP TABLE IF EXISTS commit_reviews')
+      dropCommitReviewsTableDone = true
+    } catch (e) {
+      l.error('[db] migrateDropCommitReviewsTable failed', e)
+      return
+    }
+  }
+
+  if (commitReviewLegacyCleanupDone) return
+
+  const checkCol = async (table: string, col: string): Promise<boolean> => {
+    const rows = await query(
+      `SELECT 1 FROM information_schema.columns
+       WHERE table_schema = current_schema() AND table_name = ? AND column_name = ? LIMIT 1`,
+      [table, col]
+    )
+    return Array.isArray(rows) && rows.length > 0
+  }
+
+  try {
+    const dropCol = async (table: string, col: string) => {
+      if (await checkCol(table, col)) {
+        await query(`ALTER TABLE ${table} DROP COLUMN ${col}`)
+      }
+    }
+    await dropCol('user_stats', 'total_reviews')
+    await dropCol('user_stats', 'consecutive_no_review_days')
+    await dropCol('user_stats', 'last_review_date')
+    await dropCol('user_daily_snapshots', 'reviews_done')
+
+    const codes = COMMIT_REVIEW_ACHIEVEMENT_CODES.map(c => `'${c}'`).join(', ')
+    await query(`DELETE FROM user_badge_display WHERE achievement_code IN (${codes})`)
+    await query(`DELETE FROM user_achievements WHERE achievement_code IN (${codes})`)
+    await query(`DELETE FROM achievements WHERE code IN (${codes})`)
+
+    commitReviewLegacyCleanupDone = true
+  } catch (e) {
+    l.error('[db] migrateDropCommitReviewsLegacyColumns failed', e)
+  }
 }

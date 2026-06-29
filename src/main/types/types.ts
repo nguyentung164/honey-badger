@@ -20,6 +20,9 @@ export type CommitInfo = {
   vcsType?: 'git' | 'svn'
   /** Path tại thời điểm commit - dùng để tra projectId khi gửi mail (tránh sai khi user đổi folder giữa commit và push) */
   sourceFolderPath?: string
+  isAmend?: boolean
+  /** Git hash trước khi amend (HEAD trước `git commit --amend`). */
+  replacesCommitHash?: string
 }
 
 /** TLS cho kết nối PostgreSQL của ứng dụng (`pg`): auto = bật SSL trên Supabase (*.supabase.co), tắt trên localhost. */

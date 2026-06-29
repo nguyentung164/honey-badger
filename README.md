@@ -60,9 +60,7 @@
 
 ### 5. Thống kê
 
-- **Dashboard:** Biểu đồ commits, contributors, file changes; filter theo author, date range
 - **Commit message history:** Lưu và tìm lại message đã generate
-- **Commit review:** Đánh dấu reviewed/unreviewed, thống kê theo task
 - **AI analysis history:** Lưu lịch sử phân tích AI
 
 ### 6. Thông báo
@@ -77,7 +75,7 @@
 - Sub-tasks, task links (blocks, blocked by, relates to, duplicates)
 - Copy task, Import Redmine CSV
 - OneDrive: upload file đính kèm task
-- Commit review gắn với tasks (theo ticket ID), favorite tasks
+- Tasks gắn với ticket ID, favorite tasks
 - Thông báo deadline task (hôm nay, ngày mai)
 - Guest mode: xem Task Management không cần đăng nhập
 

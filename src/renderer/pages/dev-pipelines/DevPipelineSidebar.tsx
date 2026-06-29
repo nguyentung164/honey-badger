@@ -100,6 +100,8 @@ export function DevPipelineActiveBar({
   onRename,
   onRun,
   onCancelRun,
+  hideRun,
+  renameDisabled,
 }: {
   flowName: string
   running: boolean
@@ -108,6 +110,8 @@ export function DevPipelineActiveBar({
   onRename: (name: string) => void
   onRun: () => void
   onCancelRun: () => void
+  hideRun?: boolean
+  renameDisabled?: boolean
 }) {
   const { t } = useTranslation()
   const [editing, setEditing] = useState(false)
@@ -160,6 +164,7 @@ export function DevPipelineActiveBar({
             size="icon"
             className="size-6 shrink-0"
             aria-label={t('devPipelines.rename')}
+            disabled={renameDisabled}
             onClick={() => setEditing(true)}
           >
             <Pencil className="size-3" />
@@ -183,7 +188,7 @@ export function DevPipelineActiveBar({
           </TooltipTrigger>
           <TooltipContent side="bottom">{t('devPipelines.cancelRun')}</TooltipContent>
         </Tooltip>
-      ) : (
+      ) : hideRun ? null : (
         <Tooltip>
           <TooltipTrigger asChild>
             <Button

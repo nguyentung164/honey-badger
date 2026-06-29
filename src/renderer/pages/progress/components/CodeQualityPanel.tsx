@@ -10,14 +10,14 @@ import { SectionHeader } from './SectionHeader'
 
 const WEEKS_OPTIONS = [4, 8, 12, 24]
 
-const RULE_STACK_CHART_CONFIG = {
-  checked: { label: 'Coding rule checked', color: 'var(--chart-2)' },
-  unchecked: { label: 'Not checked', color: 'var(--muted)' },
+const RULE_PASS_CHART_CONFIG = {
+  pass: { label: 'Pass', color: 'var(--chart-2)' },
+  fail: { label: 'Fail', color: 'var(--destructive)' },
 }
 
-const SPOTBUGS_STACK_CHART_CONFIG = {
-  checked: { label: 'SpotBugs checked', color: 'var(--chart-1)' },
-  unchecked: { label: 'Not checked', color: 'var(--muted)' },
+const SPOTBUGS_PASS_CHART_CONFIG = {
+  pass: { label: 'Pass', color: 'var(--chart-1)' },
+  fail: { label: 'Fail', color: 'var(--destructive)' },
 }
 
 /** Khoảng cách đồng bộ giữa các card (ngang + dọc) */
@@ -73,24 +73,32 @@ export const CodeQualityPanel = memo(function CodeQualityPanel({
   const effData = isIso ? isoQuality : quality.data
   const effLoading = isIso ? isoLoading : quality.loading
 
-  const ruleStackedData = useMemo(() => {
-    return (effData?.trend ?? []).map(w => ({
-      week: w.week,
-      checked: w.rule_checked,
-      unchecked: Math.max(0, w.total - w.rule_checked),
-      total: w.total,
-      rate: w.total > 0 ? Math.round((w.rule_checked / w.total) * 100) : 0,
-    }))
+  const rulePassStackedData = useMemo(() => {
+    return (effData?.trend ?? []).map(w => {
+      const completed = Number(w.workflow_completed ?? 0)
+      const pass = Number(w.rule_pass ?? 0)
+      return {
+        week: w.week,
+        pass,
+        fail: Math.max(0, completed - pass),
+        total: completed,
+        rate: completed > 0 ? Math.round((pass / completed) * 100) : 0,
+      }
+    })
   }, [effData])
 
-  const spotbugsStackedData = useMemo(() => {
-    return (effData?.trend ?? []).map(w => ({
-      week: w.week,
-      checked: w.spotbugs_checked,
-      unchecked: Math.max(0, w.total - w.spotbugs_checked),
-      total: w.total,
-      rate: w.total > 0 ? Math.round((w.spotbugs_checked / w.total) * 100) : 0,
-    }))
+  const spotbugsPassStackedData = useMemo(() => {
+    return (effData?.trend ?? []).map(w => {
+      const completed = Number(w.workflow_completed ?? 0)
+      const pass = Number(w.spotbugs_pass ?? 0)
+      return {
+        week: w.week,
+        pass,
+        fail: Math.max(0, completed - pass),
+        total: completed,
+        rate: completed > 0 ? Math.round((pass / completed) * 100) : 0,
+      }
+    })
   }, [effData])
 
   const comparisonRows = useMemo(() => {
@@ -107,6 +115,24 @@ export const CodeQualityPanel = memo(function CodeQualityPanel({
         user: effData.userSpotbugsRate,
         team: effData.teamAvg.spotbugs_rate,
         accent: 'var(--chart-1)',
+      },
+      {
+        title: t('commitWorkflow.passRateCodingRules'),
+        user: effData.userRulePassRate ?? 0,
+        team: effData.teamAvg.rule_pass_rate ?? 0,
+        accent: 'var(--chart-2)',
+      },
+      {
+        title: t('commitWorkflow.passRateSpotbugs'),
+        user: effData.userSpotbugsPassRate ?? 0,
+        team: effData.teamAvg.spotbugs_pass_rate ?? 0,
+        accent: 'var(--chart-1)',
+      },
+      {
+        title: t('commitWorkflow.passRatePlaywright'),
+        user: effData.userPlaywrightPassRate ?? 0,
+        team: effData.teamAvg.playwright_pass_rate ?? 0,
+        accent: 'var(--chart-3)',
       },
     ]
   }, [effData, t])
@@ -171,7 +197,7 @@ export const CodeQualityPanel = memo(function CodeQualityPanel({
       ) : (
         <>
           {/* Rate cards */}
-          <div className={cn('grid grid-cols-2', CARD_GAP)}>
+          <div className={cn('grid grid-cols-2 lg:grid-cols-3', CARD_GAP)}>
             <div className={cn(qualityCardClass, 'space-y-2')}>
               <p className="text-base text-muted-foreground">{t('progress.codingRuleCheck')}</p>
               <p className={cn('text-3xl font-bold tabular-nums', effData.userRuleRate >= 80 ? 'text-green-600' : effData.userRuleRate >= 60 ? 'text-amber-500' : 'text-red-500')}>
@@ -201,23 +227,37 @@ export const CodeQualityPanel = memo(function CodeQualityPanel({
                 />
               </div>
             </div>
+            <div className={cn(qualityCardClass, 'space-y-2 lg:col-span-1 col-span-2')}>
+              <p className="text-base text-muted-foreground">{t('commitWorkflow.workflowPassRate')}</p>
+              <p
+                className={cn(
+                  'text-3xl font-bold tabular-nums',
+                  (effData.userRulePassRate ?? 0) >= 80 ? 'text-green-600' : (effData.userRulePassRate ?? 0) >= 60 ? 'text-amber-500' : 'text-red-500'
+                )}
+              >
+                {effData.userRulePassRate ?? 0}%
+              </p>
+              <p className="text-xs text-muted-foreground">
+                {t('commitWorkflow.passRateSpotbugs')}: {effData.userSpotbugsPassRate ?? 0}% · {t('commitWorkflow.passRatePlaywright')}: {effData.userPlaywrightPassRate ?? 0}%
+              </p>
+            </div>
           </div>
 
           {/* Weekly stacked bars: luôn hiển thị khung (isolated/range có thể trend rỗng nhưng vẫn có %) */}
           <div className={cn('grid grid-cols-1 lg:grid-cols-2', CARD_GAP)}>
             <div className={qualityCardClass}>
               <p className="text-base font-medium mb-3">
-                {t('progress.weeklyTrend')} ({t('progress.codingRuleCheck')})
+                {t('progress.weeklyTrend')} ({t('commitWorkflow.passRateCodingRules')})
               </p>
-              {ruleStackedData.length > 0 ? (
-                <ChartContainer config={RULE_STACK_CHART_CONFIG} className="h-[160px] w-full">
-                  <BarChart data={ruleStackedData}>
+              {rulePassStackedData.some(d => d.total > 0) ? (
+                <ChartContainer config={RULE_PASS_CHART_CONFIG} className="h-[160px] w-full">
+                  <BarChart data={rulePassStackedData}>
                     <CartesianGrid strokeDasharray="3 3" className="stroke-muted" vertical={false} />
                     <XAxis dataKey="week" tick={{ fontSize: 9, fill: 'var(--muted-foreground)' }} tickLine={false} />
                     <YAxis tick={{ fontSize: 10, fill: 'var(--muted-foreground)' }} tickLine={false} axisLine={false} />
                     <Tooltip content={<ChartTooltipContent />} />
-                    <Bar dataKey="checked" stackId="rule" fill="var(--chart-2)" radius={[0, 0, 0, 0]} />
-                    <Bar dataKey="unchecked" stackId="rule" fill="var(--muted)" radius={[3, 3, 0, 0]} />
+                    <Bar dataKey="pass" stackId="rule" fill="var(--chart-2)" radius={[0, 0, 0, 0]} />
+                    <Bar dataKey="fail" stackId="rule" fill="var(--destructive)" radius={[3, 3, 0, 0]} />
                   </BarChart>
                 </ChartContainer>
               ) : (
@@ -226,17 +266,17 @@ export const CodeQualityPanel = memo(function CodeQualityPanel({
             </div>
             <div className={qualityCardClass}>
               <p className="text-base font-medium mb-3">
-                {t('progress.weeklyTrend')} ({t('progress.spotbugsCheck')})
+                {t('progress.weeklyTrend')} ({t('commitWorkflow.passRateSpotbugs')})
               </p>
-              {spotbugsStackedData.length > 0 ? (
-                <ChartContainer config={SPOTBUGS_STACK_CHART_CONFIG} className="h-[160px] w-full">
-                  <BarChart data={spotbugsStackedData}>
+              {spotbugsPassStackedData.some(d => d.total > 0) ? (
+                <ChartContainer config={SPOTBUGS_PASS_CHART_CONFIG} className="h-[160px] w-full">
+                  <BarChart data={spotbugsPassStackedData}>
                     <CartesianGrid strokeDasharray="3 3" className="stroke-muted" vertical={false} />
                     <XAxis dataKey="week" tick={{ fontSize: 9, fill: 'var(--muted-foreground)' }} tickLine={false} />
                     <YAxis tick={{ fontSize: 10, fill: 'var(--muted-foreground)' }} tickLine={false} axisLine={false} />
                     <Tooltip content={<ChartTooltipContent />} />
-                    <Bar dataKey="checked" stackId="sb" fill="var(--chart-1)" radius={[0, 0, 0, 0]} />
-                    <Bar dataKey="unchecked" stackId="sb" fill="var(--muted)" radius={[3, 3, 0, 0]} />
+                    <Bar dataKey="pass" stackId="sb" fill="var(--chart-1)" radius={[0, 0, 0, 0]} />
+                    <Bar dataKey="fail" stackId="sb" fill="var(--destructive)" radius={[3, 3, 0, 0]} />
                   </BarChart>
                 </ChartContainer>
               ) : (

@@ -4,9 +4,9 @@ import { BrowserWindow, ipcMain } from 'electron'
 import l from 'electron-log'
 import { IPC } from 'main/constants'
 import { getMainWindowRef } from 'main/mainWindowRef'
-import { closeSingletonWindow, focusSingletonWindow, registerSingletonWindow } from 'main/utils/singletonWindow'
+import { closeSingletonWindow, closeSingletonWindowForDock, consumeSuppressWindowClosed, focusSingletonWindow, registerSingletonWindow } from 'main/utils/singletonWindow'
 import { getWindowBackgroundColor } from 'main/utils/windowBackground'
-import { AUTOMATION_RENDERER_CHANNELS, DEV_PIPELINE_RENDERER_CHANNELS, ENVIRONMENT, PR_MANAGER_RENDERER_CHANNELS, TASK_MANAGEMENT_RENDERER_CHANNELS } from 'shared/constants'
+import { AUTOMATION_RENDERER_CHANNELS, DEV_PIPELINE_RENDERER_CHANNELS, ENVIRONMENT, PR_MANAGER_RENDERER_CHANNELS, SHOW_LOG_RENDERER_CHANNELS, TASK_MANAGEMENT_RENDERER_CHANNELS } from 'shared/constants'
 import { getCommitDiff } from '../git/diff'
 import { onSpotBugs } from '../task/achievement/achievementService'
 import { getTokenFromStore, verifyToken } from '../task/auth'
@@ -14,6 +14,12 @@ import { parseSpotBugsResult, runSpotBugs } from '../utils/spotbugs'
 
 const pendingDiffDataByWindowId = new Map<number, Record<string, unknown>>()
 const pendingConflictDataByWindowId = new Map<number, { path?: string; versionControlSystem?: 'git' | 'svn' }>()
+let pendingShowLogHandoff: Record<string, unknown> | undefined
+
+function normalizeShowLogHandoff(data: unknown): Record<string, unknown> | undefined {
+  if (!data || typeof data !== 'object') return undefined
+  return data as Record<string, unknown>
+}
 
 async function sendSpotBugsResultToWindow(win: BrowserWindow, filePaths: string[]): Promise<void> {
   try {
@@ -248,7 +254,7 @@ export function registerWindowIpcHandlers() {
   })
 
   ipcMain.on(IPC.WINDOW.TASK_MANAGEMENT_DOCK_REQUEST, () => {
-    closeSingletonWindow('task-management')
+    closeSingletonWindowForDock('task-management')
     const main = getMainWindowRef()
     if (main && !main.isDestroyed()) {
       main.webContents.send(TASK_MANAGEMENT_RENDERER_CHANNELS.DOCKED_TO_MAIN)
@@ -279,6 +285,7 @@ export function registerWindowIpcHandlers() {
     registerSingletonWindow('task-management', window)
 
     window.once('closed', () => {
+      if (consumeSuppressWindowClosed('task-management')) return
       const main = getMainWindowRef()
       if (main && !main.isDestroyed()) {
         main.webContents.send(TASK_MANAGEMENT_RENDERER_CHANNELS.WINDOW_CLOSED)
@@ -332,46 +339,6 @@ export function registerWindowIpcHandlers() {
           protocol: 'file:',
           slashes: true,
           hash: '/master',
-        })
-    window.loadURL(url)
-
-    window.webContents.on('did-finish-load', () => {
-      if (ENVIRONMENT.IS_DEV) {
-        window.webContents.openDevTools({ mode: 'bottom' })
-      }
-    })
-  })
-
-  ipcMain.on(IPC.WINDOW.DASHBOARD, () => {
-    if (focusSingletonWindow('dashboard')) return
-
-    const window = new BrowserWindow({
-      width: 1365,
-      height: 768,
-      minWidth: 1366,
-      minHeight: 768,
-      center: true,
-      frame: false,
-      show: true,
-      backgroundColor: getWindowBackgroundColor(),
-      autoHideMenuBar: true,
-      title: 'Dashboard',
-      webPreferences: {
-        contextIsolation: true,
-        nodeIntegration: false,
-        preload: join(__dirname, '../preload/index.js'),
-        sandbox: false,
-      },
-    })
-    registerSingletonWindow('dashboard', window)
-
-    const url = ENVIRONMENT.IS_DEV
-      ? 'http://localhost:4927/#/dashboard'
-      : format({
-          pathname: resolve(__dirname, '../renderer/index.html'),
-          protocol: 'file:',
-          slashes: true,
-          hash: '/dashboard',
         })
     window.loadURL(url)
 
@@ -505,6 +472,7 @@ export function registerWindowIpcHandlers() {
 
   ipcMain.on(IPC.WINDOW.SHOW_LOG, (_event, data) => {
     const dataToSend = typeof data === 'string' ? { path: data } : data
+    pendingShowLogHandoff = normalizeShowLogHandoff(dataToSend)
 
     const existingShowLog = focusSingletonWindow('show-log')
     if (existingShowLog) {
@@ -535,13 +503,22 @@ export function registerWindowIpcHandlers() {
 
     pendingDiffDataByWindowId.set(win.id, dataToSend)
 
+    win.once('closed', () => {
+      pendingShowLogHandoff = undefined
+      if (consumeSuppressWindowClosed('show-log')) return
+      const main = getMainWindowRef()
+      if (main && !main.isDestroyed()) {
+        main.webContents.send(SHOW_LOG_RENDERER_CHANNELS.WINDOW_CLOSED)
+      }
+    })
+
     const url = ENVIRONMENT.IS_DEV
-      ? 'http://localhost:4927/#/show-log'
+      ? 'http://localhost:4927/#/show-log-standalone'
       : format({
           pathname: resolve(__dirname, '../renderer/index.html'),
           protocol: 'file:',
           slashes: true,
-          hash: '/show-log',
+          hash: '/show-log-standalone',
         })
     win.loadURL(url)
 
@@ -550,6 +527,25 @@ export function registerWindowIpcHandlers() {
         win.webContents.openDevTools({ mode: 'bottom' })
       }
     })
+  })
+
+  ipcMain.on(IPC.WINDOW.SHOW_LOG_CLOSE, () => {
+    pendingShowLogHandoff = undefined
+    closeSingletonWindow('show-log')
+  })
+
+  ipcMain.on(IPC.WINDOW.SHOW_LOG_SYNC_HANDOFF, (_event, payload) => {
+    pendingShowLogHandoff = normalizeShowLogHandoff(payload)
+  })
+
+  ipcMain.on(IPC.WINDOW.SHOW_LOG_DOCK_REQUEST, (_event, payload) => {
+    const handoff = normalizeShowLogHandoff(payload) ?? pendingShowLogHandoff
+    pendingShowLogHandoff = undefined
+    closeSingletonWindowForDock('show-log')
+    const main = getMainWindowRef()
+    if (main && !main.isDestroyed()) {
+      main.webContents.send(SHOW_LOG_RENDERER_CHANNELS.DOCKED_TO_MAIN, handoff)
+    }
   })
 
   ipcMain.on(IPC.WINDOW.CHECK_CODING_RULES, (_event, { selectedFiles, codingRuleId, codingRuleName }) => {
@@ -977,7 +973,7 @@ export function registerWindowIpcHandlers() {
   })
 
   ipcMain.on(IPC.WINDOW.PR_MANAGER_DOCK_REQUEST, () => {
-    closeSingletonWindow('pr-manager')
+    closeSingletonWindowForDock('pr-manager')
     const main = getMainWindowRef()
     if (main && !main.isDestroyed()) {
       main.webContents.send(PR_MANAGER_RENDERER_CHANNELS.DOCKED_TO_MAIN)
@@ -1008,6 +1004,7 @@ export function registerWindowIpcHandlers() {
     registerSingletonWindow('pr-manager', window)
 
     window.once('closed', () => {
+      if (consumeSuppressWindowClosed('pr-manager')) return
       const main = getMainWindowRef()
       if (main && !main.isDestroyed()) {
         main.webContents.send(PR_MANAGER_RENDERER_CHANNELS.WINDOW_CLOSED)
@@ -1036,7 +1033,7 @@ export function registerWindowIpcHandlers() {
   })
 
   ipcMain.on(IPC.WINDOW.AUTOMATION_DOCK_REQUEST, () => {
-    closeSingletonWindow('automation')
+    closeSingletonWindowForDock('automation')
     const main = getMainWindowRef()
     if (main && !main.isDestroyed()) {
       main.webContents.send(AUTOMATION_RENDERER_CHANNELS.DOCKED_TO_MAIN)
@@ -1067,6 +1064,7 @@ export function registerWindowIpcHandlers() {
     registerSingletonWindow('automation', window)
 
     window.once('closed', () => {
+      if (consumeSuppressWindowClosed('automation')) return
       const main = getMainWindowRef()
       if (main && !main.isDestroyed()) {
         main.webContents.send(AUTOMATION_RENDERER_CHANNELS.WINDOW_CLOSED)
@@ -1094,6 +1092,14 @@ export function registerWindowIpcHandlers() {
     closeSingletonWindow('dev-pipelines')
   })
 
+  ipcMain.on(IPC.WINDOW.DEV_PIPELINES_DOCK_REQUEST, () => {
+    closeSingletonWindowForDock('dev-pipelines')
+    const main = getMainWindowRef()
+    if (main && !main.isDestroyed()) {
+      main.webContents.send(DEV_PIPELINE_RENDERER_CHANNELS.DOCKED_TO_MAIN)
+    }
+  })
+
   ipcMain.on(IPC.WINDOW.DEV_PIPELINES, () => {
     if (focusSingletonWindow('dev-pipelines')) return
 
@@ -1118,6 +1124,7 @@ export function registerWindowIpcHandlers() {
     registerSingletonWindow('dev-pipelines', window)
 
     window.once('closed', () => {
+      if (consumeSuppressWindowClosed('dev-pipelines')) return
       const main = getMainWindowRef()
       if (main && !main.isDestroyed()) {
         main.webContents.send(DEV_PIPELINE_RENDERER_CHANNELS.WINDOW_CLOSED)
@@ -1125,12 +1132,12 @@ export function registerWindowIpcHandlers() {
     })
 
     const url = ENVIRONMENT.IS_DEV
-      ? 'http://localhost:4927/#/dev-pipelines'
+      ? 'http://localhost:4927/#/dev-pipelines-standalone'
       : format({
           pathname: resolve(__dirname, '../renderer/index.html'),
           protocol: 'file:',
           slashes: true,
-          hash: '/dev-pipelines',
+          hash: '/dev-pipelines-standalone',
         })
     window.loadURL(url)
 

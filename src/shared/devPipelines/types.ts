@@ -5,7 +5,16 @@
 import type { FlowConnectionStyle, FlowNodeVisualStyle } from '../flowDiagramStyle'
 import type { PageMapAnnotationStyle } from '../pageMapAnnotationStyle'
 
-export type DevPipelineStepKind = 'noop' | 'delay' | 'shell' | 'approval' | 'http-check'
+export type DevPipelineStepKind =
+  | 'noop'
+  | 'delay'
+  | 'shell'
+  | 'approval'
+  | 'http-check'
+  /** Commit workflow steps (only on flows with kind = commit_workflow). */
+  | 'coding-rules'
+  | 'spotbugs'
+  | 'playwright'
 
 export type DevPipelineNodeParams = {
   /** Delay step duration (ms). */
@@ -20,6 +29,12 @@ export type DevPipelineNodeParams = {
   retryDelayMs?: number
   /** Max poll attempts before failing. */
   maxRetries?: number
+  /** Commit workflow — coding-rules step. */
+  codingRuleId?: string | null
+  codingRuleName?: string | null
+  /** Commit workflow — playwright step (automation test project, not task project). */
+  automationProjectId?: string | null
+  suiteId?: string | null
 }
 
 export type DevPipelineNodeData = {
@@ -107,17 +122,23 @@ export type DevPipelineGraphJson = {
   viewport?: { x: number; y: number; zoom: number }
 }
 
+export type DevPipelineFlowKind = 'pipeline' | 'commit_workflow'
+
 export type DevPipelineFlowSummary = {
   id: string
   name: string
   description?: string
   schemaVersion: number
+  kind: DevPipelineFlowKind
+  projectId?: string | null
   createdAt: string
   updatedAt: string
 }
 
 export type DevPipelineFlow = DevPipelineFlowSummary & {
   graph: DevPipelineGraphJson
+  /** Commit workflow settings when kind === commit_workflow */
+  commitWorkflowSettings?: import('../commitWorkflow/types').CommitWorkflowSettings | null
 }
 
 export type DevPipelineRunStatus = 'queued' | 'running' | 'completed' | 'failed' | 'cancelled'

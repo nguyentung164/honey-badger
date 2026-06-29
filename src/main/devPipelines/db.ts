@@ -9,6 +9,7 @@ import type {
 import { createDefaultDevPipelineGraph } from 'shared/devPipelines/defaultGraph'
 import { randomUuidV7 } from 'shared/randomUuidV7'
 import { exec, query } from '../task/schema/db'
+import { isAppAdmin } from '../task/stores/pgTaskStore'
 
 interface FlowRow {
   id: string
@@ -17,6 +18,9 @@ interface FlowRow {
   description: string | null
   schema_version: number
   graph_json: unknown
+  kind?: string
+  project_id?: string | null
+  settings_json?: unknown
   created_at: string
   updated_at: string
 }
@@ -27,28 +31,69 @@ function rowToSummary(r: FlowRow): DevPipelineFlowSummary {
     name: r.name,
     description: r.description ?? undefined,
     schemaVersion: r.schema_version,
+    kind: (r.kind === 'commit_workflow' ? 'commit_workflow' : 'pipeline') as DevPipelineFlowSummary['kind'],
+    projectId: r.project_id ?? null,
     createdAt: r.created_at,
     updatedAt: r.updated_at,
   }
 }
 
 function rowToFlow(r: FlowRow, graph: DevPipelineGraphJson): DevPipelineFlow {
-  return { ...rowToSummary(r), graph }
+  const summary = rowToSummary(r)
+  return {
+    ...summary,
+    graph,
+    commitWorkflowSettings:
+      summary.kind === 'commit_workflow' && r.settings_json
+        ? (r.settings_json as DevPipelineFlow['commitWorkflowSettings'])
+        : null,
+  }
 }
 
+const FLOW_ROW_SELECT =
+  'f.id, f.user_id, f.name, f.description, f.schema_version, f.graph_json, f.kind, f.project_id, f.settings_json, f.created_at, f.updated_at'
+
+/** Owner-only pipeline access. */
+function flowAccessSql(alias = 'f'): string {
+  return `${alias}.user_id = ?`
+}
+
+const PIPELINE_KIND_FILTER = `(f.kind IS NULL OR f.kind = 'pipeline')`
+
 export async function listDevPipelineFlows(userId: string): Promise<DevPipelineFlowSummary[]> {
+  if (await isAppAdmin(userId)) {
+    const rows = await query<FlowRow>(
+      `SELECT ${FLOW_ROW_SELECT}
+       FROM dev_pipeline_flows f
+       WHERE ${PIPELINE_KIND_FILTER}
+       ORDER BY f.updated_at DESC`
+    )
+    return rows.map(rowToSummary)
+  }
   const rows = await query<FlowRow>(
-    'SELECT id, user_id, name, description, schema_version, graph_json, created_at, updated_at FROM dev_pipeline_flows WHERE user_id = ? ORDER BY updated_at DESC',
+    `SELECT ${FLOW_ROW_SELECT}
+     FROM dev_pipeline_flows f
+     WHERE ${PIPELINE_KIND_FILTER} AND ${flowAccessSql('f')}
+     ORDER BY f.updated_at DESC`,
     [userId]
   )
   return rows.map(rowToSummary)
 }
 
 export async function getDevPipelineFlow(userId: string, id: string): Promise<DevPipelineFlow | null> {
-  const rows = await query<FlowRow>(
-    'SELECT id, user_id, name, description, schema_version, graph_json, created_at, updated_at FROM dev_pipeline_flows WHERE id = ? AND user_id = ?',
-    [id, userId]
-  )
+  const rows = await isAppAdmin(userId)
+    ? await query<FlowRow>(
+        `SELECT ${FLOW_ROW_SELECT}
+         FROM dev_pipeline_flows f
+         WHERE f.id = ? AND ${PIPELINE_KIND_FILTER}`,
+        [id]
+      )
+    : await query<FlowRow>(
+        `SELECT ${FLOW_ROW_SELECT}
+         FROM dev_pipeline_flows f
+         WHERE f.id = ? AND ${PIPELINE_KIND_FILTER} AND ${flowAccessSql('f')}`,
+        [id, userId]
+      )
   if (!rows.length) return null
   const r = rows[0]
   const graph = r.graph_json as DevPipelineGraphJson
@@ -92,8 +137,17 @@ export async function updateDevPipelineFlow(
   }
   if (fields.length === 0) return getDevPipelineFlow(userId, id)
   fields.push('updated_at = CURRENT_TIMESTAMP')
-  values.push(id, userId)
-  await exec(`UPDATE dev_pipeline_flows SET ${fields.join(', ')} WHERE id = ? AND user_id = ?`, values)
+  const isAdmin = await isAppAdmin(userId)
+  if (isAdmin) {
+    values.push(id)
+    await exec(`UPDATE dev_pipeline_flows f SET ${fields.join(', ')} WHERE f.id = ?`, values)
+  } else {
+    values.push(id, userId)
+    await exec(
+      `UPDATE dev_pipeline_flows f SET ${fields.join(', ')} WHERE f.id = ? AND ${PIPELINE_KIND_FILTER} AND ${flowAccessSql('f')}`,
+      values
+    )
+  }
   return getDevPipelineFlow(userId, id)
 }
 
@@ -124,7 +178,11 @@ export async function upsertDevPipelineFlow(
 }
 
 export async function deleteDevPipelineFlow(userId: string, id: string): Promise<boolean> {
-  await exec('DELETE FROM dev_pipeline_flows WHERE id = ? AND user_id = ?', [id, userId])
+  if (await isAppAdmin(userId)) {
+    await exec('DELETE FROM dev_pipeline_flows f WHERE f.id = ?', [id])
+  } else {
+    await exec(`DELETE FROM dev_pipeline_flows f WHERE f.id = ? AND ${PIPELINE_KIND_FILTER} AND ${flowAccessSql('f')}`, [id, userId])
+  }
   return true
 }
 

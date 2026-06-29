@@ -18,7 +18,6 @@ export interface UserStats {
   total_branches_created: number
   total_stashes: number
   total_rebases: number
-  total_reviews: number
   total_reports: number
   total_spotbugs_clean: number
   total_spotbugs_fails: number
@@ -31,7 +30,6 @@ export interface UserStats {
   total_tasks_bug_done: number
   total_tasks_feature_done: number
   total_tasks_critical_done: number
-  consecutive_no_review_days: number
   consecutive_no_report_days: number
   consecutive_spotbugs_fails: number
   last_negative_check_date?: string | null

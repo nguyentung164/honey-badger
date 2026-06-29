@@ -295,9 +295,6 @@ export const ActivityHeatmap = memo(function ActivityHeatmap({ userId }: { userI
               <div>
                 <span className="text-muted-foreground">Tasks done:</span> <strong>{selectedDate.day.tasks_done}</strong>
               </div>
-              <div>
-                <span className="text-muted-foreground">Reviews:</span> <strong>{selectedDate.day.reviews_done}</strong>
-              </div>
             </div>
             <div className="text-xs pt-1 border-t border-blue-200/60 dark:border-blue-900/40">
               <span className="text-muted-foreground">Lines (+/−):</span>{' '}

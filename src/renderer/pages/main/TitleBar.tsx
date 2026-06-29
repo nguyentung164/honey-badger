@@ -33,6 +33,7 @@ import {
   Minus,
   RefreshCcw,
   RefreshCw,
+  Rocket,
   Settings2,
   Sparkles,
   Square,
@@ -43,27 +44,22 @@ import {
   Undo2,
   UserCircle,
   Users,
+  Workflow,
   X,
 } from 'lucide-react'
 import { IPC } from 'main/constants'
 import { lazy, type RefCallback, Suspense, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useNavigate } from 'react-router-dom'
-import type { MainShellView } from 'shared/mainShellView'
 import { MAX_RANK_CODE } from 'shared/achievementRanks'
+import type { MainShellView } from 'shared/mainShellView'
 import { randomUuidV7 } from 'shared/randomUuidV7'
 import { AchievementUnlockDialog } from '@/components/achievement/AchievementUnlockDialog'
+import { getAchievementDemoMenuItemClass, getAchievementDemoMenuLabelClass, getAchievementDemoMenuTierClass } from '@/components/achievement/achievementTierDemo'
 import { BadgeCard } from '@/components/achievement/BadgeCard'
 import { LeaderboardDialog } from '@/components/achievement/LeaderboardDialog'
-import {
-  getAchievementDemoMenuItemClass,
-  getAchievementDemoMenuLabelClass,
-  getAchievementDemoMenuTierClass,
-} from '@/components/achievement/achievementTierDemo'
 import { getRankDemoMenuItemClass, getRankDemoMenuLabelClass, getRankUsernameClass, RANK_CONFIG as RANK_CONFIG_ACH, RankAvatarRing } from '@/components/achievement/RankBadge'
-import { emitAchievementToast } from '@/hooks/useAchievementNotification'
 import { UserProfilePanel } from '@/components/achievement/UserProfilePanel'
-import { DevPipelinesTitleBarButton } from '@/pages/main/DevPipelinesTitleBarButton'
 import { HolidayCalendarDialog } from '@/components/calendar/HolidayCalendarDialog'
 import { AiUsageStatsDialog } from '@/components/dialogs/app/AiUsageStatsDialog'
 import { SettingsDialog } from '@/components/dialogs/app/SettingsDialog'
@@ -107,8 +103,11 @@ import { Separator } from '@/components/ui/separator'
 import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import toast from '@/components/ui-elements/Toast'
-import { cn, normalizePathForCompare } from '@/lib/utils'
+import { emitAchievementToast } from '@/hooks/useAchievementNotification'
+import { useCommitWorkflowStore } from '@/lib/commitWorkflow/commitWorkflowUtils'
 import { openGitConflictDiffFromStatus } from '@/lib/diffViewer/openDiffViewer'
+import { requestOpenShowLog } from '@/lib/openShowLog'
+import { cn, normalizePathForCompare } from '@/lib/utils'
 import logger from '@/services/logger'
 import { useAchievementStore } from '@/stores/useAchievementStore'
 import { getConfigDataRelevantSnapshot, useConfigurationStore } from '@/stores/useConfigurationStore'
@@ -134,6 +133,12 @@ interface TitleBarProps {
   automationDetached?: boolean
   onAutomationDock?: () => void
   onAutomationDetach?: () => void
+  devPipelinesDetached?: boolean
+  onDevPipelinesDock?: () => void
+  onDevPipelinesDetach?: () => void
+  showLogDetached?: boolean
+  onShowLogDock?: () => void
+  onShowLogDetach?: () => void
   onRequestLogin?: () => void
   onRequestChangePassword?: () => void
   hideUndoCommit?: boolean
@@ -145,6 +150,8 @@ interface TitleBarProps {
   taskToolbarActionsHostRef?: RefCallback<HTMLDivElement>
   prManagerToolbarHostRef?: RefCallback<HTMLDivElement>
   automationToolbarHostRef?: RefCallback<HTMLDivElement>
+  devPipelinesToolbarHostRef?: RefCallback<HTMLDivElement>
+  showLogToolbarHostRef?: RefCallback<HTMLDivElement>
 }
 
 function TitleBarClockFlagVn({ size = 16 }: { size?: number }) {
@@ -199,6 +206,12 @@ export const TitleBar = ({
   automationDetached = false,
   onAutomationDock,
   onAutomationDetach,
+  devPipelinesDetached = false,
+  onDevPipelinesDock,
+  onDevPipelinesDetach,
+  showLogDetached = false,
+  onShowLogDock,
+  onShowLogDetach,
   onRequestLogin,
   onRequestChangePassword,
   hideUndoCommit: _hideUndoCommit = false,
@@ -210,6 +223,8 @@ export const TitleBar = ({
   taskToolbarActionsHostRef,
   prManagerToolbarHostRef,
   automationToolbarHostRef,
+  devPipelinesToolbarHostRef,
+  showLogToolbarHostRef,
 }: TitleBarProps) => {
   const navigate = useNavigate()
   const { t } = useTranslation()
@@ -267,7 +282,7 @@ export const TitleBar = ({
   const gitContextPathTrimmed = (gitContextPath ?? '').trim()
   /** Có thư mục Git cwd hợp lệ — ẩn branch/sync/stash khi multi-repo chưa chọn project hoặc chưa có repo. */
   const showGitRepoChrome = versionControlSystem === 'git' && !!gitContextPathTrimmed
-  /** Git: chỉ Show Log / Dashboard khi đã có cwd repo; SVN luôn hiện. */
+  /** Git: chỉ Show Log khi đã có cwd repo; SVN luôn hiện. */
   const showGitPathToolbarActions = versionControlSystem === 'svn' || showGitRepoChrome
   const activeRepoLabel = activeRepoLabelProp
   const isConfigLoaded = useConfigurationStore(s => s.isConfigLoaded)
@@ -1320,14 +1335,7 @@ export const TitleBar = ({
         data.versionControlSystem = 'git'
       }
 
-      window.api.electron.send(IPC.WINDOW.SHOW_LOG, data)
-    }
-  }
-
-  const openDashboardWindow = () => {
-    if (!isLoading) {
-      if (versionControlSystem === 'git' && !gitContextPathTrimmed) return
-      window.api.electron.send(IPC.WINDOW.DASHBOARD, null)
+      requestOpenShowLog(data)
     }
   }
 
@@ -1616,7 +1624,8 @@ export const TitleBar = ({
       }
 
       setIsRefreshingBranchesRemote(true)
-      const promise = (async () => {
+      const entry = { cwd } as { cwd: string; promise: Promise<void> }
+      entry.promise = (async () => {
         try {
           const pruneResult = await window.api.git.fetch('origin', { prune: true, all: true, skipUpdateCheck: true }, cwd)
           if (pruneResult.status !== 'success') {
@@ -1639,14 +1648,14 @@ export const TitleBar = ({
           if (loadId === branchListLoadIdRef.current) {
             setIsRefreshingBranchesRemote(false)
           }
-          if (branchRemoteFetchRef.current?.promise === promise) {
+          if (branchRemoteFetchRef.current === entry) {
             branchRemoteFetchRef.current = null
           }
         }
       })()
 
-      branchRemoteFetchRef.current = { cwd, promise }
-      await promise
+      branchRemoteFetchRef.current = entry
+      await entry.promise
     },
     [t]
   )
@@ -2318,7 +2327,7 @@ export const TitleBar = ({
                 type="single"
                 value={shellView}
                 onValueChange={v => {
-                  if (v === 'vcs' || v === 'tasks' || v === 'prManager' || v === 'automation') onShellViewChange(v)
+                  if (v === 'vcs' || v === 'tasks' || v === 'prManager' || v === 'automation' || v === 'devPipelines' || v === 'showLog') onShellViewChange(v)
                 }}
                 variant="default"
                 size="md"
@@ -2395,7 +2404,7 @@ export const TitleBar = ({
                 {!automationDetached && (
                   <ToggleGroupItem
                     value="automation"
-                    aria-label={t('mainShell.automation', 'Automation')}
+                    aria-label={t('mainShell.automation')}
                     className={cn(
                       'group h-[21px] px-2 sm:px-2.5 py-0 text-xs gap-1 !rounded-md !border-0 !shadow-none',
                       'transition-[color,transform,opacity,font-weight,text-decoration-thickness] duration-200 ease-out motion-reduce:transition-none',
@@ -2412,7 +2421,53 @@ export const TitleBar = ({
                       absoluteStrokeWidth
                       className="h-3.5 w-3.5 shrink-0 transition-transform duration-200 ease-out group-data-[state=on]:scale-105 motion-reduce:group-data-[state=on]:scale-100"
                     />
-                    <span className="hidden sm:inline max-w-[7rem] truncate">{t('mainShell.automation', 'Automation')}</span>
+                    <span className="hidden sm:inline max-w-[7rem] truncate">{t('mainShell.automation')}</span>
+                  </ToggleGroupItem>
+                )}
+                {!devPipelinesDetached && (
+                  <ToggleGroupItem
+                    value="devPipelines"
+                    aria-label={t('mainShell.devPipelines', 'Dev Pipelines')}
+                    className={cn(
+                      'group h-[21px] px-2 sm:px-2.5 py-0 text-xs gap-1 !rounded-md !border-0 !shadow-none',
+                      'transition-[color,transform,opacity,font-weight,text-decoration-thickness] duration-200 ease-out motion-reduce:transition-none',
+                      'active:scale-[0.98] motion-reduce:active:scale-100',
+                      'bg-transparent text-muted-foreground hover:bg-muted/60 hover:text-foreground',
+                      'data-[state=on]:bg-transparent data-[state=on]:hover:bg-transparent',
+                      'data-[state=on]:text-violet-600 data-[state=on]:hover:text-violet-700 dark:data-[state=on]:text-violet-400 dark:data-[state=on]:hover:text-violet-300',
+                      'data-[state=on]:underline data-[state=on]:decoration-violet-600 data-[state=on]:decoration-2 data-[state=on]:underline-offset-[5px]',
+                      'dark:data-[state=on]:decoration-violet-400'
+                    )}
+                  >
+                    <Rocket
+                      strokeWidth={1.25}
+                      absoluteStrokeWidth
+                      className="h-3.5 w-3.5 shrink-0 transition-transform duration-200 ease-out group-data-[state=on]:scale-105 motion-reduce:group-data-[state=on]:scale-100"
+                    />
+                    <span className="hidden sm:inline max-w-[7rem] truncate">{t('mainShell.devPipelines', 'Dev Pipelines')}</span>
+                  </ToggleGroupItem>
+                )}
+                {!showLogDetached && (
+                  <ToggleGroupItem
+                    value="showLog"
+                    aria-label={t('mainShell.showLog', 'Show Log')}
+                    className={cn(
+                      'group h-[21px] px-2 sm:px-2.5 py-0 text-xs gap-1 !rounded-md !border-0 !shadow-none',
+                      'transition-[color,transform,opacity,font-weight,text-decoration-thickness] duration-200 ease-out motion-reduce:transition-none',
+                      'active:scale-[0.98] motion-reduce:active:scale-100',
+                      'bg-transparent text-muted-foreground hover:bg-muted/60 hover:text-foreground',
+                      'data-[state=on]:bg-transparent data-[state=on]:hover:bg-transparent',
+                      'data-[state=on]:text-blue-600 data-[state=on]:hover:text-blue-700 dark:data-[state=on]:text-blue-400 dark:data-[state=on]:hover:text-blue-300',
+                      'data-[state=on]:underline data-[state=on]:decoration-blue-600 data-[state=on]:decoration-2 data-[state=on]:underline-offset-[5px]',
+                      'dark:data-[state=on]:decoration-blue-400'
+                    )}
+                  >
+                    <History
+                      strokeWidth={1.25}
+                      absoluteStrokeWidth
+                      className="h-3.5 w-3.5 shrink-0 transition-transform duration-200 ease-out group-data-[state=on]:scale-105 motion-reduce:group-data-[state=on]:scale-100"
+                    />
+                    <span className="hidden sm:inline max-w-[7rem] truncate">{t('mainShell.showLog', 'Show Log')}</span>
                   </ToggleGroupItem>
                 )}
               </ToggleGroup>
@@ -2430,7 +2485,39 @@ export const TitleBar = ({
                     <Bot strokeWidth={1.25} absoluteStrokeWidth className="h-3.5 w-3.5" />
                   </Button>
                 </TooltipTrigger>
-                <TooltipContent side="bottom">{t('mainShell.automationDockTooltip', 'Dock Automation back to main window')}</TooltipContent>
+                <TooltipContent side="bottom">{t('mainShell.automationDockTooltip')}</TooltipContent>
+              </Tooltip>
+            )}
+            {enableShellSwitcher && devPipelinesDetached && onDevPipelinesDock && (
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="icon"
+                    className="h-[25px] w-[25px] shrink-0 rounded-sm text-violet-600 hover:bg-muted hover:text-violet-700 dark:text-violet-400 dark:hover:text-violet-300"
+                    onClick={onDevPipelinesDock}
+                  >
+                    <Rocket strokeWidth={1.25} absoluteStrokeWidth className="h-3.5 w-3.5" />
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent side="bottom">{t('mainShell.devPipelinesDockTooltip', 'Dock Dev Pipelines back to main window')}</TooltipContent>
+              </Tooltip>
+            )}
+            {enableShellSwitcher && showLogDetached && onShowLogDock && (
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="icon"
+                    className="h-[25px] w-[25px] shrink-0 rounded-sm text-blue-600 hover:bg-muted hover:text-blue-700 dark:text-blue-400 dark:hover:text-blue-300"
+                    onClick={onShowLogDock}
+                  >
+                    <History strokeWidth={1.25} absoluteStrokeWidth className="h-3.5 w-3.5" />
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent side="bottom">{t('mainShell.showLogDockTooltip', 'Dock Show Log back to main window')}</TooltipContent>
               </Tooltip>
             )}
             {enableShellSwitcher && prManagerDetached && onPrManagerDock && (
@@ -2488,7 +2575,6 @@ export const TitleBar = ({
                   </TooltipTrigger>
                   <TooltipContent>{isOpeningReportDialog ? t('common.loading', 'Đang tải ...') : t('dailyReport.open')}</TooltipContent>
                 </Tooltip>
-                <DevPipelinesTitleBarButton />
               </>
             )}
             {/* Settings trên bar khi guest */}
@@ -2513,37 +2599,21 @@ export const TitleBar = ({
               <>
                 <Separator orientation="vertical" className="h-4 w-px bg-muted mx-0.5 shrink-0" />
 
-                {showGitPathToolbarActions && (
-                  <>
-                    <Tooltip>
-                      <TooltipTrigger asChild>
-                        <Button
-                          id="svn-log-button"
-                          variant="link"
-                          size="sm"
-                          onClick={openShowLogWindow}
-                          className="shadow-none focus-visible:ring-0 focus-visible:ring-offset-0 transition-colors rounded-sm h-[25px] w-[25px] text-blue-600 dark:text-blue-400 hover:bg-blue-50 dark:hover:bg-blue-900/30 hover:text-blue-700 dark:hover:text-blue-300"
-                        >
-                          <History strokeWidth={1.25} absoluteStrokeWidth size={15} className="h-4 w-4" />
-                        </Button>
-                      </TooltipTrigger>
-                      <TooltipContent>{t('title.showLogsSvn')}</TooltipContent>
-                    </Tooltip>
-                    <Tooltip>
-                      <TooltipTrigger asChild>
-                        <Button
-                          id="dashboard-button"
-                          variant="link"
-                          size="sm"
-                          onClick={openDashboardWindow}
-                          className="shadow-none focus-visible:ring-0 focus-visible:ring-offset-0 transition-colors rounded-sm h-[25px] w-[25px] text-blue-600 dark:text-blue-400 hover:bg-blue-50 dark:hover:bg-blue-900/30 hover:text-blue-700 dark:hover:text-blue-300"
-                        >
-                          <BarChart3 strokeWidth={1.25} absoluteStrokeWidth size={15} className="h-4 w-4" />
-                        </Button>
-                      </TooltipTrigger>
-                      <TooltipContent>{t('dashboard.open')}</TooltipContent>
-                    </Tooltip>
-                  </>
+                {showGitPathToolbarActions && !(enableShellSwitcher && user && !isGuest) && (
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <Button
+                        id="svn-log-button"
+                        variant="link"
+                        size="sm"
+                        onClick={openShowLogWindow}
+                        className="shadow-none focus-visible:ring-0 focus-visible:ring-offset-0 transition-colors rounded-sm h-[25px] w-[25px] text-blue-600 dark:text-blue-400 hover:bg-blue-50 dark:hover:bg-blue-900/30 hover:text-blue-700 dark:hover:text-blue-300"
+                      >
+                        <History strokeWidth={1.25} absoluteStrokeWidth size={15} className="h-4 w-4" />
+                      </Button>
+                    </TooltipTrigger>
+                    <TooltipContent>{t('title.showLogsSvn')}</TooltipContent>
+                  </Tooltip>
                 )}
 
                 {user && !isGuest && !(enableShellSwitcher && shellView === 'vcs') && (
@@ -2648,6 +2718,18 @@ export const TitleBar = ({
         ) : enableShellSwitcher && shellView === 'automation' && !automationDetached && automationToolbarHostRef ? (
           <div
             ref={automationToolbarHostRef}
+            className="flex min-w-0 flex-1 basis-0 w-full items-center h-full overflow-x-auto overflow-y-hidden gap-0 px-0"
+            style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties}
+          />
+        ) : enableShellSwitcher && shellView === 'devPipelines' && !devPipelinesDetached && devPipelinesToolbarHostRef ? (
+          <div
+            ref={devPipelinesToolbarHostRef}
+            className="flex min-w-0 flex-1 basis-0 w-full items-center h-full overflow-x-auto overflow-y-hidden gap-0 px-0"
+            style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties}
+          />
+        ) : enableShellSwitcher && shellView === 'showLog' && !showLogDetached && showLogToolbarHostRef ? (
+          <div
+            ref={showLogToolbarHostRef}
             className="flex min-w-0 flex-1 basis-0 w-full items-center h-full overflow-x-auto overflow-y-hidden gap-0 px-0"
             style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties}
           />
@@ -2859,12 +2941,7 @@ export const TitleBar = ({
                   <Tooltip>
                     <TooltipTrigger asChild>
                       <DropdownMenuTrigger asChild>
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          className="flex items-center gap-1 px-2 py-1 h-7 text-xs"
-                          onMouseEnter={prefetchBranchList}
-                        >
+                        <Button variant="ghost" size="sm" className="flex items-center gap-1 px-2 py-1 h-7 text-xs" onMouseEnter={prefetchBranchList}>
                           <span className="text-[10px] text-blue-600 dark:text-blue-400 bg-blue-50 dark:bg-blue-900/30 px-1.5 rounded flex items-center gap-0.5">
                             <GitBranch className="h-2.5 w-2.5" />
                             {currentBranch}
@@ -3254,10 +3331,7 @@ export const TitleBar = ({
                               {previewDefsStatus === 'loading' ? (
                                 <div className="px-2 py-3 text-xs text-muted-foreground text-center">{t('common.loading', 'Đang tải...')}</div>
                               ) : previewDefs.length === 0 ? (
-                                <DropdownMenuItem
-                                  className={getAchievementDemoMenuItemClass('bronze')}
-                                  onSelect={() => window.api.achievement.previewToast()}
-                                >
+                                <DropdownMenuItem className={getAchievementDemoMenuItemClass('bronze')} onSelect={() => window.api.achievement.previewToast()}>
                                   <span className={getAchievementDemoMenuLabelClass('bronze')}>{t('achievement.previewToast')} (Welcome!)</span>
                                 </DropdownMenuItem>
                               ) : (
@@ -3269,9 +3343,7 @@ export const TitleBar = ({
                                       className={getAchievementDemoMenuItemClass(def.tier)}
                                       onSelect={() => window.api.achievement.previewToast(def.code)}
                                     >
-                                      <span className={getAchievementDemoMenuLabelClass(def.tier)}>
-                                        {t(`achievement.def.${def.code}.name`, { defaultValue: def.name })}
-                                      </span>
+                                      <span className={getAchievementDemoMenuLabelClass(def.tier)}>{t(`achievement.def.${def.code}.name`, { defaultValue: def.name })}</span>
                                       <span className={getAchievementDemoMenuTierClass(def.tier)}>{def.tier}</span>
                                     </DropdownMenuItem>
                                   ))
@@ -3358,6 +3430,10 @@ export const TitleBar = ({
                             <Users className="h-4 w-4 text-violet-500" />
                             {t('teamProgress.openMenu')}
                           </DropdownMenuItem>
+                          <DropdownMenuItem onClick={() => useCommitWorkflowStore.getState().setQualityDialogOpen(true)}>
+                            <Workflow className="h-4 w-4 text-cyan-500" />
+                            {t('commitWorkflow.openQualityDashboard')}
+                          </DropdownMenuItem>
                           <DropdownMenuItem onClick={() => setShowLeaderboard(true)}>
                             <Crown className="h-4 w-4 text-yellow-500" />
                             {t('achievement.leaderboard')}
@@ -3421,19 +3497,33 @@ export const TitleBar = ({
                         <SquareArrowOutUpRight strokeWidth={1.25} absoluteStrokeWidth className="h-4 w-4" />
                       </Button>
                     </TooltipTrigger>
-                    <TooltipContent side="bottom">{t('mainShell.automationDetachTooltip', 'Detach Automation to a separate window')}</TooltipContent>
+                    <TooltipContent side="bottom">{t('mainShell.automationDetachTooltip')}</TooltipContent>
+                  </Tooltip>
+                ) : null}
+                {enableShellSwitcher && shellView === 'devPipelines' && !devPipelinesDetached && onDevPipelinesDetach ? (
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <Button type="button" variant="ghost" size="icon" className="h-[25px] w-[25px] shrink-0 rounded-sm" onClick={onDevPipelinesDetach}>
+                        <SquareArrowOutUpRight strokeWidth={1.25} absoluteStrokeWidth className="h-4 w-4" />
+                      </Button>
+                    </TooltipTrigger>
+                    <TooltipContent side="bottom">{t('mainShell.devPipelinesDetachTooltip', 'Detach Dev Pipelines to a separate window')}</TooltipContent>
+                  </Tooltip>
+                ) : null}
+                {enableShellSwitcher && shellView === 'showLog' && !showLogDetached && onShowLogDetach ? (
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <Button type="button" variant="ghost" size="icon" className="h-[25px] w-[25px] shrink-0 rounded-sm" onClick={onShowLogDetach}>
+                        <SquareArrowOutUpRight strokeWidth={1.25} absoluteStrokeWidth className="h-4 w-4" />
+                      </Button>
+                    </TooltipTrigger>
+                    <TooltipContent side="bottom">{t('mainShell.showLogDetachTooltip', 'Detach Show Log to a separate window')}</TooltipContent>
                   </Tooltip>
                 ) : null}
                 <UserProfilePanel open={showProfile} onOpenChange={setShowProfile} />
                 <HolidayCalendarDialog open={showHolidayCalendar} onOpenChange={setShowHolidayCalendar} />
                 <LeaderboardDialog open={showLeaderboard} onOpenChange={setShowLeaderboard} isAdmin={user?.role === 'admin'} />
-                <AiUsageStatsDialog
-                  open={showAiUsageStats}
-                  onOpenChange={setShowAiUsageStats}
-                  isAdmin={isAdmin}
-                  currentUserId={user?.id}
-                  currentUserName={user?.name}
-                />
+                <AiUsageStatsDialog open={showAiUsageStats} onOpenChange={setShowAiUsageStats} isAdmin={isAdmin} currentUserId={user?.id} currentUserName={user?.name} />
               </>
             ) : isGuest ? (
               <>

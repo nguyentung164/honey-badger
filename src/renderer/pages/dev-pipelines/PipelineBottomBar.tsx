@@ -75,6 +75,8 @@ export type PipelineBottomBarProps = {
   onMiniMapVisibleChange: (visible: boolean) => void
   canvasLocked: boolean
   onCanvasLockedChange: (locked: boolean) => void
+  /** Commit workflow: hide pipeline-only add actions. */
+  hideAddActions?: boolean
 }
 
 function ToolbarIconButton({
@@ -139,6 +141,7 @@ export function PipelineBottomBar({
   onMiniMapVisibleChange,
   canvasLocked,
   onCanvasLockedChange,
+  hideAddActions = false,
 }: PipelineBottomBarProps) {
   const { t } = useTranslation()
   const rf = useReactFlow()
@@ -218,6 +221,8 @@ export function PipelineBottomBar({
           aria-label={t('devPipelines.actionBarAria')}
         >
           <div className={horizontalRowClass}>
+        {hideAddActions ? null : (
+          <>
         <Tooltip>
           <TooltipTrigger asChild>
             <Button type="button" variant={buttonVariant} size="sm" className={actionBtnClass} onClick={onAddStep} disabled={canvasLocked}>
@@ -249,6 +254,8 @@ export function PipelineBottomBar({
         </Tooltip>
 
         <Separator orientation="vertical" className="mx-0.5 h-6 self-center" />
+          </>
+        )}
 
         <div className="relative w-[10rem] sm:w-[14rem]">
           <Search className="pointer-events-none absolute left-2 top-1/2 size-3 -translate-y-1/2 text-muted-foreground" aria-hidden />

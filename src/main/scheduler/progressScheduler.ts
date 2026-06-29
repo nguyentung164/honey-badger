@@ -4,7 +4,6 @@ import {
   getAllUsersWithEmail,
   getEvmHoursForUserAndDate,
   getGitCommitQueueForUserAndDate,
-  getReviewsDoneForUserAndDate,
   getSnapshotDatesForUser,
   getTasksDoneForUserAndDate,
   getTasksOverdueForDate,
@@ -12,6 +11,7 @@ import {
   hasDailyReportForDate,
   upsertDailySnapshot,
 } from '../task/progressStore'
+import { getWorkflowDailyMetrics } from '../commitWorkflow/db'
 
 /** Chờ sau khi mở app rồi mới backfill — tránh tranh tài nguyên lúc khởi động. Có thể set HONEY_BADGER_PROGRESS_BACKFILL_DELAY_MS (ms). */
 const BACKFILL_START_DELAY_MS = Number(process.env.HONEY_BADGER_PROGRESS_BACKFILL_DELAY_MS) || 45_000
@@ -52,13 +52,18 @@ async function buildDailySnapshot(userId: string, userEmail: string, userName: s
   const name = row.name ?? userName
   const code = row.user_code ?? userCode
 
-  const [commitRows, taskRows, overdueCount, reviewsCount, hasReport, evmHours] = await Promise.all([
+  const [commitRows, taskRows, overdueCount, hasReport, evmHours, workflowMetrics] = await Promise.all([
     getGitCommitQueueForUserAndDate(email || null, name || null, code || null, date),
     getTasksDoneForUserAndDate(userId, date),
     getTasksOverdueForDate(userId, date),
-    getReviewsDoneForUserAndDate(userId, date),
     hasDailyReportForDate(userId, date),
     getEvmHoursForUserAndDate(userId, date),
+    getWorkflowDailyMetrics(userId, date).catch(() => ({
+      commits_with_rule_pass: 0,
+      commits_with_spotbugs_pass: 0,
+      commits_with_playwright_pass: 0,
+      commits_with_workflow_completed: 0,
+    })),
   ])
 
   let commits_count = 0
@@ -98,10 +103,13 @@ async function buildDailySnapshot(userId: string, userEmail: string, userName: s
     commits_with_rule_check,
     commits_with_spotbugs,
     commits_total_in_queue,
+    commits_with_rule_pass: workflowMetrics.commits_with_rule_pass,
+    commits_with_spotbugs_pass: workflowMetrics.commits_with_spotbugs_pass,
+    commits_with_playwright_pass: workflowMetrics.commits_with_playwright_pass,
+    commits_with_workflow_completed: workflowMetrics.commits_with_workflow_completed,
     tasks_done,
     tasks_done_on_time,
     tasks_overdue_opened: overdueCount,
-    reviews_done: reviewsCount,
     has_daily_report: hasReport ? 1 : 0,
     evm_hours_logged: evmHours,
   })

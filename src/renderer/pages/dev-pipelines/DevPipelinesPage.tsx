@@ -43,10 +43,11 @@ import { devPipelineMiniMapNodeColor, devPipelineMiniMapNodeStrokeColor } from '
 import { applyPipelineEdgePresentation, patchPipelineNodesRunVisual } from '@/pages/dev-pipelines/devPipelineRunVisualPatch'
 import { pipelineGroupOptionLabel, stepsNeedingGroupAssignment } from '@/pages/dev-pipelines/pipelineGroupAssign'
 import '@xyflow/react/dist/style.css'
-import { Loader2, Minus, PanelLeft, PanelLeftClose, Rocket, Square, Workflow, X } from 'lucide-react'
+import { Loader2, Minus, PanelLeft, PanelLeftClose, Rocket, Square, SquareArrowOutDownLeft, Workflow, X } from 'lucide-react'
 import { useTheme } from 'next-themes'
 import type { CSSProperties } from 'react'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { createPortal } from 'react-dom'
 import { useTranslation } from 'react-i18next'
 import type { PanelImperativeHandle } from 'react-resizable-panels'
 import {
@@ -105,6 +106,13 @@ import { planPipelineGroupChildLayout } from './pipelineGroupLayout'
 import { PipelineGroupNode } from './PipelineGroupNode'
 import { PipelineNoteNode } from './PipelineNoteNode'
 import { PipelineStepNode, type PipelineStepRunVisual } from './PipelineStepNode'
+import { cn } from '@/lib/utils'
+import { canOpenDevPipelinesEmbedded } from '@/lib/mainShellTabAccess'
+import { useDevPipelinesToolbarPortalTarget } from '@/pages/main/DevPipelinesToolbarPortalContext'
+
+export type DevPipelinesPageProps = {
+  mode?: 'embedded' | 'standalone'
+}
 
 const SIDEBAR_SIZE_KEY = 'dev-pipelines-sidebar-size'
 const PIPELINE_MINIMAP_LS = 'dev-pipelines-miniMapVisible'
@@ -327,6 +335,8 @@ function DevPipelinesEditorInner({
   const [hasBoardLayoutDefault, setHasBoardLayoutDefault] = useState(() => Boolean(readBoardContentDefaults('devPipelines')))
   const [pendingApproval, setPendingApproval] = useState<{ nodeId: string; label: string; message?: string } | null>(null)
 
+  const editLocked = canvasLocked || running
+
   const flowEdgeInspectorActions = useMemo(
     () => ({
       openInspector: (id: string) => setFlowInspector({ kind: 'edge', id }),
@@ -541,13 +551,18 @@ function DevPipelinesEditorInner({
 
   const onEdgesChangeWithDirty = useCallback(
     (changes: EdgeChange[]) => {
+      if (editLocked) {
+        const selectOnly = changes.filter(c => c.type === 'select')
+        if (selectOnly.length > 0) onEdgesChange(selectOnly)
+        return
+      }
       onEdgesChange(changes)
       // Selection-only changes don't modify the graph
       if (!isDirtySuppressed() && changes.some(c => c.type !== 'select')) {
         onDirty()
       }
     },
-    [isDirtySuppressed, onEdgesChange, onDirty]
+    [editLocked, isDirtySuppressed, onEdgesChange, onDirty]
   )
 
   const onEdgesDelete = useCallback(
@@ -604,7 +619,7 @@ function DevPipelinesEditorInner({
 
   useEffect(() => {
     resetFromFlow(flow)
-  }, [flow?.id, resetFromFlow])
+  }, [flow, resetFromFlow])
 
   const persistGraph = useCallback(async (): Promise<boolean> => {
     if (!flow) return false
@@ -847,6 +862,11 @@ function DevPipelinesEditorInner({
 
   const onNodesChange = useCallback(
     (changes: NodeChange[]) => {
+      if (editLocked) {
+        const selectOnly = changes.filter(c => c.type === 'select')
+        if (selectOnly.length > 0) onNodesChangeInternal(selectOnly)
+        return
+      }
       const removeIds = changes.filter((c): c is NodeChange & { type: 'remove'; id: string } => c.type === 'remove').map(c => c.id)
       const removedGroups = new Set(removeIds.filter(id => nodes.find(n => n.id === id)?.type === 'pipelineGroup'))
 
@@ -884,7 +904,7 @@ function DevPipelinesEditorInner({
         if (hasMeaningfulChange) onDirty()
       }
     },
-    [isDirtySuppressed, nodes, onDirty, onNodesChangeInternal, setEdges, setNodes]
+    [editLocked, isDirtySuppressed, nodes, onDirty, onNodesChangeInternal, setEdges, setNodes]
   )
 
   const patchNodeData = useCallback(
@@ -1079,6 +1099,8 @@ function DevPipelinesEditorInner({
       const sourceNode = nodes.find(n => n.id === params.source)
       const targetNode = nodes.find(n => n.id === params.target)
       if (sourceNode?.type !== 'pipelineStep' || targetNode?.type !== 'pipelineStep') return
+      const srcKind = (sourceNode.data as DevPipelineNodeData).stepKind
+      const tgtKind = (targetNode.data as DevPipelineNodeData).stepKind
       onDirty()
       // Preserve the actual handle sides used during the drag.
       const sourceSide = params.sourceHandle?.startsWith('s-') ? params.sourceHandle.slice(2) : 'bottom'
@@ -1340,6 +1362,7 @@ function DevPipelinesEditorInner({
       },
       deleteStep: removeNodeById,
       canDeleteStep: true,
+      canDuplicateStep: true,
     }
   }, [nodes, onDirty, onStartRun, removeNodeById, running, setNodes, t])
 
@@ -1501,29 +1524,29 @@ function DevPipelinesEditorInner({
                 <FlowCanvasNodeSelectionProvider anyNodeSelected={anyNodeSelected}>
                   <ReactFlow
                     colorMode={flowColorMode}
-                    deleteKeyCode={canvasLocked ? null : FLOW_DELETE_KEY_CODE}
+                    deleteKeyCode={editLocked ? null : FLOW_DELETE_KEY_CODE}
                     minZoom={FLOW_CANVAS_MIN_ZOOM}
                     maxZoom={FLOW_CANVAS_MAX_ZOOM}
                     nodes={nodes}
                     edges={flowEdges}
                     onNodesChange={onNodesChange}
                     onEdgesChange={onEdgesChangeWithDirty}
-                    onEdgesDelete={canvasLocked ? undefined : onEdgesDelete}
-                    onConnect={onConnect}
+                    onEdgesDelete={editLocked ? undefined : onEdgesDelete}
+                    onConnect={editLocked ? undefined : onConnect}
                     onNodeDragStop={onNodeDragStop}
                     onSelectionChange={onSelectionChange}
                     onPaneContextMenu={handlePaneContextMenu}
-                    onDragOver={canvasLocked ? undefined : onDragOver}
-                    onDrop={canvasLocked ? undefined : onDrop}
+                    onDragOver={editLocked ? undefined : onDragOver}
+                    onDrop={editLocked ? undefined : onDrop}
                     nodeTypes={nodeTypes}
                     edgeTypes={edgeTypes}
                     defaultEdgeOptions={FLOW_DEFAULT_EDGE_OPTIONS}
                     onlyRenderVisibleElements
-                    selectionOnDrag={!canvasLocked}
-                    panOnDrag={canvasLocked ? true : FLOW_PAN_ON_DRAG}
-                    nodesDraggable={!canvasLocked}
-                    nodesConnectable={!canvasLocked}
-                    elementsSelectable={!canvasLocked}
+                    selectionOnDrag={!editLocked}
+                    panOnDrag={editLocked ? true : FLOW_PAN_ON_DRAG}
+                    nodesDraggable={!editLocked}
+                    nodesConnectable={!editLocked}
+                    elementsSelectable={!editLocked}
                     proOptions={FLOW_PRO_OPTIONS}
                     className="h-full w-full bg-background"
                   >
@@ -1560,10 +1583,10 @@ function DevPipelinesEditorInner({
                       onClearSelection={handleClearSelection}
                       onAutoLayout={applyPipelineAutoLayout}
                       onApplyContentLayoutToAll={applyContentLayoutToAllSteps}
-                      layoutDisabled={canvasLocked}
+                      layoutDisabled={editLocked}
                       miniMapVisible={miniMapVisible}
                       onMiniMapVisibleChange={handleMiniMapVisibleChange}
-                      canvasLocked={canvasLocked}
+                      canvasLocked={editLocked}
                       onCanvasLockedChange={handleCanvasLockedChange}
                     />
                   </ReactFlow>
@@ -1765,7 +1788,13 @@ function DevPipelinesEditorInner({
               <div className="flex flex-col gap-4">
                 <div className="space-y-2">
                   <Label htmlFor="step-label">{t('devPipelines.stepLabel')}</Label>
-                  <Input id="step-label" value={editingData.label} onChange={e => patchNodeData(editingNodeId, { label: e.target.value })} className="h-9" />
+                  <Input
+                    id="step-label"
+                    value={editingData.label}
+                    onChange={e => patchNodeData(editingNodeId, { label: e.target.value })}
+                    className="h-9"
+                    disabled={editLocked}
+                  />
                 </div>
                 <div className="space-y-2">
                   <Label>{t('devPipelines.stepKindLabel')}</Label>
@@ -1976,8 +2005,10 @@ function DevPipelinesEditorInner({
   )
 }
 
-export default function DevPipelinesPage() {
+export default function DevPipelinesPage({ mode = 'standalone' }: DevPipelinesPageProps) {
   const { t } = useTranslation()
+  const embedded = mode === 'embedded'
+  const portal = useDevPipelinesToolbarPortalTarget()
   const [flows, setFlows] = useState<DevPipelineFlowSummary[]>([])
   const [loadingList, setLoadingList] = useState(true)
   const [selectedId, setSelectedId] = useState<string | null>(null)
@@ -2044,6 +2075,14 @@ export default function DevPipelinesPage() {
     void loadList()
   }, [loadList])
 
+  useEffect(() => {
+    const onFocus = () => {
+      void loadList({ background: true })
+    }
+    window.addEventListener('focus', onFocus)
+    return () => window.removeEventListener('focus', onFocus)
+  }, [loadList])
+
   const loadDetail = useCallback(
     async (id: string) => {
       autosaveRef.current.cancel()
@@ -2078,6 +2117,7 @@ export default function DevPipelinesPage() {
   }, [selectedId, loadDetail])
 
   const activeFlowName = flowName || flows.find(f => f.id === selectedId)?.name || ''
+  const barRunning = running
 
   const canPersist = Boolean(selectedId && flowDetail && flowDetail.id === selectedId && !detailLoading)
 
@@ -2145,6 +2185,11 @@ export default function DevPipelinesPage() {
     },
     [flushSave, selectedId]
   )
+
+  useEffect(() => {
+    if (selectedId || flows.length === 0) return
+    void trySelect(flows[0].id)
+  }, [flows, selectedId, trySelect])
 
   const startRun = useCallback(
     async (scope?: DevPipelineRunScope) => {
@@ -2255,7 +2300,10 @@ export default function DevPipelinesPage() {
 
   const topBar = (
     <div
-      className="flex h-9 w-full shrink-0 select-none items-center gap-2 border-b border-border pl-2 pr-0 text-sm"
+      className={cn(
+        'flex select-none items-center gap-2 text-sm',
+        embedded ? 'h-full min-h-0 w-full max-h-8 min-w-0 flex-1 pl-1' : 'h-9 w-full shrink-0 border-b border-border pl-2 pr-0'
+      )}
       style={
         {
           WebkitAppRegion: 'drag',
@@ -2269,9 +2317,9 @@ export default function DevPipelinesPage() {
           <TooltipTrigger asChild>
             <Button
               type="button"
-              variant="ghost"
+              variant={embedded ? 'link' : 'ghost'}
               size="icon"
-              className="size-8 shrink-0"
+              className={cn('shrink-0', embedded ? 'h-[25px] w-[25px] rounded-sm shadow-none focus-visible:ring-0 focus-visible:ring-offset-0' : 'size-8')}
               aria-label={flowSidebarOpen ? t('devPipelines.hidePipelineList') : t('devPipelines.showPipelineList')}
               aria-pressed={flowSidebarOpen}
               onClick={toggleSidebar}
@@ -2281,15 +2329,19 @@ export default function DevPipelinesPage() {
           </TooltipTrigger>
           <TooltipContent>{flowSidebarOpen ? t('devPipelines.hidePipelineList') : t('devPipelines.showPipelineList')}</TooltipContent>
         </Tooltip>
-        <Rocket className="size-4 shrink-0 text-primary" aria-hidden />
-        <span className="truncate font-semibold">{t('devPipelines.title')}</span>
-        <span className="hidden text-xs text-muted-foreground sm:inline">{t('devPipelines.subtitle')}</span>
+        {!embedded ? (
+          <>
+            <Rocket className="size-4 shrink-0 text-primary" aria-hidden />
+            <span className="truncate font-semibold">{t('devPipelines.title')}</span>
+            <span className="hidden text-xs text-muted-foreground sm:inline">{t('devPipelines.subtitle')}</span>
+          </>
+        ) : null}
       </div>
       {selectedId && activeFlowName ? (
         <div className="shrink-0" style={{ WebkitAppRegion: 'no-drag' } as CSSProperties}>
           <DevPipelineActiveBar
             flowName={activeFlowName}
-            running={running}
+            running={barRunning}
             lastRunStatus={lastRunStatus}
             saveState={saveState}
             onRename={handleRename}
@@ -2299,28 +2351,48 @@ export default function DevPipelinesPage() {
         </div>
       ) : null}
       <div className="min-h-0 min-w-0 flex-1 self-stretch" style={{ WebkitAppRegion: 'drag' } as CSSProperties} aria-hidden />
-      <div className="flex h-full shrink-0 items-center" style={{ WebkitAppRegion: 'no-drag' } as CSSProperties}>
-        <button type="button" onClick={() => handleWindow('minimize')} className="flex h-full w-10 items-center justify-center hover:bg-white/10" aria-label="minimize">
-          <Minus className="h-4 w-4" />
-        </button>
-        <button type="button" onClick={() => handleWindow('maximize')} className="flex h-full w-10 items-center justify-center hover:bg-white/10" aria-label="maximize">
-          <Square className="h-3 w-3" />
-        </button>
-        <button
-          type="button"
-          onClick={() => window.api.devPipelines.closeWindow()}
-          className="flex h-full w-10 items-center justify-center hover:bg-red-600 hover:text-white"
-          aria-label="close"
-        >
-          <X className="h-4 w-4" />
-        </button>
-      </div>
+      {!embedded ? (
+        <div className="flex h-full shrink-0 items-center" style={{ WebkitAppRegion: 'no-drag' } as CSSProperties}>
+          {canOpenDevPipelinesEmbedded() ? (
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button
+                  type="button"
+                  variant="link"
+                  size="sm"
+                  className="h-[25px] w-[25px] shrink-0 rounded-sm shadow-none focus-visible:ring-0 focus-visible:ring-offset-0"
+                  onClick={() => window.api.devPipelines.requestDock()}
+                  aria-label={t('devPipelines.dock')}
+                >
+                  <SquareArrowOutDownLeft strokeWidth={1.25} absoluteStrokeWidth className="h-4 w-4" />
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent side="bottom">{t('devPipelines.dock')}</TooltipContent>
+            </Tooltip>
+          ) : null}
+          <button type="button" onClick={() => handleWindow('minimize')} className="flex h-full w-10 items-center justify-center hover:bg-white/10" aria-label="minimize">
+            <Minus className="h-4 w-4" />
+          </button>
+          <button type="button" onClick={() => handleWindow('maximize')} className="flex h-full w-10 items-center justify-center hover:bg-white/10" aria-label="maximize">
+            <Square className="h-3 w-3" />
+          </button>
+          <button
+            type="button"
+            onClick={() => window.api.devPipelines.closeWindow()}
+            className="flex h-full w-10 items-center justify-center hover:bg-red-600 hover:text-white"
+            aria-label="close"
+          >
+            <X className="h-4 w-4" />
+          </button>
+        </div>
+      ) : null}
     </div>
   )
 
   return (
-    <div className="flex h-screen w-full flex-col overflow-hidden bg-background">
-      {topBar}
+    <div className={cn('flex w-full flex-col overflow-hidden bg-background', embedded ? 'h-full min-h-0' : 'h-screen')}>
+      {embedded && portal.host ? createPortal(topBar, portal.host) : null}
+      {!embedded ? topBar : null}
       <ResizablePanelGroup
         orientation="horizontal"
         className="min-h-0 flex-1"

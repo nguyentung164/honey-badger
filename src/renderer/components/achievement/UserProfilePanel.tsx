@@ -486,7 +486,6 @@ export function UserProfilePanel({ open, onOpenChange, userId: viewingUserId, us
               <div className="grid grid-cols-3 gap-2">
                 <StatCard label="Tasks Done" value={stats?.total_tasks_done ?? 0} />
                 <StatCard label="Commits" value={stats?.total_commits ?? 0} />
-                <StatCard label="Reviews" value={stats?.total_reviews ?? 0} />
                 <StatCard label="Reports" value={stats?.total_reports ?? 0} />
                 <StatCard label="Files Committed" value={(stats?.total_files_committed ?? 0).toLocaleString()} />
                 <StatCard

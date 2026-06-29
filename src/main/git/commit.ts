@@ -49,11 +49,13 @@ export async function commit(commitMessage: string, selectedFiles: string[] = []
     l.info('Commit message:', commitMessage)
     l.info('Selected files:', selectedFiles)
 
+    let replacesCommitHash: string | undefined
     if (amend) {
       const logResult = await git.log({ maxCount: 1 })
       if (!logResult.latest) {
         return { status: 'error', message: 'Nothing to amend. No commits yet.' }
       }
+      replacesCommitHash = logResult.latest.hash
     }
 
     let finalMessage = commitMessage.trim()
@@ -203,6 +205,8 @@ export async function commit(commitMessage: string, selectedFiles: string[] = []
       projectName: sourceFolderForInfo ? path.basename(sourceFolderForInfo) : undefined,
       vcsType: 'git',
       sourceFolderPath: sourceFolderForInfo ?? undefined,
+      isAmend: amend,
+      replacesCommitHash,
     }
 
     // Git: commit chỉ lưu local, chưa lên remote. Gửi mail/Teams khi push, không gửi lúc commit.

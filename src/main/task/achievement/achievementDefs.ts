@@ -4,7 +4,7 @@
  */
 export interface AchievementDefinition {
   code: string
-  category: 'task' | 'git' | 'review' | 'report' | 'quality' | 'streak' | 'negative'
+  category: 'task' | 'git' | 'report' | 'quality' | 'streak' | 'negative'
   tier: 'bronze' | 'silver' | 'gold' | 'special' | 'negative'
   name: string
   description: string
@@ -653,92 +653,6 @@ export const ACHIEVEMENT_DEFINITIONS: AchievementDefinition[] = [
     sort_order: 56,
   },
 
-  // ─── Review ───
-  {
-    code: 'review_first',
-    category: 'review',
-    tier: 'bronze',
-    name: 'First Look',
-    description: 'Review commit đầu tiên.',
-    icon: 'eye',
-    xp_reward: 20,
-    is_repeatable: false,
-    condition_type: 'total_reviews',
-    condition_threshold: 1,
-    is_negative: false,
-    sort_order: 60,
-  },
-  {
-    code: 'review_25',
-    category: 'review',
-    tier: 'bronze',
-    name: 'Code Reviewer',
-    description: 'Review 25 commits.',
-    icon: 'search-check',
-    xp_reward: 40,
-    is_repeatable: false,
-    condition_type: 'total_reviews',
-    condition_threshold: 25,
-    is_negative: false,
-    sort_order: 61,
-  },
-  {
-    code: 'review_100',
-    category: 'review',
-    tier: 'silver',
-    name: 'Quality Guardian',
-    description: 'Review 100 commits.',
-    icon: 'shield-check',
-    xp_reward: 80,
-    is_repeatable: false,
-    condition_type: 'total_reviews',
-    condition_threshold: 100,
-    is_negative: false,
-    sort_order: 62,
-  },
-  {
-    code: 'review_500',
-    category: 'review',
-    tier: 'gold',
-    name: 'Code Oracle',
-    description: 'Review 500 commits.',
-    icon: 'telescope',
-    xp_reward: 200,
-    is_repeatable: false,
-    condition_type: 'total_reviews',
-    condition_threshold: 500,
-    is_negative: false,
-    sort_order: 63,
-  },
-  {
-    code: 'review_250',
-    category: 'review',
-    tier: 'gold',
-    name: 'Review Champion',
-    description: 'Review 250 commits.',
-    icon: 'shield-check',
-    xp_reward: 120,
-    is_repeatable: false,
-    condition_type: 'total_reviews',
-    condition_threshold: 250,
-    is_negative: false,
-    sort_order: 64,
-  },
-  {
-    code: 'review_1000',
-    category: 'review',
-    tier: 'special',
-    name: 'Review Legend',
-    description: 'Review 1000 commits.',
-    icon: 'telescope',
-    xp_reward: 300,
-    is_repeatable: false,
-    condition_type: 'total_reviews',
-    condition_threshold: 1000,
-    is_negative: false,
-    sort_order: 65,
-  },
-
   // ─── Daily Report ───
   {
     code: 'report_first',
@@ -926,20 +840,6 @@ export const ACHIEVEMENT_DEFINITIONS: AchievementDefinition[] = [
   },
 
   // ─── Negative / Struggle ───
-  {
-    code: 'neg_ghost_reviewer',
-    category: 'negative',
-    tier: 'negative',
-    name: 'Ghost Reviewer',
-    description: 'Bạn đã không review commit nào trong 7 ngày. Có thể bạn cần một ít cà phê?',
-    icon: 'ghost',
-    xp_reward: 0,
-    is_repeatable: true,
-    condition_type: 'consecutive_no_review_days',
-    condition_threshold: 7,
-    is_negative: true,
-    sort_order: 90,
-  },
   {
     code: 'neg_silent_dev',
     category: 'negative',

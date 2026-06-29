@@ -6,6 +6,7 @@ import l from 'electron-log'
 import { IPC } from 'main/constants'
 import { sendMail } from 'main/notification/sendMail'
 import { sendTeams } from 'main/notification/sendTeams'
+import { getDiff } from './get-diff'
 import { listAllFilesRecursive } from 'main/utils/utils'
 import configurationStore from '../store/ConfigurationStore'
 import { findUser } from './find-user'
@@ -30,6 +31,14 @@ enum SVNStatus {
 interface SVNResponse {
   status: 'success' | 'error'
   message: string
+  data?: {
+    revision?: string
+    addedFiles: string[]
+    modifiedFiles: string[]
+    deletedFiles: string[]
+    commitMessage: string
+    svnDiffContent?: string
+  }
 }
 
 export async function commit(
@@ -98,6 +107,16 @@ export async function commit(
   const allFiles = [...modifiedFiles, ...addedFiles, ...targetFiles]
   if (allFiles.length > 0) {
     try {
+      let svnDiffContent: string | undefined
+      try {
+        const diffResult = (await getDiff(selectedFiles)) as { status: string; data?: { diffContent?: string } }
+        if (diffResult.status === 'success' && diffResult.data?.diffContent?.trim()) {
+          svnDiffContent = diffResult.data.diffContent.trim()
+        }
+      } catch (diffErr) {
+        l.warn('⚠️ Could not capture SVN diff before commit:', diffErr)
+      }
+
       const os = require('node:os')
       const tempFile = path.join(os.tmpdir(), `svn-commit-message-${Date.now()}.txt`)
       fs.writeFileSync(tempFile, commitMessage, { encoding: 'utf8' })
@@ -155,7 +174,18 @@ export async function commit(
       if (enableTeamsNotification) {
         sendTeams(data)
       }
-      return { status: 'success', message: `${commitResult.message}` }
+      return {
+        status: 'success',
+        message: `${commitResult.message}`,
+        data: {
+          revision,
+          addedFiles: addedFilePaths,
+          modifiedFiles,
+          deletedFiles: deletedFilePaths,
+          commitMessage,
+          svnDiffContent,
+        },
+      }
     } catch (error: any) {
       return { status: 'error', message: `${error?.message ?? error}` }
     }

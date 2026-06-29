@@ -2,7 +2,7 @@ import { create } from 'zustand'
 
 export type TrendPeriod = '7d' | '1m' | '3m' | '6m' | '1y'
 export type TrendGranularity = 'day' | 'week' | 'month'
-export type TrendMetric = 'commits' | 'tasks' | 'reviews' | 'lines_added' | 'reports'
+export type TrendMetric = 'commits' | 'tasks' | 'lines_added' | 'reports'
 
 export interface UserInfo {
   id: string
@@ -18,7 +18,6 @@ export interface HeatmapDay {
   has_daily_report: number
   lines_inserted: number
   lines_deleted: number
-  reviews_done: number
 }
 
 export interface TrendPoint {
@@ -27,7 +26,6 @@ export interface TrendPoint {
   lines_added: number
   lines_deleted: number
   tasks: number
-  reviews: number
   reports: number
 }
 
@@ -39,7 +37,6 @@ export interface RadarMonthData {
   tasks_done: number
   tasks_done_on_time: number
   tasks_overdue_opened: number
-  reviews_done: number
   has_daily_report_days: number
   commits_with_rule_check: number
   commits_with_spotbugs: number
@@ -83,13 +80,26 @@ export interface QualityWeekPoint {
   rule_checked: number
   spotbugs_checked: number
   total: number
+  rule_pass?: number
+  spotbugs_pass?: number
+  playwright_pass?: number
+  workflow_completed?: number
 }
 
 export interface QualityData {
   trend: QualityWeekPoint[]
   userRuleRate: number
   userSpotbugsRate: number
-  teamAvg: { rule_check_rate: number; spotbugs_rate: number }
+  userRulePassRate: number
+  userSpotbugsPassRate: number
+  userPlaywrightPassRate: number
+  teamAvg: {
+    rule_check_rate: number
+    spotbugs_rate: number
+    rule_pass_rate: number
+    spotbugs_pass_rate: number
+    playwright_pass_rate: number
+  }
 }
 
 export interface ProductiveHourCell {
@@ -104,13 +114,11 @@ export interface MonthlyHighlightsData {
   lines_inserted: number
   lines_deleted: number
   tasks_done: number
-  reviews_done: number
   report_days: number
   working_days: number
   longest_streak: number
   prev_commits: number
   prev_tasks: number
-  prev_reviews: number
   prev_report_days: number
   personal_best_commits_day: number
   personal_best_commits_day_date: string | null

@@ -49,7 +49,7 @@ function runCommandWithStream(args: string[], cwd: string, sender?: WebContents)
 
 /**
  * Lấy thư mục root của SVN working copy.
- * @param cwd - Thư mục làm việc (vd: từ options.cwd khi mở ShowLog từ Dashboard).
+ * @param cwd - Thư mục làm việc (vd: từ options.cwd khi mở ShowLog).
  *               Nếu không truyền, dùng sourceFolder từ config store.
  */
 export async function getWorkingCopyRoot(cwd?: string): Promise<string> {

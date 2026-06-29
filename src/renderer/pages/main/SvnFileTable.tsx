@@ -38,6 +38,7 @@ import logger from '@/services/logger'
 import { useConfigurationStore } from '@/stores/useConfigurationStore'
 import 'ldrs/react/Quantum.css'
 import { Copy, File, FileText, Folder, FolderOpen, History, Info, Pencil, Plus, RefreshCw, RotateCcw } from 'lucide-react'
+import { requestOpenShowLog } from '@/lib/openShowLog'
 import { IPC } from 'main/constants'
 import { forwardRef, type HTMLProps, memo, useCallback, useEffect, useImperativeHandle, useMemo, useRef, useState } from 'react'
 import { openSvnWorkingDiff } from '@/lib/diffViewer/openDiffViewer'
@@ -823,14 +824,12 @@ export const SvnFileTable = forwardRef(({ targetPath, onLoadingChange }: SvnFile
   const showLog = useCallback(
     (filePath: string | string[]) => {
       if (versionControlSystem === 'git') {
-        // For Git, we can show log for specific files
-        window.api.electron.send(IPC.WINDOW.SHOW_LOG, {
+        requestOpenShowLog({
           path: Array.isArray(filePath) ? filePath[0] : filePath,
           isGit: true,
         })
       } else {
-        // For SVN, use existing logic
-        window.api.electron.send(IPC.WINDOW.SHOW_LOG, {
+        requestOpenShowLog({
           path: Array.isArray(filePath) ? filePath[0] : filePath,
         })
       }

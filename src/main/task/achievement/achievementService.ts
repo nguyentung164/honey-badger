@@ -120,9 +120,6 @@ async function checkAndAward(userId: string, stats: UserStats, defs: Achievement
       case 'total_rebases':
         shouldAward = stats.total_rebases >= (def.condition_threshold ?? 0)
         break
-      case 'total_reviews':
-        shouldAward = stats.total_reviews >= (def.condition_threshold ?? 0)
-        break
       case 'total_reports':
         shouldAward = stats.total_reports >= (def.condition_threshold ?? 0)
         break
@@ -200,13 +197,6 @@ async function checkNegativeAchievement(userId: string, stats: UserStats, defs: 
       let shouldAward = false
 
       switch (def.condition_type) {
-        case 'consecutive_no_review_days': {
-          const existingNeg = earnedMap.get(def.code)
-          const threshold = def.condition_threshold ?? 7
-          const nextMilestone = threshold * ((existingNeg?.earned_count ?? 0) + 1)
-          shouldAward = stats.consecutive_no_review_days >= nextMilestone
-          break
-        }
         case 'consecutive_no_report_days': {
           const existingNeg = earnedMap.get(def.code)
           const threshold = def.condition_threshold ?? 5
@@ -555,31 +545,6 @@ export async function onTaskCreated(userId: string): Promise<void> {
   }
 }
 
-export async function onCommitReview(userId: string): Promise<void> {
-  if (!userId || !hasDbConfig()) return
-  try {
-    await ensureUserStats(userId)
-    const stats = await getUserStats(userId)
-    if (!stats) return
-    const today = todayStr()
-    await updateUserStats(userId, {
-      total_reviews: stats.total_reviews + 1,
-      last_review_date: today,
-      consecutive_no_review_days: 0,
-      last_activity_date: today,
-    })
-    stats.total_reviews += 1
-    stats.last_review_date = today
-    stats.consecutive_no_review_days = 0
-    await addXp(userId, stats, 12)
-    stats.xp += 12
-    const defs = await getAllAchievementDefs()
-    await checkAndAward(userId, stats, defs)
-  } catch (err) {
-    l.error('achievementService.onCommitReview error:', err)
-  }
-}
-
 export async function onDailyReport(userId: string, reportDate: string): Promise<void> {
   if (!userId || !hasDbConfig()) return
   try {
@@ -688,7 +653,7 @@ function datePartFromDb(value: unknown): string | null {
   return null
 }
 
-/** Chạy mỗi ngày để kiểm tra negative badges (no review, no report) */
+/** Chạy mỗi ngày để kiểm tra negative badges (no report) */
 export async function checkDailyNegativeBadges(userIds: string[]): Promise<void> {
   if (!hasDbConfig()) return
   if (userIds.length === 0) return
@@ -699,17 +664,12 @@ export async function checkDailyNegativeBadges(userIds: string[]): Promise<void>
       const stats = await getUserStats(userId)
       if (!stats) continue
 
-      const reviewBaseline = stats.last_review_date ? stats.last_review_date : (datePartFromDb(stats.created_at) ?? null)
-      const reviewDays = reviewBaseline ? diffDays(reviewBaseline, today) : 0
-
       const reportBaseline = stats.last_report_date ? stats.last_report_date : (datePartFromDb(stats.created_at) ?? null)
       const reportDays = reportBaseline ? diffDays(reportBaseline, today) : 0
 
       await updateUserStats(userId, {
-        consecutive_no_review_days: reviewDays,
         consecutive_no_report_days: reportDays,
       })
-      stats.consecutive_no_review_days = reviewDays
       stats.consecutive_no_report_days = reportDays
 
       await checkNegativeAchievement(userId, stats, defs)

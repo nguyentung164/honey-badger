@@ -44,9 +44,8 @@ export function computeRadarScores(d: RadarMonthData): RadarScore {
   // Delivery: pure on-time ratio
   const delivery = safePct(d.tasks_done_on_time, d.tasks_done || 1)
 
-  // Collaboration (merged Reviewing + Collab): peer reviews (70%) + daily reports (30%)
-  const reviewTarget = Math.max(wd * 0.5, 1)
-  const collaboration = Math.min(70, Math.round((d.reviews_done / reviewTarget) * 70)) + Math.min(30, Math.round((d.has_daily_report_days / wd) * 30))
+  // Collaboration: daily reports
+  const collaboration = Math.min(100, Math.round((d.has_daily_report_days / wd) * 100))
 
   // Impact: output volume — tasks done (70%) + commit frequency (30%)
   const taskTarget = Math.max(wd * 0.5, 1)

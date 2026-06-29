@@ -7,7 +7,6 @@ import type React from 'react'
 import { memo, useRef } from 'react'
 import { useTranslation } from 'react-i18next'
 import { GIT_STATUS_COLOR_CLASS_MAP, GIT_STATUS_TEXT, STATUS_COLOR_CLASS_MAP, STATUS_TEXT } from '@/components/shared/constants'
-import { Combobox } from '@/components/ui/combobox'
 import { ContextMenu, ContextMenuContent, ContextMenuItem, ContextMenuSub, ContextMenuSubContent, ContextMenuSubTrigger, ContextMenuTrigger } from '@/components/ui/context-menu'
 import { Input } from '@/components/ui/input'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
@@ -78,8 +77,6 @@ interface ShowLogTableSectionProps {
   setSorting: React.Dispatch<React.SetStateAction<SortingState>>
   searchTerm: string
   setSearchTerm: (s: string) => void
-  reviewFilter: 'all' | 'unreviewed' | 'reviewed'
-  setReviewFilter: (v: 'all' | 'unreviewed' | 'reviewed') => void
   filteredLogData: LogEntry[]
   isLoading: boolean
   totalEntriesFromBackend: number
@@ -107,8 +104,6 @@ export const ShowLogTableSection = memo(function ShowLogTableSection({
   setSorting,
   searchTerm,
   setSearchTerm,
-  reviewFilter,
-  setReviewFilter,
   filteredLogData,
   isLoading,
   totalEntriesFromBackend,
@@ -163,19 +158,6 @@ export const ShowLogTableSection = memo(function ShowLogTableSection({
           <Search className="absolute left-2 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
           <Input placeholder={t('dialog.showLogs.placeholderSearch')} value={searchTerm} onChange={e => setSearchTerm(e.target.value)} className="pl-8" />
         </div>
-        <Combobox
-          value={reviewFilter}
-          onValueChange={v => setReviewFilter(v as 'all' | 'unreviewed' | 'reviewed')}
-          options={[
-            { value: 'all', label: t('dialog.commitReview.filterAll') },
-            { value: 'unreviewed', label: t('dialog.commitReview.filterUnreviewed') },
-            { value: 'reviewed', label: t('dialog.commitReview.filterReviewed') },
-          ]}
-          placeholder={t('dialog.commitReview.filterAll')}
-          className="w-[140px]"
-          triggerClassName="h-8"
-          size="sm"
-        />
       </div>
       <div className="flex flex-col border rounded-md flex-1 min-h-0 overflow-hidden">
         <div ref={tableContainerRef} className="overflow-auto flex-1 min-h-0 relative">
@@ -194,7 +176,7 @@ export const ShowLogTableSection = memo(function ShowLogTableSection({
                         style={
                           header.column.id === 'referenceId'
                             ? { flex: '1 1 0%', minWidth: 0 }
-                            : ['revision', 'review', 'date', 'author', 'action'].includes(header.column.id)
+                            : ['revision', 'date', 'author', 'action'].includes(header.column.id)
                               ? { minWidth: `${header.column.columnDef.minSize ?? header.getSize()}px`, width: '1%', flexShrink: 0 }
                               : { width: `${header.getSize()}px`, minWidth: `${header.column.columnDef.minSize ?? 0}px`, flexShrink: 0 }
                         }

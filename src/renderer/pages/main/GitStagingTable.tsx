@@ -2,6 +2,7 @@
 import { type ColumnDef, flexRender, getCoreRowModel, getFilteredRowModel, getSortedRowModel, type SortingState, useReactTable } from '@tanstack/react-table'
 import { t } from 'i18next'
 import { Check, Columns2, Copy, Folder, FolderOpen, History, ListFilter, Pencil, Plus, RotateCcw, Rows2, SquareMinus, SquarePlus, Trash2, X } from 'lucide-react'
+import { requestOpenShowLog } from '@/lib/openShowLog'
 import { IPC } from 'main/constants'
 import { forwardRef, type HTMLProps, lazy, Suspense, useCallback, useEffect, useImperativeHandle, useMemo, useRef, useState } from 'react'
 import {
@@ -711,7 +712,7 @@ export const GitStagingTable = forwardRef(({ onLoadingChange, cwd, label }: GitS
   )
 
   const showLog = (filePath: string) => {
-    window.api.electron.send(IPC.WINDOW.SHOW_LOG, {
+    requestOpenShowLog({
       path: filePath,
       isGit: true,
     })

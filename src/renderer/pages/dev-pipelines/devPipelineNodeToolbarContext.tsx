@@ -7,8 +7,12 @@ export type DevPipelineNodeToolbarActions = {
   runThisStep: (stepId: string) => void
   runFlowFromStep: (stepId: string) => void
   toggleExecutionDisabled: (stepId: string) => void
+  /** Commit workflow: toggle step enabled (skip when disabled). */
+  toggleStepEnabled?: (stepId: string) => void
   canRunStep: boolean
   canDeleteStep: boolean
+  canDuplicateStep?: boolean
+  canEditStep?: boolean
 }
 
 export const DevPipelineNodeToolbarContext = createContext<DevPipelineNodeToolbarActions | null>(null)

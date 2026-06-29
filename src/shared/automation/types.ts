@@ -278,6 +278,7 @@ export interface RunRequest {
   pageIds?: string[]
   /** Expand cây con → page → case; union với `pageIds`. */
   groupIds?: string[]
+  flowIds?: string[]
   suiteId?: string
   browsers: AutomationBrowser[]
   workers: number

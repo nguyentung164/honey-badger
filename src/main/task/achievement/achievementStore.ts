@@ -16,7 +16,6 @@ export interface UserStats {
   total_branches_created: number
   total_stashes: number
   total_rebases: number
-  total_reviews: number
   total_reports: number
   total_spotbugs_clean: number
   total_spotbugs_fails: number
@@ -29,15 +28,13 @@ export interface UserStats {
   total_tasks_bug_done: number
   total_tasks_feature_done: number
   total_tasks_critical_done: number
-  consecutive_no_review_days: number
   consecutive_no_report_days: number
   consecutive_spotbugs_fails: number
   last_commit_date: string | null
-  last_review_date: string | null
   last_report_date: string | null
   /** Ngày (local/DB) đã chạy daily negative check — chỉ đọc/ghi qua updateUserStats. */
   last_negative_check_date: string | null
-  /** Từ SELECT * user_stats — baseline Ghost/Silent khi chưa có last_review/report. */
+  /** Từ SELECT * user_stats — baseline Silent khi chưa có last_report. */
   created_at?: string | Date | null
 }
 
@@ -93,7 +90,6 @@ const ALLOWED_STAT_FIELDS = new Set<string>([
   'total_branches_created',
   'total_stashes',
   'total_rebases',
-  'total_reviews',
   'total_reports',
   'total_spotbugs_clean',
   'total_spotbugs_fails',
@@ -106,11 +102,9 @@ const ALLOWED_STAT_FIELDS = new Set<string>([
   'total_tasks_bug_done',
   'total_tasks_feature_done',
   'total_tasks_critical_done',
-  'consecutive_no_review_days',
   'consecutive_no_report_days',
   'consecutive_spotbugs_fails',
   'last_commit_date',
-  'last_review_date',
   'last_report_date',
   'last_negative_check_date',
 ])

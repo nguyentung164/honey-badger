@@ -2074,10 +2074,6 @@ export async function deleteProject(id: string, version?: number): Promise<void>
     await txQuery('DELETE FROM project_user_daily_workload WHERE project_id = ?', [id])
     await txQuery('DELETE FROM coding_rules WHERE project_id = ?', [id])
     await txQuery(
-      'DELETE FROM commit_reviews WHERE source_folder_path IN (SELECT source_folder_path FROM user_project_source_folder WHERE project_id = ?)',
-      [id]
-    )
-    await txQuery(
       'DELETE FROM git_commit_queue WHERE source_folder_path IN (SELECT source_folder_path FROM user_project_source_folder WHERE project_id = ?)',
       [id]
     )
@@ -2318,98 +2314,6 @@ export async function createTasksFromRedmineCsv(
 export async function ensureTaskFile(): Promise<void> {
   const res = await testConnection()
   if (!res.ok) throw new Error(res.error || 'Database connection failed')
-}
-
-// --- Commit Review (PostgreSQL) ---
-export interface CommitReviewRecord {
-  id: string
-  sourceFolderPath: string
-  commitId: string
-  vcsType: 'git' | 'svn'
-  reviewedAt: string
-  reviewerUserId?: string | null
-  note?: string | null
-  version?: number
-}
-
-export async function getCommitReview(sourceFolderPath: string, commitId: string): Promise<CommitReviewRecord | null> {
-  const rows = await query<any>('SELECT * FROM commit_reviews WHERE source_folder_path = ? AND commit_id = ?', [sourceFolderPath, commitId])
-  const row = rows?.[0]
-  if (!row) return null
-  return {
-    id: row.id,
-    sourceFolderPath: row.source_folder_path,
-    commitId: row.commit_id,
-    vcsType: row.vcs_type,
-    reviewedAt: row.reviewed_at ? new Date(row.reviewed_at).toISOString() : '',
-    reviewerUserId: row.reviewer_user_id ?? null,
-    note: row.note ?? null,
-    version: row.version ?? 1,
-  }
-}
-
-export async function saveCommitReview(record: {
-  sourceFolderPath: string
-  commitId: string
-  vcsType: 'git' | 'svn'
-  reviewerUserId?: string | null
-  note?: string | null
-}): Promise<void> {
-  if (!record.sourceFolderPath?.trim() || !record.commitId?.trim()) {
-    throw new Error('sourceFolderPath and commitId are required')
-  }
-  await ensureUserExists(record.reviewerUserId)
-  const reviewedAt = new Date().toISOString().slice(0, 19).replace('T', ' ')
-  const existing = await getCommitReview(record.sourceFolderPath, record.commitId)
-  if (existing) {
-    const result = await exec(`UPDATE commit_reviews SET reviewed_at = ?, reviewer_user_id = ?, note = ?, version = version + 1 WHERE source_folder_path = ? AND commit_id = ?`, [
-      reviewedAt,
-      record.reviewerUserId ?? null,
-      record.note ?? null,
-      record.sourceFolderPath,
-      record.commitId,
-    ])
-    if (result.affectedRows === 0) throwVersionConflict('Commit review was modified by another user')
-  } else {
-    const id = randomUuidV7()
-    await query(
-      `INSERT INTO commit_reviews (id, source_folder_path, commit_id, vcs_type, reviewed_at, reviewer_user_id, note)
-       VALUES (?, ?, ?, ?, ?, ?, ?)`,
-      [id, record.sourceFolderPath, record.commitId, record.vcsType, reviewedAt, record.reviewerUserId ?? null, record.note ?? null]
-    )
-  }
-}
-
-export async function deleteCommitReview(sourceFolderPath: string, commitId: string, version?: number): Promise<void> {
-  if (!sourceFolderPath?.trim() || !commitId?.trim()) {
-    throw new Error('sourceFolderPath and commitId are required')
-  }
-  const sql =
-    version !== undefined
-      ? 'DELETE FROM commit_reviews WHERE source_folder_path = ? AND commit_id = ? AND version = ?'
-      : 'DELETE FROM commit_reviews WHERE source_folder_path = ? AND commit_id = ?'
-  const params = version !== undefined ? [sourceFolderPath, commitId, version] : [sourceFolderPath, commitId]
-  const result = await exec(sql, params)
-  if (result.affectedRows === 0) throwVersionConflict('Commit review not found or was modified by another user')
-}
-
-export async function getCommitReviewsBySourceFolder(sourceFolderPath: string): Promise<CommitReviewRecord[]> {
-  const rows = await query<any>('SELECT * FROM commit_reviews WHERE source_folder_path = ? ORDER BY reviewed_at DESC', [sourceFolderPath])
-  return (rows || []).map(r => ({
-    id: r.id,
-    sourceFolderPath: r.source_folder_path,
-    commitId: r.commit_id,
-    vcsType: r.vcs_type,
-    reviewedAt: r.reviewed_at ? new Date(r.reviewed_at).toISOString() : '',
-    reviewerUserId: r.reviewer_user_id ?? null,
-    note: r.note ?? null,
-    version: r.version ?? 1,
-  }))
-}
-
-export async function getReviewedCommitIds(sourceFolderPath: string): Promise<Set<string>> {
-  const rows = await query<any>('SELECT commit_id FROM commit_reviews WHERE source_folder_path = ?', [sourceFolderPath])
-  return new Set((rows || []).map(r => r.commit_id))
 }
 
 export interface ReminderTaskItem {

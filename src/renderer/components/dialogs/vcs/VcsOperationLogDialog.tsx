@@ -1,6 +1,6 @@
 'use client'
 import { AlertCircle, CheckCircle2, Clock, Copy, ExternalLink, FileDiff, FileText, FolderOpen, GitBranch, Hash, History, Info, Loader2, Tag } from 'lucide-react'
-import { IPC } from 'main/constants'
+import { requestOpenShowLog } from '@/lib/openShowLog'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { ContextMenu, ContextMenuContent, ContextMenuItem, ContextMenuSeparator, ContextMenuTrigger } from '@/components/ui/context-menu'
@@ -368,7 +368,7 @@ export function VcsOperationLogDialog({
       onCopyPath: async (action, path) => {
         try {
           await navigator.clipboard.writeText(getPathForOperation(action, path))
-          toast.success(t('dashboard.copySuccess'))
+          toast.success(t('appLogs.copySuccess'))
         } catch {
           toast.error(t('appLogs.copyError'))
         }
@@ -378,7 +378,7 @@ export function VcsOperationLogDialog({
         const fullPath = basePath ? `${basePath.replace(/\\/g, '/')}/${p.replace(/\\/g, '/')}`.replace(/\/+/g, '/') : p
         try {
           await navigator.clipboard.writeText(fullPath)
-          toast.success(t('dashboard.copySuccess'))
+          toast.success(t('appLogs.copySuccess'))
         } catch {
           toast.error(t('appLogs.copyError'))
         }
@@ -390,7 +390,7 @@ export function VcsOperationLogDialog({
           versionControlSystem: vcsType,
         }
         if (basePath) data.sourceFolder = basePath
-        window.api.electron.send(IPC.WINDOW.SHOW_LOG, data)
+        requestOpenShowLog(data)
       },
       onViewDiff: async (action, path) => {
         const p = getPathForOperation(action, path)

@@ -218,6 +218,31 @@ export function parseAndValidateGraph(raw: unknown): DevPipelineGraphJson {
       })
       continue
     }
+    if (stepKind === 'coding-rules' || stepKind === 'spotbugs' || stepKind === 'playwright') {
+      const params = isRecord(data.params) ? data.params : {}
+      const paramsOut: DevPipelineNodeData['params'] = {}
+      if (stepKind === 'coding-rules') {
+        if (typeof params.codingRuleId === 'string') paramsOut.codingRuleId = params.codingRuleId
+        if (typeof params.codingRuleName === 'string') paramsOut.codingRuleName = params.codingRuleName
+      }
+      if (stepKind === 'playwright') {
+        if (typeof params.automationProjectId === 'string') paramsOut.automationProjectId = params.automationProjectId
+        if (typeof params.suiteId === 'string') paramsOut.suiteId = params.suiteId
+      }
+      nodes.push({
+        id,
+        type,
+        position: { x: pos.x, y: pos.y },
+        ...layoutFields,
+        data: {
+          label: label.trim(),
+          stepKind,
+          ...(Object.keys(paramsOut).length ? { params: paramsOut } : {}),
+          ...stepCommonFields(data, visualFields),
+        },
+      })
+      continue
+    }
     if (stepKind === 'shell') {
       const scriptPath = typeof data.scriptPath === 'string' ? data.scriptPath : ''
       const command = typeof data.command === 'string' ? data.command : ''

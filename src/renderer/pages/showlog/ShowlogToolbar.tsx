@@ -6,7 +6,6 @@ import {
   CalendarIcon,
   ChevronDown,
   ChevronRight,
-  FileCheck,
   GitBranch,
   GitBranchPlus,
   History,
@@ -16,6 +15,7 @@ import {
   RefreshCcw,
   Sparkles,
   Square,
+  SquareArrowOutDownLeft,
   Turtle,
   X,
 } from 'lucide-react'
@@ -48,8 +48,6 @@ interface ShowlogProps {
   setDateRange?: (range: DateRange | undefined) => void
   onOpenStatistic?: () => void
   onOpenAIAnalysis?: () => void
-  onOpenCommitReviewStat?: () => void
-  unreviewedCount?: number
   onToggleLayout?: () => void
   versionControlSystem: 'svn' | 'git'
   contextSourceFolder?: string
@@ -57,6 +55,10 @@ interface ShowlogProps {
   /** Git: xem log theo branch/ref này mà không checkout (null = HEAD hiện tại). */
   gitLogRevision?: string | null
   onGitLogRevisionChange?: (revision: string | null) => void
+  /** Embedded trong main shell — ẩn logo, title giữa, window controls. */
+  embedded?: boolean
+  /** Cửa sổ standalone — dock về main window (chỉ khi user đã login). */
+  onStandaloneDock?: () => void
 }
 const SELECTED_PROJECT_STORAGE_KEY = 'selected-project-id'
 
@@ -68,14 +70,14 @@ export const ShowlogToolbar: React.FC<ShowlogProps> = ({
   setDateRange,
   onOpenStatistic,
   onOpenAIAnalysis,
-  onOpenCommitReviewStat,
-  unreviewedCount = 0,
   onToggleLayout,
   versionControlSystem,
   contextSourceFolder,
   onFolderChange,
   gitLogRevision = null,
   onGitLogRevisionChange,
+  embedded = false,
+  onStandaloneDock,
 }) => {
   const { t } = useTranslation()
   const buttonVariant = useAppearanceStoreSelect(s => s.buttonVariant)
@@ -491,20 +493,24 @@ export const ShowlogToolbar: React.FC<ShowlogProps> = ({
 
   return (
     <div
-      className="flex items-center justify-between h-8 text-sm select-none"
+      className={cn('flex items-center justify-between h-8 min-w-0 flex-1 text-sm select-none', embedded && 'w-full')}
       style={
-        {
-          WebkitAppRegion: 'drag',
-          backgroundColor: 'var(--main-bg)',
-          color: 'var(--main-fg)',
-        } as React.CSSProperties
+        embedded
+          ? ({ WebkitAppRegion: 'no-drag' } as React.CSSProperties)
+          : ({
+              WebkitAppRegion: 'drag',
+              backgroundColor: 'var(--main-bg)',
+              color: 'var(--main-fg)',
+            } as React.CSSProperties)
       }
     >
-      <div className="flex items-center h-full">
-        <div className="w-10 h-6 flex justify-center items-center shrink-0">
-          <img src="logo.png" alt="icon" draggable="false" className="w-3.5 h-3.5 dark:brightness-130" />
-        </div>
-        <div className="flex items-center h-full" style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties}>
+      <div className="flex items-center h-full min-w-0 flex-1">
+        {!embedded ? (
+          <div className="w-10 h-6 flex justify-center items-center shrink-0">
+            <img src="logo.png" alt="icon" draggable="false" className="w-3.5 h-3.5 dark:brightness-130" />
+          </div>
+        ) : null}
+        <div className="flex items-center h-full min-w-0 flex-1" style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties}>
           <div className="flex items-center gap-1 pt-0.5">
             {/* Cụm Project + Source Folder - một nhóm UI chung như TitleBar */}
             {(user || sourceFolders.length > 0) && (
@@ -876,38 +882,18 @@ export const ShowlogToolbar: React.FC<ShowlogProps> = ({
             )}
 
             <Separator orientation="vertical" className="h-4 w-px bg-muted mx-1" />
-
-            {onOpenCommitReviewStat && (
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <Button
-                    variant="link"
-                    size="sm"
-                    onClick={onOpenCommitReviewStat}
-                    className="shadow-none focus-visible:ring-0 focus-visible:ring-offset-0 hover:bg-muted transition-colors rounded-sm h-[25px] w-[25px] relative"
-                  >
-                    <FileCheck className="h-4 w-4" />
-                    {unreviewedCount > 0 && (
-                      <span className="absolute -top-0.5 -right-0.5 min-w-[14px] h-3.5 px-1 flex items-center justify-center text-[10px] font-bold bg-amber-500 text-white rounded-full">
-                        {unreviewedCount > 99 ? '99+' : unreviewedCount}
-                      </span>
-                    )}
-                  </Button>
-                </TooltipTrigger>
-                <TooltipContent>{unreviewedCount > 0 ? `PL Review (${unreviewedCount} chưa review)` : 'PL Review - Thống kê'}</TooltipContent>
-              </Tooltip>
-            )}
           </div>
         </div>
       </div>
 
-      {/* Center Section (Title) */}
-      <Button variant="ghost" className="font-medium text-xs">
-        {filePath !== '.' ? t('dialog.showLogs.titleWithPath', { 0: filePath }) : t('dialog.showLogs.title')}
-      </Button>
+      {!embedded ? (
+        <Button variant="ghost" className="font-medium text-xs shrink-0">
+          {filePath !== '.' ? t('dialog.showLogs.titleWithPath', { 0: filePath }) : t('dialog.showLogs.title')}
+        </Button>
+      ) : null}
 
-      {/* Right Section (Window Controls) */}
-      <div className="flex gap-1 items-center" style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties}>
+      {/* Right Section (layout toggle + dock + window controls) */}
+      <div className="flex gap-1 items-center shrink-0" style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties}>
         {onToggleLayout && (
           <Tooltip>
             <TooltipTrigger asChild>
@@ -922,23 +908,44 @@ export const ShowlogToolbar: React.FC<ShowlogProps> = ({
             </TooltipTrigger>
           </Tooltip>
         )}
-        <button
-          type="button"
-          onClick={() => handleWindow('minimize')}
-          className="w-10 h-8 flex items-center justify-center hover:bg-[var(--hover-bg)] hover:text-[var(--hover-fg)]"
-        >
-          <Minus size={15.5} strokeWidth={1} absoluteStrokeWidth />
-        </button>
-        <button
-          type="button"
-          onClick={() => handleWindow('maximize')}
-          className="w-10 h-8 flex items-center justify-center hover:bg-[var(--hover-bg)] hover:text-[var(--hover-fg)]"
-        >
-          <Square size={14.5} strokeWidth={1} absoluteStrokeWidth />
-        </button>
-        <button type="button" onClick={() => handleWindow('close')} className="w-10 h-8 flex items-center justify-center hover:bg-red-600 hover:text-white">
-          <X size={20} strokeWidth={1} absoluteStrokeWidth />
-        </button>
+        {onStandaloneDock ? (
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button
+                type="button"
+                variant="link"
+                size="sm"
+                className="h-[25px] w-[25px] shrink-0 rounded-sm shadow-none focus-visible:ring-0 focus-visible:ring-offset-0"
+                onClick={onStandaloneDock}
+                aria-label={t('showlog.dock', 'Dock Show Log to main window')}
+              >
+                <SquareArrowOutDownLeft strokeWidth={1.25} absoluteStrokeWidth className="h-4 w-4" />
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent side="bottom">{t('showlog.dock', 'Dock Show Log to main window')}</TooltipContent>
+          </Tooltip>
+        ) : null}
+        {!embedded ? (
+          <>
+            <button
+              type="button"
+              onClick={() => handleWindow('minimize')}
+              className="w-10 h-8 flex items-center justify-center hover:bg-[var(--hover-bg)] hover:text-[var(--hover-fg)]"
+            >
+              <Minus size={15.5} strokeWidth={1} absoluteStrokeWidth />
+            </button>
+            <button
+              type="button"
+              onClick={() => handleWindow('maximize')}
+              className="w-10 h-8 flex items-center justify-center hover:bg-[var(--hover-bg)] hover:text-[var(--hover-fg)]"
+            >
+              <Square size={14.5} strokeWidth={1} absoluteStrokeWidth />
+            </button>
+            <button type="button" onClick={() => handleWindow('close')} className="w-10 h-8 flex items-center justify-center hover:bg-red-600 hover:text-white">
+              <X size={20} strokeWidth={1} absoluteStrokeWidth />
+            </button>
+          </>
+        ) : null}
       </div>
 
       <GitBranchManageDialog

@@ -1,6 +1,6 @@
 import { TASK_AUTH_STORAGE_KEY } from '@/stores/useTaskAuthStore'
 
-export type MainShellView = 'vcs' | 'tasks' | 'prManager' | 'automation'
+export type MainShellView = 'vcs' | 'tasks' | 'prManager' | 'automation' | 'devPipelines' | 'showLog'
 
 export const MAIN_SHELL_VIEW_KEY = 'main-shell-view'
 
@@ -12,6 +12,12 @@ export const MAIN_TASKS_DETACHED_KEY = 'main-tasks-detached'
 
 /** Tab Automation đang tách cửa sổ riêng (ẩn tab trên title bar). */
 export const MAIN_AUTOMATION_DETACHED_KEY = 'main-automation-detached'
+
+/** Tab Dev Pipelines đang tách cửa sổ riêng (ẩn tab trên title bar). */
+export const MAIN_DEV_PIPELINES_DETACHED_KEY = 'main-dev-pipelines-detached'
+
+/** Tab Show Log đang tách cửa sổ riêng (ẩn tab trên title bar). */
+export const MAIN_SHOW_LOG_DETACHED_KEY = 'main-show-log-detached'
 
 export function readPersistedPrManagerDetached(): boolean {
   try {
@@ -61,6 +67,38 @@ export function writePersistedAutomationDetached(detached: boolean): void {
   }
 }
 
+export function readPersistedDevPipelinesDetached(): boolean {
+  try {
+    return localStorage.getItem(MAIN_DEV_PIPELINES_DETACHED_KEY) === '1'
+  } catch {
+    return false
+  }
+}
+
+export function writePersistedDevPipelinesDetached(detached: boolean): void {
+  try {
+    localStorage.setItem(MAIN_DEV_PIPELINES_DETACHED_KEY, detached ? '1' : '0')
+  } catch {
+    /* ignore */
+  }
+}
+
+export function readPersistedShowLogDetached(): boolean {
+  try {
+    return localStorage.getItem(MAIN_SHOW_LOG_DETACHED_KEY) === '1'
+  } catch {
+    return false
+  }
+}
+
+export function writePersistedShowLogDetached(detached: boolean): void {
+  try {
+    localStorage.setItem(MAIN_SHOW_LOG_DETACHED_KEY, detached ? '1' : '0')
+  } catch {
+    /* ignore */
+  }
+}
+
 export function isTaskShellRole(role: string | undefined): boolean {
   return role === 'pl' || role === 'pm' || role === 'admin'
 }
@@ -73,7 +111,7 @@ export function canViewTaskChartTab(role: string | undefined): boolean {
 export function readStoredShellView(): MainShellView | null {
   try {
     const v = localStorage.getItem(MAIN_SHELL_VIEW_KEY)
-    if (v === 'vcs' || v === 'tasks' || v === 'prManager' || v === 'automation') return v
+    if (v === 'vcs' || v === 'tasks' || v === 'prManager' || v === 'automation' || v === 'devPipelines' || v === 'showLog') return v
   } catch {
     /* ignore */
   }
@@ -94,4 +132,24 @@ export function getInitialShellViewFromStorage(): MainShellView {
     /* ignore */
   }
   return 'vcs'
+}
+
+/** Legacy deep-link (#/dev-pipelines trong main window) → chọn tab embedded trên /main. */
+export function handoffDevPipelinesToMainShell(): void {
+  writePersistedDevPipelinesDetached(false)
+  try {
+    localStorage.setItem(MAIN_SHELL_VIEW_KEY, 'devPipelines')
+  } catch {
+    /* ignore */
+  }
+}
+
+/** Legacy deep-link (#/show-log trong main window) → chọn tab embedded trên /main. */
+export function handoffShowLogToMainShell(): void {
+  writePersistedShowLogDetached(false)
+  try {
+    localStorage.setItem(MAIN_SHELL_VIEW_KEY, 'showLog')
+  } catch {
+    /* ignore */
+  }
 }

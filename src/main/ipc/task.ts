@@ -5,7 +5,7 @@ import l from 'electron-log'
 import { IPC } from 'main/constants'
 import { sendTaskNotification } from '../notification/taskNotification'
 import configurationStore from '../store/ConfigurationStore'
-import { onCodingRuleCreated, onCommitReview, onTaskCreated, onTaskDone } from '../task/achievement/achievementService'
+import { onCodingRuleCreated, onTaskCreated, onTaskDone } from '../task/achievement/achievementService'
 import { getTokenFromStore, type SessionData, verifyToken } from '../task/auth'
 import { checkTaskSchemaAppliedOverConnection, isTaskSchemaApplied, resetPoolAndWait, testConnection } from '../task/schema/db'
 import { initTaskSchema } from '../task/schema/schemaInit'
@@ -29,7 +29,6 @@ import {
   createTaskLink,
   createTasksFromRedmineCsv,
   deleteCodingRule,
-  deleteCommitReview,
   deleteProject,
   deleteTask,
   deleteTaskLink,
@@ -39,8 +38,6 @@ import {
   getCodingRulesForManagement,
   getCodingRulesForSelection,
   getCodingRulesGlobalOnly,
-  getCommitReview,
-  getCommitReviewsBySourceFolder,
   getFavoriteTaskIds,
   getManagementScopeMeta,
   getProjectIdByUserAndPath,
@@ -52,7 +49,6 @@ import {
   getProjectsForTaskManagement,
   getProjectsForUser,
   getReminderStats,
-  getReviewedCommitIds,
   getSourceFoldersByProject,
   getSourceFoldersByProjects,
   getTask,
@@ -71,7 +67,6 @@ import {
   listTasksForManagementWithFacets,
   listTasksForPickerPage,
   removeTaskFavorite,
-  saveCommitReview,
   type TaskManagementListParams,
   updateCodingRule,
   updateProject,
@@ -130,7 +125,7 @@ function withAuthFromStore<T extends unknown[]>(handler: (event: IpcMainInvokeEv
   }
 }
 
-/** Chỉ role pl, pm hoặc admin mới được gọi handler (dùng cho Commit Review mark/unmark) */
+/** Chỉ role pl, pm hoặc admin mới được gọi handler */
 function requirePlOrAdmin<T extends unknown[]>(handler: (event: IpcMainInvokeEvent, session: SessionData, ...args: T) => Promise<unknown>) {
   return withAuthFromStore(async (event, session, ...args: T) => {
     if (session.role !== 'pl' && session.role !== 'pm' && session.role !== 'admin') {
@@ -1438,78 +1433,6 @@ export function registerTaskIpcHandlers() {
       }
     })
   )
-
-  // Commit Review save/delete - chỉ PL hoặc admin mới được mark/unmark
-  ipcMain.handle(
-    IPC.TASK.COMMIT_REVIEW_SAVE,
-    requirePlOrAdmin(
-      async (
-        _event,
-        session,
-        record: {
-          sourceFolderPath: string
-          commitId: string
-          vcsType: 'git' | 'svn'
-          reviewerUserId?: string | null
-          note?: string | null
-        }
-      ) => {
-        try {
-          // Luôn gắn người review = user đang đăng nhập (token hợp lệ), không tin reviewerUserId từ client.
-          const merged = { ...record, reviewerUserId: session.userId }
-          await saveCommitReview(merged)
-          if (merged.reviewerUserId) onCommitReview(merged.reviewerUserId).catch(() => {})
-          return { status: 'success' as const }
-        } catch (error: any) {
-          l.error('task:commit-review:save error:', error)
-          return taskIpcError(error)
-        }
-      }
-    )
-  )
-
-  ipcMain.handle(
-    IPC.TASK.COMMIT_REVIEW_DELETE,
-    requirePlOrAdmin(async (_event, _session, sourceFolderPath: string, commitId: string, version?: number) => {
-      try {
-        await deleteCommitReview(sourceFolderPath, commitId, version)
-        return { status: 'success' as const }
-      } catch (error: any) {
-        l.error('task:commit-review:delete error:', error)
-        return taskIpcError(error)
-      }
-    })
-  )
-
-  ipcMain.handle(IPC.TASK.COMMIT_REVIEW_GET, async (_event, sourceFolderPath: string, commitId: string) => {
-    try {
-      const data = await getCommitReview(sourceFolderPath, commitId)
-      return { status: 'success' as const, data }
-    } catch (error: any) {
-      l.error('task:commit-review:get error:', error)
-      return { status: 'error' as const, message: error?.message ?? String(error) }
-    }
-  })
-
-  ipcMain.handle(IPC.TASK.COMMIT_REVIEW_GET_ALL_BY_SOURCE, async (_event, sourceFolderPath: string) => {
-    try {
-      const data = await getCommitReviewsBySourceFolder(sourceFolderPath)
-      return { status: 'success' as const, data }
-    } catch (error: any) {
-      l.error('task:commit-review:get-all-by-source error:', error)
-      return { status: 'error' as const, message: error?.message ?? String(error) }
-    }
-  })
-
-  ipcMain.handle(IPC.TASK.COMMIT_REVIEW_GET_REVIEWED_IDS, async (_event, sourceFolderPath: string) => {
-    try {
-      const set = await getReviewedCommitIds(sourceFolderPath)
-      return { status: 'success' as const, data: Array.from(set) }
-    } catch (error: any) {
-      l.error('task:commit-review:get-reviewed-ids error:', error)
-      return { status: 'error' as const, message: error?.message ?? String(error) }
-    }
-  })
 
   ipcMain.handle(
     IPC.TASK.WORKLOAD_GET,

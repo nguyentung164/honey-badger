@@ -329,20 +329,6 @@ CREATE TABLE IF NOT EXISTS evm_ai_insight (
   created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
 );
 
-CREATE TABLE IF NOT EXISTS commit_reviews (
-  id VARCHAR(36) PRIMARY KEY,
-  source_folder_path VARCHAR(500) NOT NULL,
-  commit_id VARCHAR(100) NOT NULL,
-  vcs_type VARCHAR(10) NOT NULL,
-  reviewed_at TIMESTAMPTZ NOT NULL,
-  reviewer_user_id VARCHAR(36) NULL,
-  note TEXT NULL,
-  version INT NOT NULL DEFAULT 1,
-  created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
-  updated_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
-  CONSTRAINT uk_commit_review UNIQUE (source_folder_path, commit_id)
-);
-
 CREATE TABLE IF NOT EXISTS coding_rules (
   id VARCHAR(36) PRIMARY KEY,
   name VARCHAR(255) NOT NULL,
@@ -461,9 +447,6 @@ CREATE INDEX IF NOT EXISTS idx_task_links_from ON task_links(from_task_id);
 CREATE INDEX IF NOT EXISTS idx_task_links_to ON task_links(to_task_id);
 CREATE INDEX IF NOT EXISTS idx_task_favorites_user ON task_favorites(user_id);
 CREATE INDEX IF NOT EXISTS idx_task_favorites_task ON task_favorites(task_id);
-CREATE INDEX IF NOT EXISTS idx_commit_reviews_source ON commit_reviews(source_folder_path);
-CREATE INDEX IF NOT EXISTS idx_commit_reviews_reviewer ON commit_reviews(reviewer_user_id);
-CREATE INDEX IF NOT EXISTS idx_commit_reviews_source_reviewed ON commit_reviews(source_folder_path, reviewed_at);
 CREATE INDEX IF NOT EXISTS idx_daily_reports_date ON daily_reports(report_date);
 CREATE INDEX IF NOT EXISTS idx_upsf_source_folder_path ON user_project_source_folder(source_folder_path);
 CREATE INDEX IF NOT EXISTS idx_evm_wbs_project ON evm_wbs_master(project_id);
@@ -565,7 +548,6 @@ CREATE TABLE IF NOT EXISTS user_stats (
   total_branches_created INT DEFAULT 0,
   total_stashes INT DEFAULT 0,
   total_rebases INT DEFAULT 0,
-  total_reviews INT DEFAULT 0,
   total_reports INT DEFAULT 0,
   total_spotbugs_clean INT DEFAULT 0,
   total_spotbugs_fails INT DEFAULT 0,
@@ -578,11 +560,9 @@ CREATE TABLE IF NOT EXISTS user_stats (
   total_tasks_bug_done INT DEFAULT 0,
   total_tasks_feature_done INT DEFAULT 0,
   total_tasks_critical_done INT DEFAULT 0,
-  consecutive_no_review_days INT DEFAULT 0,
   consecutive_no_report_days INT DEFAULT 0,
   consecutive_spotbugs_fails INT DEFAULT 0,
   last_commit_date DATE NULL,
-  last_review_date DATE NULL,
   last_report_date DATE NULL,
   last_negative_check_date DATE NULL,
   created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
@@ -626,7 +606,6 @@ CREATE TABLE IF NOT EXISTS user_daily_snapshots (
   tasks_done INT DEFAULT 0,
   tasks_done_on_time INT DEFAULT 0,
   tasks_overdue_opened INT DEFAULT 0,
-  reviews_done INT DEFAULT 0,
   has_daily_report BOOLEAN DEFAULT FALSE,
   evm_hours_logged DECIMAL(6,2) DEFAULT 0,
   created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
@@ -823,8 +802,6 @@ DROP TRIGGER IF EXISTS tr_evm_ac_updated ON evm_ac;
 CREATE TRIGGER tr_evm_ac_updated BEFORE UPDATE ON evm_ac FOR EACH ROW EXECUTE FUNCTION task_set_updated_at();
 DROP TRIGGER IF EXISTS tr_evm_master_updated ON evm_master;
 CREATE TRIGGER tr_evm_master_updated BEFORE UPDATE ON evm_master FOR EACH ROW EXECUTE FUNCTION task_set_updated_at();
-DROP TRIGGER IF EXISTS tr_commit_reviews_updated ON commit_reviews;
-CREATE TRIGGER tr_commit_reviews_updated BEFORE UPDATE ON commit_reviews FOR EACH ROW EXECUTE FUNCTION task_set_updated_at();
 DROP TRIGGER IF EXISTS tr_coding_rules_updated ON coding_rules;
 CREATE TRIGGER tr_coding_rules_updated BEFORE UPDATE ON coding_rules FOR EACH ROW EXECUTE FUNCTION task_set_updated_at();
 DROP TRIGGER IF EXISTS tr_ai_analysis_updated ON ai_analysis;
@@ -870,7 +847,6 @@ ALTER TABLE task_links ADD CONSTRAINT fk_task_links_to FOREIGN KEY (to_task_id) 
 ALTER TABLE task_links ADD CONSTRAINT fk_task_links_type FOREIGN KEY (link_type) REFERENCES task_link_types(code);
 ALTER TABLE task_favorites ADD CONSTRAINT fk_task_favorites_user FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE;
 ALTER TABLE task_favorites ADD CONSTRAINT fk_task_favorites_task FOREIGN KEY (task_id) REFERENCES tasks(id) ON DELETE CASCADE;
-ALTER TABLE commit_reviews ADD CONSTRAINT fk_commit_reviews_reviewer FOREIGN KEY (reviewer_user_id) REFERENCES users(id) ON DELETE SET NULL;
 ALTER TABLE task_ticket_sequences ADD CONSTRAINT fk_tts_project FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE CASCADE;
 ALTER TABLE evm_wbs ADD CONSTRAINT fk_evm_wbs_project FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE CASCADE;
 ALTER TABLE evm_wbs_master ADD CONSTRAINT fk_evm_wbs_master_project FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE CASCADE;

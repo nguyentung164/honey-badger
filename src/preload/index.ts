@@ -13,7 +13,6 @@ function getElectronAppIsPackaged(): boolean {
 }
 
 import { AI_FEATURE_SPOTBUGS_CHAT, IPC, PROMPT } from 'main/constants'
-import type { CommitActivityRepo } from 'main/ipc/dashboard'
 import type { Configuration, MailServerConfig, SupportFeedback, SVNResponse } from 'main/types/types'
 import type {
   DevPipelineFlow,
@@ -24,6 +23,12 @@ import type {
   DevPipelineRunStreamPayload,
   DevPipelineRunSummary,
 } from 'shared/devPipelines/types'
+import type {
+  CommitWorkflowListFilters,
+  CommitWorkflowRunRecord,
+  CommitWorkflowRunStreamPayload,
+  CommitWorkflowStartPayload,
+} from 'shared/commitWorkflow/types'
 
 /** IPC dùng structured clone; snapshot Zustand/React có thể là Proxy → lỗi "An object could not be cloned". */
 function toStructuredCloneable<T>(value: T): T {
@@ -422,27 +427,6 @@ declare global {
         set: (config: { externalEditors: { name: string; path: string }[] }) => Promise<void>
       }
 
-      dashboard: {
-        getRepoSummary: (options?: { dateFrom?: string; dateTo?: string }) => Promise<
-          {
-            name: string
-            path: string
-            vcsType: 'git' | 'svn' | 'none'
-            totalCommits: number
-            recentCommitsCount: number
-            commitIdsInRange?: string[]
-            lastCommitDate?: string
-            lastCommitAuthor?: string
-            lastCommitMessage?: string
-            currentBranch?: string
-            currentRevision?: string
-            error?: string
-          }[]
-        >
-        getCommitActivity: (options: { dateFrom: string; dateTo: string }) => Promise<CommitActivityRepo[]>
-        getChartData: (options?: { dateFrom?: string; dateTo?: string; path?: string }) => Promise<any>
-      }
-
       github: {
         getIssues: (params: { owner: string; repo: string; token?: string; state?: 'open' | 'closed' | 'all'; per_page?: number; page?: number }) => Promise<{
           data: Array<{
@@ -701,19 +685,6 @@ declare global {
           update: (id: string, input: { name?: string; content?: string }) => Promise<{ status: string; data?: any; message?: string }>
           delete: (id: string) => Promise<{ status: string; message?: string }>
           getForManagement: () => Promise<{ status: string; data?: any; message?: string }>
-        }
-        commitReview: {
-          save: (record: {
-            sourceFolderPath: string
-            commitId: string
-            vcsType: 'git' | 'svn'
-            reviewerUserId?: string | null
-            note?: string | null
-          }) => Promise<{ status: string; message?: string }>
-          delete: (sourceFolderPath: string, commitId: string, version?: number) => Promise<{ status: string; message?: string }>
-          get: (sourceFolderPath: string, commitId: string) => Promise<{ status: string; data?: any; message?: string }>
-          getAllBySourceFolder: (sourceFolderPath: string) => Promise<{ status: string; data?: any[]; message?: string }>
-          getReviewedIds: (sourceFolderPath: string) => Promise<{ status: string; data?: string[]; message?: string }>
         }
         workload: {
           get: (params: { projectId: string; from: string; to: string }) => Promise<{
@@ -1089,6 +1060,8 @@ declare global {
       }
       automation: AutomationApi
       devPipelines: DevPipelinesApi
+      showLog: ShowLogApi
+      commitWorkflow: CommitWorkflowApi
     }
   }
 }
@@ -1301,6 +1274,7 @@ type DevPipelineEnvelope<T = unknown> = { status: 'success' | 'error'; data?: T;
 export interface DevPipelinesApi {
   openWindow: () => void
   closeWindow: () => void
+  requestDock: () => void
   flow: {
     list: () => Promise<DevPipelineEnvelope<DevPipelineFlowSummary[]>>
     get: (id: string) => Promise<DevPipelineEnvelope<DevPipelineFlow | null>>
@@ -1322,6 +1296,35 @@ export interface DevPipelinesApi {
   }
   onRunStream: (cb: (payload: DevPipelineRunStreamPayload) => void) => () => void
   onLogStream: (cb: (payload: DevPipelineLogStreamPayload) => void) => () => void
+}
+
+type CommitWorkflowEnvelope<T = unknown> = { status: 'success' | 'error'; data?: T; message?: string }
+
+export interface CommitWorkflowApi {
+  start: (payload: CommitWorkflowStartPayload) => Promise<CommitWorkflowEnvelope<{ runId: string }>>
+  cancel: (runId: string) => Promise<CommitWorkflowEnvelope<{ cancelled: boolean }>>
+  getActive: (repoPath?: string) => Promise<CommitWorkflowEnvelope<{ runId: string; repoPath: string } | null>>
+  getActiveForProject: (projectId: string) => Promise<CommitWorkflowEnvelope<{ runId: string; repoPath: string } | null>>
+  getRun: (runId: string) => Promise<CommitWorkflowEnvelope<CommitWorkflowRunRecord | null>>
+  listRuns: (filters: CommitWorkflowListFilters) => Promise<CommitWorkflowEnvelope<CommitWorkflowRunRecord[]>>
+  syncFlush: () => Promise<CommitWorkflowEnvelope<{ synced: number; failed: number }>>
+  getSyncStatus: () => Promise<CommitWorkflowEnvelope<{ pending: number; retrying: number }>>
+  onRunStream: (cb: (payload: CommitWorkflowRunStreamPayload) => void) => () => void
+}
+
+type ShowLogOpenPayload = {
+  path: string | string[]
+  currentRevision?: string
+  sourceFolder?: string
+  versionControlSystem?: 'git' | 'svn'
+  isGit?: boolean
+}
+
+interface ShowLogApi {
+  openWindow: (data?: ShowLogOpenPayload) => void
+  closeWindow: () => void
+  requestDock: (payload?: ShowLogOpenPayload) => void
+  syncHandoff: (payload: ShowLogOpenPayload) => void
 }
 
 // Expose APIs to the renderer process
@@ -1744,12 +1747,6 @@ contextBridge.exposeInMainWorld('api', {
     getProjectPmPl: (projectId: string) => ipcRenderer.invoke(IPC.EVM.GET_PROJECT_PM_PL, projectId),
   },
 
-  dashboard: {
-    getRepoSummary: (options?: { dateFrom?: string; dateTo?: string }) => ipcRenderer.invoke(IPC.DASHBOARD.GET_REPO_SUMMARY, options),
-    getCommitActivity: (options: { dateFrom: string; dateTo: string }) => ipcRenderer.invoke(IPC.DASHBOARD.GET_COMMIT_ACTIVITY, options),
-    getChartData: (options?: { dateFrom?: string; dateTo?: string; path?: string }) => ipcRenderer.invoke(IPC.DASHBOARD.GET_CHART_DATA, options),
-  },
-
   user: {
     login: (userCode: string, password: string) => ipcRenderer.invoke(IPC.USER.LOGIN, userCode, password),
     logout: () => ipcRenderer.invoke(IPC.USER.LOGOUT),
@@ -1897,14 +1894,6 @@ contextBridge.exposeInMainWorld('api', {
     copyTask: (taskId: string) => ipcRenderer.invoke(IPC.TASK.COPY_TASK, taskId),
     selectCsvFile: () => ipcRenderer.invoke(IPC.TASK.SELECT_CSV_FILE),
     importRedmineCsv: (csvContent: string) => ipcRenderer.invoke(IPC.TASK.IMPORT_REDMINE_CSV, csvContent),
-    commitReview: {
-      save: (record: { sourceFolderPath: string; commitId: string; vcsType: 'git' | 'svn'; reviewerUserId?: string | null; note?: string | null }) =>
-        ipcRenderer.invoke(IPC.TASK.COMMIT_REVIEW_SAVE, record),
-      delete: (sourceFolderPath: string, commitId: string, version?: number) => ipcRenderer.invoke(IPC.TASK.COMMIT_REVIEW_DELETE, sourceFolderPath, commitId, version),
-      get: (sourceFolderPath: string, commitId: string) => ipcRenderer.invoke(IPC.TASK.COMMIT_REVIEW_GET, sourceFolderPath, commitId),
-      getAllBySourceFolder: (sourceFolderPath: string) => ipcRenderer.invoke(IPC.TASK.COMMIT_REVIEW_GET_ALL_BY_SOURCE, sourceFolderPath),
-      getReviewedIds: (sourceFolderPath: string) => ipcRenderer.invoke(IPC.TASK.COMMIT_REVIEW_GET_REVIEWED_IDS, sourceFolderPath),
-    },
     workload: {
       get: (params: { projectId: string; from: string; to: string }) => ipcRenderer.invoke(IPC.TASK.WORKLOAD_GET, params),
       upsertOverride: (input: { projectId: string; userId: string; workDate: string; overrideHours: number | null; note?: string | null; version?: number }) =>
@@ -2238,6 +2227,7 @@ contextBridge.exposeInMainWorld('api', {
   devPipelines: {
     openWindow: () => ipcRenderer.send(IPC.WINDOW.DEV_PIPELINES),
     closeWindow: () => ipcRenderer.send(IPC.WINDOW.DEV_PIPELINES_CLOSE),
+    requestDock: () => ipcRenderer.send(IPC.WINDOW.DEV_PIPELINES_DOCK_REQUEST),
     flow: {
       list: () => ipcRenderer.invoke(IPC.DEV_PIPELINE.FLOW_LIST),
       get: (id: string) => ipcRenderer.invoke(IPC.DEV_PIPELINE.FLOW_GET, id),
@@ -2263,6 +2253,29 @@ contextBridge.exposeInMainWorld('api', {
       const handler = (_: unknown, payload: DevPipelineLogStreamPayload) => cb(payload)
       ipcRenderer.on(IPC.DEV_PIPELINE.STREAM_LOG, handler)
       return () => ipcRenderer.removeListener(IPC.DEV_PIPELINE.STREAM_LOG, handler)
+    },
+  },
+
+  showLog: {
+    openWindow: (data?: ShowLogOpenPayload) => ipcRenderer.send(IPC.WINDOW.SHOW_LOG, data),
+    closeWindow: () => ipcRenderer.send(IPC.WINDOW.SHOW_LOG_CLOSE),
+    requestDock: (payload?: ShowLogOpenPayload) => ipcRenderer.send(IPC.WINDOW.SHOW_LOG_DOCK_REQUEST, payload),
+    syncHandoff: (payload: ShowLogOpenPayload) => ipcRenderer.send(IPC.WINDOW.SHOW_LOG_SYNC_HANDOFF, payload),
+  },
+
+  commitWorkflow: {
+    start: (payload: CommitWorkflowStartPayload) => ipcRenderer.invoke(IPC.COMMIT_WORKFLOW.START, toStructuredCloneable(payload)),
+    cancel: (runId: string) => ipcRenderer.invoke(IPC.COMMIT_WORKFLOW.CANCEL, runId),
+    getActive: (repoPath?: string) => ipcRenderer.invoke(IPC.COMMIT_WORKFLOW.GET_ACTIVE, repoPath),
+    getActiveForProject: (projectId: string) => ipcRenderer.invoke(IPC.COMMIT_WORKFLOW.GET_ACTIVE_FOR_PROJECT, projectId),
+    getRun: (runId: string) => ipcRenderer.invoke(IPC.COMMIT_WORKFLOW.GET_RUN, runId),
+    listRuns: (filters: CommitWorkflowListFilters) => ipcRenderer.invoke(IPC.COMMIT_WORKFLOW.LIST_RUNS, toStructuredCloneable(filters)),
+    syncFlush: () => ipcRenderer.invoke(IPC.COMMIT_WORKFLOW.SYNC_FLUSH),
+    getSyncStatus: () => ipcRenderer.invoke(IPC.COMMIT_WORKFLOW.GET_SYNC_STATUS),
+    onRunStream: (cb: (payload: CommitWorkflowRunStreamPayload) => void) => {
+      const handler = (_: unknown, payload: CommitWorkflowRunStreamPayload) => cb(payload)
+      ipcRenderer.on(IPC.COMMIT_WORKFLOW.STREAM_RUN, handler)
+      return () => ipcRenderer.removeListener(IPC.COMMIT_WORKFLOW.STREAM_RUN, handler)
     },
   },
 

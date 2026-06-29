@@ -8,7 +8,6 @@ export interface HeatmapDay {
   has_daily_report: number
   lines_inserted: number
   lines_deleted: number
-  reviews_done: number
 }
 
 export interface TrendPoint {
@@ -17,7 +16,6 @@ export interface TrendPoint {
   lines_added: number
   lines_deleted: number
   tasks: number
-  reviews: number
   reports: number
 }
 
@@ -28,7 +26,6 @@ export interface RadarMonthData {
   tasks_done: number
   tasks_done_on_time: number
   tasks_overdue_opened: number
-  reviews_done: number
   has_daily_report_days: number
   commits_with_rule_check: number
   commits_with_spotbugs: number
@@ -72,17 +69,27 @@ export interface QualityWeekPoint {
   rule_checked: number
   spotbugs_checked: number
   total: number
+  rule_pass?: number
+  spotbugs_pass?: number
+  playwright_pass?: number
+  workflow_completed?: number
 }
 
 export interface QualityTeamAvg {
   rule_check_rate: number
   spotbugs_rate: number
+  rule_pass_rate: number
+  spotbugs_pass_rate: number
+  playwright_pass_rate: number
 }
 
 export interface QualityData {
   trend: QualityWeekPoint[]
   userRuleRate: number
   userSpotbugsRate: number
+  userRulePassRate: number
+  userSpotbugsPassRate: number
+  userPlaywrightPassRate: number
   teamAvg: QualityTeamAvg
 }
 
@@ -98,13 +105,11 @@ export interface MonthlyHighlightsData {
   lines_inserted: number
   lines_deleted: number
   tasks_done: number
-  reviews_done: number
   report_days: number
   working_days: number
   longest_streak: number
   prev_commits: number
   prev_tasks: number
-  prev_reviews: number
   prev_report_days: number
   personal_best_commits_day: number
   personal_best_commits_day_date: string | null
@@ -166,7 +171,7 @@ function prevMonth(yearMonth: string): string {
 export async function getHeatmapData(userId: string, year: number): Promise<HeatmapDay[]> {
   if (!hasDbConfig()) return []
   const rows = await query<HeatmapDay>(
-    `SELECT snapshot_date, commits_count, tasks_done, has_daily_report, lines_inserted, lines_deleted, reviews_done
+    `SELECT snapshot_date, commits_count, tasks_done, has_daily_report, lines_inserted, lines_deleted
      FROM user_daily_snapshots
      WHERE user_id = ? AND EXTRACT(YEAR FROM snapshot_date::date) = ?
      ORDER BY snapshot_date`,
@@ -190,7 +195,6 @@ export async function getTrendData(userId: string, from: string, to: string, gra
        SUM(lines_inserted)  AS lines_added,
        SUM(lines_deleted)   AS lines_deleted,
        SUM(tasks_done)      AS tasks,
-       SUM(reviews_done)    AS reviews,
        SUM(has_daily_report::int) AS reports
      FROM user_daily_snapshots
      WHERE user_id = ? AND snapshot_date::date BETWEEN ?::date AND ?::date
@@ -210,7 +214,6 @@ async function aggregateSnapshotForRange(userId: string, from: string, to: strin
       tasks_done: 0,
       tasks_done_on_time: 0,
       tasks_overdue_opened: 0,
-      reviews_done: 0,
       has_daily_report_days: 0,
       commits_with_rule_check: 0,
       commits_with_spotbugs: 0,
@@ -226,7 +229,6 @@ async function aggregateSnapshotForRange(userId: string, from: string, to: strin
        SUM(tasks_done)                                       AS tasks_done,
        SUM(tasks_done_on_time)                               AS tasks_done_on_time,
        SUM(tasks_overdue_opened)                             AS tasks_overdue_opened,
-       SUM(reviews_done)                                     AS reviews_done,
        SUM(has_daily_report::int)                            AS has_daily_report_days,
        SUM(commits_with_rule_check)                          AS commits_with_rule_check,
        SUM(commits_with_spotbugs)                            AS commits_with_spotbugs,
@@ -244,7 +246,6 @@ async function aggregateSnapshotForRange(userId: string, from: string, to: strin
     tasks_done: Number(r.tasks_done ?? 0),
     tasks_done_on_time: Number(r.tasks_done_on_time ?? 0),
     tasks_overdue_opened: Number(r.tasks_overdue_opened ?? 0),
-    reviews_done: Number(r.reviews_done ?? 0),
     has_daily_report_days: Number(r.has_daily_report_days ?? 0),
     commits_with_rule_check: Number(r.commits_with_rule_check ?? 0),
     commits_with_spotbugs: Number(r.commits_with_spotbugs ?? 0),
@@ -375,15 +376,38 @@ export async function getTaskPerformance(userId: string, from: string, to: strin
 }
 
 export async function getQualityTrend(userId: string, weeksBack: number, teamUserIds?: string[], from?: string, to?: string): Promise<QualityData> {
-  if (!hasDbConfig()) {
-    return { trend: [], userRuleRate: 0, userSpotbugsRate: 0, teamAvg: { rule_check_rate: 0, spotbugs_rate: 0 } }
+  const empty: QualityData = {
+    trend: [],
+    userRuleRate: 0,
+    userSpotbugsRate: 0,
+    userRulePassRate: 0,
+    userSpotbugsPassRate: 0,
+    userPlaywrightPassRate: 0,
+    teamAvg: {
+      rule_check_rate: 0,
+      spotbugs_rate: 0,
+      rule_pass_rate: 0,
+      spotbugs_pass_rate: 0,
+      playwright_pass_rate: 0,
+    },
   }
+  if (!hasDbConfig()) return empty
 
   const safeRate = (num: number, den: number) => (den > 0 ? Math.round((num / den) * 100) : 0)
 
+  type TotalsRow = {
+    rule_checked: number
+    spotbugs_checked: number
+    total: number
+    rule_pass: number
+    spotbugs_pass: number
+    playwright_pass: number
+    workflow_completed: number
+  }
+
   let trendRows: QualityWeekPoint[]
-  let userTotals: Array<{ rule_checked: number; spotbugs_checked: number; total: number }>
-  let teamTotals: Array<{ rule_checked: number; spotbugs_checked: number; total: number }>
+  let userTotals: TotalsRow[]
+  let teamTotals: TotalsRow[]
 
   if (from && to) {
     const f = from
@@ -393,7 +417,11 @@ export async function getQualityTrend(userId: string, weeksBack: number, teamUse
          to_char(snapshot_date::date, 'IYYY-IW') AS week,
          SUM(commits_with_rule_check)  AS rule_checked,
          SUM(commits_with_spotbugs)    AS spotbugs_checked,
-         SUM(commits_total_in_queue)   AS total
+         SUM(commits_total_in_queue)   AS total,
+         SUM(commits_with_rule_pass) AS rule_pass,
+         SUM(commits_with_spotbugs_pass) AS spotbugs_pass,
+         SUM(commits_with_playwright_pass) AS playwright_pass,
+         SUM(commits_with_workflow_completed) AS workflow_completed
        FROM user_daily_snapshots
        WHERE user_id = ? AND snapshot_date::date BETWEEN ?::date AND ?::date
        GROUP BY week
@@ -402,11 +430,15 @@ export async function getQualityTrend(userId: string, weeksBack: number, teamUse
     )
     trendRows = Array.isArray(tr1) ? tr1 : []
 
-    const ut1 = await query<{ rule_checked: number; spotbugs_checked: number; total: number }>(
+    const ut1 = await query<TotalsRow>(
       `SELECT
          SUM(commits_with_rule_check) AS rule_checked,
          SUM(commits_with_spotbugs)   AS spotbugs_checked,
-         SUM(commits_total_in_queue)  AS total
+         SUM(commits_total_in_queue)  AS total,
+         SUM(commits_with_rule_pass) AS rule_pass,
+         SUM(commits_with_spotbugs_pass) AS spotbugs_pass,
+         SUM(commits_with_playwright_pass) AS playwright_pass,
+         SUM(commits_with_workflow_completed) AS workflow_completed
        FROM user_daily_snapshots
        WHERE user_id = ? AND snapshot_date::date BETWEEN ?::date AND ?::date`,
       [userId, f, t]
@@ -415,22 +447,30 @@ export async function getQualityTrend(userId: string, weeksBack: number, teamUse
 
     if (teamUserIds && teamUserIds.length > 0) {
       const ph = teamUserIds.map(() => '?').join(',')
-      const tt1 = await query<{ rule_checked: number; spotbugs_checked: number; total: number }>(
+      const tt1 = await query<TotalsRow>(
         `SELECT
            SUM(commits_with_rule_check) AS rule_checked,
            SUM(commits_with_spotbugs)   AS spotbugs_checked,
-           SUM(commits_total_in_queue)  AS total
+           SUM(commits_total_in_queue)  AS total,
+           SUM(commits_with_rule_pass) AS rule_pass,
+           SUM(commits_with_spotbugs_pass) AS spotbugs_pass,
+           SUM(commits_with_playwright_pass) AS playwright_pass,
+           SUM(commits_with_workflow_completed) AS workflow_completed
          FROM user_daily_snapshots
          WHERE user_id IN (${ph}) AND snapshot_date::date BETWEEN ?::date AND ?::date`,
         [...teamUserIds, f, t]
       )
       teamTotals = Array.isArray(tt1) ? tt1 : []
     } else {
-      const tt1 = await query<{ rule_checked: number; spotbugs_checked: number; total: number }>(
+      const tt1 = await query<TotalsRow>(
         `SELECT
            SUM(commits_with_rule_check) AS rule_checked,
            SUM(commits_with_spotbugs)   AS spotbugs_checked,
-           SUM(commits_total_in_queue)  AS total
+           SUM(commits_total_in_queue)  AS total,
+           SUM(commits_with_rule_pass) AS rule_pass,
+           SUM(commits_with_spotbugs_pass) AS spotbugs_pass,
+           SUM(commits_with_playwright_pass) AS playwright_pass,
+           SUM(commits_with_workflow_completed) AS workflow_completed
          FROM user_daily_snapshots
          WHERE snapshot_date::date BETWEEN ?::date AND ?::date`,
         [f, t]
@@ -443,7 +483,11 @@ export async function getQualityTrend(userId: string, weeksBack: number, teamUse
          to_char(snapshot_date::date, 'IYYY-IW') AS week,
          SUM(commits_with_rule_check)  AS rule_checked,
          SUM(commits_with_spotbugs)    AS spotbugs_checked,
-         SUM(commits_total_in_queue)   AS total
+         SUM(commits_total_in_queue)   AS total,
+         SUM(commits_with_rule_pass) AS rule_pass,
+         SUM(commits_with_spotbugs_pass) AS spotbugs_pass,
+         SUM(commits_with_playwright_pass) AS playwright_pass,
+         SUM(commits_with_workflow_completed) AS workflow_completed
        FROM user_daily_snapshots
        WHERE user_id = ? AND snapshot_date >= (date_trunc('week', CURRENT_DATE::timestamp) - (?::integer - 1) * interval '7 days')::date
        GROUP BY week
@@ -452,11 +496,15 @@ export async function getQualityTrend(userId: string, weeksBack: number, teamUse
     )
     trendRows = Array.isArray(tr2) ? tr2 : []
 
-    const ut2 = await query<{ rule_checked: number; spotbugs_checked: number; total: number }>(
+    const ut2 = await query<TotalsRow>(
       `SELECT
          SUM(commits_with_rule_check) AS rule_checked,
          SUM(commits_with_spotbugs)   AS spotbugs_checked,
-         SUM(commits_total_in_queue)  AS total
+         SUM(commits_total_in_queue)  AS total,
+         SUM(commits_with_rule_pass) AS rule_pass,
+         SUM(commits_with_spotbugs_pass) AS spotbugs_pass,
+         SUM(commits_with_playwright_pass) AS playwright_pass,
+         SUM(commits_with_workflow_completed) AS workflow_completed
        FROM user_daily_snapshots
        WHERE user_id = ? AND snapshot_date >= (date_trunc('week', CURRENT_DATE::timestamp) - (?::integer - 1) * interval '7 days')::date`,
       [userId, weeksBack]
@@ -465,22 +513,30 @@ export async function getQualityTrend(userId: string, weeksBack: number, teamUse
 
     if (teamUserIds && teamUserIds.length > 0) {
       const ph = teamUserIds.map(() => '?').join(',')
-      const tt2 = await query<{ rule_checked: number; spotbugs_checked: number; total: number }>(
+      const tt2 = await query<TotalsRow>(
         `SELECT
            SUM(commits_with_rule_check) AS rule_checked,
            SUM(commits_with_spotbugs)   AS spotbugs_checked,
-           SUM(commits_total_in_queue)  AS total
+           SUM(commits_total_in_queue)  AS total,
+           SUM(commits_with_rule_pass) AS rule_pass,
+           SUM(commits_with_spotbugs_pass) AS spotbugs_pass,
+           SUM(commits_with_playwright_pass) AS playwright_pass,
+           SUM(commits_with_workflow_completed) AS workflow_completed
          FROM user_daily_snapshots
          WHERE user_id IN (${ph}) AND snapshot_date >= (date_trunc('week', CURRENT_DATE::timestamp) - (?::integer - 1) * interval '7 days')::date`,
         [...teamUserIds, weeksBack]
       )
       teamTotals = Array.isArray(tt2) ? tt2 : []
     } else {
-      const tt2 = await query<{ rule_checked: number; spotbugs_checked: number; total: number }>(
+      const tt2 = await query<TotalsRow>(
         `SELECT
            SUM(commits_with_rule_check) AS rule_checked,
            SUM(commits_with_spotbugs)   AS spotbugs_checked,
-           SUM(commits_total_in_queue)  AS total
+           SUM(commits_total_in_queue)  AS total,
+           SUM(commits_with_rule_pass) AS rule_pass,
+           SUM(commits_with_spotbugs_pass) AS spotbugs_pass,
+           SUM(commits_with_playwright_pass) AS playwright_pass,
+           SUM(commits_with_workflow_completed) AS workflow_completed
          FROM user_daily_snapshots
          WHERE snapshot_date >= (date_trunc('week', CURRENT_DATE::timestamp) - (?::integer - 1) * interval '7 days')::date`,
         [weeksBack]
@@ -489,16 +545,28 @@ export async function getQualityTrend(userId: string, weeksBack: number, teamUse
     }
   }
 
-  const ut = Array.isArray(userTotals) && userTotals.length > 0 ? userTotals[0] : { rule_checked: 0, spotbugs_checked: 0, total: 0 }
-  const tt = Array.isArray(teamTotals) && teamTotals.length > 0 ? teamTotals[0] : { rule_checked: 0, spotbugs_checked: 0, total: 0 }
+  const ut = Array.isArray(userTotals) && userTotals.length > 0
+    ? userTotals[0]
+    : { rule_checked: 0, spotbugs_checked: 0, total: 0, rule_pass: 0, spotbugs_pass: 0, playwright_pass: 0, workflow_completed: 0 }
+  const tt = Array.isArray(teamTotals) && teamTotals.length > 0
+    ? teamTotals[0]
+    : { rule_checked: 0, spotbugs_checked: 0, total: 0, rule_pass: 0, spotbugs_pass: 0, playwright_pass: 0, workflow_completed: 0 }
+  const passDen = Number(ut.workflow_completed) || Number(ut.total)
+  const teamPassDen = Number(tt.workflow_completed) || Number(tt.total)
 
   return {
     trend: Array.isArray(trendRows) ? trendRows : [],
     userRuleRate: safeRate(Number(ut.rule_checked), Number(ut.total)),
     userSpotbugsRate: safeRate(Number(ut.spotbugs_checked), Number(ut.total)),
+    userRulePassRate: safeRate(Number(ut.rule_pass), passDen),
+    userSpotbugsPassRate: safeRate(Number(ut.spotbugs_pass), passDen),
+    userPlaywrightPassRate: safeRate(Number(ut.playwright_pass), passDen),
     teamAvg: {
       rule_check_rate: safeRate(Number(tt.rule_checked), Number(tt.total)),
       spotbugs_rate: safeRate(Number(tt.spotbugs_checked), Number(tt.total)),
+      rule_pass_rate: safeRate(Number(tt.rule_pass), teamPassDen),
+      spotbugs_pass_rate: safeRate(Number(tt.spotbugs_pass), teamPassDen),
+      playwright_pass_rate: safeRate(Number(tt.playwright_pass), teamPassDen),
     },
   }
 }
@@ -562,13 +630,11 @@ export async function getMonthlyHighlights(userId: string, yearMonth: string): P
       lines_inserted: 0,
       lines_deleted: 0,
       tasks_done: 0,
-      reviews_done: 0,
       report_days: 0,
       working_days: 0,
       longest_streak: 0,
       prev_commits: 0,
       prev_tasks: 0,
-      prev_reviews: 0,
       prev_report_days: 0,
       personal_best_commits_day: 0,
       personal_best_commits_day_date: null,
@@ -589,12 +655,12 @@ export async function getMonthlyHighlights(userId: string, yearMonth: string): P
   const [currRows, prevRows, bestDayRows, bestMonthRows, bestLineDayRows, trendRows, streakRows] = await Promise.all([
     query<Record<string, number>>(
       `SELECT SUM(commits_count) AS c, SUM(lines_inserted) AS li, SUM(lines_deleted) AS ld,
-              SUM(tasks_done) AS t, SUM(reviews_done) AS r, SUM(has_daily_report::int) AS d, COUNT(*) AS wd
+              SUM(tasks_done) AS t, SUM(has_daily_report::int) AS d, COUNT(*) AS wd
        FROM user_daily_snapshots WHERE user_id = ? AND snapshot_date::date BETWEEN ?::date AND ?::date`,
       [userId, s, e]
     ),
     query<Record<string, number>>(
-      `SELECT SUM(commits_count) AS c, SUM(tasks_done) AS t, SUM(reviews_done) AS r, SUM(has_daily_report::int) AS d
+      `SELECT SUM(commits_count) AS c, SUM(tasks_done) AS t, SUM(has_daily_report::int) AS d
        FROM user_daily_snapshots WHERE user_id = ? AND snapshot_date::date BETWEEN ?::date AND ?::date`,
       [userId, ps, pe]
     ),
@@ -641,13 +707,11 @@ export async function getMonthlyHighlights(userId: string, yearMonth: string): P
     lines_inserted: Number(curr.li ?? 0),
     lines_deleted: Number(curr.ld ?? 0),
     tasks_done: Number(curr.t ?? 0),
-    reviews_done: Number(curr.r ?? 0),
     report_days: Number(curr.d ?? 0),
     working_days: Number(curr.wd ?? 0),
     longest_streak: longestStreak,
     prev_commits: Number(prevR.c ?? 0),
     prev_tasks: Number(prevR.t ?? 0),
-    prev_reviews: Number(prevR.r ?? 0),
     prev_report_days: Number(prevR.d ?? 0),
     personal_best_commits_day: bestDay ? Number(bestDay.commits_count) : 0,
     personal_best_commits_day_date: bestDay ? String(bestDay.snapshot_date) : null,
@@ -709,10 +773,13 @@ export interface SnapshotInput {
   commits_with_rule_check: number
   commits_with_spotbugs: number
   commits_total_in_queue: number
+  commits_with_rule_pass?: number
+  commits_with_spotbugs_pass?: number
+  commits_with_playwright_pass?: number
+  commits_with_workflow_completed?: number
   tasks_done: number
   tasks_done_on_time: number
   tasks_overdue_opened: number
-  reviews_done: number
   has_daily_report: number
   evm_hours_logged: number
 }
@@ -723,8 +790,9 @@ export async function upsertDailySnapshot(input: SnapshotInput): Promise<void> {
     `INSERT INTO user_daily_snapshots
        (id, user_id, snapshot_date, commits_count, lines_inserted, lines_deleted,
         files_changed, commits_with_rule_check, commits_with_spotbugs, commits_total_in_queue,
-        tasks_done, tasks_done_on_time, tasks_overdue_opened, reviews_done, has_daily_report, evm_hours_logged)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        commits_with_rule_pass, commits_with_spotbugs_pass, commits_with_playwright_pass, commits_with_workflow_completed,
+        tasks_done, tasks_done_on_time, tasks_overdue_opened, has_daily_report, evm_hours_logged)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
      ON CONFLICT (user_id, snapshot_date) DO UPDATE SET
        commits_count = EXCLUDED.commits_count,
        lines_inserted = EXCLUDED.lines_inserted,
@@ -733,10 +801,13 @@ export async function upsertDailySnapshot(input: SnapshotInput): Promise<void> {
        commits_with_rule_check = EXCLUDED.commits_with_rule_check,
        commits_with_spotbugs = EXCLUDED.commits_with_spotbugs,
        commits_total_in_queue = EXCLUDED.commits_total_in_queue,
+       commits_with_rule_pass = EXCLUDED.commits_with_rule_pass,
+       commits_with_spotbugs_pass = EXCLUDED.commits_with_spotbugs_pass,
+       commits_with_playwright_pass = EXCLUDED.commits_with_playwright_pass,
+       commits_with_workflow_completed = EXCLUDED.commits_with_workflow_completed,
        tasks_done = EXCLUDED.tasks_done,
        tasks_done_on_time = EXCLUDED.tasks_done_on_time,
        tasks_overdue_opened = EXCLUDED.tasks_overdue_opened,
-       reviews_done = EXCLUDED.reviews_done,
        has_daily_report = EXCLUDED.has_daily_report,
        evm_hours_logged = EXCLUDED.evm_hours_logged`,
     [
@@ -750,10 +821,13 @@ export async function upsertDailySnapshot(input: SnapshotInput): Promise<void> {
       input.commits_with_rule_check,
       input.commits_with_spotbugs,
       input.commits_total_in_queue,
+      input.commits_with_rule_pass ?? 0,
+      input.commits_with_spotbugs_pass ?? 0,
+      input.commits_with_playwright_pass ?? 0,
+      input.commits_with_workflow_completed ?? 0,
       input.tasks_done,
       input.tasks_done_on_time,
       input.tasks_overdue_opened,
-      input.reviews_done,
       input.has_daily_report,
       input.evm_hours_logged,
     ]
@@ -1328,16 +1402,6 @@ export async function getTasksOverdueForDate(userId: string, date: string): Prom
     `SELECT COUNT(*) AS cnt FROM tasks
      WHERE assignee_user_id = ? AND status != 'done'
        AND plan_end_date IS NOT NULL AND plan_end_date::date < ?::date`,
-    [userId, date]
-  )
-  return Array.isArray(rows) && rows.length > 0 ? Number(rows[0].cnt) : 0
-}
-
-export async function getReviewsDoneForUserAndDate(userId: string, date: string): Promise<number> {
-  if (!hasDbConfig()) return 0
-  const rows = await query<{ cnt: number }>(
-    `SELECT COUNT(*) AS cnt FROM commit_reviews
-     WHERE reviewer_user_id = ? AND reviewed_at::date = ?::date`,
     [userId, date]
   )
   return Array.isArray(rows) && rows.length > 0 ? Number(rows[0].cnt) : 0

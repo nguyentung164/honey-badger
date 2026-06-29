@@ -3,23 +3,36 @@ import { Bug, CheckCircle, CircleAlert, GitPullRequest, HelpCircle, SendHorizont
 import { IPC } from 'main/constants'
 import { lazy, memo, Suspense, useCallback, useEffect, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { AUTOMATION_RENDERER_CHANNELS, PR_MANAGER_RENDERER_CHANNELS, TASK_MANAGEMENT_RENDERER_CHANNELS } from 'shared/constants'
+import { AUTOMATION_RENDERER_CHANNELS, DEV_PIPELINE_RENDERER_CHANNELS, PR_MANAGER_RENDERER_CHANNELS, SHOW_LOG_RENDERER_CHANNELS, TASK_MANAGEMENT_RENDERER_CHANNELS } from 'shared/constants'
 import {
   getInitialShellViewFromStorage,
   isTaskShellRole,
   MAIN_SHELL_VIEW_KEY,
   type MainShellView,
   readPersistedAutomationDetached,
+  readPersistedDevPipelinesDetached,
   readPersistedPrManagerDetached,
+  readPersistedShowLogDetached,
   readPersistedTasksDetached,
   readStoredShellView,
   writePersistedAutomationDetached,
+  writePersistedDevPipelinesDetached,
   writePersistedPrManagerDetached,
+  writePersistedShowLogDetached,
   writePersistedTasksDetached,
 } from 'shared/mainShellView'
 import { ChangePasswordDialog } from '@/components/dialogs/auth/ChangePasswordDialog'
 import { LoginDialog } from '@/components/dialogs/auth/LoginDialog'
 import { CommitMessageHistoryDialog } from '@/components/dialogs/app/CommitMessageHistoryDialog'
+import { GitStashDialog } from '@/components/dialogs/git/GitStashDialog'
+import { CommitWorkflowStatusBar } from '@/components/commit-workflow/CommitWorkflowStatusBar'
+import {
+  CommitWorkflowPreCommitDialog,
+  type PreCommitRepoTab,
+} from '@/components/commit-workflow/CommitWorkflowPreCommitDialog'
+import { triggerCommitWorkflowAfterCommit } from '@/lib/commitWorkflow/commitWorkflowUtils'
+import type { CommitWorkflowRunChoices } from 'shared/commitWorkflow/runChoices'
+import { EMPTY_COMMIT_WORKFLOW_RUN_CHOICES } from 'shared/commitWorkflow/runChoices'
 import { VcsOperationLogDialog } from '@/components/dialogs/vcs/VcsOperationLogDialog'
 import { LANGUAGES } from '@/components/shared/constants'
 import { TranslatePanel } from '@/components/shared/TranslatePanel'
@@ -38,6 +51,9 @@ import toast from '@/components/ui-elements/Toast'
 import { cn } from '@/lib/utils'
 import { validateCommitMessage } from '@/lib/validateCommitMessage'
 import { AutomationToolbarPortalContext } from '@/pages/main/AutomationToolbarPortalContext'
+import { DevPipelinesToolbarPortalContext } from '@/pages/main/DevPipelinesToolbarPortalContext'
+import { ShowLogToolbarPortalContext } from '@/pages/main/ShowLogToolbarPortalContext'
+import { MAIN_SHELL_OPEN_SHOW_LOG_EVENT, buildShowLogOpenPayload, type ShowLogOpenPayload } from '@/lib/openShowLog'
 import { GitStagingTable } from '@/pages/main/GitStagingTable'
 import { PrManagerToolbarPortalContext } from '@/pages/main/PrManagerToolbarPortalContext'
 import { QuickCreatePrDialog } from '@/pages/main/QuickCreatePrDialog'
@@ -95,11 +111,17 @@ const PrManager = lazy(() => import('@/pages/prmanager/PrManager').then(m => ({ 
 
 const AutomationPage = lazy(() => import('@/pages/automation/AutomationPage').then(m => ({ default: m.AutomationPage })))
 
+const DevPipelinesPage = lazy(() => import('@/pages/dev-pipelines/DevPipelinesPage').then(m => ({ default: m.default })))
+
+const ShowLogPage = lazy(() => import('@/pages/showlog/ShowLog').then(m => ({ default: m.default })))
+
 function getInitialMainPageShellView(): MainShellView {
   const v = getInitialShellViewFromStorage()
   if (readPersistedPrManagerDetached() && v === 'prManager') return 'vcs'
   if (readPersistedTasksDetached() && v === 'tasks') return 'vcs'
   if (readPersistedAutomationDetached() && v === 'automation') return 'vcs'
+  if (readPersistedDevPipelinesDetached() && v === 'devPipelines') return 'vcs'
+  if (readPersistedShowLogDetached() && v === 'showLog') return 'vcs'
   return v
 }
 
@@ -133,6 +155,7 @@ export function MainPage() {
   const token = useTaskAuthStore(s => s.token)
   const user = useTaskAuthStore(s => s.user)
   const isGuest = useTaskAuthStore(s => s.isGuest)
+  const enableShellSwitcher = Boolean(user && !isGuest)
   const verifySession = useTaskAuthStore(s => s.verifySession)
   const sessionExpiredShownRef = useRef(false)
   const prevVersionControlSystemRef = useRef<typeof versionControlSystem | null>(null)
@@ -147,6 +170,7 @@ export function MainPage() {
   const gitMultiTableRefs = useRef<Record<string, any>>({})
   const effectivePathsRef = useRef<string[]>([])
   const prevIsMultiRepoRef = useRef<boolean>(false)
+  const prevShellViewRef = useRef<MainShellView | null>(null)
   const isMultiRepo = versionControlSystem === 'git' && !!multiRepoEnabled && effectivePaths.length >= 1
 
   useEffect(() => {
@@ -332,7 +356,7 @@ export function MainPage() {
     }
   }, [versionControlSystem, isMultiRepo, effectivePaths.length])
 
-  // Listen for config-updated from main process (e.g. when Dashboard updates config)
+  // Listen for config-updated from main process (e.g. when another window updates shared config)
   useEffect(() => {
     const handleConfigUpdated = () => {
       window.dispatchEvent(new CustomEvent('configuration-changed', { detail: { type: 'configuration' } }))
@@ -472,6 +496,13 @@ export function MainPage() {
     findings: { ruleId: string; file: string; startLine?: number; repoLabel?: string; description?: string }[]
     onConfirm: () => void
   } | null>(null)
+  const [preCommitOpen, setPreCommitOpen] = useState(false)
+  const [preCommitTabs, setPreCommitTabs] = useState<PreCommitRepoTab[]>([])
+  const pendingCommitRef = useRef<{
+    selectedFiles: any[]
+    finalCommitMessage: string
+    multiRepoPayload: { repos: { path: string; files: FileData[] }[]; labels?: string[] } | null
+  } | null>(null)
   const [autoPush, setAutoPush] = useState(() => readGitCommitOptionsFromStorage().autoPush)
   const [commitAmend, setCommitAmend] = useState(() => readGitCommitOptionsFromStorage().amend)
   const [commitSignOff, setCommitSignOff] = useState(() => readGitCommitOptionsFromStorage().signOff)
@@ -490,9 +521,14 @@ export function MainPage() {
   const [prManagerDetached, setPrManagerDetached] = useState<boolean>(() => readPersistedPrManagerDetached())
   const [tasksDetached, setTasksDetached] = useState<boolean>(() => readPersistedTasksDetached())
   const [automationDetached, setAutomationDetached] = useState<boolean>(() => readPersistedAutomationDetached())
+  const [devPipelinesDetached, setDevPipelinesDetached] = useState<boolean>(() => readPersistedDevPipelinesDetached())
+  const [showLogDetached, setShowLogDetached] = useState<boolean>(() => readPersistedShowLogDetached())
+  const [showLogOpenPayload, setShowLogOpenPayload] = useState<ShowLogOpenPayload | null>(null)
+  const showLogHandoffGetterRef = useRef<(() => ShowLogOpenPayload) | null>(null)
+  const prevShellForShowLogRef = useRef<MainShellView | null>(null)
 
   /** TitleBar dock chỉ gỡ trạng thái tách; dock từ cửa sổ riêng vẫn chuyển shell sang tab tương ứng. */
-  const dockFromTitleBarRef = useRef({ pr: false, tasks: false, automation: false })
+  const dockFromTitleBarRef = useRef({ pr: false, tasks: false, automation: false, devPipelines: false, showLog: false })
 
   const persistShellView = useCallback((v: MainShellView) => {
     setShellView(v)
@@ -518,6 +554,16 @@ export function MainPage() {
     writePersistedAutomationDetached(detached)
   }, [])
 
+  const persistDevPipelinesDetached = useCallback((detached: boolean) => {
+    setDevPipelinesDetached(detached)
+    writePersistedDevPipelinesDetached(detached)
+  }, [])
+
+  const persistShowLogDetached = useCallback((detached: boolean) => {
+    setShowLogDetached(detached)
+    writePersistedShowLogDetached(detached)
+  }, [])
+
   useEffect(() => {
     if (!user || isGuest) {
       setShellView('vcs')
@@ -527,6 +573,16 @@ export function MainPage() {
       writePersistedTasksDetached(false)
       setAutomationDetached(false)
       writePersistedAutomationDetached(false)
+      setDevPipelinesDetached(false)
+      writePersistedDevPipelinesDetached(false)
+      setShowLogDetached(false)
+      writePersistedShowLogDetached(false)
+      setShowLogOpenPayload(null)
+      try {
+        localStorage.setItem(MAIN_SHELL_VIEW_KEY, 'vcs')
+      } catch {
+        /* ignore */
+      }
       return
     }
     const stored = readStoredShellView()
@@ -538,6 +594,12 @@ export function MainPage() {
       next = 'vcs'
     }
     if (readPersistedAutomationDetached() && next === 'automation') {
+      next = 'vcs'
+    }
+    if (readPersistedDevPipelinesDetached() && next === 'devPipelines') {
+      next = 'vcs'
+    }
+    if (readPersistedShowLogDetached() && next === 'showLog') {
       next = 'vcs'
     }
     setShellView(next)
@@ -581,6 +643,29 @@ export function MainPage() {
   const handleAutomationDockFromTitleBar = useCallback(() => {
     dockFromTitleBarRef.current.automation = true
     window.api.automation.requestDock()
+  }, [])
+
+  const handleDevPipelinesDetach = useCallback(() => {
+    persistDevPipelinesDetached(true)
+    persistShellView('vcs')
+    window.api.devPipelines.openWindow()
+  }, [persistDevPipelinesDetached, persistShellView])
+
+  const handleDevPipelinesDockFromTitleBar = useCallback(() => {
+    dockFromTitleBarRef.current.devPipelines = true
+    window.api.devPipelines.requestDock()
+  }, [])
+
+  const handleShowLogDetach = useCallback(() => {
+    const payload = showLogHandoffGetterRef.current?.() ?? showLogOpenPayload ?? { path: '.' }
+    persistShowLogDetached(true)
+    persistShellView('vcs')
+    window.api.showLog.openWindow(payload)
+  }, [persistShowLogDetached, persistShellView, showLogOpenPayload])
+
+  const handleShowLogDockFromTitleBar = useCallback(() => {
+    dockFromTitleBarRef.current.showLog = true
+    window.api.showLog.requestDock()
   }, [])
 
   useEffect(() => {
@@ -646,10 +731,119 @@ export function MainPage() {
     }
   }, [persistAutomationDetached, persistShellView])
 
-  const enableShellSwitcher = Boolean(user && !isGuest)
+  useEffect(() => {
+    const onDocked = () => {
+      persistDevPipelinesDetached(false)
+      if (dockFromTitleBarRef.current.devPipelines) {
+        dockFromTitleBarRef.current.devPipelines = false
+      } else {
+        persistShellView('devPipelines')
+      }
+    }
+    const onWindowClosed = () => {
+      persistDevPipelinesDetached(false)
+      persistShellView('devPipelines')
+    }
+    window.api.on(DEV_PIPELINE_RENDERER_CHANNELS.DOCKED_TO_MAIN, onDocked)
+    window.api.on(DEV_PIPELINE_RENDERER_CHANNELS.WINDOW_CLOSED, onWindowClosed)
+    return () => {
+      window.api.removeListener(DEV_PIPELINE_RENDERER_CHANNELS.DOCKED_TO_MAIN, onDocked)
+      window.api.removeListener(DEV_PIPELINE_RENDERER_CHANNELS.WINDOW_CLOSED, onWindowClosed)
+    }
+  }, [persistDevPipelinesDetached, persistShellView])
+
+  useEffect(() => {
+    const onDocked = (_event: unknown, payload?: ShowLogOpenPayload) => {
+      persistShowLogDetached(false)
+      if (payload && typeof payload === 'object' && 'path' in payload) {
+        setShowLogOpenPayload(payload)
+      }
+      if (dockFromTitleBarRef.current.showLog) {
+        dockFromTitleBarRef.current.showLog = false
+      } else {
+        persistShellView('showLog')
+      }
+    }
+    const onWindowClosed = () => {
+      persistShowLogDetached(false)
+      persistShellView('showLog')
+    }
+    window.api.on(SHOW_LOG_RENDERER_CHANNELS.DOCKED_TO_MAIN, onDocked)
+    window.api.on(SHOW_LOG_RENDERER_CHANNELS.WINDOW_CLOSED, onWindowClosed)
+    return () => {
+      window.api.removeListener(SHOW_LOG_RENDERER_CHANNELS.DOCKED_TO_MAIN, onDocked)
+      window.api.removeListener(SHOW_LOG_RENDERER_CHANNELS.WINDOW_CLOSED, onWindowClosed)
+    }
+  }, [persistShowLogDetached, persistShellView])
+
+  useEffect(() => {
+    const handler = (event: Event) => {
+      const detail = (event as CustomEvent<ShowLogOpenPayload>).detail
+      if (!detail) return
+      setShowLogOpenPayload(detail)
+      persistShellView('showLog')
+    }
+    window.addEventListener(MAIN_SHELL_OPEN_SHOW_LOG_EVENT, handler)
+    return () => window.removeEventListener(MAIN_SHELL_OPEN_SHOW_LOG_EVENT, handler)
+  }, [persistShellView])
+
+  // Show Log: giữ context khi đổi tab; seed mặc định khi vào tab lần đầu
+  useEffect(() => {
+    const prev = prevShellForShowLogRef.current
+    prevShellForShowLogRef.current = shellView
+    if (prev === 'showLog' && shellView !== 'showLog') {
+      const snap = showLogHandoffGetterRef.current?.()
+      if (snap) setShowLogOpenPayload(snap)
+    }
+  }, [shellView])
+
+  useEffect(() => {
+    if (shellView !== 'showLog' || showLogDetached || !enableShellSwitcher) return
+    if (showLogOpenPayload) return
+    if (!isConfigLoaded) return
+    setShowLogOpenPayload(
+      buildShowLogOpenPayload({
+        filePath: '.',
+        sourceFolder: sourceFolder || undefined,
+        versionControlSystem,
+      })
+    )
+  }, [shellView, showLogDetached, enableShellSwitcher, showLogOpenPayload, isConfigLoaded, sourceFolder, versionControlSystem])
+
+  const reloadGitWorkspaceData = useCallback(() => {
+    if (versionControlSystem !== 'git') return
+    const paths = effectivePathsRef.current
+    const multi = !!multiRepoEnabled && paths.length >= 1
+    if (multi) {
+      paths.forEach(path => {
+        gitMultiTableRefs.current[path]?.reloadData?.()
+      })
+    } else {
+      gitDualTableRef.current?.reloadData?.()
+    }
+  }, [versionControlSystem, multiRepoEnabled])
+
+  // Khi quay lại tab Workspace sau khi unmount bảng file, Git cần reload (SVN tự load khi mount).
+  useEffect(() => {
+    const prev = prevShellViewRef.current
+    prevShellViewRef.current = shellView
+
+    if (!enableShellSwitcher || !isConfigLoaded) return
+    if (shellView !== 'vcs') return
+    if (prev === null || prev === 'vcs') return
+
+    const timer = setTimeout(() => {
+      logger.info('Returned to Workspace tab, reloading file list...')
+      reloadGitWorkspaceData()
+    }, 0)
+    return () => clearTimeout(timer)
+  }, [shellView, enableShellSwitcher, isConfigLoaded, reloadGitWorkspaceData])
+
   const showEmbeddedTasks = enableShellSwitcher && shellView === 'tasks' && !tasksDetached
   const showEmbeddedPrManager = enableShellSwitcher && shellView === 'prManager' && !prManagerDetached
   const showEmbeddedAutomation = enableShellSwitcher && shellView === 'automation' && !automationDetached
+  const showEmbeddedDevPipelines = enableShellSwitcher && shellView === 'devPipelines' && !devPipelinesDetached
+  const showEmbeddedShowLog = enableShellSwitcher && shellView === 'showLog' && !showLogDetached
   const [taskToolbarHostEl, setTaskToolbarHostEl] = useState<HTMLDivElement | null>(null)
   const taskToolbarHostRef = useCallback((node: HTMLDivElement | null) => {
     setTaskToolbarHostEl(node)
@@ -665,6 +859,14 @@ export function MainPage() {
   const [automationToolbarHostEl, setAutomationToolbarHostEl] = useState<HTMLDivElement | null>(null)
   const automationToolbarHostRef = useCallback((node: HTMLDivElement | null) => {
     setAutomationToolbarHostEl(node)
+  }, [])
+  const [devPipelinesToolbarHostEl, setDevPipelinesToolbarHostEl] = useState<HTMLDivElement | null>(null)
+  const devPipelinesToolbarHostRef = useCallback((node: HTMLDivElement | null) => {
+    setDevPipelinesToolbarHostEl(node)
+  }, [])
+  const [showLogToolbarHostEl, setShowLogToolbarHostEl] = useState<HTMLDivElement | null>(null)
+  const showLogToolbarHostRef = useCallback((node: HTMLDivElement | null) => {
+    setShowLogToolbarHostEl(node)
   }, [])
 
   const [showCommitResultDialog, setShowCommitResultDialog] = useState(false)
@@ -858,7 +1060,14 @@ export function MainPage() {
   }
 
   const performCommit = useCallback(
-    async (selectedFiles: any[], finalCommitMessage: string, multiRepoPayload?: { repos: { path: string; files: FileData[] }[]; labels?: string[] } | null) => {
+    async (
+      selectedFiles: any[],
+      finalCommitMessage: string,
+      multiRepoPayload?: { repos: { path: string; files: FileData[] }[]; labels?: string[] } | null,
+      runChoicesByRepo?: Record<string, CommitWorkflowRunChoices>
+    ) => {
+      const workflowChoices = (repoPath: string) =>
+        runChoicesByRepo?.[repoPath] ?? structuredClone(EMPTY_COMMIT_WORKFLOW_RUN_CHOICES)
       setLoadingCommit(true)
       setCommitStreamingLog('')
       setCommitIsStreaming(true)
@@ -904,6 +1113,11 @@ export function MainPage() {
               }
               if (result.data?.commitInfo) {
                 window.api.gitCommitQueue.add(result.data.commitInfo).catch(err => logger.error('Lưu commit queue:', err))
+                void triggerCommitWorkflowAfterCommit(
+                  { ...result.data.commitInfo, sourceFolderPath: path },
+                  path,
+                  workflowChoices(path)
+                )
               }
             }
           }
@@ -1009,6 +1223,10 @@ export function MainPage() {
             } else {
               window.api.gitCommitQueue.add(commitInfo).catch(err => logger.error('Lưu commit queue:', err))
             }
+            const repoPath = commitInfo.sourceFolderPath || sourceFolder || ''
+            if (repoPath) {
+              void triggerCommitWorkflowAfterCommit(commitInfo, repoPath, workflowChoices(repoPath))
+            }
           }
           gitDualTableRef.current?.reloadData?.()
           window.dispatchEvent(new CustomEvent('git-commit-success'))
@@ -1049,6 +1267,30 @@ export function MainPage() {
           setTimeout(() => {
             tableRef.current.table.toggleAllPageRowsSelected(false)
           }, 0)
+          const svnData = result.data as
+            | {
+                revision?: string
+                addedFiles?: string[]
+                modifiedFiles?: string[]
+                deletedFiles?: string[]
+                svnDiffContent?: string
+              }
+            | undefined
+          const repoPath = sourceFolder?.trim() || ''
+          if (svnData?.revision && repoPath) {
+            void triggerCommitWorkflowAfterCommit(
+              {
+                commitHash: `svn:r${svnData.revision}`,
+                commitMessage: finalCommitMessage,
+                addedFiles: svnData.addedFiles ?? [],
+                modifiedFiles: svnData.modifiedFiles ?? [],
+                deletedFiles: svnData.deletedFiles ?? [],
+                svnDiffContent: svnData.svnDiffContent,
+              },
+              repoPath,
+              workflowChoices(repoPath)
+            )
+          }
         }
         setCommitMessageSeed('')
         if (referenceIdRef.current) {
@@ -1062,13 +1304,39 @@ export function MainPage() {
       setCommitIsStreaming(false)
       setLoadingCommit(false)
     },
-    [versionControlSystem, t, autoPush, commitAmend, commitSignOff]
+    [versionControlSystem, t, autoPush, commitAmend, commitSignOff, sourceFolder]
+  )
+
+  const buildPreCommitTabs = useCallback(
+    (
+      selectedFiles: { filePath: string }[],
+      multiRepoPayload: { repos: { path: string; files: FileData[] }[]; labels?: string[] } | null
+    ): PreCommitRepoTab[] => {
+      if (versionControlSystem === 'git' && multiRepoPayload?.repos?.length) {
+        const labels = multiRepoPayload.labels ?? effectiveLabels
+        return multiRepoPayload.repos
+          .filter(r => r.files.length > 0)
+          .map((r, i) => ({
+            repoPath: r.path,
+            label: labels[i] ?? r.path,
+            stagedFiles: r.files.map(f => f.filePath),
+          }))
+      }
+      const repoPath = sourceFolder?.trim() || ''
+      return [{ repoPath, label: repoPath, stagedFiles: selectedFiles.map(f => f.filePath) }]
+    },
+    [effectiveLabels, sourceFolder, versionControlSystem]
   )
 
   const proceedWithCommit = useCallback(
-    async (selectedFiles: any[], finalCommitMessage: string, multiRepoPayload: { repos: { path: string; files: FileData[] }[]; labels: string[] } | null) => {
+    async (
+      selectedFiles: any[],
+      finalCommitMessage: string,
+      multiRepoPayload: { repos: { path: string; files: FileData[] }[]; labels?: string[] } | null,
+      runChoicesByRepo?: Record<string, CommitWorkflowRunChoices>
+    ) => {
       if (versionControlSystem !== 'git' || !gitleaksEnabled) {
-        await performCommit(selectedFiles, finalCommitMessage, multiRepoPayload)
+        await performCommit(selectedFiles, finalCommitMessage, multiRepoPayload, runChoicesByRepo)
         return
       }
 
@@ -1091,7 +1359,7 @@ export function MainPage() {
       }
 
       if (repos.length === 0) {
-        await performCommit(selectedFiles, finalCommitMessage, multiRepoPayload)
+        await performCommit(selectedFiles, finalCommitMessage, multiRepoPayload, runChoicesByRepo)
         return
       }
 
@@ -1114,7 +1382,7 @@ export function MainPage() {
             findings: scan.findings,
             onConfirm: () => {
               setGitleaksDialog(null)
-              void performCommit(selectedFiles, finalCommitMessage, multiRepoPayload)
+              void performCommit(selectedFiles, finalCommitMessage, multiRepoPayload, runChoicesByRepo)
             },
           })
           return
@@ -1124,9 +1392,23 @@ export function MainPage() {
         return
       }
 
-      await performCommit(selectedFiles, finalCommitMessage, multiRepoPayload)
+      await performCommit(selectedFiles, finalCommitMessage, multiRepoPayload, runChoicesByRepo)
     },
     [versionControlSystem, gitleaksEnabled, gitleaksMode, gitleaksConfigPath, isMultiRepo, effectiveLabels, sourceFolder, performCommit, t]
+  )
+
+  const showPreCommitDialog = useCallback(
+    (
+      selectedFiles: any[],
+      finalCommitMessage: string,
+      multiRepoPayload: { repos: { path: string; files: FileData[] }[]; labels?: string[] } | null
+    ) => {
+      const tabs = buildPreCommitTabs(selectedFiles, multiRepoPayload)
+      pendingCommitRef.current = { selectedFiles, finalCommitMessage, multiRepoPayload }
+      setPreCommitTabs(tabs)
+      setPreCommitOpen(true)
+    },
+    [buildPreCommitTabs]
   )
 
   const commitCode = useCallback(async () => {
@@ -1197,15 +1479,15 @@ export function MainPage() {
           warnings: validationResult.warnings,
           onConfirm: () => {
             setCommitConventionDialog(null)
-            void proceedWithCommit(selectedFiles, finalCommitMessage, multiRepoPayload)
+            showPreCommitDialog(selectedFiles, finalCommitMessage, multiRepoPayload)
           },
         })
         return
       }
     }
 
-    await proceedWithCommit(selectedFiles, finalCommitMessage, multiRepoPayload)
-  }, [versionControlSystem, t, commitConventionEnabled, commitConventionMode, proceedWithCommit, isMultiRepo, effectivePaths, effectiveLabels])
+    showPreCommitDialog(selectedFiles, finalCommitMessage, multiRepoPayload)
+  }, [versionControlSystem, t, commitConventionEnabled, commitConventionMode, showPreCommitDialog, isMultiRepo, effectivePaths, effectiveLabels])
 
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
@@ -1249,6 +1531,14 @@ export function MainPage() {
           automationDetached={automationDetached}
           onAutomationDock={handleAutomationDockFromTitleBar}
           onAutomationDetach={handleAutomationDetach}
+          devPipelinesDetached={devPipelinesDetached}
+          onDevPipelinesDock={handleDevPipelinesDockFromTitleBar}
+          onDevPipelinesDetach={handleDevPipelinesDetach}
+          devPipelinesToolbarHostRef={devPipelinesToolbarHostRef}
+          showLogDetached={showLogDetached}
+          onShowLogDock={handleShowLogDockFromTitleBar}
+          onShowLogDetach={handleShowLogDetach}
+          showLogToolbarHostRef={showLogToolbarHostRef}
           onRequestLogin={() => setShowLoginDialog(true)}
           onRequestChangePassword={() => setShowChangePasswordDialog(true)}
           taskToolbarHostRef={taskToolbarHostRef}
@@ -1257,7 +1547,7 @@ export function MainPage() {
           automationToolbarHostRef={automationToolbarHostRef}
         />
         {/* Content */}
-        <div className={cn('flex-1 flex flex-col min-h-0', showEmbeddedTasks || showEmbeddedPrManager || showEmbeddedAutomation ? 'p-0 overflow-hidden' : 'p-4')}>
+        <div className={cn('flex-1 flex flex-col min-h-0', showEmbeddedTasks || showEmbeddedPrManager || showEmbeddedAutomation || showEmbeddedDevPipelines || showEmbeddedShowLog ? 'p-0 overflow-hidden' : 'p-4')}>
           {enableShellSwitcher && showEmbeddedTasks ? (
             <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
               <Suspense
@@ -1298,6 +1588,38 @@ export function MainPage() {
                 <AutomationToolbarPortalContext.Provider value={{ host: automationToolbarHostEl }}>
                   <AutomationPage mode="embedded" />
                 </AutomationToolbarPortalContext.Provider>
+              </Suspense>
+            </div>
+          ) : enableShellSwitcher && showEmbeddedDevPipelines ? (
+            <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
+              <Suspense
+                fallback={
+                  <div className="flex min-h-0 flex-1 items-center justify-center">
+                    <GlowLoader className="w-10 h-10" />
+                  </div>
+                }
+              >
+                <DevPipelinesToolbarPortalContext.Provider value={{ host: devPipelinesToolbarHostEl }}>
+                  <DevPipelinesPage mode="embedded" />
+                </DevPipelinesToolbarPortalContext.Provider>
+              </Suspense>
+            </div>
+          ) : enableShellSwitcher && showEmbeddedShowLog ? (
+            <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
+              <Suspense
+                fallback={
+                  <div className="flex min-h-0 flex-1 items-center justify-center">
+                    <GlowLoader className="w-10 h-10" />
+                  </div>
+                }
+              >
+                <ShowLogToolbarPortalContext.Provider value={{ host: showLogToolbarHostEl }}>
+                  <ShowLogPage
+                    mode="embedded"
+                    pendingOpenPayload={showLogOpenPayload}
+                    handoffGetterRef={showLogHandoffGetterRef}
+                  />
+                </ShowLogToolbarPortalContext.Provider>
               </Suspense>
             </div>
           ) : (
@@ -1429,7 +1751,8 @@ export function MainPage() {
               </ResizablePanelGroup>
 
               {/* Footer Buttons */}
-              <div className="flex flex-shrink-0 flex-wrap justify-center items-center gap-x-3 mt-4">
+              <div className="relative mt-4 w-full flex-shrink-0">
+                <div className="flex flex-wrap justify-center items-center gap-x-3">
                 <svg width="0" height="0" className="absolute pointer-events-none" aria-hidden="true">
                   <defs>
                     <linearGradient id="generate-commit-grad" x1="0%" y1="0%" x2="100%" y2="0%">
@@ -1648,6 +1971,8 @@ export function MainPage() {
                     {isLoadingCommit ? <GlowLoader /> : <SendHorizontal className="h-4 w-4" />} {t('common.commit')}
                   </Button>
                 )}
+                </div>
+                <CommitWorkflowStatusBar repoPath={quickPrCwd} className="absolute inset-y-0 right-0 flex items-center shrink-0" />
               </div>
             </div>
           )}
@@ -1727,6 +2052,28 @@ export function MainPage() {
         <QuickCreatePrDialog open={quickPrDialogOpen} onOpenChange={setQuickPrDialogOpen} cwd={quickPrCwd} projectId={selectedProjectId} userId={user?.id ?? null} />
 
         <CommitMessageHistoryDialog open={commitMessageHistoryOpen} onOpenChange={setCommitMessageHistoryOpen} />
+
+        <CommitWorkflowPreCommitDialog
+          open={preCommitOpen}
+          onOpenChange={open => {
+            setPreCommitOpen(open)
+            if (!open) pendingCommitRef.current = null
+          }}
+          projectId={selectedProjectId}
+          tabs={preCommitTabs}
+          onConfirm={choicesByRepo => {
+            const pending = pendingCommitRef.current
+            setPreCommitOpen(false)
+            pendingCommitRef.current = null
+            if (!pending) return
+            void proceedWithCommit(
+              pending.selectedFiles,
+              pending.finalCommitMessage,
+              pending.multiRepoPayload,
+              choicesByRepo
+            )
+          }}
+        />
 
         {/* Commit/Push Realtime Log Dialog */}
         <VcsOperationLogDialog

@@ -1,16 +1,15 @@
 'use client'
 import type { ColumnDef, SortingState } from '@tanstack/react-table'
 import chalk from 'chalk'
-import { CheckCircle2, Circle, FileCheck } from 'lucide-react'
 import { IPC } from 'main/constants'
-import { forwardRef, memo, startTransition, useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { forwardRef, memo, startTransition, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type MutableRefObject } from 'react'
+import { createPortal } from 'react-dom'
 import type { DateRange } from 'react-day-picker'
 import { useTranslation } from 'react-i18next'
 import { formatDateTime } from 'shared/utils'
 import { GitConflictDialog } from '@/components/dialogs/git/GitConflictDialog'
 import { GitInteractiveRebaseDialog } from '@/components/dialogs/git/GitInteractiveRebaseDialog'
 import { AIAnalysisDialog } from '@/components/dialogs/showlog/AIAnalysisDialog'
-import { CommitReviewStatisticDialog } from '@/components/dialogs/showlog/CommitReviewStatisticDialog'
 import { StatisticDialog } from '@/components/dialogs/showlog/StatisticDialog'
 import { GIT_STATUS_TEXT, type GitStatusCode, STATUS_TEXT, type SvnStatusCode } from '@/components/shared/constants'
 import { TranslatePanel } from '@/components/shared/TranslatePanel'
@@ -34,16 +33,17 @@ import toast from '@/components/ui-elements/Toast'
 import i18n from '@/lib/i18n'
 import { openGitHistoryDiff, openSvnRevisionDiff, openSvnWorkingDiff } from '@/lib/diffViewer/openDiffViewer'
 import { cn } from '@/lib/utils'
+import { buildShowLogOpenPayload, canOpenShowLogEmbedded, type ShowLogOpenPayload } from '@/lib/openShowLog'
+import { useShowLogToolbarPortalTarget } from '@/pages/main/ShowLogToolbarPortalContext'
 import logger from '@/services/logger'
 import { useButtonVariant } from '@/stores/useAppearanceStore'
-import { useCommitReviewStore } from '@/stores/useCommitReviewStore'
 import { getConfigDataRelevantSnapshot, useConfigurationStore } from '@/stores/useConfigurationStore'
 import { ShowLogTableSection } from './ShowLogTableSection'
 import { ShowlogToolbar } from './ShowlogToolbar'
 
 export interface LogEntry {
   revision: string
-  fullCommitId?: string // full hash (Git) or revision (SVN) - for review tracking
+  fullCommitId?: string // full hash (Git) or revision (SVN)
   author: string
   email?: string
   date: string
@@ -146,17 +146,48 @@ const StatusSummary = memo(({ statusSummary }: { statusSummary: Record<string, n
   </div>
 ))
 
-/** Context riêng cho mỗi ShowLog window - không dùng config chung khi mở từ Dashboard */
+/** Context riêng cho mỗi ShowLog window — không dùng config chung khi mở cửa sổ ShowLog độc lập */
 interface ShowLogWindowContext {
   sourceFolder: string
   versionControlSystem: 'git' | 'svn'
 }
 
-export function ShowLog() {
+export type ShowLogProps = {
+  mode?: 'embedded' | 'standalone'
+  pendingOpenPayload?: ShowLogOpenPayload | null
+  /** Main shell embedded: đọc context hiện tại khi detach. */
+  handoffGetterRef?: MutableRefObject<(() => ShowLogOpenPayload) | null>
+}
+
+function applyOpenPayload(
+  data: ShowLogOpenPayload | Record<string, unknown>,
+  setWindowContext: (ctx: ShowLogWindowContext | null) => void,
+  setFilePath: (path: string | string[]) => void,
+  setCurrentRevision: (rev: string) => void,
+  resetLists: () => void
+) {
+  const path = typeof data === 'string' ? data : (data.path as string | string[])
+  const revision = typeof data === 'string' ? '' : String((data as { currentRevision?: string }).currentRevision || '')
+  const ctx =
+    (data as { sourceFolder?: string; versionControlSystem?: 'git' | 'svn' }).sourceFolder &&
+    (data as { sourceFolder?: string; versionControlSystem?: 'git' | 'svn' }).versionControlSystem
+      ? {
+          sourceFolder: (data as { sourceFolder: string }).sourceFolder,
+          versionControlSystem: (data as { versionControlSystem: 'git' | 'svn' }).versionControlSystem,
+        }
+      : null
+  setWindowContext(ctx)
+  setFilePath(path)
+  setCurrentRevision(revision)
+  resetLists()
+}
+
+export default function ShowLog({ mode = 'standalone', pendingOpenPayload, handoffGetterRef }: ShowLogProps) {
+  const embedded = mode === 'embedded'
+  const portal = useShowLogToolbarPortalTarget()
   const { t } = useTranslation()
   const variant = useButtonVariant()
   const { versionControlSystem, loadConfigurationConfig, isConfigLoaded, sourceFolder } = useConfigurationStore()
-  const { getReviewedSet, markAsReviewed, unmarkReview } = useCommitReviewStore()
   const [windowContext, setWindowContext] = useState<ShowLogWindowContext | null>(null)
   const [layoutDirection, setLayoutDirection] = useState<'horizontal' | 'vertical'>('horizontal')
   /** Git: hiển thị log theo ref này (không checkout). null = mặc định theo HEAD hiện tại. */
@@ -197,10 +228,6 @@ export function ShowLog() {
 
   const [isStatisticOpen, setIsStatisticOpen] = useState(false)
   const [isAIAnalysisOpen, setIsAIAnalysisOpen] = useState(false)
-  const [isCommitReviewStatOpen, setIsCommitReviewStatOpen] = useState(false)
-  const [reviewFilter, setReviewFilter] = useState<'all' | 'unreviewed' | 'reviewed'>('all')
-  const [reviewedSet, setReviewedSet] = useState<Set<string>>(new Set())
-  const [reviewConfirmDialog, setReviewConfirmDialog] = useState<{ type: 'mark' | 'unmark'; commitId: string; entry?: LogEntry } | null>(null)
   const [showGitConflictDialog, setShowGitConflictDialog] = useState(false)
   const [showInteractiveRebaseDialog, setShowInteractiveRebaseDialog] = useState(false)
   const [interactiveRebaseBaseRef, setInteractiveRebaseBaseRef] = useState<string>('')
@@ -236,6 +263,34 @@ export function ShowLog() {
   const dataSnapshotRef = useRef<string | null>(null)
   const lastLoadKeyRef = useRef<{ key: string; timestamp: number }>({ key: '', timestamp: 0 })
   const lastErrorToastRef = useRef<{ message: string; timestamp: number }>({ message: '', timestamp: 0 })
+
+  const getHandoffPayload = useCallback(
+    (): ShowLogOpenPayload =>
+      buildShowLogOpenPayload({
+        filePath: filePath || '.',
+        currentRevision,
+        sourceFolder: effectiveSourceFolder || undefined,
+        versionControlSystem: effectiveVersionControlSystem,
+      }),
+    [filePath, currentRevision, effectiveSourceFolder, effectiveVersionControlSystem]
+  )
+
+  useLayoutEffect(() => {
+    if (!handoffGetterRef) return
+    handoffGetterRef.current = getHandoffPayload
+    return () => {
+      handoffGetterRef.current = null
+    }
+  }, [handoffGetterRef, getHandoffPayload])
+
+  useEffect(() => {
+    if (embedded) return
+    window.api.showLog.syncHandoff(getHandoffPayload())
+  }, [embedded, getHandoffPayload])
+
+  const handleStandaloneDock = useCallback(() => {
+    window.api.showLog.requestDock(getHandoffPayload())
+  }, [getHandoffPayload])
 
   useEffect(() => {
     try {
@@ -325,7 +380,7 @@ export function ShowLog() {
 
               return {
                 revision: entry.hash.substring(0, 8), // Use short hash
-                fullCommitId: entry.hash, // Full hash for review tracking
+                fullCommitId: entry.hash,
                 author: entry.author,
                 email: entry.authorEmail,
                 date: formatDateTime(originalDate, language),
@@ -534,34 +589,6 @@ export function ShowLog() {
   const columns = useMemo<ColumnDef<LogEntry>[]>(
     () => [
       {
-        id: 'review',
-        size: 32,
-        minSize: 32,
-        header: () => (
-          <span className="flex items-center gap-0.5" title={t('dialog.commitReview.status')}>
-            <FileCheck className="h-3.5 w-3.5" />
-          </span>
-        ),
-        cell: ({ row }) => {
-          const entry = row.original
-          const commitId = effectiveVersionControlSystem === 'git' ? entry.fullCommitId || entry.revision : entry.revision
-          const isReviewed = reviewedSet.has(commitId)
-          return (
-            <button
-              type="button"
-              className="flex items-center justify-center cursor-pointer hover:opacity-80 w-full border-0 bg-transparent p-0"
-              title={isReviewed ? t('dialog.commitReview.reviewed') : t('dialog.commitReview.unreviewed')}
-              onClick={e => {
-                e.stopPropagation()
-                if (effectiveSourceFolder) setReviewConfirmDialog({ type: isReviewed ? 'unmark' : 'mark', commitId, entry })
-              }}
-            >
-              {isReviewed ? <CheckCircle2 className="h-4 w-4 text-green-600" /> : <Circle className="h-4 w-4 text-muted-foreground" />}
-            </button>
-          )
-        },
-      },
-      {
         accessorKey: 'revision',
         size: 70,
         minSize: 70,
@@ -731,7 +758,7 @@ export function ShowLog() {
         },
       },
     ],
-    [t, effectiveVersionControlSystem, reviewedSet, effectiveSourceFolder]
+    [t, effectiveVersionControlSystem]
   )
 
   // Callbacks - moved up after state declarations
@@ -962,20 +989,45 @@ export function ShowLog() {
   }, [pageSize])
 
   useEffect(() => {
-    const handler = (_event: any, data: any) => {
-      const path = typeof data === 'string' ? data : data.path
-      const revision = typeof data === 'string' ? '' : data.currentRevision || ''
-      const ctx = data?.sourceFolder && data?.versionControlSystem ? { sourceFolder: data.sourceFolder, versionControlSystem: data.versionControlSystem } : null
-      setWindowContext(ctx)
-      setFilePath(path)
-      setCurrentRevision(revision)
-      setCurrentPage(1)
-      setAllLogData([])
-      setFilteredLogData([])
-      setDataForCurrentPage([])
-      setTotalEntriesFromBackend(0)
+    if (!pendingOpenPayload) return
+    applyOpenPayload(
+      pendingOpenPayload,
+      setWindowContext,
+      setFilePath,
+      setCurrentRevision,
+      () => {
+        setCurrentPage(1)
+        setAllLogData([])
+        setFilteredLogData([])
+        setDataForCurrentPage([])
+        setTotalEntriesFromBackend(0)
+      }
+    )
+  }, [pendingOpenPayload])
+
+  useEffect(() => {
+    const handler = (_event: unknown, data: ShowLogOpenPayload | Record<string, unknown>) => {
+      applyOpenPayload(data, setWindowContext, setFilePath, setCurrentRevision, () => {
+        setCurrentPage(1)
+        setAllLogData([])
+        setFilteredLogData([])
+        setDataForCurrentPage([])
+        setTotalEntriesFromBackend(0)
+      })
     }
 
+    window.api.on('load-diff-data', handler)
+
+    if (!embedded) {
+      window.api.electron.send(IPC.WINDOW.REQUEST_DIFF_DATA)
+    }
+
+    return () => {
+      window.api.removeListener('load-diff-data', handler)
+    }
+  }, [embedded])
+
+  useEffect(() => {
     const handleConfigurationChange = async (event: CustomEvent) => {
       if (event.detail?.type === 'configuration' && !windowContext) {
         if (event.detail?.clearData) {
@@ -1006,17 +1058,11 @@ export function ShowLog() {
       }
     }
 
-    window.api.on('load-diff-data', handler)
     window.addEventListener('configuration-changed', handleConfigurationChange as unknown as EventListener)
-
-    // ShowLog lazy load có thể mount sau khi main đã gửi load-diff-data. Request lại để nhận data.
-    window.api.electron.send(IPC.WINDOW.REQUEST_DIFF_DATA)
-
     return () => {
-      window.api.removeAllListeners('load-diff-data')
       window.removeEventListener('configuration-changed', handleConfigurationChange as unknown as EventListener)
     }
-  }, [filePath, windowContext])
+  }, [filePath, windowContext, loadConfigurationConfig])
 
   useEffect(() => {
     try {
@@ -1079,32 +1125,6 @@ export function ShowLog() {
     // eslint-disable-next-line react-hooks/exhaustive-deps -- chỉ chạy khi allLogData thay đổi (load mới), không phụ thuộc selectRevision
   }, [allLogData])
 
-  // Load reviewed set when source folder or log data changes
-  useEffect(() => {
-    if (!effectiveSourceFolder || allLogData.length === 0) {
-      setReviewedSet(new Set())
-      return
-    }
-    getReviewedSet(effectiveSourceFolder).then(set => setReviewedSet(set))
-  }, [effectiveSourceFolder, allLogData, getReviewedSet])
-
-  // Reminder toast when there are unreviewed commits (once per session when data loads)
-  const hasShownUnreviewedReminder = useRef(false)
-  useEffect(() => {
-    if (allLogData.length > 0 && effectiveSourceFolder && !hasShownUnreviewedReminder.current) {
-      getReviewedSet(effectiveSourceFolder).then(set => {
-        const unreviewed = allLogData.filter(e => {
-          const id = effectiveVersionControlSystem === 'git' ? e.fullCommitId || e.revision : e.revision
-          return !set.has(id)
-        })
-        if (unreviewed.length > 0) {
-          hasShownUnreviewedReminder.current = true
-          logger.info(t('dialog.commitReview.unreviewedReminder', { count: unreviewed.length }))
-        }
-      })
-    }
-  }, [allLogData, effectiveSourceFolder, effectiveVersionControlSystem, getReviewedSet, t])
-
   // Filter effect: chỉ chạy khi filter inputs thay đổi, không phụ thuộc selectedRevision để tránh re-render không cần thiết khi click row
   useEffect(() => {
     let filtered = allLogData
@@ -1118,14 +1138,6 @@ export function ShowLog() {
           entry.message.toLowerCase().includes(lowerSearchTerm) ||
           entry.date.toLowerCase().includes(lowerSearchTerm)
       )
-    }
-    // Apply review filter
-    if (reviewFilter !== 'all') {
-      filtered = filtered.filter(entry => {
-        const id = effectiveVersionControlSystem === 'git' ? entry.fullCommitId || entry.revision : entry.revision
-        const isReviewed = reviewedSet.has(id)
-        return reviewFilter === 'reviewed' ? isReviewed : !isReviewed
-      })
     }
     setFilteredLogData(filtered)
 
@@ -1149,10 +1161,30 @@ export function ShowLog() {
       setRowSelection({})
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps -- selectedRevision excluded to avoid re-run on row click
-  }, [allLogData, searchTerm, currentPage, pageSize, selectRevision, reviewFilter, reviewedSet, effectiveVersionControlSystem])
+  }, [allLogData, searchTerm, currentPage, pageSize, selectRevision, effectiveVersionControlSystem])
+
+  const toolbar = (
+    <ShowlogToolbar
+      onRefresh={handleRefresh}
+      filePath={displayFilePath}
+      isLoading={isLoading}
+      dateRange={dateRange}
+      setDateRange={setDateRange}
+      onOpenStatistic={() => setIsStatisticOpen(true)}
+      onOpenAIAnalysis={() => setIsAIAnalysisOpen(true)}
+      onToggleLayout={() => setLayoutDirection(prev => (prev === 'horizontal' ? 'vertical' : 'horizontal'))}
+      versionControlSystem={effectiveVersionControlSystem}
+      contextSourceFolder={effectiveSourceFolder || undefined}
+      onFolderChange={handleFolderChange}
+      gitLogRevision={effectiveVersionControlSystem === 'git' ? gitLogRevision : null}
+      onGitLogRevisionChange={setGitLogRevision}
+      embedded={embedded}
+      onStandaloneDock={!embedded && canOpenShowLogEmbedded() ? handleStandaloneDock : undefined}
+    />
+  )
 
   return (
-    <div className="flex h-screen w-full">
+    <div className={cn('flex w-full', embedded ? 'h-full min-h-0' : 'h-screen')}>
       {/* Dialogs */}
       <StatisticDialog
         data={allLogData}
@@ -1173,77 +1205,6 @@ export function ShowLog() {
           onComplete={() => handleRefresh()}
         />
       )}
-      <CommitReviewStatisticDialog
-        isOpen={isCommitReviewStatOpen}
-        onOpenChange={setIsCommitReviewStatOpen}
-        allLogData={allLogData}
-        sourceFolderPath={effectiveSourceFolder || ''}
-        versionControlSystem={effectiveVersionControlSystem}
-      />
-
-      <AlertDialog open={reviewConfirmDialog !== null} onOpenChange={open => !open && setReviewConfirmDialog(null)}>
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>{reviewConfirmDialog?.type === 'mark' ? t('dialog.commitReview.markAsReviewed') : t('dialog.commitReview.unmark')}</AlertDialogTitle>
-            <AlertDialogDescription asChild>
-              <div className="space-y-3">
-                <p className="text-muted-foreground">
-                  {reviewConfirmDialog?.type === 'mark' ? t('dialog.commitReview.confirmMarkAsReviewed') : t('dialog.commitReview.confirmUnmark')}
-                </p>
-                {(() => {
-                  const entry =
-                    reviewConfirmDialog?.entry ??
-                    allLogData.find(e => (effectiveVersionControlSystem === 'git' ? e.fullCommitId || e.revision : e.revision) === reviewConfirmDialog?.commitId)
-                  if (!entry) return null
-                  const idLabel = effectiveVersionControlSystem === 'git' ? t('dialog.showLogs.commit') : t('dialog.showLogs.revision')
-                  const idValue = effectiveVersionControlSystem === 'git' ? entry.revision : `r${entry.revision}`
-                  return (
-                    <div className="rounded-lg border border-border/80 bg-gradient-to-br from-muted/60 to-muted/30 overflow-hidden">
-                      <div className="grid grid-cols-[minmax(5rem,auto)_1fr] gap-x-4 gap-y-2.5 p-4 text-sm">
-                        <span className="text-muted-foreground font-medium">{idLabel}</span>
-                        <span className="font-mono text-green-600 dark:text-green-400 font-medium truncate" title={idValue}>
-                          {idValue}
-                        </span>
-                        <span className="text-muted-foreground font-medium">{t('dialog.showLogs.date')}</span>
-                        <span className="text-muted-foreground">{entry.date}</span>
-                        <span className="text-muted-foreground font-medium">{t('dialog.showLogs.author')}</span>
-                        <span className="text-blue-600 dark:text-blue-400">{entry.author}</span>
-                        {entry.email && (
-                          <>
-                            <span className="text-muted-foreground font-medium">{t('dialog.showLogs.email')}</span>
-                            <span className="text-muted-foreground">{entry.email}</span>
-                          </>
-                        )}
-                        <span className="text-muted-foreground font-medium align-top pt-0.5">{t('dialog.showLogs.message')}</span>
-                        <span className="text-foreground line-clamp-2 break-words text-[13px] leading-relaxed" title={entry.message || entry.referenceId || ''}>
-                          {entry.message || entry.referenceId || '-'}
-                        </span>
-                      </div>
-                    </div>
-                  )
-                })()}
-              </div>
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel>{t('common.cancel')}</AlertDialogCancel>
-            <AlertDialogAction
-              onClick={async () => {
-                if (!reviewConfirmDialog || !effectiveSourceFolder) return
-                if (reviewConfirmDialog.type === 'mark') {
-                  await markAsReviewed(effectiveSourceFolder, reviewConfirmDialog.commitId, effectiveVersionControlSystem)
-                } else {
-                  await unmarkReview(effectiveSourceFolder, reviewConfirmDialog.commitId)
-                }
-                setReviewConfirmDialog(null)
-                getReviewedSet(effectiveSourceFolder).then(set => setReviewedSet(set))
-              }}
-            >
-              {t('common.confirm')}
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
 
       <AlertDialog
         open={cherryPickConfirmOpen}
@@ -1293,29 +1254,9 @@ export function ShowLog() {
         </AlertDialogContent>
       </AlertDialog>
 
-      <div className="flex flex-col flex-1 w-full">
-        <ShowlogToolbar
-          onRefresh={handleRefresh}
-          filePath={displayFilePath}
-          isLoading={isLoading}
-          dateRange={dateRange}
-          setDateRange={setDateRange}
-          onOpenStatistic={() => setIsStatisticOpen(true)}
-          onOpenAIAnalysis={() => setIsAIAnalysisOpen(true)}
-          onOpenCommitReviewStat={() => setIsCommitReviewStatOpen(true)}
-          unreviewedCount={
-            allLogData.filter(e => {
-              const id = effectiveVersionControlSystem === 'git' ? e.fullCommitId || e.revision : e.revision
-              return !reviewedSet.has(id)
-            }).length
-          }
-          onToggleLayout={() => setLayoutDirection(prev => (prev === 'horizontal' ? 'vertical' : 'horizontal'))}
-          versionControlSystem={effectiveVersionControlSystem}
-          contextSourceFolder={effectiveSourceFolder || undefined}
-          onFolderChange={handleFolderChange}
-          gitLogRevision={effectiveVersionControlSystem === 'git' ? gitLogRevision : null}
-          onGitLogRevisionChange={setGitLogRevision}
-        />
+      <div className="flex flex-col flex-1 w-full min-h-0">
+        {embedded && portal.host ? createPortal(toolbar, portal.host) : null}
+        {!embedded ? toolbar : null}
         {!isConfigLoaded || isLoading ? (
           <div className="flex items-center justify-center h-full">
             <GlowLoader className="w-10 h-10" />
@@ -1345,8 +1286,6 @@ export function ShowLog() {
                         setSorting={setSorting}
                         searchTerm={searchTerm}
                         setSearchTerm={setSearchTerm}
-                        reviewFilter={reviewFilter}
-                        setReviewFilter={setReviewFilter}
                         filteredLogData={filteredLogData}
                         isLoading={isLoading}
                         totalEntriesFromBackend={totalEntriesFromBackend}
@@ -1414,36 +1353,6 @@ export function ShowLog() {
                         <span>{t('dialog.showLogs.changedFiles')}</span>
                         <div className="flex items-center gap-2">
                           <StatusSummary statusSummary={statusSummary} />
-                          {selectedRevision &&
-                            effectiveSourceFolder &&
-                            (() => {
-                              const entry = allLogData.find(e => e.revision === selectedRevision)
-                              const commitId = entry ? (effectiveVersionControlSystem === 'git' ? entry.fullCommitId || entry.revision : entry.revision) : ''
-                              const isReviewed = reviewedSet.has(commitId)
-                              return (
-                                <Button
-                                  variant="outline"
-                                  size="sm"
-                                  className="h-7 text-xs"
-                                  onClick={e => {
-                                    e.stopPropagation()
-                                    setReviewConfirmDialog({ type: isReviewed ? 'unmark' : 'mark', commitId, entry })
-                                  }}
-                                >
-                                  {isReviewed ? (
-                                    <>
-                                      <Circle className="h-3 w-3 mr-1" />
-                                      {t('dialog.commitReview.unmark')}
-                                    </>
-                                  ) : (
-                                    <>
-                                      <CheckCircle2 className="h-3 w-3 mr-1" />
-                                      {t('dialog.commitReview.markAsReviewed')}
-                                    </>
-                                  )}
-                                </Button>
-                              )
-                            })()}
                         </div>
                       </div>
                       <div className="h-full overflow-auto border-1 rounded-md">
@@ -1507,8 +1416,6 @@ export function ShowLog() {
                         setSorting={setSorting}
                         searchTerm={searchTerm}
                         setSearchTerm={setSearchTerm}
-                        reviewFilter={reviewFilter}
-                        setReviewFilter={setReviewFilter}
                         filteredLogData={filteredLogData}
                         isLoading={isLoading}
                         totalEntriesFromBackend={totalEntriesFromBackend}
@@ -1576,36 +1483,6 @@ export function ShowLog() {
                         <span>{t('dialog.showLogs.changedFiles')}</span>
                         <div className="flex items-center gap-2">
                           <StatusSummary statusSummary={statusSummary} />
-                          {selectedRevision &&
-                            effectiveSourceFolder &&
-                            (() => {
-                              const entry = allLogData.find(e => e.revision === selectedRevision)
-                              const commitId = entry ? (effectiveVersionControlSystem === 'git' ? entry.fullCommitId || entry.revision : entry.revision) : ''
-                              const isReviewed = reviewedSet.has(commitId)
-                              return (
-                                <Button
-                                  variant="outline"
-                                  size="sm"
-                                  className="h-7 text-xs"
-                                  onClick={e => {
-                                    e.stopPropagation()
-                                    setReviewConfirmDialog({ type: isReviewed ? 'unmark' : 'mark', commitId, entry })
-                                  }}
-                                >
-                                  {isReviewed ? (
-                                    <>
-                                      <Circle className="h-3 w-3 mr-1" />
-                                      {t('dialog.commitReview.unmark')}
-                                    </>
-                                  ) : (
-                                    <>
-                                      <CheckCircle2 className="h-3 w-3 mr-1" />
-                                      {t('dialog.commitReview.markAsReviewed')}
-                                    </>
-                                  )}
-                                </Button>
-                              )
-                            })()}
                         </div>
                       </div>
                       <div className="h-full overflow-auto border-1 rounded-md">

@@ -8,7 +8,7 @@ export function cn(...inputs: ClassValue[]) {
 /**
  * Returns a color for progress ratio (0-1).
  * 0 = red/orange, 0.5 = amber, 1 = green.
- * Reference: Dashboard.tsx
+ * Reference: progress charts
  */
 export function getProgressColor(ratio: number): string {
   if (ratio >= 1) return 'rgb(22, 163, 74)'

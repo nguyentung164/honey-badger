@@ -9,8 +9,8 @@ import { registerAiUsageIpcHandlers } from './ipc/aiUsage'
 import { registerAppLogsIpcHandlers } from './ipc/appLogs'
 import { registerCommitMessageHistoryIpcHandlers } from './ipc/commitMessageHistory'
 import { registerDailyReportIpcHandlers } from './ipc/dailyReport'
-import { registerDashboardIpcHandlers } from './ipc/dashboard'
 import { registerDevPipelinesIpcHandlers } from './ipc/devPipelines'
+import { registerCommitWorkflowIpcHandlers } from './ipc/commitWorkflow'
 import { registerEVMHandlers } from './ipc/evm'
 import { registerGitIpcHandlers } from './ipc/git'
 import { registerGitCommitQueueIpcHandlers } from './ipc/gitCommitQueue'
@@ -33,6 +33,9 @@ import {
   migrateAchievementBooleanColumns,
   migrateAutomationTestTables,
   migrateDevPipelineTables,
+  migrateCommitWorkflowTables,
+  migrateCommitWorkflowDevPipelineCleanup,
+  migrateDropCommitReviewsTable,
   migratePrAiAssistChatsTable,
   migratePrCheckpointGithubColumns,
   migratePrCheckpointTemplateHeaderGroup,
@@ -74,7 +77,6 @@ makeAppWithSingleInstanceLock(async () => {
   registerAppLogsIpcHandlers()
   registerWindowIpcHandlers()
   registerSettingsIpcHandlers()
-  registerDashboardIpcHandlers()
   registerUserIpcHandlers()
   registerMasterIpcHandlers()
   registerTaskIpcHandlers()
@@ -84,6 +86,7 @@ makeAppWithSingleInstanceLock(async () => {
   registerAiAnalysisIpcHandlers()
   registerAutomationTestIpcHandlers()
   registerDevPipelinesIpcHandlers()
+  registerCommitWorkflowIpcHandlers()
   registerGitCommitQueueIpcHandlers()
   registerSvnIpcHandlers()
   registerVcsIpcHandlers()
@@ -123,6 +126,8 @@ makeAppWithSingleInstanceLock(async () => {
         startProgressScheduler()
         const { startAutomationRetentionScheduler } = await import('./scheduler/automationRetention')
         startAutomationRetentionScheduler()
+        const { startCommitWorkflowRetentionScheduler } = await import('./scheduler/commitWorkflowRetention')
+        startCommitWorkflowRetentionScheduler()
         await migrateAchievementBooleanColumns().catch(() => {})
         await migrateUserProjectRolesProjectIdUkToGenerated().catch(() => {})
         await migratePrCheckpointGithubColumns().catch(() => {})
@@ -140,6 +145,11 @@ makeAppWithSingleInstanceLock(async () => {
         await migrateTasksStatusEnteredAt().catch(() => {})
         await migrateAutomationTestTables().catch(() => {})
         await migrateDevPipelineTables().catch(() => {})
+        await migrateCommitWorkflowTables().catch(() => {})
+        await migrateCommitWorkflowDevPipelineCleanup().catch(() => {})
+        await migrateDropCommitReviewsTable().catch(() => {})
+        const { flushSyncQueue } = await import('./commitWorkflow/syncQueue')
+        await flushSyncQueue().catch(() => {})
         await migrateAiUsageEventsUserIdColumn().catch(() => {})
         await migrateEvmWbsDayUnitFkCascade().catch(() => {})
         await migrateProjectFkCascade().catch(() => {})
