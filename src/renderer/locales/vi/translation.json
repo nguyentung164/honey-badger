@@ -2200,7 +2200,10 @@
     "checkoutBranchIs": "branch đang checkout",
     "logFollowHead": "Log theo HEAD đang checkout",
     "logViewBranchTooltip": "Đang xem log của",
-    "dock": "Gộp Show Log vào cửa sổ chính"
+    "dock": "Gộp Show Log vào cửa sổ chính",
+    "aiAnalysis": "AI phân tích",
+    "analysisHistory": "Lịch sử phân tích",
+    "statistics": "Thống kê"
   },
   "dialog": {
     "mergeSvn": {

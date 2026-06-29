@@ -2208,7 +2208,10 @@
     "checkoutBranchIs": "チェックアウト中のブランチ",
     "logFollowHead": "チェックアウト中のHEADに追従するログ",
     "logViewBranchTooltip": "表示中のログ",
-    "dock": "Show Log をメインウィンドウに戻す"
+    "dock": "Show Log をメインウィンドウに戻す",
+    "aiAnalysis": "AI分析",
+    "analysisHistory": "分析履歴",
+    "statistics": "統計"
   },
   "dialog": {
     "mergeSvn": {

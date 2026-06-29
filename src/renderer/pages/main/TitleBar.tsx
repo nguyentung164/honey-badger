@@ -2731,7 +2731,7 @@ export const TitleBar = ({
           <div
             ref={showLogToolbarHostRef}
             className="flex min-w-0 flex-1 basis-0 w-full items-center h-full overflow-x-auto overflow-y-hidden gap-0 px-0"
-            style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties}
+            style={{ WebkitAppRegion: 'drag' } as React.CSSProperties}
           />
         ) : (
           <div className="flex-1 min-w-0 shrink" aria-hidden style={{ WebkitAppRegion: 'drag' } as React.CSSProperties} />

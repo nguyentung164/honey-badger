@@ -2,22 +2,30 @@
 
 import { type ColumnDef, flexRender, getCoreRowModel, getSortedRowModel, type Row, type SortingState, useReactTable } from '@tanstack/react-table'
 import { useVirtualizer } from '@tanstack/react-virtual'
-import { Search } from 'lucide-react'
+import { format } from 'date-fns'
+import { BarChart3, CalendarIcon, History, Loader2, RefreshCcw, Search, Sparkles } from 'lucide-react'
 import type React from 'react'
-import { memo, useRef } from 'react'
+import { memo, useEffect, useRef, useState } from 'react'
+import type { DateRange } from 'react-day-picker'
 import { useTranslation } from 'react-i18next'
 import { GIT_STATUS_COLOR_CLASS_MAP, GIT_STATUS_TEXT, STATUS_COLOR_CLASS_MAP, STATUS_TEXT } from '@/components/shared/constants'
 import { ContextMenu, ContextMenuContent, ContextMenuItem, ContextMenuSub, ContextMenuSubContent, ContextMenuSubTrigger, ContextMenuTrigger } from '@/components/ui/context-menu'
+import { Button } from '@/components/ui/button'
+import { Calendar } from '@/components/ui/calendar'
 import { Input } from '@/components/ui/input'
+import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 import { DEFAULT_TABLE_PAGE_SIZE_OPTIONS, TablePaginationBar } from '@/components/ui/table-pagination-bar'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import { STATUS_ICON } from '@/components/ui-elements/StatusIcon'
+import { getDateFnsLocale, getDateOnlyPattern } from '@/lib/dateUtils'
+import i18n from '@/lib/i18n'
 import { cn } from '@/lib/utils'
 import type { LogEntry } from './ShowLog'
 
 const ROW_HEIGHT = 24
+const FILTER_CONTROL_CLASS = 'h-9 text-xs'
 
 function LogRowTooltipContent({ entry, versionControlSystem }: { entry: LogEntry; versionControlSystem?: 'git' | 'svn' }) {
   const { t } = useTranslation()
@@ -91,6 +99,12 @@ interface ShowLogTableSectionProps {
   onCherryPick?: (entry: LogEntry) => void
   onReset?: (entry: LogEntry, mode: 'soft' | 'mixed' | 'hard') => void
   onInteractiveRebase?: (entry: LogEntry) => void
+  dateRange?: DateRange
+  setDateRange?: (range: DateRange | undefined) => void
+  onRefresh?: () => void
+  onOpenStatistic?: () => void
+  onOpenAIAnalysis?: () => void
+  onOpenAnalysisHistory?: () => void
 }
 
 export const ShowLogTableSection = memo(function ShowLogTableSection({
@@ -112,16 +126,31 @@ export const ShowLogTableSection = memo(function ShowLogTableSection({
   totalPages,
   pageSize,
   onPageSizeChange,
-  variant: _variant,
+  variant,
   versionControlSystem,
   headCommitId,
   onCherryPick,
   onReset,
   onInteractiveRebase,
+  dateRange,
+  setDateRange,
+  onRefresh,
+  onOpenStatistic,
+  onOpenAIAnalysis,
+  onOpenAnalysisHistory,
 }: ShowLogTableSectionProps) {
   const { t } = useTranslation()
+  const [datePickerOpen, setDatePickerOpen] = useState(false)
+  const [datePickerValue, setDatePickerValue] = useState<DateRange | undefined>(undefined)
 
   const tableContainerRef = useRef<HTMLDivElement>(null)
+
+  useEffect(() => {
+    setDatePickerValue(dateRange)
+  }, [dateRange])
+
+  const locale = getDateFnsLocale(i18n.language)
+  const dateFormat = getDateOnlyPattern(i18n.language)
 
   const table = useReactTable({
     data: dataForCurrentPage,
@@ -154,9 +183,110 @@ export const ShowLogTableSection = memo(function ShowLogTableSection({
   return (
     <div className="flex flex-col flex-1 min-h-0">
       <div className="mb-2 flex items-center gap-2 shrink-0">
-        <div className="relative flex-1">
-          <Search className="absolute left-2 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-          <Input placeholder={t('dialog.showLogs.placeholderSearch')} value={searchTerm} onChange={e => setSearchTerm(e.target.value)} className="pl-8" />
+        <div className="flex min-w-0 flex-wrap items-center gap-2">
+          <div className="relative w-100 shrink-0">
+            <Search className="absolute left-2 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+            <Input
+              placeholder={t('dialog.showLogs.placeholderSearch')}
+              value={searchTerm}
+              onChange={e => setSearchTerm(e.target.value)}
+              className={cn('w-full pl-8', FILTER_CONTROL_CLASS)}
+            />
+          </div>
+
+          {setDateRange ? (
+            <Popover open={datePickerOpen} onOpenChange={setDatePickerOpen}>
+              <PopoverTrigger asChild>
+                <Button
+                  variant={variant}
+                  className={cn(
+                    FILTER_CONTROL_CLASS,
+                    'shrink-0 justify-start px-3 font-normal',
+                    !dateRange?.from && 'text-muted-foreground'
+                  )}
+                >
+                  <CalendarIcon className="mr-1.5 h-3.5 w-3.5 shrink-0" />
+                  <span className="truncate">
+                    {dateRange?.from
+                      ? dateRange.to
+                        ? `${format(dateRange.from, dateFormat, { locale })} - ${format(dateRange.to, dateFormat, { locale })}`
+                        : format(dateRange.from, dateFormat, { locale })
+                      : t('taskManagement.chartAllTime')}
+                  </span>
+                </Button>
+              </PopoverTrigger>
+              <PopoverContent className="w-auto p-0" align="start">
+                <Calendar
+                  locale={locale}
+                  mode="range"
+                  defaultMonth={dateRange?.from}
+                  selected={datePickerValue ?? dateRange}
+                  onSelect={v => setDatePickerValue(v)}
+                  numberOfMonths={2}
+                />
+                <div className="flex gap-2 border-t p-2">
+                  <Button
+                    variant={variant}
+                    size="sm"
+                    className="flex-1"
+                    onClick={() => {
+                      setDateRange(undefined)
+                      setDatePickerValue(undefined)
+                      setDatePickerOpen(false)
+                      setTimeout(() => onRefresh?.(), 100)
+                    }}
+                  >
+                    {t('taskManagement.chartAllTime')}
+                  </Button>
+                  <Button
+                    variant={variant}
+                    size="sm"
+                    className="flex-1"
+                    onClick={() => {
+                      const value = datePickerValue ?? dateRange
+                      if (value?.from) {
+                        setDateRange(value)
+                        setDatePickerOpen(false)
+                        setTimeout(() => onRefresh?.(), 100)
+                      }
+                    }}
+                  >
+                    {t('common.confirm')}
+                  </Button>
+                </div>
+              </PopoverContent>
+            </Popover>
+          ) : null}
+
+          {onRefresh ? (
+            <Button variant={variant} className={cn(FILTER_CONTROL_CLASS, 'shrink-0 gap-1.5 px-3')} disabled={isLoading} onClick={onRefresh}>
+              {isLoading ? <Loader2 className="h-3.5 w-3.5 shrink-0 animate-spin" /> : <RefreshCcw className="h-3.5 w-3.5 shrink-0" />}
+              <span>{t('common.refresh')}</span>
+            </Button>
+          ) : null}
+        </div>
+
+        <div className="ml-auto flex shrink-0 flex-wrap items-center justify-end gap-2">
+          {onOpenStatistic ? (
+            <Button variant={variant} className={cn(FILTER_CONTROL_CLASS, 'shrink-0 gap-1.5 px-3')} disabled={isLoading} onClick={onOpenStatistic}>
+              <BarChart3 className="h-3.5 w-3.5 shrink-0" />
+              <span>{t('showlog.statistics')}</span>
+            </Button>
+          ) : null}
+
+          {onOpenAIAnalysis ? (
+            <Button variant={variant} className={cn(FILTER_CONTROL_CLASS, 'shrink-0 gap-1.5 px-3')} disabled={isLoading} onClick={onOpenAIAnalysis}>
+              <Sparkles className="h-3.5 w-3.5 shrink-0" />
+              <span>{t('showlog.aiAnalysis')}</span>
+            </Button>
+          ) : null}
+
+          {onOpenAnalysisHistory ? (
+            <Button variant={variant} className={cn(FILTER_CONTROL_CLASS, 'shrink-0 gap-1.5 px-3')} disabled={isLoading} onClick={onOpenAnalysisHistory}>
+              <History className="h-3.5 w-3.5 shrink-0" />
+              <span>{t('showlog.analysisHistory')}</span>
+            </Button>
+          ) : null}
         </div>
       </div>
       <div className="flex flex-col border rounded-md flex-1 min-h-0 overflow-hidden">

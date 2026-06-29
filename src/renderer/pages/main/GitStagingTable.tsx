@@ -33,7 +33,7 @@ import { ResizableHandle, ResizablePanel, ResizablePanelGroup } from '@/componen
 import { TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 import { GlowLoader } from '@/components/ui-elements/GlowLoader'
 import toast from '@/components/ui-elements/Toast'
-import { createEmbeddedGitConflictPayload, createEmbeddedGitStagingDiffPayload, gitStagingLayoutStorageKey, openGitStagingDiff, readGitStagingLayoutDirection } from '@/lib/diffViewer/openDiffViewer'
+import { createEmbeddedGitConflictPayload, createEmbeddedGitStagingDiffPayload, openGitStagingDiff, readGitStagingLayoutDirection, writeGitStagingLayoutDirection } from '@/lib/diffViewer/openDiffViewer'
 import { isGitConflictedFileStatus } from '@/pages/diffviewer/diffViewerConflictPayload'
 import { cn } from '@/lib/utils'
 import type { CodeDiffViewerHandle } from '@/pages/diffviewer/CodeDiffViewer'
@@ -354,14 +354,6 @@ export const GitStagingTable = forwardRef(({ onLoadingChange, cwd, label }: GitS
     setLayoutDirection(readGitStagingLayoutDirection(repoRootKey))
     setEmbeddedDiffAnchor(null)
   }, [repoRootKey])
-
-  useEffect(() => {
-    try {
-      localStorage.setItem(gitStagingLayoutStorageKey(repoRootKey), layoutDirection)
-    } catch {
-      // ignore quota errors
-    }
-  }, [layoutDirection, repoRootKey])
 
   useEffect(() => {
     const map = readLocalIgnoreRegexMap()
@@ -1035,8 +1027,9 @@ export const GitStagingTable = forwardRef(({ onLoadingChange, cwd, label }: GitS
         setEmbeddedDiffAnchor(pickEmbeddedDiffAnchorFromSelection())
       }
       setLayoutDirection(direction)
+      writeGitStagingLayoutDirection(repoRootKey, direction)
     },
-    [pickEmbeddedDiffAnchorFromSelection]
+    [pickEmbeddedDiffAnchorFromSelection, repoRootKey]
   )
 
   const toggleLayout = useCallback(() => {

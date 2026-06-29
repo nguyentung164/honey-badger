@@ -1,19 +1,11 @@
 'use client'
-import { Separator } from '@radix-ui/react-separator'
-import { format } from 'date-fns'
 import {
-  BarChart3,
-  CalendarIcon,
   ChevronDown,
   ChevronRight,
   GitBranch,
-  GitBranchPlus,
-  History,
   LayoutTemplate,
   Loader2,
   Minus,
-  RefreshCcw,
-  Sparkles,
   Square,
   SquareArrowOutDownLeft,
   Turtle,
@@ -21,33 +13,20 @@ import {
 } from 'lucide-react'
 import type React from 'react'
 import { useCallback, useEffect, useRef, useState } from 'react'
-import type { DateRange } from 'react-day-picker'
 import { useTranslation } from 'react-i18next'
 import { randomUuidV7 } from 'shared/randomUuidV7'
-import { GitBranchManageDialog } from '@/components/dialogs/git/GitBranchManageDialog'
-import { AIAnalysisHistoryDialog } from '@/components/dialogs/showlog/AIAnalysisHistoryDialog'
 import { Button } from '@/components/ui/button'
-import { Calendar } from '@/components/ui/calendar'
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from '@/components/ui/dropdown-menu'
-import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import toast from '@/components/ui-elements/Toast'
-import { getDateFnsLocale, getDateOnlyPattern } from '@/lib/dateUtils'
-import i18n from '@/lib/i18n'
 import { cn, normalizePathForCompare } from '@/lib/utils'
 import logger from '@/services/logger'
-import { useAppearanceStoreSelect } from '@/stores/useAppearanceStore'
 import { useConfigurationStore } from '@/stores/useConfigurationStore'
 import { useTaskAuthStore } from '@/stores/useTaskAuthStore'
 
 interface ShowlogProps {
-  onRefresh: () => void
   filePath?: string
   isLoading: boolean
-  dateRange?: DateRange
-  setDateRange?: (range: DateRange | undefined) => void
-  onOpenStatistic?: () => void
-  onOpenAIAnalysis?: () => void
   onToggleLayout?: () => void
   versionControlSystem: 'svn' | 'git'
   contextSourceFolder?: string
@@ -63,13 +42,8 @@ interface ShowlogProps {
 const SELECTED_PROJECT_STORAGE_KEY = 'selected-project-id'
 
 export const ShowlogToolbar: React.FC<ShowlogProps> = ({
-  onRefresh,
   filePath,
   isLoading,
-  dateRange,
-  setDateRange,
-  onOpenStatistic,
-  onOpenAIAnalysis,
   onToggleLayout,
   versionControlSystem,
   contextSourceFolder,
@@ -80,7 +54,6 @@ export const ShowlogToolbar: React.FC<ShowlogProps> = ({
   onStandaloneDock,
 }) => {
   const { t } = useTranslation()
-  const buttonVariant = useAppearanceStoreSelect(s => s.buttonVariant)
   const user = useTaskAuthStore(s => s.user)
   const isGuest = useTaskAuthStore(s => s.isGuest)
   const { isConfigLoaded, sourceFolder: configSourceFolder } = useConfigurationStore()
@@ -88,7 +61,6 @@ export const ShowlogToolbar: React.FC<ShowlogProps> = ({
   const [sourceFolders, setSourceFolders] = useState<{ name: string; path: string }[]>([])
   const [folderVCSTypes, setFolderVCSTypes] = useState<Record<string, 'git' | 'svn' | 'none'>>({})
   const [currentBranch, setCurrentBranch] = useState<string>('')
-  const [showHistoryDialog, setShowHistoryDialog] = useState(false)
   const [selectedProjectId, setSelectedProjectId] = useState<string | null>(null)
   const [projects, setProjects] = useState<{ id: string; name: string }[]>([])
   const [isLoggedIn, setIsLoggedIn] = useState(false)
@@ -102,10 +74,17 @@ export const ShowlogToolbar: React.FC<ShowlogProps> = ({
 
   const [branches, setBranches] = useState<any>(null)
   const [isLoadingBranches, setIsLoadingBranches] = useState(false)
-  const [showGitBranchManageDialog, setShowGitBranchManageDialog] = useState(false)
+  const [isRefreshingBranchesRemote, setIsRefreshingBranchesRemote] = useState(false)
   const [gitAhead, setGitAhead] = useState(0)
   const [gitBehind, setGitBehind] = useState(0)
   const gitContextIdRef = useRef(0)
+  const branchesRef = useRef<any>(null)
+  const branchListLoadIdRef = useRef(0)
+  const branchRemoteFetchRef = useRef<{ cwd: string; promise: Promise<void> } | null>(null)
+
+  useEffect(() => {
+    branchesRef.current = branches
+  }, [branches])
 
   useEffect(() => {
     selectedProjectIdRef.current = selectedProjectId
@@ -117,6 +96,7 @@ export const ShowlogToolbar: React.FC<ShowlogProps> = ({
   useEffect(() => {
     if (versionControlSystem === 'git' && contextSourceFolder) {
       gitContextIdRef.current += 1
+      branchListLoadIdRef.current += 1
       setBranches(null)
     }
   }, [contextSourceFolder, versionControlSystem])
@@ -124,8 +104,6 @@ export const ShowlogToolbar: React.FC<ShowlogProps> = ({
   const handleWindow = (action: string) => {
     window.api.electron.send('window:action', action)
   }
-  const [datePickerOpen, setDatePickerOpen] = useState(false)
-  const [datePickerValue, setDatePickerValue] = useState<DateRange | undefined>(undefined)
 
   const loadProjects = useCallback(async () => {
     setIsProjectsLoading(true)
@@ -389,57 +367,109 @@ export const ShowlogToolbar: React.FC<ShowlogProps> = ({
   /** Giống cwd thực tế khi load log: windowContext hoặc folder global — luôn có path khi user đã cấu hình repo Git */
   const showGitBranchChrome = versionControlSystem === 'git' && !!gitCwd
 
-  const refreshAfterBranchSwitch = useCallback(async () => {
-    if (!gitCwd || versionControlSystem !== 'git') return
-    const idAtStart = gitContextIdRef.current
-    try {
-      const statusResult = await window.api.git.status({ cwd: gitCwd })
-      if (idAtStart !== gitContextIdRef.current) return
-      if (statusResult.status === 'success' && statusResult.data) {
-        setCurrentBranch(statusResult.data.current || '')
-        setGitAhead(statusResult.data.ahead || 0)
-        setGitBehind(statusResult.data.behind || 0)
+  const refreshBranchesFromRemote = useCallback(
+    async (cwd: string, loadId: number, contextId: number) => {
+      const applyBranches = (data: any) => {
+        if (contextId !== gitContextIdRef.current) return
+        setBranches(data)
       }
-    } catch (e) {
-      logger.error('refreshAfterBranchSwitch:', e)
-    }
-    window.dispatchEvent(new CustomEvent('git-branch-changed'))
-    onRefresh()
-  }, [gitCwd, versionControlSystem, onRefresh])
 
-  const loadBranches = async () => {
-    if (isLoadingBranches || !gitCwd || versionControlSystem !== 'git') return
+      const inflight = branchRemoteFetchRef.current
+      if (inflight?.cwd === cwd) {
+        setIsRefreshingBranchesRemote(true)
+        try {
+          await inflight.promise
+        } finally {
+          if (loadId === branchListLoadIdRef.current) setIsRefreshingBranchesRemote(false)
+        }
+        return
+      }
 
-    setIsLoadingBranches(true)
-    const idAtStart = gitContextIdRef.current
-    const cwd = gitCwd
-    const start = Date.now()
-    try {
-      const pruneResult = await window.api.git.fetch('origin', { prune: true, all: true }, cwd)
-      if (pruneResult.status !== 'success') {
-        logger.warning('Fetch prune before branch list skipped or failed:', pruneResult.message)
+      setIsRefreshingBranchesRemote(true)
+      const entry = { cwd } as { cwd: string; promise: Promise<void> }
+      entry.promise = (async () => {
+        try {
+          const pruneResult = await window.api.git.fetch('origin', { prune: true, all: true, skipUpdateCheck: true }, cwd)
+          if (pruneResult.status !== 'success') {
+            logger.warning('Fetch prune before branch list skipped or failed:', pruneResult.message)
+          }
+          const result = await window.api.git.get_branches(cwd)
+          if (result.status === 'success') {
+            applyBranches(result.data)
+            logger.info('Branches loaded (ShowlogToolbar remote refresh):', result.data)
+          } else if (!branchesRef.current) {
+            toast.error(result.message || t('git.branchListLoadError'))
+          }
+        } catch (error) {
+          if (loadId !== branchListLoadIdRef.current || contextId !== gitContextIdRef.current) return
+          logger.error('Error refreshing branches from remote (ShowlogToolbar):', error)
+          if (!branchesRef.current) {
+            toast.error(t('git.branchListLoadError'))
+          }
+        } finally {
+          if (loadId === branchListLoadIdRef.current) {
+            setIsRefreshingBranchesRemote(false)
+          }
+          if (branchRemoteFetchRef.current === entry) {
+            branchRemoteFetchRef.current = null
+          }
+        }
+      })()
+
+      branchRemoteFetchRef.current = entry
+      await entry.promise
+    },
+    [t]
+  )
+
+  const loadBranches = useCallback(
+    async (options?: { background?: boolean; forceFetch?: boolean }) => {
+      if (!gitCwd || versionControlSystem !== 'git') return
+
+      const cwd = gitCwd
+      const loadId = ++branchListLoadIdRef.current
+      const contextId = gitContextIdRef.current
+      const hasCached = branchesRef.current != null
+
+      const applyBranches = (data: any) => {
+        if (loadId !== branchListLoadIdRef.current) return
+        if (contextId !== gitContextIdRef.current) return
+        setBranches(data)
       }
-      const result = await window.api.git.get_branches(cwd)
-      if (idAtStart !== gitContextIdRef.current) return
-      if (result.status === 'success') {
-        setBranches(result.data)
-        logger.info('Branches loaded (ShowlogToolbar):', result.data)
-      } else {
-        toast.error(result.message || 'Không thể tải danh sách branches')
+
+      const needsLocalSnapshot = !hasCached || options?.forceFetch
+      const showBlockingLoader = needsLocalSnapshot && !options?.background
+
+      if (showBlockingLoader) setIsLoadingBranches(true)
+
+      try {
+        if (needsLocalSnapshot) {
+          const localResult = await window.api.git.get_branches(cwd)
+          if (loadId !== branchListLoadIdRef.current || contextId !== gitContextIdRef.current) return
+          if (localResult.status === 'success') {
+            applyBranches(localResult.data)
+            logger.info('Branches loaded (ShowlogToolbar local snapshot):', localResult.data)
+          } else {
+            toast.error(localResult.message || t('git.branchListLoadError'))
+          }
+        }
+      } catch (error) {
+        if (loadId !== branchListLoadIdRef.current || contextId !== gitContextIdRef.current) return
+        logger.error('Error loading local branches (ShowlogToolbar):', error)
+        if (!hasCached) toast.error(t('git.branchListLoadError'))
+      } finally {
+        if (showBlockingLoader) setIsLoadingBranches(false)
       }
-    } catch (error) {
-      if (idAtStart !== gitContextIdRef.current) return
-      logger.error('Error loading branches:', error)
-      toast.error('Không thể tải danh sách branches')
-    } finally {
-      const elapsed = Date.now() - start
-      const minLoadingMs = 400
-      if (elapsed < minLoadingMs) {
-        await new Promise(r => setTimeout(r, minLoadingMs - elapsed))
-      }
-      setIsLoadingBranches(false)
-    }
-  }
+
+      await refreshBranchesFromRemote(cwd, loadId, contextId)
+    },
+    [gitCwd, refreshBranchesFromRemote, t, versionControlSystem]
+  )
+
+  const prefetchBranchList = useCallback(() => {
+    if (!gitCwd) return
+    void loadBranches({ background: true })
+  }, [gitCwd, loadBranches])
 
   /** Chỉ đổi ref dùng cho `git log` — không checkout, TitleBar/HEAD không đổi. */
   const selectLogBranch = (pickName: string) => {
@@ -449,13 +479,6 @@ export const ShowlogToolbar: React.FC<ShowlogProps> = ({
   }
 
   const effectiveLogRef = gitLogRevision ?? currentBranch
-
-  useEffect(() => {
-    setDatePickerValue(dateRange)
-  }, [dateRange])
-
-  const locale = getDateFnsLocale(i18n.language)
-  const dateFormat = getDateOnlyPattern(i18n.language)
 
   // Helper function để lấy icon VCS
   const getVCSIcon = (folderName: string) => {
@@ -493,407 +516,248 @@ export const ShowlogToolbar: React.FC<ShowlogProps> = ({
 
   return (
     <div
-      className={cn('flex items-center justify-between h-8 min-w-0 flex-1 text-sm select-none', embedded && 'w-full')}
+      className={cn('flex items-center justify-between h-8 min-w-0 flex-1 text-sm select-none gap-2', embedded && 'w-full')}
       style={
-        embedded
-          ? ({ WebkitAppRegion: 'no-drag' } as React.CSSProperties)
-          : ({
-              WebkitAppRegion: 'drag',
-              backgroundColor: 'var(--main-bg)',
-              color: 'var(--main-fg)',
-            } as React.CSSProperties)
+        {
+          WebkitAppRegion: 'drag',
+          ...(!embedded ? { backgroundColor: 'var(--main-bg)', color: 'var(--main-fg)' } : {}),
+        } as React.CSSProperties
       }
     >
-      <div className="flex items-center h-full min-w-0 flex-1">
-        {!embedded ? (
-          <div className="w-10 h-6 flex justify-center items-center shrink-0">
-            <img src="logo.png" alt="icon" draggable="false" className="w-3.5 h-3.5 dark:brightness-130" />
-          </div>
-        ) : null}
-        <div className="flex items-center h-full min-w-0 flex-1" style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties}>
-          <div className="flex items-center gap-1 pt-0.5">
-            {/* Cụm Project + Source Folder - một nhóm UI chung như TitleBar */}
-            {(user || sourceFolders.length > 0) && (
-              <div className="flex items-center h-7 rounded-md overflow-hidden">
-                {user && (
-                  <DropdownMenu onOpenChange={open => open && loadProjects()}>
-                    <Tooltip>
-                      <TooltipTrigger asChild>
-                        <DropdownMenuTrigger asChild>
-                          <Button
-                            variant="ghost"
-                            size="sm"
-                            disabled={isProjectsLoading}
-                            className={cn(
-                              'flex items-center gap-1 px-2 py-1 h-7 text-xs font-medium rounded-none border-0 bg-transparent text-pink-800 dark:text-pink-400 hover:bg-muted! hover:text-pink-900! dark:hover:text-pink-300!',
-                              sourceFolders.length > 0 ? 'rounded-l-md' : 'rounded-md'
-                            )}
-                          >
-                            <span className="font-medium">
-                              {selectedProjectId ? (projects.find(p => p.id === selectedProjectId)?.name ?? t('dailyReport.all')) : t('showlog.allProjects', 'Tất cả')}
-                            </span>
-                            <ChevronDown className="h-3 w-3" />
-                          </Button>
-                        </DropdownMenuTrigger>
-                      </TooltipTrigger>
-                      <TooltipContent>
-                        {selectedProjectId ? (projects.find(p => p.id === selectedProjectId)?.name ?? t('dailyReport.all')) : t('showlog.allProjects', 'Tất cả')}
-                      </TooltipContent>
-                    </Tooltip>
-                    <DropdownMenuContent align="start">
-                      {isProjectsLoading ? (
-                        <div className="flex items-center justify-center p-2">
-                          <Loader2 className="h-4 w-4 animate-spin" />
-                          <span className="ml-2 text-xs">Đang tải projects...</span>
-                        </div>
-                      ) : (
-                        <>
-                          <DropdownMenuItem onClick={() => handleProjectSelect(null)} className={!selectedProjectId ? 'bg-muted' : ''}>
-                            {t('showlog.allProjects', 'Tất cả')}
-                          </DropdownMenuItem>
-                          {projects.map(p => (
-                            <DropdownMenuItem key={p.id} onClick={() => handleProjectSelect(p.id)} className={selectedProjectId === p.id ? 'bg-muted' : ''}>
-                              {p.name}
-                            </DropdownMenuItem>
-                          ))}
-                        </>
-                      )}
-                    </DropdownMenuContent>
-                  </DropdownMenu>
-                )}
-                {user && sourceFolders.length > 0 && <ChevronRight className="h-3.5 w-3.5 text-pink-600 dark:text-pink-400 shrink-0" aria-hidden />}
-                {sourceFolders.length > 0 ? (
-                  <DropdownMenu onOpenChange={open => open && refreshSourceFoldersList()}>
-                    <Tooltip>
-                      <TooltipTrigger asChild>
-                        <DropdownMenuTrigger asChild>
-                          <Button
-                            variant="ghost"
-                            size="sm"
-                            disabled={isSourceFoldersLoading || isLoading}
-                            className={cn(
-                              'flex items-center gap-1 px-2 py-1 h-7 text-xs font-medium rounded-none border-0 bg-transparent text-pink-800 dark:text-pink-400 hover:bg-muted hover:text-pink-900! dark:hover:text-pink-300!',
-                              user ? 'rounded-r-md' : 'rounded-md'
-                            )}
-                          >
-                            {isSourceFoldersLoading || isLoading ? <Loader2 className="h-3 w-3 animate-spin" /> : getVCSIcon(currentFolder)}
-                            <span className="font-medium">{isSourceFoldersLoading || isLoading ? t('common.loading', 'Đang tải ...') : currentFolder || ''}</span>
-                            {!isSourceFoldersLoading && !isLoading && getVCSText(currentFolder) && (
-                              <span className="text-[10px] text-muted-foreground bg-muted px-1 rounded">{getVCSText(currentFolder)}</span>
-                            )}
-                            <ChevronDown className={cn('h-3 w-3', (isSourceFoldersLoading || isLoading) && 'opacity-50')} />
-                          </Button>
-                        </DropdownMenuTrigger>
-                      </TooltipTrigger>
-                      <TooltipContent>{isSourceFoldersLoading || isLoading ? t('common.loading', 'Đang tải ...') : currentFolder}</TooltipContent>
-                    </Tooltip>
-                    <DropdownMenuContent align="center">
-                      {sourceFolders.map(folder => (
-                        <DropdownMenuItem
-                          key={folder.name}
-                          onClick={() => setTimeout(() => handleFolderChange(folder.name), 0)}
-                          className={currentFolder === folder.name ? 'bg-muted' : ''}
-                          disabled={folderVCSTypes[folder.name] === 'none'}
-                        >
-                          {getVCSIcon(folder.name)}
-                          <span className="ml-2">{folder.name}</span>
-                          {getVCSText(folder.name) && <span className="ml-auto text-[10px] text-muted-foreground bg-muted px-1 rounded">{getVCSText(folder.name)}</span>}
-                        </DropdownMenuItem>
-                      ))}
-                    </DropdownMenuContent>
-                  </DropdownMenu>
-                ) : (
-                  (isSourceFoldersLoading || isLoading) && (
-                    <Button variant="ghost" size="sm" disabled className="flex items-center gap-1 px-2 py-1 h-7 text-xs rounded-r-md">
-                      <Loader2 className="h-3 w-3 animate-spin" />
-                      <span className="font-medium">{t('common.loading', 'Đang tải ...')}</span>
-                    </Button>
-                  )
-                )}
-              </div>
-            )}
+      {!embedded ? (
+        <div className="w-10 h-6 flex justify-center items-center shrink-0" style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties}>
+          <img src="logo.png" alt="icon" draggable="false" className="w-3.5 h-3.5 dark:brightness-130" />
+        </div>
+      ) : null}
 
-            {showGitBranchChrome && (
-              <>
-                <DropdownMenu
-                  onOpenChange={open => {
-                    if (open) loadBranches()
-                  }}
-                >
+      {!embedded ? (
+        <Button variant="ghost" className="min-w-0 flex-1 justify-center font-medium text-xs truncate px-2" style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties}>
+          {filePath !== '.' ? t('dialog.showLogs.titleWithPath', { 0: filePath }) : t('dialog.showLogs.title')}
+        </Button>
+      ) : (
+        <div className="min-h-0 min-w-0 flex-1 self-stretch" style={{ WebkitAppRegion: 'drag' } as React.CSSProperties} aria-hidden />
+      )}
+
+      <div className="flex min-w-0 shrink-0 items-center gap-1" style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties}>
+        <div className="flex items-center gap-1 pt-0.5">
+          {(user || sourceFolders.length > 0) && (
+            <div className="flex items-center h-7 rounded-md overflow-hidden">
+              {user && (
+                <DropdownMenu onOpenChange={open => open && loadProjects()}>
                   <Tooltip>
                     <TooltipTrigger asChild>
                       <DropdownMenuTrigger asChild>
-                        <Button variant="ghost" size="sm" className="flex items-center gap-1 px-2 py-1 h-7 text-xs">
-                          <span className="text-[10px] text-blue-600 dark:text-blue-400 bg-blue-50 dark:bg-blue-900/30 px-1.5 rounded flex items-center gap-0.5 min-w-[4.5rem] justify-center">
-                            <GitBranch className="h-2.5 w-2.5 shrink-0" />
-                            {effectiveLogRef ? effectiveLogRef : <Loader2 className="h-3 w-3 animate-spin" aria-label={t('common.loading')} />}
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          disabled={isProjectsLoading}
+                          className={cn(
+                            'flex items-center gap-1 px-2 py-1 h-7 text-xs font-medium rounded-none border-0 bg-transparent text-pink-800 dark:text-pink-400 hover:bg-muted! hover:text-pink-900! dark:hover:text-pink-300!',
+                            sourceFolders.length > 0 ? 'rounded-l-md' : 'rounded-md'
+                          )}
+                        >
+                          <span className="font-medium">
+                            {selectedProjectId ? (projects.find(p => p.id === selectedProjectId)?.name ?? t('dailyReport.all')) : t('showlog.allProjects', 'Tất cả')}
                           </span>
-                          {gitAhead > 0 && <span className="text-green-600 dark:text-green-400"> ↑{gitAhead}</span>}
-                          {gitBehind > 0 && <span className="text-red-600 dark:text-red-400"> ↓{gitBehind}</span>}
-                          <ChevronDown className="h-3 w-3" />
+                          <ChevronDown className="h-3 w-3 shrink-0" />
                         </Button>
                       </DropdownMenuTrigger>
                     </TooltipTrigger>
                     <TooltipContent>
-                      <span className="block max-w-xs">
-                        {gitLogRevision && gitLogRevision !== currentBranch
-                          ? `${t('showlog.logViewBranchTooltip', 'Đang xem log của')}: ${gitLogRevision} — ${t('showlog.checkoutBranchIs', 'branch đang checkout')}: ${currentBranch || '…'}`
-                          : currentFolder
-                            ? t('git.branchForRepo', { repo: currentFolder })
-                            : currentBranch || t('common.loading', 'Đang tải ...')}
-                      </span>
+                      {selectedProjectId ? (projects.find(p => p.id === selectedProjectId)?.name ?? t('dailyReport.all')) : t('showlog.allProjects', 'Tất cả')}
                     </TooltipContent>
                   </Tooltip>
-                  <DropdownMenuContent align="center" className="max-h-[300px] overflow-y-auto">
-                    {isLoadingBranches ? (
+                  <DropdownMenuContent align="end">
+                    {isProjectsLoading ? (
                       <div className="flex items-center justify-center p-2">
                         <Loader2 className="h-4 w-4 animate-spin" />
-                        <span className="ml-2 text-xs">Đang tải branches...</span>
+                        <span className="ml-2 text-xs">Đang tải projects...</span>
                       </div>
-                    ) : branches ? (
-                      <>
-                        {gitLogRevision != null && onGitLogRevisionChange && (
-                          <>
-                            <DropdownMenuItem
-                              onClick={() => {
-                                onGitLogRevisionChange(null)
-                              }}
-                            >
-                              {t('showlog.logFollowHead', 'Log theo HEAD đang checkout')}
-                              {currentBranch ? ` (${currentBranch})` : ''}
-                            </DropdownMenuItem>
-                            <DropdownMenuSeparator />
-                          </>
-                        )}
-                        {branches.local?.all && branches.local.all.length > 0 && (
-                          <>
-                            <div className="px-2 py-1 text-xs font-semibold text-muted-foreground">Local Branches</div>
-                            {branches.local.all.map((branch: string) => {
-                              const branchInfo = branches.local.branches[branch]
-                              const ahead = branchInfo?.ahead || 0
-                              const behind = branchInfo?.behind || 0
-
-                              const isCheckout = currentBranch === branch
-                              const isLogScope = effectiveLogRef === branch
-                              return (
-                                <DropdownMenuItem key={branch} onClick={() => setTimeout(() => selectLogBranch(branch), 0)} className={isLogScope ? 'bg-muted/60' : ''}>
-                                  <GitBranch className={`h-3 w-3 mr-2 shrink-0 ${isCheckout ? 'text-green-600 dark:text-green-400' : ''}`} />
-                                  <span className={`flex-1 truncate ${isLogScope ? 'font-medium' : ''} ${isCheckout ? 'text-green-600 dark:text-green-400' : ''}`}>{branch}</span>
-                                  <div className="ml-2 flex shrink-0 items-center gap-1">
-                                    {ahead > 0 && <span className="flex items-center text-[10px] text-green-600 dark:text-green-400">↑{ahead}</span>}
-                                    {behind > 0 && <span className="flex items-center text-[10px] text-red-600 dark:text-red-400">↓{behind}</span>}
-                                  </div>
-                                </DropdownMenuItem>
-                              )
-                            })}
-                          </>
-                        )}
-                        {branches.remote?.all && branches.remote.all.length > 0 && (
-                          <>
-                            <DropdownMenuSeparator />
-                            <div className="px-2 py-1 text-xs font-semibold text-muted-foreground">Remote Branches</div>
-                            {branches.remote.all.map((branch: string) => {
-                              const shortName = branch.includes('/') ? branch.split('/').slice(1).join('/') : branch
-                              const isLogScope = effectiveLogRef === shortName
-                              return (
-                                <DropdownMenuItem
-                                  key={branch}
-                                  onClick={() =>
-                                    setTimeout(() => {
-                                      selectLogBranch(shortName)
-                                    }, 0)
-                                  }
-                                  className={cn('text-muted-foreground', isLogScope && 'bg-muted/60 font-medium text-foreground')}
-                                >
-                                  <GitBranch className="h-3 w-3 mr-2" />
-                                  {branch}
-                                </DropdownMenuItem>
-                              )
-                            })}
-                          </>
-                        )}
-                      </>
                     ) : (
-                      <div className="px-2 py-1 text-xs text-muted-foreground">Không có branches</div>
+                      <>
+                        <DropdownMenuItem onClick={() => handleProjectSelect(null)} className={!selectedProjectId ? 'bg-muted' : ''}>
+                          {t('showlog.allProjects', 'Tất cả')}
+                        </DropdownMenuItem>
+                        {projects.map(p => (
+                          <DropdownMenuItem key={p.id} onClick={() => handleProjectSelect(p.id)} className={selectedProjectId === p.id ? 'bg-muted' : ''}>
+                            {p.name}
+                          </DropdownMenuItem>
+                        ))}
+                      </>
                     )}
                   </DropdownMenuContent>
                 </DropdownMenu>
-                <Tooltip>
-                  <TooltipTrigger asChild>
-                    <Button
-                      type="button"
-                      variant="link"
-                      size="sm"
-                      onClick={() => setShowGitBranchManageDialog(true)}
-                      className="shadow-none focus-visible:ring-0 focus-visible:ring-offset-0 hover:bg-muted transition-colors rounded-sm h-[25px] w-[25px]"
-                    >
-                      <GitBranchPlus strokeWidth={1.25} absoluteStrokeWidth size={15} className="h-4 w-4 text-green-600 dark:text-green-400" />
-                    </Button>
-                  </TooltipTrigger>
-                  <TooltipContent>{currentFolder ? t('git.branchManage.titleForRepo', { repo: currentFolder }) : t('git.branchManage.title')}</TooltipContent>
-                </Tooltip>
-              </>
-            )}
-
-            <Separator orientation="vertical" className="h-4 w-px bg-muted mx-1 mr-2" />
-
-            {/* Date Range Picker - style đồng bộ với TaskManagement */}
-            {setDateRange && (
-              <Popover open={datePickerOpen} onOpenChange={setDatePickerOpen}>
-                <PopoverTrigger asChild>
-                  <Button
-                    variant={buttonVariant}
-                    size="sm"
-                    disabled={isLoading}
-                    className={cn('h-6 px-2 text-xs justify-start text-left font-normal transition-all duration-200', !dateRange?.from && 'text-muted-foreground')}
-                  >
-                    <CalendarIcon className="mr-1.5 h-3.5 w-3.5" />
-                    {dateRange?.from
-                      ? dateRange.to
-                        ? `${format(dateRange.from, dateFormat, { locale })} - ${format(dateRange.to, dateFormat, { locale })}`
-                        : format(dateRange.from, dateFormat, { locale })
-                      : t('taskManagement.chartAllTime')}
+              )}
+              {user && sourceFolders.length > 0 && <ChevronRight className="h-3.5 w-3.5 text-pink-600 dark:text-pink-400 shrink-0" aria-hidden />}
+              {sourceFolders.length > 0 ? (
+                <DropdownMenu onOpenChange={open => open && refreshSourceFoldersList()}>
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <DropdownMenuTrigger asChild>
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          disabled={isSourceFoldersLoading || isLoading}
+                          className={cn(
+                            'flex items-center gap-1 px-2 py-1 h-7 text-xs font-medium rounded-none border-0 bg-transparent text-pink-800 dark:text-pink-400 hover:bg-muted hover:text-pink-900! dark:hover:text-pink-300!',
+                            user ? 'rounded-r-md' : 'rounded-md'
+                          )}
+                        >
+                          {isSourceFoldersLoading || isLoading ? <Loader2 className="h-3 w-3 animate-spin" /> : getVCSIcon(currentFolder)}
+                          <span className="font-medium max-w-[8rem] truncate">{isSourceFoldersLoading || isLoading ? t('common.loading', 'Đang tải ...') : currentFolder || ''}</span>
+                          {!isSourceFoldersLoading && !isLoading && getVCSText(currentFolder) && (
+                            <span className="text-[10px] text-muted-foreground bg-muted px-1 rounded">{getVCSText(currentFolder)}</span>
+                          )}
+                          <ChevronDown className={cn('h-3 w-3 shrink-0', (isSourceFoldersLoading || isLoading) && 'opacity-50')} />
+                        </Button>
+                      </DropdownMenuTrigger>
+                    </TooltipTrigger>
+                    <TooltipContent>{isSourceFoldersLoading || isLoading ? t('common.loading', 'Đang tải ...') : currentFolder}</TooltipContent>
+                  </Tooltip>
+                  <DropdownMenuContent align="end">
+                    {sourceFolders.map(folder => (
+                      <DropdownMenuItem
+                        key={folder.name}
+                        onClick={() => setTimeout(() => handleFolderChange(folder.name), 0)}
+                        className={currentFolder === folder.name ? 'bg-muted' : ''}
+                        disabled={folderVCSTypes[folder.name] === 'none'}
+                      >
+                        {getVCSIcon(folder.name)}
+                        <span className="ml-2">{folder.name}</span>
+                        {getVCSText(folder.name) && <span className="ml-auto text-[10px] text-muted-foreground bg-muted px-1 rounded">{getVCSText(folder.name)}</span>}
+                      </DropdownMenuItem>
+                    ))}
+                  </DropdownMenuContent>
+                </DropdownMenu>
+              ) : (
+                (isSourceFoldersLoading || isLoading) && (
+                  <Button variant="ghost" size="sm" disabled className="flex items-center gap-1 px-2 py-1 h-7 text-xs rounded-r-md">
+                    <Loader2 className="h-3 w-3 animate-spin" />
+                    <span className="font-medium">{t('common.loading', 'Đang tải ...')}</span>
                   </Button>
-                </PopoverTrigger>
-                <PopoverContent className="w-auto p-0" align="start">
-                  <Calendar
-                    locale={locale}
-                    mode="range"
-                    defaultMonth={dateRange?.from}
-                    selected={datePickerValue ?? dateRange}
-                    onSelect={v => setDatePickerValue(v)}
-                    numberOfMonths={2}
-                  />
-                  <div className="flex gap-2 p-2 border-t">
+                )
+              )}
+            </div>
+          )}
+
+          {showGitBranchChrome && (effectiveLogRef || currentBranch) && (
+            <DropdownMenu
+              onOpenChange={open => {
+                if (open) void loadBranches()
+              }}
+            >
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <DropdownMenuTrigger asChild>
                     <Button
-                      variant={buttonVariant}
+                      variant="ghost"
                       size="sm"
-                      className="flex-1"
-                      onClick={() => {
-                        setDateRange(undefined)
-                        setDatePickerValue(undefined)
-                        setDatePickerOpen(false)
-                        setTimeout(() => onRefresh(), 100)
-                      }}
+                      className="flex items-center gap-1 px-2 py-1 h-7 text-xs"
+                      onMouseEnter={prefetchBranchList}
                     >
-                      {t('taskManagement.chartAllTime')}
+                      <span className="text-[10px] text-blue-600 dark:text-blue-400 bg-blue-50 dark:bg-blue-900/30 px-1.5 rounded flex items-center gap-0.5">
+                        <GitBranch className="h-2.5 w-2.5 shrink-0" />
+                        {effectiveLogRef || currentBranch}
+                      </span>
+                      {gitAhead > 0 && <span className="text-green-600 dark:text-green-400 shrink-0"> ↑{gitAhead}</span>}
+                      {gitBehind > 0 && <span className="text-red-600 dark:text-red-400 shrink-0"> ↓{gitBehind}</span>}
+                      <ChevronDown className="h-3 w-3 shrink-0" />
                     </Button>
-                    <Button
-                      variant={buttonVariant}
-                      size="sm"
-                      className="flex-1"
-                      onClick={() => {
-                        const value = datePickerValue ?? dateRange
-                        if (value?.from) {
-                          setDateRange(value)
-                          setDatePickerOpen(false)
-                          setTimeout(() => onRefresh(), 100)
-                        }
-                      }}
-                    >
-                      {t('common.confirm')}
-                    </Button>
+                  </DropdownMenuTrigger>
+                </TooltipTrigger>
+                <TooltipContent>
+                  <span className="block max-w-xs">
+                    {gitLogRevision && gitLogRevision !== currentBranch
+                      ? `${t('showlog.logViewBranchTooltip', 'Đang xem log của')}: ${gitLogRevision} — ${t('showlog.checkoutBranchIs', 'branch đang checkout')}: ${currentBranch || '…'}`
+                      : currentFolder
+                        ? t('git.branchForRepo', { repo: currentFolder })
+                        : currentBranch || t('common.loading', 'Đang tải ...')}
+                  </span>
+                </TooltipContent>
+              </Tooltip>
+              <DropdownMenuContent align="end" className="max-h-[300px] overflow-y-auto">
+                {isRefreshingBranchesRemote && (
+                  <div className="flex items-center gap-2 border-b px-2 py-1.5 text-xs text-muted-foreground">
+                    <Loader2 className="h-3 w-3 animate-spin shrink-0" />
+                    <span>{t('git.branchListRefreshing')}</span>
                   </div>
-                </PopoverContent>
-              </Popover>
-            )}
+                )}
+                {isLoadingBranches && !branches ? (
+                  <div className="flex items-center justify-center p-2">
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                    <span className="ml-2 text-xs">{t('common.loading', 'Đang tải...')}</span>
+                  </div>
+                ) : branches ? (
+                  <>
+                    {gitLogRevision != null && onGitLogRevisionChange && (
+                      <>
+                        <DropdownMenuItem
+                          onClick={() => {
+                            onGitLogRevisionChange(null)
+                          }}
+                        >
+                          {t('showlog.logFollowHead', 'Log theo HEAD đang checkout')}
+                          {currentBranch ? ` (${currentBranch})` : ''}
+                        </DropdownMenuItem>
+                        <DropdownMenuSeparator />
+                      </>
+                    )}
+                    {branches.local?.all && branches.local.all.length > 0 && (
+                      <>
+                        <div className="px-2 py-1 text-xs font-semibold text-muted-foreground">Local Branches</div>
+                        {branches.local.all.map((branch: string) => {
+                          const branchInfo = branches.local.branches[branch]
+                          const ahead = branchInfo?.ahead || 0
+                          const behind = branchInfo?.behind || 0
 
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <Button
-                  variant="link"
-                  disabled={isLoading}
-                  size="sm"
-                  onClick={async () => {
-                    // Không sync config từ localStorage - mỗi ShowLog window giữ context riêng
-                    if (versionControlSystem === 'git' && contextSourceFolder) {
-                      await loadCurrentBranch()
-                      try {
-                        const s = await window.api.git.status({ cwd: contextSourceFolder })
-                        if (s.status === 'success' && s.data) {
-                          setGitAhead(s.data.ahead || 0)
-                          setGitBehind(s.data.behind || 0)
-                        }
-                      } catch {
-                        /* ignore */
-                      }
-                    }
-                    onRefresh()
-                  }}
-                  className="shadow-none focus-visible:ring-0 focus-visible:ring-offset-0 hover:bg-muted transition-colors rounded-sm h-[25px] w-[25px]"
-                >
-                  {isLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCcw className="h-4 w-4" />}
-                </Button>
-              </TooltipTrigger>
-              <TooltipContent>{t('common.refresh')}</TooltipContent>
-            </Tooltip>
-
-            <Separator orientation="vertical" className="h-4 w-px bg-muted mx-1" />
-
-            {onOpenStatistic && (
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <Button
-                    variant="link"
-                    disabled={isLoading}
-                    size="sm"
-                    onClick={onOpenStatistic}
-                    className="shadow-none focus-visible:ring-0 focus-visible:ring-offset-0 hover:bg-muted transition-colors rounded-sm h-[25px] w-[25px]"
-                  >
-                    <BarChart3 className="h-4 w-4" />
-                  </Button>
-                </TooltipTrigger>
-                <TooltipContent>{t('dialog.statisticSvn.title')}</TooltipContent>
-              </Tooltip>
-            )}
-
-            {onOpenAIAnalysis && (
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <Button
-                    variant="link"
-                    disabled={isLoading}
-                    size="sm"
-                    onClick={onOpenAIAnalysis}
-                    className="shadow-none focus-visible:ring-0 focus-visible:ring-offset-0 hover:bg-muted transition-colors rounded-sm h-[25px] w-[25px]"
-                  >
-                    <Sparkles className="h-4 w-4" />
-                  </Button>
-                </TooltipTrigger>
-                <TooltipContent>AI Phân tích Commit</TooltipContent>
-              </Tooltip>
-            )}
-
-            {onOpenAIAnalysis && (
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <Button
-                    variant="link"
-                    disabled={isLoading}
-                    size="sm"
-                    onClick={() => setShowHistoryDialog(true)}
-                    className="shadow-none focus-visible:ring-0 focus-visible:ring-offset-0 hover:bg-muted transition-colors rounded-sm h-[25px] w-[25px]"
-                  >
-                    <History className="h-4 w-4" />
-                  </Button>
-                </TooltipTrigger>
-                <TooltipContent>Lịch sử phân tích</TooltipContent>
-              </Tooltip>
-            )}
-
-            <Separator orientation="vertical" className="h-4 w-px bg-muted mx-1" />
-          </div>
+                          const isCheckout = currentBranch === branch
+                          const isLogScope = effectiveLogRef === branch
+                          return (
+                            <DropdownMenuItem key={branch} onClick={() => setTimeout(() => selectLogBranch(branch), 0)} className={isLogScope ? 'bg-muted/60' : ''}>
+                              <GitBranch className={`h-3 w-3 mr-2 shrink-0 ${isCheckout ? 'text-green-600 dark:text-green-400' : ''}`} />
+                              <span className={`flex-1 truncate ${isLogScope ? 'font-medium' : ''} ${isCheckout ? 'text-green-600 dark:text-green-400' : ''}`}>{branch}</span>
+                              <div className="ml-2 flex shrink-0 items-center gap-1">
+                                {ahead > 0 && <span className="flex items-center text-[10px] text-green-600 dark:text-green-400">↑{ahead}</span>}
+                                {behind > 0 && <span className="flex items-center text-[10px] text-red-600 dark:text-red-400">↓{behind}</span>}
+                              </div>
+                            </DropdownMenuItem>
+                          )
+                        })}
+                      </>
+                    )}
+                    {branches.remote?.all && branches.remote.all.length > 0 && (
+                      <>
+                        <DropdownMenuSeparator />
+                        <div className="px-2 py-1 text-xs font-semibold text-muted-foreground">Remote Branches</div>
+                        {branches.remote.all.map((branch: string) => {
+                          const shortName = branch.includes('/') ? branch.split('/').slice(1).join('/') : branch
+                          const isLogScope = effectiveLogRef === shortName
+                          return (
+                            <DropdownMenuItem
+                              key={branch}
+                              onClick={() =>
+                                setTimeout(() => {
+                                  selectLogBranch(shortName)
+                                }, 0)
+                              }
+                              className={cn('text-muted-foreground', isLogScope && 'bg-muted/60 font-medium text-foreground')}
+                            >
+                              <GitBranch className="h-3 w-3 mr-2" />
+                              {branch}
+                            </DropdownMenuItem>
+                          )
+                        })}
+                      </>
+                    )}
+                  </>
+                ) : (
+                  <div className="px-2 py-1 text-xs text-muted-foreground">{t('git.branchListEmpty')}</div>
+                )}
+              </DropdownMenuContent>
+            </DropdownMenu>
+          )}
         </div>
-      </div>
 
-      {!embedded ? (
-        <Button variant="ghost" className="font-medium text-xs shrink-0">
-          {filePath !== '.' ? t('dialog.showLogs.titleWithPath', { 0: filePath }) : t('dialog.showLogs.title')}
-        </Button>
-      ) : null}
-
-      {/* Right Section (layout toggle + dock + window controls) */}
-      <div className="flex gap-1 items-center shrink-0" style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties}>
         {onToggleLayout && (
           <Tooltip>
             <TooltipTrigger asChild>
@@ -947,19 +811,6 @@ export const ShowlogToolbar: React.FC<ShowlogProps> = ({
           </>
         ) : null}
       </div>
-
-      <GitBranchManageDialog
-        open={showGitBranchManageDialog}
-        onOpenChange={setShowGitBranchManageDialog}
-        currentBranch={currentBranch}
-        onSuccess={() => {
-          void loadBranches()
-          void refreshAfterBranchSwitch()
-        }}
-        cwd={gitCwd}
-      />
-
-      <AIAnalysisHistoryDialog isOpen={showHistoryDialog} onOpenChange={setShowHistoryDialog} />
     </div>
   )
 }

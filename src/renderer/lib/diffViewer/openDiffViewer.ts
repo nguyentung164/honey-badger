@@ -69,16 +69,24 @@ export function buildGitStagingDiffPayload(opts: {
 }
 
 export function gitStagingLayoutStorageKey(repoRootKey: string): string {
-  return `git-dual-table-layout:${repoRootKey}`
+  return `git-staging-layout-v2:${repoRootKey}`
 }
 
 export function readGitStagingLayoutDirection(repoRootKey: string): 'horizontal' | 'vertical' {
   try {
-    const legacy = localStorage.getItem('git-dual-table-layout')
-    const saved = localStorage.getItem(gitStagingLayoutStorageKey(repoRootKey)) ?? legacy
-    return saved === 'vertical' ? 'vertical' : 'horizontal'
+    const saved = localStorage.getItem(gitStagingLayoutStorageKey(repoRootKey))
+    if (saved === 'horizontal' || saved === 'vertical') return saved
+    return 'vertical'
   } catch {
-    return 'horizontal'
+    return 'vertical'
+  }
+}
+
+export function writeGitStagingLayoutDirection(repoRootKey: string, direction: 'horizontal' | 'vertical'): void {
+  try {
+    localStorage.setItem(gitStagingLayoutStorageKey(repoRootKey), direction)
+  } catch {
+    // ignore quota errors
   }
 }
 export function buildEmbeddedGitStagingPayloadSyncKey(payload: DiffViewerLoadPayload | null | undefined): string {

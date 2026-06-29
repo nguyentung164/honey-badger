@@ -2209,7 +2209,10 @@
     "checkoutBranchIs": "Checked-out branch",
     "logFollowHead": "Log follows checked-out HEAD",
     "logViewBranchTooltip": "Viewing log for",
-    "dock": "Dock Show Log to main window"
+    "dock": "Dock Show Log to main window",
+    "aiAnalysis": "AI analysis",
+    "analysisHistory": "Analysis history",
+    "statistics": "Statistics"
   },
   "dialog": {
     "mergeSvn": {

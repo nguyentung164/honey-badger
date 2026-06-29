@@ -10,6 +10,7 @@ import { formatDateTime } from 'shared/utils'
 import { GitConflictDialog } from '@/components/dialogs/git/GitConflictDialog'
 import { GitInteractiveRebaseDialog } from '@/components/dialogs/git/GitInteractiveRebaseDialog'
 import { AIAnalysisDialog } from '@/components/dialogs/showlog/AIAnalysisDialog'
+import { AIAnalysisHistoryDialog } from '@/components/dialogs/showlog/AIAnalysisHistoryDialog'
 import { StatisticDialog } from '@/components/dialogs/showlog/StatisticDialog'
 import { GIT_STATUS_TEXT, type GitStatusCode, STATUS_TEXT, type SvnStatusCode } from '@/components/shared/constants'
 import { TranslatePanel } from '@/components/shared/TranslatePanel'
@@ -228,6 +229,7 @@ export default function ShowLog({ mode = 'standalone', pendingOpenPayload, hando
 
   const [isStatisticOpen, setIsStatisticOpen] = useState(false)
   const [isAIAnalysisOpen, setIsAIAnalysisOpen] = useState(false)
+  const [showHistoryDialog, setShowHistoryDialog] = useState(false)
   const [showGitConflictDialog, setShowGitConflictDialog] = useState(false)
   const [showInteractiveRebaseDialog, setShowInteractiveRebaseDialog] = useState(false)
   const [interactiveRebaseBaseRef, setInteractiveRebaseBaseRef] = useState<string>('')
@@ -1165,13 +1167,8 @@ export default function ShowLog({ mode = 'standalone', pendingOpenPayload, hando
 
   const toolbar = (
     <ShowlogToolbar
-      onRefresh={handleRefresh}
       filePath={displayFilePath}
       isLoading={isLoading}
-      dateRange={dateRange}
-      setDateRange={setDateRange}
-      onOpenStatistic={() => setIsStatisticOpen(true)}
-      onOpenAIAnalysis={() => setIsAIAnalysisOpen(true)}
       onToggleLayout={() => setLayoutDirection(prev => (prev === 'horizontal' ? 'vertical' : 'horizontal'))}
       versionControlSystem={effectiveVersionControlSystem}
       contextSourceFolder={effectiveSourceFolder || undefined}
@@ -1182,6 +1179,15 @@ export default function ShowLog({ mode = 'standalone', pendingOpenPayload, hando
       onStandaloneDock={!embedded && canOpenShowLogEmbedded() ? handleStandaloneDock : undefined}
     />
   )
+
+  const logTableFilterProps = {
+    dateRange,
+    setDateRange,
+    onRefresh: handleRefresh,
+    onOpenStatistic: () => setIsStatisticOpen(true),
+    onOpenAIAnalysis: () => setIsAIAnalysisOpen(true),
+    onOpenAnalysisHistory: () => setShowHistoryDialog(true),
+  }
 
   return (
     <div className={cn('flex w-full', embedded ? 'h-full min-h-0' : 'h-screen')}>
@@ -1196,6 +1202,7 @@ export default function ShowLog({ mode = 'standalone', pendingOpenPayload, hando
         versionControlSystem={effectiveVersionControlSystem}
       />
       <AIAnalysisDialog data={allLogData} isOpen={isAIAnalysisOpen} onOpenChange={setIsAIAnalysisOpen} filePath={displayFilePath as string} dateRange={dateRange} />
+      <AIAnalysisHistoryDialog isOpen={showHistoryDialog} onOpenChange={setShowHistoryDialog} />
       {effectiveVersionControlSystem === 'git' && <GitConflictDialog open={showGitConflictDialog} onOpenChange={setShowGitConflictDialog} onResolved={() => handleRefresh()} />}
       {effectiveVersionControlSystem === 'git' && (
         <GitInteractiveRebaseDialog
@@ -1300,6 +1307,7 @@ export default function ShowLog({ mode = 'standalone', pendingOpenPayload, hando
                         onCherryPick={handleCherryPick}
                         onReset={handleReset}
                         onInteractiveRebase={effectiveVersionControlSystem === 'git' ? handleInteractiveRebase : undefined}
+                        {...logTableFilterProps}
                       />
                     </div>
                   </div>
@@ -1430,6 +1438,7 @@ export default function ShowLog({ mode = 'standalone', pendingOpenPayload, hando
                         onCherryPick={handleCherryPick}
                         onReset={handleReset}
                         onInteractiveRebase={effectiveVersionControlSystem === 'git' ? handleInteractiveRebase : undefined}
+                        {...logTableFilterProps}
                       />
                     </div>
                   </div>

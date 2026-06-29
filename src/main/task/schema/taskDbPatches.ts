@@ -1377,8 +1377,8 @@ export async function migrateDropCommitReviewsTable(): Promise<void> {
 
   if (!dropCommitReviewsTableDone) {
     try {
-      await query('DROP TRIGGER IF EXISTS tr_commit_reviews_updated ON commit_reviews')
-      await query('DROP TABLE IF EXISTS commit_reviews')
+      // CASCADE drops attached triggers; DROP TRIGGER IF EXISTS still errors when the table is missing.
+      await query('DROP TABLE IF EXISTS commit_reviews CASCADE')
       dropCommitReviewsTableDone = true
     } catch (e) {
       l.error('[db] migrateDropCommitReviewsTable failed', e)
