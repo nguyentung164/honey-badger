@@ -1480,7 +1480,7 @@
     "isFile": "ファイル"
   },
   "placeholder": {
-    "commitMessage": "コミットメッセージを入力してください...\n\n例:\nfeat: 新機能を追加\nfix: バグ修正、コードベースのエラー修正\nrefactor: バグ修正や機能追加ではないコード変更\ndocs: ドキュメントの追加・変更\nstyle: コードフォーマット、ロジック変更なし\ntest: テストの追加・更新\nperf: パフォーマンス改善\nbuild: ビルドシステム、依存関係の変更\nci: CI設定の変更\nchore: コードに無関係な細かい変更",
+    "commitMessage": "コミットメッセージを入力してください...",
     "referenceId": "参照ID（例：No.344）",
     "search": "検索"
   },
@@ -2424,6 +2424,7 @@
       "treeUnstageSelected": "{{count}} 件をアンステージ",
       "treeRevertSelected": "{{count}} 件の変更を破棄",
       "treeSelectedCount": "{{count}} 件選択中",
+      "treeSectionSelected": "({{selected}}/{{total}} 件選択)",
       "statsSummary": "+{{add}} −{{del}}",
       "find": "検索 (Ctrl+F)",
       "findReplace": "検索と置換 (Ctrl+H)",
@@ -4841,8 +4842,28 @@
       },
       "errors": {
         "name": "名前は必須です",
+        "nameRequired": "名前は必須です",
         "baseUrl": "ベース URL は必須です",
         "browsers": "少なくとも 1 つのブラウザを選択"
+      },
+      "linkMaster": {
+        "button": "マスタープロジェクトとリンク",
+        "buttonShort": "マスター連携",
+        "buttonTooltip": "この Automation プロジェクトをタスク（マスター）プロジェクトに接続",
+        "title": "マスタープロジェクトにリンク",
+        "description": "この Automation プロジェクトをタスク（マスター）プロジェクトに接続します。1 つのマスターに複数の Automation プロジェクトをリンクできます。",
+        "linkedHeading": "リンク済みマスタープロジェクト",
+        "noneLinked": "まだマスタープロジェクトがリンクされていません。",
+        "noneLinkedHint": "マスタープロジェクト未リンク。「マスタープロジェクトとリンク」から接続してください。",
+        "selectLabel": "マスタープロジェクト",
+        "selectPlaceholder": "プロジェクトを選択…",
+        "noAvailable": "リンク可能なプロジェクトはすべてリンク済みです",
+        "linkAction": "リンク",
+        "unlink": "リンク解除",
+        "linked": "マスタープロジェクトをリンクしました",
+        "unlinked": "リンクを解除しました",
+        "linkFailed": "リンクに失敗しました",
+        "unlinkFailed": "リンク解除に失敗しました"
       }
     },
     "cases": {

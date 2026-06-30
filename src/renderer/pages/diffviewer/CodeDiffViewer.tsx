@@ -2,7 +2,9 @@
 import { DiffEditor, type DiffOnMount, useMonaco } from '@monaco-editor/react'
 import type { editor as MonacoEditor } from 'monaco-editor'
 import { IPC } from 'main/constants'
-import { useCallback, useEffect, useMemo, useRef, useState, forwardRef, useImperativeHandle } from 'react'
+import type { FilesChangedPayload } from 'shared/filesChanged'
+import { filesChangedTargetsRepo } from 'shared/filesChanged'
+import { useCallback, useEffect, useMemo, useRef, useState, forwardRef, useImperativeHandle, type ReactNode } from 'react'
 import { useTranslation } from 'react-i18next'
 import toast from '@/components/ui-elements/Toast'
 import { ResizableHandle, ResizablePanel, ResizablePanelGroup } from '@/components/ui/resizable'
@@ -69,10 +71,14 @@ export type CodeDiffViewerHandle = {
 export type CodeDiffViewerProps = {
   /** Render inside MainPage git staging area instead of a dedicated window. */
   embedded?: boolean
+  /** Repo root when embedded (multi-repo); prevents falling back to global sourceFolder. */
+  embeddedRepoCwd?: string
   /** Parent-driven payload when `embedded` (git staging vertical layout). */
   embeddedPayload?: DiffViewerLoadPayload | null
   /** Host element for toolbar controls (Git Staging title row). */
   embeddedToolbarHost?: HTMLElement | null
+  /** Commit message panel below Staged in tree (MainPage diff layout only). */
+  embeddedStagingFooter?: ReactNode
 }
 
 const EXT_TO_LANG: Record<string, string> = {
@@ -204,7 +210,7 @@ function formatLoadError(error: unknown): string {
 }
 
 export const CodeDiffViewer = forwardRef<CodeDiffViewerHandle, CodeDiffViewerProps>(function CodeDiffViewer(
-  { embedded = false, embeddedPayload = null, embeddedToolbarHost = null },
+  { embedded = false, embeddedRepoCwd, embeddedPayload = null, embeddedToolbarHost = null, embeddedStagingFooter = null },
   ref
 ) {
   const monaco = useMonaco()
@@ -221,9 +227,18 @@ export const CodeDiffViewer = forwardRef<CodeDiffViewerHandle, CodeDiffViewerPro
   const [cwd, setCwd] = useState<string | undefined>(undefined)
   const sourceFolder = useConfigurationStore(s => s.sourceFolder)
   const getRepoCwd = useCallback(
-    (payloadCwd?: string) => resolveDiffViewerRepoCwd(payloadCwd ?? loadContextRef.current?.cwd, cwd, sourceFolder),
-    [cwd, sourceFolder]
+    (payloadCwd?: string) =>
+      resolveDiffViewerRepoCwd(
+        payloadCwd ?? loadContextRef.current?.cwd,
+        cwd ?? embeddedRepoCwd,
+        embedded ? undefined : sourceFolder
+      ),
+    [cwd, embeddedRepoCwd, sourceFolder, embedded]
   )
+  const notifyStagingChanged = useCallback(() => {
+    const repoCwd = getRepoCwd()
+    window.api.electron.send(IPC.WINDOW.NOTIFY_STAGING_CHANGED, repoCwd ? { cwd: repoCwd } : undefined)
+  }, [getRepoCwd])
   const [diffViewerMode, setDiffViewerMode] = useState<DiffViewerMode>('git-working')
   const [gitConflictPayload, setGitConflictPayload] = useState<DiffViewerLoadPayload | null>(null)
   const [isSwapped, setIsSwapped] = useState(false)
@@ -699,7 +714,7 @@ export const CodeDiffViewer = forwardRef<CodeDiffViewerHandle, CodeDiffViewerPro
       const enriched = enrichDiffViewerPayload({
         ...ctx,
         filePath: ctx.filePath ? normalizeGitPath(ctx.filePath) : ctx.filePath,
-        cwd: resolveDiffViewerRepoCwd(ctx.cwd, cwd, sourceFolder),
+        cwd: getRepoCwd(ctx.cwd),
         isGit: ctx.isGit ?? isGit,
         files: ctx.files?.map(f => ({ ...f, filePath: normalizeGitPath(f.filePath) })),
       })
@@ -722,7 +737,7 @@ export const CodeDiffViewer = forwardRef<CodeDiffViewerHandle, CodeDiffViewerPro
         void handleRefresh(path, enriched.fileStatus ?? '', enriched.revision, enriched.currentRevision, enriched.cwd)
       }
     },
-    [handleRefresh, handleRefreshGit, cwd, isGit, sourceFolder]
+    [handleRefresh, handleRefreshGit, getRepoCwd, isGit]
   )
 
   const applyPayload = useCallback(
@@ -734,7 +749,7 @@ export const CodeDiffViewer = forwardRef<CodeDiffViewerHandle, CodeDiffViewerPro
           ...enriched,
           filePath: enriched.filePath ? normalizeGitPath(enriched.filePath) : enriched.filePath,
           files: enriched.files?.map(f => ({ ...f, filePath: normalizeGitPath(f.filePath) })),
-          cwd: resolveDiffViewerRepoCwd(enriched.cwd, undefined, sourceFolder),
+          cwd: getRepoCwd(enriched.cwd),
         })
         setDiffViewerMode(mode)
         return
@@ -742,7 +757,7 @@ export const CodeDiffViewer = forwardRef<CodeDiffViewerHandle, CodeDiffViewerPro
       setGitConflictPayload(null)
       const path = enriched.filePath ? normalizeGitPath(enriched.filePath) : ''
       const normalizedFiles = enriched.files?.map(f => ({ ...f, filePath: normalizeGitPath(f.filePath) }))
-      const resolvedCwd = resolveDiffViewerRepoCwd(enriched.cwd, undefined, sourceFolder)
+      const resolvedCwd = getRepoCwd(enriched.cwd)
       setFilePath(path)
       setRevision(enriched.revision)
       setCurrentRevision(enriched.currentRevision)
@@ -766,7 +781,7 @@ export const CodeDiffViewer = forwardRef<CodeDiffViewerHandle, CodeDiffViewerPro
         stagingState: activeEntry?.stagingState,
       })
     },
-    [initFiles, runLoad, sourceFolder]
+    [getRepoCwd, initFiles, runLoad]
   )
 
   const onRefresh = useCallback(async () => {
@@ -1065,7 +1080,7 @@ export const CodeDiffViewer = forwardRef<CodeDiffViewerHandle, CodeDiffViewerPro
         const ctx = loadContextRef.current
         if (!ctx) return
         applyGitActionRefresh(advanceFromIndex, filePath, refreshed, ctx, { stagingStateHint: nextStagingState })
-        window.api.electron.send(IPC.WINDOW.NOTIFY_STAGING_CHANGED)
+        notifyStagingChanged()
       } else {
         toast.error(result.message || t('toast.gitAddError'))
       }
@@ -1085,6 +1100,7 @@ export const CodeDiffViewer = forwardRef<CodeDiffViewerHandle, CodeDiffViewerPro
     setActiveEntryStagingState,
     refreshFilesFromGit,
     applyGitActionRefresh,
+    notifyStagingChanged,
   ])
 
   const handleRevertRequest = useCallback(() => {
@@ -1114,7 +1130,7 @@ export const CodeDiffViewer = forwardRef<CodeDiffViewerHandle, CodeDiffViewerPro
         const ctx = loadContextRef.current
         if (!ctx) return
         applyGitActionRefresh(advanceFromIndex, actedFilePath, refreshed, ctx)
-        window.api.electron.send(IPC.WINDOW.NOTIFY_STAGING_CHANGED)
+        notifyStagingChanged()
       } else {
         toast.error(result.message || t('toast.revertError'))
       }
@@ -1133,6 +1149,7 @@ export const CodeDiffViewer = forwardRef<CodeDiffViewerHandle, CodeDiffViewerPro
     t,
     refreshFilesFromGit,
     applyGitActionRefresh,
+    notifyStagingChanged,
   ])
 
   const refreshAfterTreeBulkGitAction = useCallback(
@@ -1149,9 +1166,9 @@ export const CodeDiffViewer = forwardRef<CodeDiffViewerHandle, CodeDiffViewerPro
       applyGitActionRefresh(activeIndex, actedFilePath, refreshed, ctx, {
         stagingStateHint: stagingStateHint ?? lookupStagingState,
       })
-      window.api.electron.send(IPC.WINDOW.NOTIFY_STAGING_CHANGED)
+      notifyStagingChanged()
     },
-    [activeIndex, applyGitActionRefresh, getRepoCwd, refreshFilesFromGit]
+    [activeIndex, applyGitActionRefresh, getRepoCwd, refreshFilesFromGit, notifyStagingChanged]
   )
 
   const handleTreeBulkAction = useCallback(
@@ -1276,14 +1293,16 @@ export const CodeDiffViewer = forwardRef<CodeDiffViewerHandle, CodeDiffViewerPro
   )
 
   useEffect(() => {
+    if (embedded) return
     const repoCwd = getRepoCwd()
     if (diffViewerMode !== 'git-staging' || !repoCwd) return
-    const handleFilesChanged = () => {
+    const handleFilesChanged = (_event: unknown, detail?: FilesChangedPayload) => {
       if (isGitActionInProgressRef.current) return
       const ctx = loadContextRef.current
       if (!ctx?.filePath) return
       const refreshCwd = getRepoCwd(ctx.cwd)
       if (!refreshCwd) return
+      if (!filesChangedTargetsRepo(detail, refreshCwd)) return
       void refreshFromContext({ ...ctx, cwd: refreshCwd }, stagingHintRef.current).then(outcome => {
         if (!outcome || !loadContextRef.current) return
         loadContextRef.current = outcome.nextCtx
@@ -1291,7 +1310,7 @@ export const CodeDiffViewer = forwardRef<CodeDiffViewerHandle, CodeDiffViewerPro
     }
     window.api.on(IPC.FILES_CHANGED, handleFilesChanged)
     return () => window.api.removeListener(IPC.FILES_CHANGED, handleFilesChanged)
-  }, [diffViewerMode, getRepoCwd, refreshFromContext])
+  }, [embedded, diffViewerMode, getRepoCwd, refreshFromContext])
 
   const handlePrevChange = useCallback(() => {
     const diffEditor = editorRef.current
@@ -1518,6 +1537,12 @@ export const CodeDiffViewer = forwardRef<CodeDiffViewerHandle, CodeDiffViewerPro
   useEffect(() => {
     if (!embedded || !embeddedPayload) return
 
+    if (embeddedRepoCwd && embeddedPayload.cwd) {
+      const expected = normalizeGitPath(embeddedRepoCwd)
+      const payloadCwd = normalizeGitPath(embeddedPayload.cwd)
+      if (expected && payloadCwd && expected !== payloadCwd) return
+    }
+
     if (embeddedPayload.mode === 'git-conflict') {
       setGitConflictPayload(null)
       const syncKey = buildEmbeddedGitConflictPayloadSyncKey(embeddedPayload)
@@ -1573,7 +1598,7 @@ export const CodeDiffViewer = forwardRef<CodeDiffViewerHandle, CodeDiffViewerPro
     }
 
     applyPayload(embeddedPayload)
-  }, [embedded, embeddedPayload, applyPayload, initFiles, runLoad])
+  }, [embedded, embeddedRepoCwd, embeddedPayload, applyPayload, initFiles, runLoad])
 
   useEffect(() => {
     if (embedded) return
@@ -1912,6 +1937,7 @@ export const CodeDiffViewer = forwardRef<CodeDiffViewerHandle, CodeDiffViewerPro
                 showStageActions={diffViewerSupportsStageActions(diffViewerMode)}
                 disabled={isStaging || isReverting}
                 isRefreshing={isTreeRefreshing}
+                stagingFooter={embedded && embeddedStagingFooter ? embeddedStagingFooter : undefined}
                 onSelectFile={requestNavigateToFile}
                 onBulkAction={(action, indices) => void handleTreeBulkAction(action, indices)}
                 onRefresh={handleTreeRefresh}

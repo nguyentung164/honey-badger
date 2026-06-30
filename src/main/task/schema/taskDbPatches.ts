@@ -953,6 +953,29 @@ CREATE TABLE IF NOT EXISTS ai_repair_proposals (
   automationTestTablesMigrationDone = true
 }
 
+let testProjectTaskLinksMigrationDone = false
+
+/** Explicit links between task (master) projects and automation test_projects. */
+export async function migrateTestProjectTaskLinksTable(): Promise<void> {
+  if (testProjectTaskLinksMigrationDone || !hasDbConfig()) return
+  try {
+    await query(`
+CREATE TABLE IF NOT EXISTS test_project_task_links (
+  id VARCHAR(36) PRIMARY KEY,
+  task_project_id VARCHAR(36) NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+  test_project_id VARCHAR(36) NOT NULL REFERENCES test_projects(id) ON DELETE CASCADE,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  UNIQUE (task_project_id, test_project_id)
+)`)
+    await query('CREATE INDEX IF NOT EXISTS idx_test_project_task_links_task ON test_project_task_links(task_project_id)')
+    await query('CREATE INDEX IF NOT EXISTS idx_test_project_task_links_test ON test_project_task_links(test_project_id)')
+  } catch (e) {
+    l.error('[db] migrateTestProjectTaskLinksTable failed', e)
+    return
+  }
+  testProjectTaskLinksMigrationDone = true
+}
+
 let devPipelineTablesMigrationDone = false
 
 /**

@@ -16,6 +16,7 @@ import type {
   TestPageMapAnnotation,
   TestPageNavEdge,
   TestProject,
+  TestProjectTaskLink,
   TestRunSummary,
   TestStep,
   TestSuite,
@@ -70,22 +71,110 @@ export async function getProject(id: string): Promise<TestProject | null> {
   return rowToProject(rows[0])
 }
 
-/** Task `projects.id` → automation `test_projects` (same id, else match by name). */
-export async function resolveTestProjectForTaskProject(taskProjectId: string): Promise<TestProject | null> {
+type TaskLinkRow = {
+  id: string
+  task_project_id: string
+  test_project_id: string
+  task_project_name: string | null
+  created_at: string
+}
+
+function rowToTaskLink(row: TaskLinkRow): TestProjectTaskLink {
+  return {
+    id: row.id,
+    taskProjectId: row.task_project_id,
+    testProjectId: row.test_project_id,
+    taskProjectName: row.task_project_name ?? undefined,
+    createdAt: row.created_at,
+  }
+}
+
+/** All automation test_projects linked to a task project (explicit links, then legacy id/name match). */
+export async function listTestProjectIdsForTaskProject(taskProjectId: string): Promise<string[]> {
   const trimmed = taskProjectId.trim()
-  if (!trimmed) return null
+  if (!trimmed) return []
+
+  const linked = await query<{ test_project_id: string }>(
+    'SELECT test_project_id FROM test_project_task_links WHERE task_project_id = ? ORDER BY created_at ASC',
+    [trimmed]
+  )
+  if (linked.length > 0) return linked.map(r => r.test_project_id)
+
   const direct = await getProject(trimmed)
-  if (direct) return direct
+  if (direct) return [direct.id]
+
   const taskRows = await query<{ name: string }>('SELECT name FROM projects WHERE id = ?', [trimmed])
   const taskName = taskRows[0]?.name?.trim()
-  if (!taskName) return null
-  const testRows = await query<ProjectRow>(
-    `SELECT id, name, base_url, description, browsers, workspace_path, created_by, created_at, updated_at
-     FROM test_projects WHERE LOWER(TRIM(name)) = LOWER(TRIM(?)) LIMIT 1`,
+  if (!taskName) return []
+
+  const testRows = await query<{ id: string }>(
+    'SELECT id FROM test_projects WHERE LOWER(TRIM(name)) = LOWER(TRIM(?)) ORDER BY created_at ASC',
     [taskName]
   )
-  if (!testRows.length) return null
-  return rowToProject(testRows[0])
+  return testRows.map(r => r.id)
+}
+
+export async function listTestProjectsForTaskProject(taskProjectId: string): Promise<TestProject[]> {
+  const ids = await listTestProjectIdsForTaskProject(taskProjectId)
+  const projects = await Promise.all(ids.map(id => getProject(id)))
+  return projects.filter((p): p is TestProject => p != null)
+}
+
+/** Task `projects.id` → first linked automation `test_projects` (legacy id/name fallback). */
+export async function resolveTestProjectForTaskProject(taskProjectId: string): Promise<TestProject | null> {
+  const ids = await listTestProjectIdsForTaskProject(taskProjectId)
+  if (ids.length === 0) return null
+  return getProject(ids[0])
+}
+
+export async function listTaskLinksForTestProject(testProjectId: string): Promise<TestProjectTaskLink[]> {
+  const rows = await query<TaskLinkRow>(
+    `SELECT l.id, l.task_project_id, l.test_project_id, l.created_at, p.name AS task_project_name
+     FROM test_project_task_links l
+     LEFT JOIN projects p ON p.id = l.task_project_id
+     WHERE l.test_project_id = ?
+     ORDER BY l.created_at ASC`,
+    [testProjectId]
+  )
+  return rows.map(rowToTaskLink)
+}
+
+export async function linkTestProjectToTaskProject(testProjectId: string, taskProjectId: string): Promise<TestProjectTaskLink> {
+  const testId = testProjectId.trim()
+  const taskId = taskProjectId.trim()
+  if (!testId || !taskId) throw new Error('testProjectId and taskProjectId are required')
+
+  const testProject = await getProject(testId)
+  if (!testProject) throw new Error('Automation project not found')
+
+  const taskRows = await query<{ id: string }>('SELECT id FROM projects WHERE id = ?', [taskId])
+  if (!taskRows.length) throw new Error('Master project not found')
+
+  const existing = await query<{ id: string }>(
+    'SELECT id FROM test_project_task_links WHERE task_project_id = ? AND test_project_id = ?',
+    [taskId, testId]
+  )
+  if (existing.length > 0) {
+    const links = await listTaskLinksForTestProject(testId)
+    const found = links.find(l => l.taskProjectId === taskId)
+    if (found) return found
+  }
+
+  const id = randomUuidV7()
+  await exec('INSERT INTO test_project_task_links (id, task_project_id, test_project_id) VALUES (?, ?, ?)', [id, taskId, testId])
+
+  const links = await listTaskLinksForTestProject(testId)
+  const created = links.find(l => l.id === id)
+  if (!created) throw new Error('Failed to create link')
+  return created
+}
+
+export async function unlinkTestProjectFromTaskProject(testProjectId: string, taskProjectId: string): Promise<boolean> {
+  const testId = testProjectId.trim()
+  const taskId = taskProjectId.trim()
+  if (!testId || !taskId) return false
+  const result = await exec('DELETE FROM test_project_task_links WHERE test_project_id = ? AND task_project_id = ?', [testId, taskId])
+  return result.affectedRows > 0
 }
 
 export async function createProject(input: {

@@ -41,15 +41,15 @@ export function hasCommitWorkflowPrefs(projectId: string, repoPath: string): boo
   return loadCommitWorkflowPrefs(projectId, repoPath) != null
 }
 
-/** Resolve task project → automation test_projects (same id, else match by name). */
+/** Resolve task project → linked automation test_projects (via API; includes legacy id/name match). */
+export async function resolveTestProjectIdsForTaskProject(taskProjectId: string): Promise<string[]> {
+  const res = await window.api.automation.project.listForTask(taskProjectId)
+  if (res.status !== 'success' || !res.data?.length) return []
+  return res.data.map(p => p.id)
+}
+
+/** @deprecated Use resolveTestProjectIdsForTaskProject — returns first linked project id. */
 export async function resolveTestProjectIdForTaskProject(taskProjectId: string): Promise<string | null> {
-  const listRes = await window.api.automation.project.list()
-  if (listRes.status !== 'success' || !listRes.data) return null
-  const autoProjects = listRes.data
-  if (autoProjects.some(p => p.id === taskProjectId)) return taskProjectId
-  const taskRes = await window.api.task.getProjectsForTaskUi()
-  const taskName = taskRes.data?.find(p => p.id === taskProjectId)?.name?.trim()
-  if (!taskName) return null
-  const match = autoProjects.find(p => p.name.trim().toLowerCase() === taskName.toLowerCase())
-  return match?.id ?? null
+  const ids = await resolveTestProjectIdsForTaskProject(taskProjectId)
+  return ids[0] ?? null
 }

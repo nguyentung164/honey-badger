@@ -12,6 +12,8 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/u
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import { cn } from '@/lib/utils'
+import { PageMapActionBarLayoutToggle } from '@/pages/automation/map/PageMapActionBarLayoutToggle'
+import { PageMapAutosaveStatus } from '@/pages/automation/map/PageMapAutosaveStatus'
 import { useAutomationToolbarPortalTarget } from '@/pages/main/AutomationToolbarPortalContext'
 import { useAutomationStore } from '@/stores/useAutomationStore'
 import {
@@ -24,8 +26,6 @@ import {
   writePersistedProjectRailOpen,
 } from './automationStorage'
 import { CasesWorkspace } from './cases/CasesWorkspace'
-import { PageMapActionBarLayoutToggle } from '@/pages/automation/map/PageMapActionBarLayoutToggle'
-import { PageMapAutosaveStatus } from '@/pages/automation/map/PageMapAutosaveStatus'
 import { PageNavigationMapView } from './map/PageNavigationMapView'
 import { ProjectList } from './projects/ProjectList'
 import { RunsView } from './runs/RunsView'
@@ -41,7 +41,6 @@ export function AutomationPage({ mode = 'standalone' }: AutomationPageProps) {
   const portal = useAutomationToolbarPortalTarget()
 
   const projects = useAutomationStore(s => s.projects)
-  const projectsLoading = useAutomationStore(s => s.projectsLoading)
   const setProjects = useAutomationStore(s => s.setProjects)
   const setProjectsLoading = useAutomationStore(s => s.setProjectsLoading)
   const handleStreamEvent = useAutomationStore(s => s.handleStreamEvent)
@@ -95,8 +94,9 @@ export function AutomationPage({ mode = 'standalone' }: AutomationPageProps) {
     setCasesIntentGroupId(null)
   }, [])
 
-  const loadProjects = useCallback(async () => {
-    setProjectsLoading(true)
+  const loadProjects = useCallback(async (opts?: { silent?: boolean }) => {
+    const silent = opts?.silent === true && projectsLoadedRef.current
+    if (!silent) setProjectsLoading(true)
     try {
       const res = await window.api.automation.project.list()
       if (res.status === 'success' && res.data) {
@@ -107,7 +107,7 @@ export function AutomationPage({ mode = 'standalone' }: AutomationPageProps) {
         })
       }
     } finally {
-      setProjectsLoading(false)
+      if (!silent) setProjectsLoading(false)
       projectsLoadedRef.current = true
     }
   }, [setProjects, setProjectsLoading])
@@ -133,7 +133,25 @@ export function AutomationPage({ mode = 'standalone' }: AutomationPageProps) {
   const triggerClass = embedded ? 'h-4 gap-0.5 px-1.5 text-[11px] data-[state=active]:shadow-none' : 'h-5 gap-1 px-2 text-xs data-[state=active]:shadow-none'
   const iconClass = embedded ? 'h-3 w-3' : 'h-3.5 w-3.5'
 
-  const showProjectRailToggle = activeTab === 'projects' && (projectsLoading || projects.length > 0)
+  const showProjectRailToggle = activeTab === 'projects' && projects.length > 0
+
+  const projectCombobox = (
+    <div className="shrink-0" style={{ WebkitAppRegion: 'no-drag' } as CSSProperties}>
+      <Combobox
+        variant="ghost"
+        value={projectId ?? ''}
+        onValueChange={v => setProjectId(v || null)}
+        options={projects.map(p => ({ value: p.id, label: p.name }))}
+        placeholder={t('automation.common.noProjectSelected')}
+        emptyText={t('automation.projects.empty')}
+        searchPlaceholder={t('automation.projects.title')}
+        onOpen={() => void loadProjects({ silent: true })}
+        className="w-[min(11rem,28vw)]"
+        triggerClassName={cn('px-2 py-0 font-medium hover:bg-muted', embedded ? 'h-5 text-[11px]' : 'h-6 text-xs')}
+        contentClassName="min-w-[200px]"
+      />
+    </div>
+  )
 
   const topBar = (
     <div
@@ -157,20 +175,6 @@ export function AutomationPage({ mode = 'standalone' }: AutomationPageProps) {
             <Bot className={iconClass} /> {t('automation.title')}
           </div>
         )}
-        <div className="shrink-0" style={{ WebkitAppRegion: 'no-drag' } as CSSProperties}>
-          <Combobox
-            variant="ghost"
-            value={projectId ?? ''}
-            onValueChange={v => setProjectId(v || null)}
-            options={projects.map(p => ({ value: p.id, label: p.name }))}
-            placeholder={t('automation.common.noProjectSelected')}
-            emptyText={t('automation.projects.empty')}
-            searchPlaceholder={t('automation.projects.title')}
-            onOpen={loadProjects}
-            triggerClassName={cn('px-2 py-0 font-medium hover:bg-muted', embedded ? 'h-5 text-[11px]' : 'h-6 text-xs')}
-            contentClassName="min-w-[200px]"
-          />
-        </div>
         <div className="flex min-w-0 flex-1 items-center gap-1.5 h-full self-stretch">
           <div className="min-w-0 shrink" style={{ WebkitAppRegion: 'no-drag' } as CSSProperties}>
             <Tabs value={activeTab} onValueChange={handleMainTabChange} className="min-w-0">
@@ -220,6 +224,7 @@ export function AutomationPage({ mode = 'standalone' }: AutomationPageProps) {
                 <PageMapActionBarLayoutToggle />
               </>
             ) : null}
+            {projectCombobox}
             <Tooltip>
               <TooltipTrigger asChild>
                 <Button
@@ -284,10 +289,6 @@ export function AutomationPage({ mode = 'standalone' }: AutomationPageProps) {
           selectedId={projectId}
           onSelect={setProjectId}
           railOpen={projectRailOpen}
-          onOpenCases={() => {
-            setSettingsDialogOpen(false)
-            setActiveTab('cases')
-          }}
           onOpenRuns={() => {
             setSettingsDialogOpen(false)
             setActiveTab('runs')

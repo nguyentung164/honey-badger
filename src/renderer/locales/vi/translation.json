@@ -1475,7 +1475,7 @@
     "isFile": "File"
   },
   "placeholder": {
-    "commitMessage": "Nhập thông điệp commit...\n\nVí dụ:\nfeat: thêm một feature\nfix: fix bug cho hệ thống, vá lỗi trong codebase\nrefactor: sửa code nhưng không fix bug cũng không thêm feature\ndocs: thêm/thay đổi document\nstyle: format code, không ảnh hưởng logic\ntest: thêm hoặc cập nhật test\nperf: cải thiện hiệu năng\nbuild: thay đổi build system, dependencies\nci: thay đổi cấu hình CI\nchore: những sửa đổi nhỏ nhặt không liên quan tới code",
+    "commitMessage": "Nhập thông điệp commit...",
     "referenceId": "Mã tham chiếu (ví dụ: No.344)",
     "search": "Tìm kiếm"
   },
@@ -2416,6 +2416,7 @@
       "treeUnstageSelected": "Unstage {{count}} file",
       "treeRevertSelected": "Revert {{count}} file",
       "treeSelectedCount": "Đã chọn {{count}} file",
+      "treeSectionSelected": "({{selected}}/{{total}} đã chọn)",
       "statsSummary": "+{{add}} −{{del}}",
       "find": "Tìm (Ctrl+F)",
       "findReplace": "Tìm và thay thế (Ctrl+H)",
@@ -4860,8 +4861,28 @@
       },
       "errors": {
         "name": "Tên không được trống",
+        "nameRequired": "Tên không được trống",
         "baseUrl": "Base URL không được trống",
         "browsers": "Chọn ít nhất một trình duyệt"
+      },
+      "linkMaster": {
+        "button": "Liên kết project master",
+        "buttonShort": "Liên kết master",
+        "buttonTooltip": "Gắn automation project này với project task (master)",
+        "title": "Liên kết với project master",
+        "description": "Gắn automation project này với project task (master). Một project master có thể liên kết nhiều automation project.",
+        "linkedHeading": "Project master đã liên kết",
+        "noneLinked": "Chưa liên kết project master nào.",
+        "noneLinkedHint": "Chưa có project master. Dùng “Liên kết project master” để gắn với project task.",
+        "selectLabel": "Project master",
+        "selectPlaceholder": "Chọn project…",
+        "noAvailable": "Đã liên kết hết các project khả dụng",
+        "linkAction": "Liên kết",
+        "unlink": "Gỡ liên kết",
+        "linked": "Đã liên kết project master",
+        "unlinked": "Đã gỡ liên kết",
+        "linkFailed": "Không thể liên kết project",
+        "unlinkFailed": "Không thể gỡ liên kết"
       }
     },
     "cases": {

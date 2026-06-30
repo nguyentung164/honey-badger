@@ -180,9 +180,10 @@ export function registerWindowIpcHandlers() {
     }
   })
 
-  ipcMain.on(IPC.WINDOW.NOTIFY_STAGING_CHANGED, () => {
+  ipcMain.on(IPC.WINDOW.NOTIFY_STAGING_CHANGED, (_event, payload?: { cwd?: string }) => {
+    const detail = { cwd: payload?.cwd, source: 'staging' as const }
     for (const w of BrowserWindow.getAllWindows()) {
-      if (!w.isDestroyed()) w.webContents.send(IPC.FILES_CHANGED)
+      if (!w.isDestroyed()) w.webContents.send(IPC.FILES_CHANGED, detail)
     }
   })
 

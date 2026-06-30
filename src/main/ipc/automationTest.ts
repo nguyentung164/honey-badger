@@ -16,6 +16,7 @@ import type {
   TestCatalogPage,
   TestFlow,
   TestProject,
+  TestProjectTaskLink,
   TestRunSummary,
 } from 'shared/automation/types'
 import { randomUuidV7 } from 'shared/randomUuidV7'
@@ -63,6 +64,10 @@ import {
   listNavEdges,
   listOldRunIds,
   listProjects,
+  listTaskLinksForTestProject,
+  listTestProjectsForTaskProject,
+  linkTestProjectToTaskProject,
+  unlinkTestProjectFromTaskProject,
   listRepairProposalsByResult,
   listResults,
   listRuns,
@@ -274,6 +279,38 @@ export function registerAutomationTestIpcHandlers(): void {
       await removeWorkspace(id)
       clearProjectSecrets(id)
       return ok({ deleted: true })
+    } catch (err) {
+      return fail((err as Error).message)
+    }
+  })
+
+  ipcMain.handle(IPC.AUTOMATION.PROJECT_LIST_FOR_TASK, async (_e, taskProjectId: string) => {
+    try {
+      return ok(await listTestProjectsForTaskProject(taskProjectId))
+    } catch (err) {
+      return fail((err as Error).message)
+    }
+  })
+
+  ipcMain.handle(IPC.AUTOMATION.PROJECT_LIST_TASK_LINKS, async (_e, testProjectId: string) => {
+    try {
+      return ok(await listTaskLinksForTestProject(testProjectId))
+    } catch (err) {
+      return fail((err as Error).message)
+    }
+  })
+
+  ipcMain.handle(IPC.AUTOMATION.PROJECT_LINK_TASK, async (_e, args: { testProjectId: string; taskProjectId: string }) => {
+    try {
+      return ok(await linkTestProjectToTaskProject(args.testProjectId, args.taskProjectId))
+    } catch (err) {
+      return fail((err as Error).message)
+    }
+  })
+
+  ipcMain.handle(IPC.AUTOMATION.PROJECT_UNLINK_TASK, async (_e, args: { testProjectId: string; taskProjectId: string }) => {
+    try {
+      return ok({ unlinked: await unlinkTestProjectFromTaskProject(args.testProjectId, args.taskProjectId) })
     } catch (err) {
       return fail((err as Error).message)
     }

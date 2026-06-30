@@ -9,6 +9,9 @@ const STORAGE_KEY = 'diff-viewer-tree-panel-prefs'
 const STAGING_CHANGES_PANEL_DEFAULT_SIZE = 50
 const STAGING_CHANGES_PANEL_MIN_SIZE = 15
 const STAGING_CHANGES_PANEL_MAX_SIZE = 85
+const STAGING_STAGED_PANEL_DEFAULT_SIZE = 55
+const STAGING_STAGED_PANEL_MIN_SIZE = 15
+const STAGING_STAGED_PANEL_MAX_SIZE = 85
 
 type TreePanelPrefs = {
   viewMode: DiffFileTreeViewMode
@@ -16,6 +19,7 @@ type TreePanelPrefs = {
   groupByFolder: boolean
   statusFilter: DiffFileTreeStatusFilter
   stagingChangesPanelSize: number
+  stagingStagedPanelSize: number
 }
 
 const DEFAULT_PREFS: TreePanelPrefs = {
@@ -24,11 +28,17 @@ const DEFAULT_PREFS: TreePanelPrefs = {
   groupByFolder: false,
   statusFilter: 'all',
   stagingChangesPanelSize: STAGING_CHANGES_PANEL_DEFAULT_SIZE,
+  stagingStagedPanelSize: STAGING_STAGED_PANEL_DEFAULT_SIZE,
 }
 
 function clampStagingChangesPanelSize(size: number): number {
   if (!Number.isFinite(size)) return STAGING_CHANGES_PANEL_DEFAULT_SIZE
   return Math.min(STAGING_CHANGES_PANEL_MAX_SIZE, Math.max(STAGING_CHANGES_PANEL_MIN_SIZE, size))
+}
+
+function clampStagingStagedPanelSize(size: number): number {
+  if (!Number.isFinite(size)) return STAGING_STAGED_PANEL_DEFAULT_SIZE
+  return Math.min(STAGING_STAGED_PANEL_MAX_SIZE, Math.max(STAGING_STAGED_PANEL_MIN_SIZE, size))
 }
 
 const STATUS_FILTERS: DiffFileTreeStatusFilter[] = [
@@ -56,7 +66,11 @@ function readPrefs(): TreePanelPrefs {
       typeof parsed.stagingChangesPanelSize === 'number'
         ? clampStagingChangesPanelSize(parsed.stagingChangesPanelSize)
         : STAGING_CHANGES_PANEL_DEFAULT_SIZE
-    return { viewMode, sortBy, groupByFolder, statusFilter, stagingChangesPanelSize }
+    const stagingStagedPanelSize =
+      typeof parsed.stagingStagedPanelSize === 'number'
+        ? clampStagingStagedPanelSize(parsed.stagingStagedPanelSize)
+        : STAGING_STAGED_PANEL_DEFAULT_SIZE
+    return { viewMode, sortBy, groupByFolder, statusFilter, stagingChangesPanelSize, stagingStagedPanelSize }
   } catch {
     return DEFAULT_PREFS
   }
@@ -68,6 +82,46 @@ function writePrefs(prefs: TreePanelPrefs) {
   } catch {
     // ignore
   }
+}
+
+function readPrefsPartial(): Partial<TreePanelPrefs> {
+  try {
+    const raw = localStorage.getItem(STORAGE_KEY)
+    if (!raw) return {}
+    return JSON.parse(raw) as Partial<TreePanelPrefs>
+  } catch {
+    return {}
+  }
+}
+
+/** Persist panel size without React state — avoids re-render jank while dragging. */
+export function persistStagingChangesPanelSize(stagingChangesPanelSize: number) {
+  const nextSize = clampStagingChangesPanelSize(stagingChangesPanelSize)
+  const partial = readPrefsPartial()
+  writePrefs({
+    ...DEFAULT_PREFS,
+    ...partial,
+    stagingChangesPanelSize: nextSize,
+    stagingStagedPanelSize:
+      typeof partial.stagingStagedPanelSize === 'number'
+        ? clampStagingStagedPanelSize(partial.stagingStagedPanelSize)
+        : DEFAULT_PREFS.stagingStagedPanelSize,
+  })
+}
+
+/** Persist staged/commit split without React state — avoids re-render jank while dragging. */
+export function persistStagingStagedPanelSize(stagingStagedPanelSize: number) {
+  const nextSize = clampStagingStagedPanelSize(stagingStagedPanelSize)
+  const partial = readPrefsPartial()
+  writePrefs({
+    ...DEFAULT_PREFS,
+    ...partial,
+    stagingStagedPanelSize: nextSize,
+    stagingChangesPanelSize:
+      typeof partial.stagingChangesPanelSize === 'number'
+        ? clampStagingChangesPanelSize(partial.stagingChangesPanelSize)
+        : DEFAULT_PREFS.stagingChangesPanelSize,
+  })
 }
 
 export function useDiffViewerTreePanelPrefs() {
@@ -136,17 +190,29 @@ export function useDiffViewerTreePanelPrefs() {
     })
   }, [])
 
+  const setStagingStagedPanelSize = useCallback((stagingStagedPanelSize: number) => {
+    const nextSize = clampStagingStagedPanelSize(stagingStagedPanelSize)
+    setPrefs(prev => {
+      if (prev.stagingStagedPanelSize === nextSize) return prev
+      const next = { ...prev, stagingStagedPanelSize: nextSize }
+      writePrefs(next)
+      return next
+    })
+  }, [])
+
   return {
     viewMode: prefs.viewMode,
     sortBy: prefs.sortBy,
     groupByFolder: prefs.groupByFolder,
     statusFilter: prefs.statusFilter,
     stagingChangesPanelSize: prefs.stagingChangesPanelSize,
+    stagingStagedPanelSize: prefs.stagingStagedPanelSize,
     setViewMode,
     setSortBy,
     setGroupByFolder,
     setStatusFilter,
     setStagingChangesPanelSize,
+    setStagingStagedPanelSize,
     toggleViewMode,
     toggleGroupByFolder,
   }

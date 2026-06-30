@@ -4,7 +4,7 @@ import { t } from 'i18next'
 import { Check, Columns2, Copy, Folder, FolderOpen, History, ListFilter, Pencil, Plus, RotateCcw, Rows2, SquareMinus, SquarePlus, Trash2, X } from 'lucide-react'
 import { requestOpenShowLog } from '@/lib/openShowLog'
 import { IPC } from 'main/constants'
-import { forwardRef, type HTMLProps, lazy, Suspense, useCallback, useEffect, useImperativeHandle, useMemo, useRef, useState } from 'react'
+import { forwardRef, type HTMLProps, lazy, Suspense, useCallback, useEffect, useImperativeHandle, useMemo, useRef, useState, type ReactNode } from 'react'
 import {
   AlertDialog,
   AlertDialogAction,
@@ -316,9 +316,12 @@ interface GitStagingTableProps {
   cwd?: string
   /** Label shown above the table when in multi-repo mode (e.g. "Frontend", "Backend") */
   label?: string
+  /** Commit message UI rendered below Staged in diff layout. */
+  commitMessagePanel?: ReactNode
+  onLayoutDirectionChange?: (direction: 'horizontal' | 'vertical') => void
 }
 
-export const GitStagingTable = forwardRef(({ onLoadingChange, cwd, label }: GitStagingTableProps, ref) => {
+export const GitStagingTable = forwardRef(({ onLoadingChange, cwd, label, commitMessagePanel, onLayoutDirectionChange }: GitStagingTableProps, ref) => {
   const buttonVariant = useAppearanceStoreSelect(s => s.buttonVariant)
   const [changesData, setChangesData] = useState<GitFile[]>([])
   const [stagedData, setStagedData] = useState<GitFile[]>([])
@@ -354,6 +357,10 @@ export const GitStagingTable = forwardRef(({ onLoadingChange, cwd, label }: GitS
     setLayoutDirection(readGitStagingLayoutDirection(repoRootKey))
     setEmbeddedDiffAnchor(null)
   }, [repoRootKey])
+
+  useEffect(() => {
+    onLayoutDirectionChange?.(layoutDirection)
+  }, [layoutDirection, onLayoutDirectionChange])
 
   useEffect(() => {
     const map = readLocalIgnoreRegexMap()
@@ -1382,8 +1389,10 @@ export const GitStagingTable = forwardRef(({ onLoadingChange, cwd, label }: GitS
                 <CodeDiffViewer
                   ref={embeddedDiffViewerRef}
                   embedded
+                  embeddedRepoCwd={repoCwd}
                   embeddedPayload={embeddedDiffPayload}
                   embeddedToolbarHost={embeddedToolbarHost}
+                  embeddedStagingFooter={commitMessagePanel}
                 />
               </Suspense>
             </div>

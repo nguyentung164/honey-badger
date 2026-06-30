@@ -1481,7 +1481,7 @@
     "isFile": "File"
   },
   "placeholder": {
-    "commitMessage": "Enter commit message...\n\nExample:\nfeat: add a new feature\nfix: fix bug for system, patch errors in codebase\nrefactor: change code without fixing bug or adding feature\ndocs: add/change documentation\nstyle: format code, no logic change\ntest: add or update tests\nperf: improve performance\nbuild: change build system, dependencies\nci: change CI configuration\nchore: minor changes not related to code",
+    "commitMessage": "Enter commit message...",
     "referenceId": "Reference ID (e.g. No.344)",
     "search": "Search"
   },
@@ -2425,6 +2425,7 @@
       "treeUnstageSelected": "Unstage {{count}} files",
       "treeRevertSelected": "Discard {{count}} files",
       "treeSelectedCount": "{{count}} files selected",
+      "treeSectionSelected": "({{selected}}/{{total}} selected)",
       "statsSummary": "+{{add}} −{{del}}",
       "find": "Find (Ctrl+F)",
       "findReplace": "Find and replace (Ctrl+H)",
@@ -4869,8 +4870,28 @@
       },
       "errors": {
         "name": "Name is required",
+        "nameRequired": "Name is required",
         "baseUrl": "Base URL is required",
         "browsers": "Select at least one browser"
+      },
+      "linkMaster": {
+        "button": "Link master project",
+        "buttonShort": "Link master",
+        "buttonTooltip": "Link this automation project to a task (master) project",
+        "title": "Link to master project",
+        "description": "Connect this automation project to a task (master) project. One master project can link to multiple automation projects.",
+        "linkedHeading": "Linked master projects",
+        "noneLinked": "No master projects linked yet.",
+        "noneLinkedHint": "No master project linked. Use “Link master project” to connect a task project.",
+        "selectLabel": "Master project",
+        "selectPlaceholder": "Select a project…",
+        "noAvailable": "All available projects are already linked",
+        "linkAction": "Link",
+        "unlink": "Unlink",
+        "linked": "Master project linked",
+        "unlinked": "Link removed",
+        "linkFailed": "Could not link project",
+        "unlinkFailed": "Could not remove link"
       }
     },
     "cases": {

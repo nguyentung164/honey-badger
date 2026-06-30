@@ -3,6 +3,7 @@ import path from 'node:path'
 import chokidar, { type FSWatcher } from 'chokidar'
 import type { BrowserWindow } from 'electron'
 import l from 'electron-log'
+import type { FilesChangedPayload } from '../../shared/filesChanged'
 import { IPC } from '../constants'
 
 export const DEBOUNCE_MS = 500
@@ -112,10 +113,11 @@ let watcher: FSWatcher | null = null
 let debounceTimer: ReturnType<typeof setTimeout> | null = null
 let _lastEmittedPath: string | null = null
 
-function emitFilesChanged(mainWindow: BrowserWindow | null) {
+function emitFilesChanged(mainWindow: BrowserWindow | null, changedPath?: string) {
   try {
     if (mainWindow && !mainWindow.isDestroyed() && !mainWindow.webContents.isDestroyed()) {
-      mainWindow.webContents.send(IPC.FILES_CHANGED)
+      const payload: FilesChangedPayload = { source: 'watcher', ...(changedPath ? { changedPath } : {}) }
+      mainWindow.webContents.send(IPC.FILES_CHANGED, payload)
       l.info('File watcher: emitted FILES_CHANGED to renderer')
     }
   } catch (err) {
@@ -129,8 +131,9 @@ function debouncedEmit(mainWindow: BrowserWindow | null, changedPath: string) {
   if (debounceTimer) clearTimeout(debounceTimer)
   debounceTimer = setTimeout(() => {
     debounceTimer = null
-    emitFilesChanged(mainWindow)
+    const pathForEmit = _lastEmittedPath ?? undefined
     _lastEmittedPath = null
+    emitFilesChanged(mainWindow, pathForEmit)
   }, DEBOUNCE_MS)
 }
 

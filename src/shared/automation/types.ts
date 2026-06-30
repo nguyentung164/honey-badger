@@ -132,6 +132,15 @@ export interface TestProject {
   createdBy?: string
 }
 
+/** Explicit link between a task (master) project and an automation test project. */
+export interface TestProjectTaskLink {
+  id: string
+  taskProjectId: string
+  testProjectId: string
+  taskProjectName?: string
+  createdAt?: string
+}
+
 export interface TestSuite {
   id: string
   projectId: string

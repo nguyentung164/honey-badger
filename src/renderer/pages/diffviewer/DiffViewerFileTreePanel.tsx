@@ -5,6 +5,7 @@ import type React from 'react'
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { flushSync } from 'react-dom'
 import { useTranslation } from 'react-i18next'
+import toast from '@/components/ui-elements/Toast'
 import { GitFileStatusBadge, normalizeGitFileStatus, type GitFileStatusCode } from '@/components/git/GitFileStatusBadge'
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible'
 import { ContextMenu, ContextMenuContent, ContextMenuItem, ContextMenuSeparator, ContextMenuShortcut, ContextMenuTrigger } from '@/components/ui/context-menu'
@@ -28,7 +29,7 @@ import {
 } from './diffViewerFileTree'
 import { isGitEntryStaged, isGitEntryUnstaged } from './diffViewerGitFiles'
 import type { DiffViewerFileEntry } from './diffViewerPayload'
-import { useDiffViewerTreePanelPrefs } from './useDiffViewerTreePanelPrefs'
+import { useDiffViewerTreePanelPrefs, persistStagingChangesPanelSize, persistStagingStagedPanelSize } from './useDiffViewerTreePanelPrefs'
 
 export type DiffViewerFileTreeBulkAction = 'stage' | 'unstage' | 'revert' | 'reveal' | 'openInEditor'
 
@@ -39,10 +40,16 @@ interface DiffViewerFileTreePanelProps {
   showStageActions?: boolean
   disabled?: boolean
   isRefreshing?: boolean
+  /** Rendered below Staged when split staging (e.g. embedded commit message on MainPage). */
+  stagingFooter?: React.ReactNode
   onSelectFile: (index: number) => void
   onBulkAction: (action: DiffViewerFileTreeBulkAction, indices: number[]) => void
   onRefresh?: () => void | Promise<void>
 }
+
+const STAGING_CHANGES_PANEL_ID = 'diff-tree-changes-section'
+const STAGING_STAGED_PANEL_ID = 'diff-tree-staged-section'
+const STAGING_COMMIT_PANEL_ID = 'diff-tree-commit-section'
 
 const noDragStyle = { WebkitAppRegion: 'no-drag' } as React.CSSProperties
 
@@ -278,6 +285,39 @@ function renderSectionHeaderCounts(section: DiffFileTreeSection, files: DiffView
   )
 }
 
+function countSelectedInSection(sectionIndices: readonly number[], selectedIndices: Set<number>): number {
+  let count = 0
+  for (const index of sectionIndices) {
+    if (selectedIndices.has(index)) count++
+  }
+  return count
+}
+
+const SectionHeaderTitle = memo(function SectionHeaderTitle({
+  section,
+  selectedIndices,
+}: {
+  section: DiffFileTreeSection
+  selectedIndices: Set<number>
+}) {
+  const { t } = useTranslation()
+  const total = section.flatFileIndices.length
+  const selected = countSelectedInSection(section.flatFileIndices, selectedIndices)
+  const showSelection = (section.id === 'changes' || section.id === 'staged') && selected > 0
+
+  return (
+    <span className="min-w-0 flex-1 truncate">
+      {t(section.labelKey)}
+      {showSelection ? (
+        <span className="font-normal text-muted-foreground">
+          {' '}
+          {t('dialog.diffViewer.treeSectionSelected', { selected, total })}
+        </span>
+      ) : null}
+    </span>
+  )
+})
+
 function TreeFolderRow({
   node,
   depth,
@@ -321,6 +361,7 @@ export function DiffViewerFileTreePanel({
   showStageActions = false,
   disabled = false,
   isRefreshing = false,
+  stagingFooter,
   onSelectFile,
   onBulkAction,
   onRefresh,
@@ -336,7 +377,7 @@ export function DiffViewerFileTreePanel({
     setSortBy,
     toggleGroupByFolder,
     setStatusFilter,
-    setStagingChangesPanelSize,
+    stagingStagedPanelSize,
   } = useDiffViewerTreePanelPrefs()
   const [searchQuery, setSearchQuery] = useState('')
   const [selectedIndices, setSelectedIndices] = useState<Set<number>>(() => new Set())
@@ -349,12 +390,59 @@ export function DiffViewerFileTreePanel({
   selectedIndicesRef.current = selectedIndices
   const filesRef = useRef(files)
   filesRef.current = files
-  const stagingResizeDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const treeRootRef = useRef<HTMLDivElement>(null)
+  const initialChangesPanelSizeRef = useRef(stagingChangesPanelSize)
+  const initialStagedPanelSizeRef = useRef(stagingStagedPanelSize)
+  const changesSizeRef = useRef(stagingChangesPanelSize)
+  const stagedSizeRef = useRef(stagingStagedPanelSize)
+  const stagingChangesPersistRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const stagingStagedPersistRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   useEffect(() => {
     return () => {
-      if (stagingResizeDebounceRef.current) clearTimeout(stagingResizeDebounceRef.current)
+      if (stagingChangesPersistRef.current) clearTimeout(stagingChangesPersistRef.current)
+      if (stagingStagedPersistRef.current) clearTimeout(stagingStagedPersistRef.current)
+      persistStagingChangesPanelSize(changesSizeRef.current)
+      persistStagingStagedPanelSize(stagedSizeRef.current)
     }
+  }, [])
+
+  const flushStagingChangesPersist = useCallback(() => {
+    if (stagingChangesPersistRef.current) {
+      clearTimeout(stagingChangesPersistRef.current)
+      stagingChangesPersistRef.current = null
+    }
+    persistStagingChangesPanelSize(changesSizeRef.current)
+  }, [])
+
+  const flushStagingStagedPersist = useCallback(() => {
+    if (stagingStagedPersistRef.current) {
+      clearTimeout(stagingStagedPersistRef.current)
+      stagingStagedPersistRef.current = null
+    }
+    persistStagingStagedPanelSize(stagedSizeRef.current)
+  }, [])
+
+  const handleChangesLayoutChanged = useCallback((layout: Record<string, number | undefined>) => {
+    const changes = layout[STAGING_CHANGES_PANEL_ID]
+    if (typeof changes !== 'number') return
+    changesSizeRef.current = changes
+    if (stagingChangesPersistRef.current) clearTimeout(stagingChangesPersistRef.current)
+    stagingChangesPersistRef.current = setTimeout(() => {
+      persistStagingChangesPanelSize(changesSizeRef.current)
+      stagingChangesPersistRef.current = null
+    }, 300)
+  }, [])
+
+  const handleInnerStagingLayoutChanged = useCallback((layout: Record<string, number | undefined>) => {
+    const staged = layout[STAGING_STAGED_PANEL_ID]
+    if (typeof staged !== 'number') return
+    stagedSizeRef.current = staged
+    if (stagingStagedPersistRef.current) clearTimeout(stagingStagedPersistRef.current)
+    stagingStagedPersistRef.current = setTimeout(() => {
+      persistStagingStagedPanelSize(stagedSizeRef.current)
+      stagingStagedPersistRef.current = null
+    }, 300)
   }, [])
 
   const baseSections = useMemo(
@@ -382,6 +470,8 @@ export function DiffViewerFileTreePanel({
   }, [sections, splitStaging])
 
   const visibleIndices = useMemo(() => collectVisibleFileIndices(sections), [sections])
+  const visibleIndicesRef = useRef(visibleIndices)
+  visibleIndicesRef.current = visibleIndices
 
   useEffect(() => {
     setSelectedIndices(prev => {
@@ -427,13 +517,29 @@ export function DiffViewerFileTreePanel({
 
   const stagedIndices = useMemo(() => files.map((file, index) => (isGitEntryStaged(file) ? index : -1)).filter(index => index >= 0), [files])
 
+  const clearSelection = useCallback(() => {
+    setSelectedIndices(new Set())
+    setAnchorIndex(null)
+    selectedIndicesRef.current = new Set()
+  }, [])
+
+  const wasDisabledRef = useRef(disabled)
+  useEffect(() => {
+    if (wasDisabledRef.current && !disabled) {
+      clearSelection()
+    }
+    wasDisabledRef.current = disabled
+  }, [disabled, clearSelection])
+
   const handleStageAll = useCallback(() => {
     onBulkAction('stage', unstagedIndices)
-  }, [onBulkAction, unstagedIndices])
+    clearSelection()
+  }, [onBulkAction, unstagedIndices, clearSelection])
 
   const handleUnstageAll = useCallback(() => {
     onBulkAction('unstage', stagedIndices)
-  }, [onBulkAction, stagedIndices])
+    clearSelection()
+  }, [onBulkAction, stagedIndices, clearSelection])
 
   const handleDiscardAll = useCallback(() => {
     onBulkAction('revert', unstagedIndices)
@@ -445,11 +551,51 @@ export function DiffViewerFileTreePanel({
 
   const handleStageSelected = useCallback(() => {
     onBulkAction('stage', selectedUnstagedIndices)
-  }, [onBulkAction, selectedUnstagedIndices])
+    clearSelection()
+  }, [onBulkAction, selectedUnstagedIndices, clearSelection])
 
   const handleRefresh = useCallback(() => {
     void onRefresh?.()
   }, [onRefresh])
+
+  const copySelectedPaths = useCallback(async () => {
+    const selected = selectedIndicesRef.current
+    const flat = visibleIndicesRef.current
+    const indices =
+      selected.size > 0
+        ? flat.filter(index => selected.has(index))
+        : activeIndexRef.current >= 0
+          ? [activeIndexRef.current]
+          : []
+    const paths = [...new Set(indices.map(index => filesRef.current[index]?.filePath).filter(Boolean) as string[])]
+    if (paths.length === 0) return
+
+    try {
+      await navigator.clipboard.writeText(paths.join('\n'))
+      toast.success(t('toast.copied'))
+    } catch {
+      toast.error(t('toast.copyFailed'))
+    }
+  }, [t])
+
+  useEffect(() => {
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (!(event.ctrlKey || event.metaKey) || event.key.toLowerCase() !== 'c') return
+      if (event.shiftKey || event.altKey) return
+
+      const root = treeRootRef.current
+      const target = event.target
+      if (!root || !(target instanceof Node) || !root.contains(target)) return
+      if (target instanceof HTMLInputElement || target instanceof HTMLTextAreaElement) return
+      if (target instanceof HTMLElement && target.isContentEditable) return
+
+      event.preventDefault()
+      void copySelectedPaths()
+    }
+
+    window.addEventListener('keydown', handleKeyDown)
+    return () => window.removeEventListener('keydown', handleKeyDown)
+  }, [copySelectedPaths])
 
   const handleSelectFile = useCallback(
     (index: number, event: React.MouseEvent, sectionFlatIndices: number[]) => {
@@ -522,8 +668,11 @@ export function DiffViewerFileTreePanel({
       }
       if (targetIndices.length === 0) return
       onBulkAction(action, targetIndices)
+      if (action === 'stage' || action === 'unstage') {
+        clearSelection()
+      }
     },
-    [onBulkAction]
+    [onBulkAction, clearSelection]
   )
 
   const getContextMenuIndices = useCallback((nodeIndex: number) => {
@@ -531,17 +680,6 @@ export function DiffViewerFileTreePanel({
   }, [])
 
   const flatView = viewMode === 'flat' && !groupByFolder
-
-  const handleStagingChangesPanelResize = useCallback(
-    (size: number) => {
-      if (stagingResizeDebounceRef.current) clearTimeout(stagingResizeDebounceRef.current)
-      stagingResizeDebounceRef.current = setTimeout(() => {
-        setStagingChangesPanelSize(size)
-        stagingResizeDebounceRef.current = null
-      }, 150)
-    },
-    [setStagingChangesPanelSize]
-  )
 
   const renderSectionHeader = useCallback(
     (section: DiffFileTreeSection) => (
@@ -552,11 +690,11 @@ export function DiffViewerFileTreePanel({
         )}
         style={noDragStyle}
       >
-        <span className="min-w-0 flex-1 truncate">{t(section.labelKey)}</span>
+        <SectionHeaderTitle section={section} selectedIndices={selectedIndices} />
         {renderSectionHeaderCounts(section, files)}
       </div>
     ),
-    [files, t]
+    [files, selectedIndices, t]
   )
 
   const renderTreeFileRow = useCallback(
@@ -645,15 +783,53 @@ export function DiffViewerFileTreePanel({
   const renderSplitStagingSections = () => {
     if (!splitSections) return null
     const { changes, staged } = splitSections
-    const stagedPanelSize = Math.max(15, 100 - stagingChangesPanelSize)
+    const initialChangesSize = initialChangesPanelSizeRef.current
+    const initialLowerSize = Math.max(15, 100 - initialChangesSize)
+    const initialStagedSize = initialStagedPanelSizeRef.current
+    const initialCommitSize = Math.max(15, 100 - initialStagedSize)
+
+    if (!stagingFooter) {
+      return (
+        <ResizablePanelGroup
+          orientation="vertical"
+          className="min-h-0 flex-1"
+          onLayoutChanged={handleChangesLayoutChanged}
+        >
+          <ResizablePanel
+            id={STAGING_CHANGES_PANEL_ID}
+            defaultSize={`${initialChangesSize}%`}
+            minSize="15%"
+            className="flex min-h-0 flex-col overflow-hidden"
+          >
+            {renderSectionHeader(changes)}
+            <div className={cn('min-h-0 flex-1 overflow-y-auto overflow-x-hidden px-1 py-1', sectionContentClass('changes'))}>
+              {renderSectionBody(changes)}
+            </div>
+          </ResizablePanel>
+
+          <ResizableHandle className="bg-border/50 shrink-0" onPointerUp={flushStagingChangesPersist} />
+
+          <ResizablePanel defaultSize={`${initialLowerSize}%`} minSize="15%" className="flex min-h-0 flex-col overflow-hidden">
+            {renderSectionHeader(staged)}
+            <div className={cn('min-h-0 flex-1 overflow-y-auto overflow-x-hidden px-1 py-1', sectionContentClass('staged'))}>
+              {renderSectionBody(staged)}
+            </div>
+          </ResizablePanel>
+        </ResizablePanelGroup>
+      )
+    }
 
     return (
-      <ResizablePanelGroup orientation="vertical" className="min-h-0 flex-1">
+      <ResizablePanelGroup
+        orientation="vertical"
+        className="min-h-0 flex-1"
+        onLayoutChanged={handleChangesLayoutChanged}
+      >
         <ResizablePanel
-          defaultSize={`${stagingChangesPanelSize}%`}
+          id={STAGING_CHANGES_PANEL_ID}
+          defaultSize={`${initialChangesSize}%`}
           minSize="15%"
           className="flex min-h-0 flex-col overflow-hidden"
-          onResize={handleStagingChangesPanelResize}
         >
           {renderSectionHeader(changes)}
           <div className={cn('min-h-0 flex-1 overflow-y-auto overflow-x-hidden px-1 py-1', sectionContentClass('changes'))}>
@@ -661,13 +837,37 @@ export function DiffViewerFileTreePanel({
           </div>
         </ResizablePanel>
 
-        <ResizableHandle className="bg-border/50 shrink-0" />
+        <ResizableHandle className="bg-border/50 shrink-0" onPointerUp={flushStagingChangesPersist} />
 
-        <ResizablePanel defaultSize={`${stagedPanelSize}%`} minSize="15%" className="flex min-h-0 flex-col overflow-hidden">
-          {renderSectionHeader(staged)}
-          <div className={cn('min-h-0 flex-1 overflow-y-auto overflow-x-hidden px-1 py-1', sectionContentClass('staged'))}>
-            {renderSectionBody(staged)}
-          </div>
+        <ResizablePanel defaultSize={`${initialLowerSize}%`} minSize="20%" className="flex min-h-0 flex-col overflow-hidden">
+          <ResizablePanelGroup
+            orientation="vertical"
+            className="min-h-0 flex-1"
+            onLayoutChanged={handleInnerStagingLayoutChanged}
+          >
+            <ResizablePanel
+              id={STAGING_STAGED_PANEL_ID}
+              defaultSize={`${initialStagedSize}%`}
+              minSize="15%"
+              className="flex min-h-0 flex-col overflow-hidden"
+            >
+              {renderSectionHeader(staged)}
+              <div className={cn('min-h-0 flex-1 overflow-y-auto overflow-x-hidden px-1 py-1', sectionContentClass('staged'))}>
+                {renderSectionBody(staged)}
+              </div>
+            </ResizablePanel>
+
+            <ResizableHandle className="bg-border/50 shrink-0" onPointerUp={flushStagingStagedPersist} />
+
+            <ResizablePanel
+              id={STAGING_COMMIT_PANEL_ID}
+              defaultSize={`${initialCommitSize}%`}
+              minSize="15%"
+              className="flex min-h-0 flex-col overflow-hidden border-t border-border/40 bg-background/80"
+            >
+              {stagingFooter}
+            </ResizablePanel>
+          </ResizablePanelGroup>
         </ResizablePanel>
       </ResizablePanelGroup>
     )
@@ -708,7 +908,7 @@ export function DiffViewerFileTreePanel({
                   ) : (
                     <ChevronRight className="h-3.5 w-3.5 shrink-0 text-muted-foreground transition-transform duration-200" />
                   )}
-                  <span className="min-w-0 flex-1 truncate">{t(section.labelKey)}</span>
+                  <SectionHeaderTitle section={section} selectedIndices={selectedIndices} />
                   {renderSectionHeaderCounts(section, files)}
                 </button>
               </CollapsibleTrigger>
@@ -729,7 +929,7 @@ export function DiffViewerFileTreePanel({
   )
 
   return (
-    <div className="flex h-full min-h-0 flex-col bg-muted/20" style={noDragStyle}>
+    <div ref={treeRootRef} className="flex h-full min-h-0 flex-col bg-muted/20" style={noDragStyle}>
       <div className="shrink-0 bg-muted/30 px-2 py-1.5">
         <Input
           value={searchQuery}

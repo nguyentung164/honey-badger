@@ -1,14 +1,13 @@
 import { ReactFlowProvider } from '@xyflow/react'
 import type { LucideIcon } from 'lucide-react'
-import { Copy, ExternalLink, Folder, FolderOpen, GitBranch, Globe, Info, LayoutDashboard, ListChecks, Loader2, Play, Plus, Trash2 } from 'lucide-react'
-import { type ReactNode, useCallback, useMemo, useState } from 'react'
+import { Copy, ExternalLink, Folder, FolderOpen, GitBranch, Globe, Info, LayoutDashboard, Link2, Loader2, Plus, Trash2 } from 'lucide-react'
+import { type ReactNode, useCallback, useEffect, useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import type { TestProject } from 'shared/automation/types'
+import type { TestProject, TestProjectTaskLink } from 'shared/automation/types'
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from '@/components/ui/alert-dialog'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
-import { Separator } from '@/components/ui/separator'
 import { Skeleton } from '@/components/ui/skeleton'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
@@ -19,13 +18,13 @@ import { PR_MANAGER_ACCENT_OUTLINE_BTN, PR_MANAGER_ACCENT_OUTLINE_SURFACE } from
 import { useAutomationStore } from '@/stores/useAutomationStore'
 import { AutomationDashboard } from '../dashboard/AutomationDashboard'
 import { PageNavigationMapView } from '../map/PageNavigationMapView'
+import { LinkMasterProjectDialog } from './LinkMasterProjectDialog'
 import { ProjectForm } from './ProjectForm'
 
 interface Props {
   selectedId: string | null
   onSelect: (id: string) => void
   railOpen: boolean
-  onOpenCases?: () => void
   onOpenRuns?: () => void
   onOpenCasesForPage?: (pageId: string) => void
 }
@@ -123,7 +122,7 @@ function projectRailInnerClass(railOpen: boolean) {
 
 type ProjectDetailTab = 'dashboard' | 'pageMap' | 'information'
 
-export function ProjectList({ selectedId, onSelect, railOpen, onOpenCases, onOpenRuns, onOpenCasesForPage }: Props) {
+export function ProjectList({ selectedId, onSelect, railOpen, onOpenRuns, onOpenCasesForPage }: Props) {
   const { t } = useTranslation()
   const projects = useAutomationStore(s => s.projects)
   const projectsLoading = useAutomationStore(s => s.projectsLoading)
@@ -137,6 +136,27 @@ export function ProjectList({ selectedId, onSelect, railOpen, onOpenCases, onOpe
   const [deleting, setDeleting] = useState(false)
   const [search, setSearch] = useState('')
   const [detailTab, setDetailTab] = useState<ProjectDetailTab>('information')
+  const [linkDialogOpen, setLinkDialogOpen] = useState(false)
+  const [taskLinks, setTaskLinks] = useState<TestProjectTaskLink[]>([])
+  const [taskLinksLoading, setTaskLinksLoading] = useState(false)
+
+  const loadTaskLinks = useCallback(async (testProjectId: string) => {
+    setTaskLinksLoading(true)
+    try {
+      const res = await window.api.automation.project.listTaskLinks(testProjectId)
+      setTaskLinks(res.status === 'success' && res.data ? res.data : [])
+    } finally {
+      setTaskLinksLoading(false)
+    }
+  }, [])
+
+  useEffect(() => {
+    if (!selectedId) {
+      setTaskLinks([])
+      return
+    }
+    void loadTaskLinks(selectedId)
+  }, [selectedId, loadTaskLinks])
 
   const openNewProject = useCallback(() => {
     setEditing(null)
@@ -306,7 +326,7 @@ export function ProjectList({ selectedId, onSelect, railOpen, onOpenCases, onOpe
 
   return (
     <div className="flex h-full min-h-0 flex-col">
-      {projectsLoading ? (
+      {projectsLoading && projects.length === 0 ? (
         loadingShell
       ) : projects.length === 0 ? (
         emptyAll
@@ -395,49 +415,32 @@ export function ProjectList({ selectedId, onSelect, railOpen, onOpenCases, onOpe
                         <h2 className="text-balance text-xl font-semibold tracking-tight sm:text-2xl">{selected.name}</h2>
                       </div>
                       <div className="flex shrink-0 flex-wrap items-center justify-end gap-2">
-                        {onOpenCases || onOpenRuns ? (
-                          <>
-                            <div className="flex flex-wrap items-center justify-end gap-2">
-                              {onOpenCases ? (
-                                <Button type="button" variant="secondary" size="sm" className="gap-1.5 border-0 text-xs shadow-none" onClick={onOpenCases}>
-                                  <ListChecks className="size-3.5 shrink-0" />
-                                  {t('automation.projects.goToCases')}
-                                </Button>
-                              ) : null}
-                              {onOpenRuns ? (
-                                <Button type="button" variant="secondary" size="sm" className="gap-1.5 border-0 text-xs shadow-none" onClick={onOpenRuns}>
-                                  <Play className="size-3.5 shrink-0" />
-                                  {t('automation.projects.goToRuns')}
-                                </Button>
-                              ) : null}
-                            </div>
-                            <Separator orientation="vertical" className="h-6 shrink-0" decorative />
-                          </>
-                        ) : null}
-                        <div className="flex flex-wrap items-center justify-end gap-2">
-                          <Button
-                            type="button"
-                            size="sm"
-                            variant="secondary"
-                            className="border-0 shadow-none"
-                            onClick={() => {
-                              setEditing(selected)
-                              setOpenForm(true)
-                            }}
-                          >
-                            {t('automation.projects.edit')}
-                          </Button>
-                          <Button
-                            type="button"
-                            size="sm"
-                            variant="secondary"
-                            className="border-0 text-destructive shadow-none hover:bg-destructive/10 hover:text-destructive"
-                            onClick={() => setPendingDelete(selected)}
-                          >
-                            <Trash2 className="mr-1 size-3.5" />
-                            {t('automation.common.delete')}
-                          </Button>
-                        </div>
+                        <Button type="button" size="sm" variant="secondary" className="gap-1.5 border-0 shadow-none" onClick={() => setLinkDialogOpen(true)}>
+                          <Link2 className="size-3.5 shrink-0" />
+                          {t('automation.projects.linkMaster.button')}
+                        </Button>
+                        <Button
+                          type="button"
+                          size="sm"
+                          variant="secondary"
+                          className="border-0 shadow-none"
+                          onClick={() => {
+                            setEditing(selected)
+                            setOpenForm(true)
+                          }}
+                        >
+                          {t('automation.projects.edit')}
+                        </Button>
+                        <Button
+                          type="button"
+                          size="sm"
+                          variant="secondary"
+                          className="border-0 text-destructive shadow-none hover:bg-destructive/10 hover:text-destructive"
+                          onClick={() => setPendingDelete(selected)}
+                        >
+                          <Trash2 className="mr-1 size-3.5" />
+                          {t('automation.common.delete')}
+                        </Button>
                       </div>
                     </div>
                   </header>
@@ -518,6 +521,32 @@ export function ProjectList({ selectedId, onSelect, railOpen, onOpenCases, onOpe
                     </section>
 
                     <section className="space-y-2">
+                      <div className="text-xs font-medium uppercase tracking-wide text-muted-foreground">{t('automation.projects.linkMaster.linkedHeading')}</div>
+                      {taskLinksLoading ? (
+                        <div className="flex items-center gap-2 rounded-xl bg-muted/25 px-4 py-3 text-sm text-muted-foreground">
+                          <Loader2 className="size-4 animate-spin" aria-hidden />
+                          {t('common.loading')}
+                        </div>
+                      ) : taskLinks.length === 0 ? (
+                        <div className="flex flex-col items-start gap-2 rounded-xl bg-muted/25 px-4 py-3">
+                          <p className="text-sm text-muted-foreground">{t('automation.projects.linkMaster.noneLinkedHint')}</p>
+                          <Button type="button" size="sm" variant="secondary" className="gap-1.5 border-0 shadow-none" onClick={() => setLinkDialogOpen(true)}>
+                            <Link2 className="size-3.5 shrink-0" />
+                            {t('automation.projects.linkMaster.button')}
+                          </Button>
+                        </div>
+                      ) : (
+                        <div className="flex flex-wrap gap-1.5 rounded-xl bg-muted/25 px-4 py-3">
+                          {taskLinks.map(link => (
+                            <Badge key={link.id} variant="secondary" className="font-normal">
+                              {link.taskProjectName ?? link.taskProjectId}
+                            </Badge>
+                          ))}
+                        </div>
+                      )}
+                    </section>
+
+                    <section className="space-y-2">
                       <div className="text-xs font-medium uppercase tracking-wide text-muted-foreground">{t('automation.projects.fields.description')}</div>
                       <p className="rounded-xl bg-muted/25 px-4 py-3 text-sm leading-relaxed text-foreground">
                         {selected.description?.trim() ? selected.description : <span className="text-muted-foreground">—</span>}
@@ -562,6 +591,15 @@ export function ProjectList({ selectedId, onSelect, railOpen, onOpenCases, onOpe
           </main>
         </div>
       )}
+
+      <LinkMasterProjectDialog
+        open={linkDialogOpen}
+        onOpenChange={setLinkDialogOpen}
+        testProjectId={selected?.id ?? ''}
+        onLinksChanged={() => {
+          if (selected?.id) void loadTaskLinks(selected.id)
+        }}
+      />
 
       <ProjectForm
         open={openForm}

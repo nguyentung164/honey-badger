@@ -1,6 +1,6 @@
 import type { CommitWorkflowSettings, PlaywrightStepSummary } from 'shared/commitWorkflow/types'
 import { cancelRun, isRunBusy, startRun, getActiveRunIdForProject } from '../../automation/runner'
-import { getProject, resolveTestProjectForTaskProject } from '../../automation/db'
+import { getCatalogPage, getProject, resolveTestProjectForTaskProject } from '../../automation/db'
 import { getAutomationSettings, getProjectSecrets } from '../../automation/settingsStore'
 import { detectInstalledBrowsers } from '../../automation/workspace'
 import type { AutomationBrowser, RunRequest } from 'shared/automation/types'
@@ -21,13 +21,22 @@ export async function runPlaywrightStep(input: {
 }): Promise<PlaywrightStepResult> {
   if (input.signal?.aborted) return { status: 'error', summary: null, message: 'Cancelled' }
 
-  const project =
-    (input.taskProjectId?.trim()
-      ? await resolveTestProjectForTaskProject(input.taskProjectId.trim())
-      : null) ??
-    (input.settings.automationProjectId?.trim()
-      ? await getProject(input.settings.automationProjectId.trim())
-      : null)
+  const pageId = input.settings.catalogPageId?.trim() || input.settings.pageIds?.[0]?.trim()
+
+  let project: Awaited<ReturnType<typeof getProject>> = null
+  if (pageId) {
+    const page = await getCatalogPage(pageId)
+    if (page?.projectId) project = await getProject(page.projectId)
+  }
+  if (!project) {
+    project =
+      (input.taskProjectId?.trim()
+        ? await resolveTestProjectForTaskProject(input.taskProjectId.trim())
+        : null) ??
+      (input.settings.automationProjectId?.trim()
+        ? await getProject(input.settings.automationProjectId.trim())
+        : null)
+  }
 
   if (!project) {
     return {
@@ -55,8 +64,8 @@ export async function runPlaywrightStep(input: {
     await new Promise(r => setTimeout(r, 500))
   }
 
-  const pageId = input.settings.catalogPageId?.trim() || input.settings.pageIds?.[0]?.trim()
-  if (!pageId) {
+  const pageIdResolved = pageId
+  if (!pageIdResolved) {
     return { status: 'skipped', summary: null, message: 'No catalog page selected for Playwright' }
   }
 
@@ -69,7 +78,7 @@ export async function runPlaywrightStep(input: {
     workers: autoSettings.defaultWorkers ?? 1,
     retries: autoSettings.defaultRetries ?? 0,
     triggeredBy: input.userId,
-    pageIds: [pageId],
+    pageIds: [pageIdResolved],
     ...(flowId ? { flowIds: [flowId] } : {}),
   }
 

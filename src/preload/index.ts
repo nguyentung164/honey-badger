@@ -1085,6 +1085,7 @@ import type {
   TestFlow,
   TestPageNavEdge,
   TestProject,
+  TestProjectTaskLink,
   TestRunSummary,
   TestSuite,
 } from 'shared/automation/types'
@@ -1101,6 +1102,10 @@ export interface AutomationApi {
     create: (input: { name: string; baseUrl: string; description?: string; browsers?: AutomationBrowser[] }) => Promise<AutomationEnvelope<TestProject>>
     update: (args: { id: string; patch: Partial<Pick<TestProject, 'name' | 'baseUrl' | 'description' | 'browsers'>> }) => Promise<AutomationEnvelope<TestProject | null>>
     delete: (id: string) => Promise<AutomationEnvelope<{ deleted: boolean }>>
+    listForTask: (taskProjectId: string) => Promise<AutomationEnvelope<TestProject[]>>
+    listTaskLinks: (testProjectId: string) => Promise<AutomationEnvelope<TestProjectTaskLink[]>>
+    linkTask: (args: { testProjectId: string; taskProjectId: string }) => Promise<AutomationEnvelope<TestProjectTaskLink>>
+    unlinkTask: (args: { testProjectId: string; taskProjectId: string }) => Promise<AutomationEnvelope<{ unlinked: boolean }>>
   }
   suite: {
     list: (projectId: string) => Promise<AutomationEnvelope<TestSuite[]>>
@@ -2103,6 +2108,12 @@ contextBridge.exposeInMainWorld('api', {
       create: (input: any) => ipcRenderer.invoke(IPC.AUTOMATION.PROJECT_CREATE, toStructuredCloneable(input)),
       update: (args: any) => ipcRenderer.invoke(IPC.AUTOMATION.PROJECT_UPDATE, toStructuredCloneable(args)),
       delete: (id: string) => ipcRenderer.invoke(IPC.AUTOMATION.PROJECT_DELETE, id),
+      listForTask: (taskProjectId: string) => ipcRenderer.invoke(IPC.AUTOMATION.PROJECT_LIST_FOR_TASK, taskProjectId),
+      listTaskLinks: (testProjectId: string) => ipcRenderer.invoke(IPC.AUTOMATION.PROJECT_LIST_TASK_LINKS, testProjectId),
+      linkTask: (args: { testProjectId: string; taskProjectId: string }) =>
+        ipcRenderer.invoke(IPC.AUTOMATION.PROJECT_LINK_TASK, toStructuredCloneable(args)),
+      unlinkTask: (args: { testProjectId: string; taskProjectId: string }) =>
+        ipcRenderer.invoke(IPC.AUTOMATION.PROJECT_UNLINK_TASK, toStructuredCloneable(args)),
     },
     suite: {
       list: (projectId: string) => ipcRenderer.invoke(IPC.AUTOMATION.SUITE_LIST, projectId),

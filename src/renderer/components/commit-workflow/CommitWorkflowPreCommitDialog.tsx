@@ -19,7 +19,7 @@ import type { CodingRuleItem } from '@/stores/useCodingRuleStore'
 import {
   hasCommitWorkflowPrefs,
   loadCommitWorkflowPrefs,
-  resolveTestProjectIdForTaskProject,
+  resolveTestProjectIdsForTaskProject,
   saveCommitWorkflowPrefs,
 } from '@/lib/commitWorkflow/commitWorkflowPrefs'
 
@@ -285,15 +285,22 @@ export function CommitWorkflowPreCommitDialog({ open, onOpenChange, projectId, t
             : []
         setCodingRules(rules)
 
-        const testId = await resolveTestProjectIdForTaskProject(projectId)
-        setTestProjectLinked(Boolean(testId))
-        if (testId) {
-          const pagesRes = await window.api.automation.catalogPage.list(testId)
-          if (pagesRes.status === 'success' && pagesRes.data) {
-            setCatalogPages(pagesRes.data.map(p => ({ id: p.id, name: p.name })))
-          } else {
-            setCatalogPages([])
+        const testIds = await resolveTestProjectIdsForTaskProject(projectId)
+        setTestProjectLinked(testIds.length > 0)
+        if (testIds.length > 0) {
+          const listRes = await window.api.automation.project.listForTask(projectId)
+          const testProjects = listRes.status === 'success' && listRes.data ? listRes.data : []
+          const multi = testProjects.length > 1
+          const allPages: CatalogPage[] = []
+          for (const tp of testProjects) {
+            const pagesRes = await window.api.automation.catalogPage.list(tp.id)
+            if (pagesRes.status === 'success' && pagesRes.data) {
+              for (const p of pagesRes.data) {
+                allPages.push({ id: p.id, name: multi ? `${tp.name} › ${p.name}` : p.name })
+              }
+            }
           }
+          setCatalogPages(allPages)
         } else {
           setCatalogPages([])
         }

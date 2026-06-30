@@ -32,6 +32,7 @@ import configurationStore from './store/ConfigurationStore'
 import {
   migrateAchievementBooleanColumns,
   migrateAutomationTestTables,
+  migrateTestProjectTaskLinksTable,
   migrateDevPipelineTables,
   migrateCommitWorkflowTables,
   migrateCommitWorkflowDevPipelineCleanup,
@@ -144,6 +145,7 @@ makeAppWithSingleInstanceLock(async () => {
         await migrateTasksTicketIdNullable().catch(() => {})
         await migrateTasksStatusEnteredAt().catch(() => {})
         await migrateAutomationTestTables().catch(() => {})
+        await migrateTestProjectTaskLinksTable().catch(() => {})
         await migrateDevPipelineTables().catch(() => {})
         await migrateCommitWorkflowTables().catch(() => {})
         await migrateCommitWorkflowDevPipelineCleanup().catch(() => {})
