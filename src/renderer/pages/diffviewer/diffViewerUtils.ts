@@ -1,4 +1,5 @@
-import type { editor as MonacoEditor } from 'monaco-editor'
+import * as monaco from 'monaco-editor'
+import type { editor as MonacoEditor, IRange } from 'monaco-editor'
 import { resolveMonacoLanguageId } from '@/lib/monacoLanguage'
 import type { ChangePosition, CharDiffStats, DiffStats } from './diffViewerTypes'
 
@@ -151,15 +152,8 @@ export function pickEditableDiffPaneEditor(
   return null
 }
 
-function createSingleCursorSelection(lineNumber: number, column: number): MonacoEditor.ISelection {
-  return {
-    selectionStartLineNumber: lineNumber,
-    selectionStartColumn: column,
-    positionLineNumber: lineNumber,
-    positionColumn: column,
-    endLineNumber: lineNumber,
-    endColumn: column,
-  }
+function createSingleCursorSelection(lineNumber: number, column: number): monaco.Selection {
+  return new monaco.Selection(lineNumber, column, lineNumber, column)
 }
 
 /** Move cursor to a known-valid anchor before full-document edits (avoids view render errors). */
@@ -319,7 +313,7 @@ export async function formatDiffEditor(
 
 export type DiffEditorRemoveEmptyLinesResult = 'success' | 'readonly' | 'unchanged' | 'failed'
 
-function getFullModelReplaceRange(model: MonacoEditor.ITextModel): MonacoEditor.IRange {
+function getFullModelReplaceRange(model: MonacoEditor.ITextModel): IRange {
   const lineCount = Math.max(1, model.getLineCount())
   return {
     startLineNumber: 1,

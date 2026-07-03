@@ -1,4 +1,5 @@
 import type * as Monaco from 'monaco-editor'
+import { configureMonacoWorkers } from '@/lib/monaco/configureMonacoWorkers'
 import { readCssVarAsHexColor, resolveCssColorToHexWithAlpha } from '@/lib/terminal/cssColorResolver'
 import {
   buildMonacoBracketColors,
@@ -114,6 +115,7 @@ export function applyAppMonacoTheme(monaco: typeof Monaco, appIsDark: boolean, t
 }
 
 export function onAppMonacoBeforeMount(monaco: typeof Monaco): void {
+  configureMonacoWorkers()
   registerAppMonacoThemes(monaco, { includeDiff: true, includeEditorRules: true })
 }
 

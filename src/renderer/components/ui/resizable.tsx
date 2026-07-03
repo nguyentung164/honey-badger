@@ -26,9 +26,18 @@ type ResizablePanelProps = Omit<ResizablePrimitive.PanelProps, 'onResize' | 'pan
   ref?: React.Ref<ResizablePrimitive.PanelImperativeHandle | null>
 }
 
-const ResizablePanel = forwardRef<ResizablePrimitive.PanelImperativeHandle | null, ResizablePanelProps>(({ onResize, ...props }, ref) => {
+const ResizablePanel = forwardRef<ResizablePrimitive.PanelImperativeHandle | null, ResizablePanelProps>(({ className, onResize, ...props }, ref) => {
   const wrappedOnResize = onResize ? (size: PanelSize) => onResize(size.asPercentage) : undefined
-  return <ResizablePrimitive.Panel data-slot="resizable-panel" panelRef={ref} onResize={wrappedOnResize} {...props} tabIndex={props.tabIndex ?? -1} />
+  return (
+    <ResizablePrimitive.Panel
+      data-slot="resizable-panel"
+      panelRef={ref}
+      onResize={wrappedOnResize}
+      className={cn('outline-none focus:outline-none focus-visible:outline-none focus-visible:ring-0', className)}
+      {...props}
+      tabIndex={props.tabIndex ?? -1}
+    />
+  )
 })
 ResizablePanel.displayName = 'ResizablePanel'
 
@@ -49,7 +58,7 @@ function ResizableHandle({
       data-slot="resizable-handle"
       onPointerUp={handlePointerUp}
       className={cn(
-        'bg-border focus-visible:ring-ring relative z-10 flex shrink-0 w-px items-center justify-center after:absolute after:inset-y-0 after:left-1/2 after:w-1 after:-translate-x-1/2 focus-visible:ring-1 focus-visible:ring-offset-1 focus-visible:outline-hidden aria-[orientation=horizontal]:h-px aria-[orientation=horizontal]:w-full aria-[orientation=horizontal]:after:left-0 aria-[orientation=horizontal]:after:h-1 aria-[orientation=horizontal]:after:w-full aria-[orientation=horizontal]:after:translate-x-0 aria-[orientation=horizontal]:after:-translate-y-1/2',
+        'bg-border relative z-10 flex shrink-0 w-px items-center justify-center outline-none after:absolute after:inset-y-0 after:left-1/2 after:w-1 after:-translate-x-1/2 focus:outline-none focus-visible:outline-none focus-visible:ring-0 focus-visible:ring-offset-0 aria-[orientation=horizontal]:h-px aria-[orientation=horizontal]:w-full aria-[orientation=horizontal]:after:left-0 aria-[orientation=horizontal]:after:h-1 aria-[orientation=horizontal]:after:w-full aria-[orientation=horizontal]:after:translate-x-0 aria-[orientation=horizontal]:after:-translate-y-1/2',
         className
       )}
       {...props}

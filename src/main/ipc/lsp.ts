@@ -2,7 +2,9 @@ import { ipcMain } from 'electron'
 import l from 'electron-log'
 import { IPC } from 'main/constants'
 import {
-  sendLanguageServerMessage,
+  enqueueLanguageServerMessage,
+} from 'main/lsp/lspMessageQueue'
+import {
   startLanguageServer,
   stopAllLanguageServers,
   stopLanguageServer,
@@ -43,7 +45,7 @@ export function registerLspIpcHandlers(): void {
 
   ipcMain.on(IPC.LSP.SEND, (_event, payload: unknown) => {
     if (!isSendPayload(payload)) return
-    sendLanguageServerMessage(payload.serverId, fileUriToPath(payload.rootUri), payload.message)
+    enqueueLanguageServerMessage(payload)
   })
 
   l.info('✅ LSP IPC Handlers Registered')

@@ -4,8 +4,6 @@ export type EditorTab = {
   id: string
   relativePath: string
   languageId: string
-  content: string
-  baseline: string
   isDirty: boolean
   isLoading: boolean
   /** False for restored tabs until content is read from disk. */
@@ -15,15 +13,13 @@ export type EditorTab = {
   isPinned: boolean
   kind: EditorTabKind
   version: number
-  /** Bumped when content is loaded/reloaded from disk — used to remount Monaco without keystroke churn. */
+  /** Bumped when content is loaded/reloaded from disk — triggers model sync. */
   loadGeneration: number
   reveal?: { line: number; column: number }
   /** Serialized Monaco ICodeEditorViewState for tab switch restore. */
   viewStateJson?: string
   /** Right-hand file path when `kind === 'compare'`. */
   compareWithPath?: string
-  /** Right-hand pane text when `kind === 'compare'`. */
-  compareContent?: string
 }
 
 export type OpenFileOptions = {
@@ -33,6 +29,8 @@ export type OpenFileOptions = {
   preview?: boolean
   /** Double-click or explicit pin — keeps tab open. */
   pin?: boolean
+  /** Skip the large-file confirmation gate. */
+  forceLarge?: boolean
 }
 
 export function tabIdForCompare(leftPath: string, rightPath: string): string {

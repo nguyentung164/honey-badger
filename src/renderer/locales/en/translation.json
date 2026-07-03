@@ -256,8 +256,12 @@
     "emptyState": "No file open",
     "emptyStateHint": "Select a file from the Explorer or use Search to open one.",
     "openFileFailed": "Could not open file.",
+    "largeFileTitle": "Large file",
+    "largeFileDescription": "{{file}} is {{size}}. Opening it may slow down the editor.",
+    "largeFileOpenAnyway": "Open anyway",
     "saveFailed": "Could not save file.",
     "maxTabsReached": "Maximum {{count}} tabs open. Close a tab to open more.",
+    "unsavedWait": "Editor is still loading. Try again in a moment.",
     "binaryNotEditable": "{{path}} is not a text file and cannot be edited here.",
     "searchPlaceholder": "Search",
     "searchHint": "Type to search across files in the workspace.",
@@ -386,6 +390,8 @@
       "breadcrumbsHint": "File path above the editor and symbol navigation in the editor.",
       "explorerAutoReveal": "Reveal active file in Explorer",
       "explorerAutoRevealHint": "When switching editor tabs, expand folders and highlight the open file in the Explorer tree.",
+      "restoreEditorTabs": "Restore editor tabs on launch",
+      "restoreEditorTabsHint": "Reopen files from your last editor session when you return to a repository (like VS Code window restore).",
       "renderWhitespace": "Render whitespace",
       "renderWhitespaceNone": "None",
       "renderWhitespaceSelection": "Selection",
@@ -461,6 +467,9 @@
         "hc-black": "High contrast dark",
         "hc-light": "High contrast light"
       }
+    },
+    "titleBar": {
+      "activeRepo": "Active repository"
     }
   },
   "contextMenu": {

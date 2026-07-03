@@ -256,8 +256,12 @@
     "emptyState": "ファイルが開かれていません",
     "emptyStateHint": "エクスプローラーまたは検索からファイルを開いてください。",
     "openFileFailed": "ファイルを開けませんでした。",
+    "largeFileTitle": "大きなファイル",
+    "largeFileDescription": "{{file}} は {{size}} です。開くとエディターが遅くなる可能性があります。",
+    "largeFileOpenAnyway": "それでも開く",
     "saveFailed": "ファイルを保存できませんでした。",
     "maxTabsReached": "最大 {{count}} タブです。タブを閉じてください。",
+    "unsavedWait": "エディター読み込み中です。しばらくしてからもう一度お試しください。",
     "binaryNotEditable": "{{path}} はテキストファイルではないため編集できません。",
     "searchPlaceholder": "検索",
     "searchHint": "ワークスペース内のファイルを検索します。",
@@ -386,6 +390,8 @@
       "breadcrumbsHint": "エディター上のファイルパスとエディター内のシンボルナビゲーション。",
       "explorerAutoReveal": "Explorer でアクティブなファイルを表示",
       "explorerAutoRevealHint": "エディタータブを切り替えると、Explorer ツリーでフォルダを展開し、開いているファイルを強調表示します。",
+      "restoreEditorTabs": "起動時にエディタータブを復元",
+      "restoreEditorTabsHint": "リポジトリに戻ったとき、前回のエディターセッションのファイルを再オープンします（VS Code のウィンドウ復元と同様）。",
       "renderWhitespace": "空白文字の表示",
       "renderWhitespaceNone": "なし",
       "renderWhitespaceSelection": "選択範囲",
@@ -461,6 +467,9 @@
         "hc-black": "ハイコントラスト（ダーク）",
         "hc-light": "ハイコントラスト（ライト）"
       }
+    },
+    "titleBar": {
+      "activeRepo": "アクティブなリポジトリ"
     }
   },
   "contextMenu": {

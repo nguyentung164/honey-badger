@@ -5,21 +5,23 @@ import { lazy, Suspense, useCallback, useEffect, useRef } from 'react'
 import { useTranslation } from 'react-i18next'
 import { GlowLoader } from '@/components/ui-elements/GlowLoader'
 import type { CodeEditorHandle } from '@/components/code/CodeEditor'
-import { documentUriForPath } from '@/pages/editor/lsp/documentUri'
 import { EditorComparePane } from '@/pages/editor/editor-area/EditorComparePane'
 import { EditorEmptyState } from '@/pages/editor/editor-area/EditorEmptyState'
+import { EditorMonacoHost } from '@/pages/editor/editor-area/EditorMonacoHost'
 import { editorCommandBridge, type EditorCursorPosition } from '@/pages/editor/lib/editorCommandBridge'
+import { syncOpenTabKeys } from '@/pages/editor/lib/editorModelRegistry'
 import { useActiveEditorTab } from '@/pages/editor/hooks/useEditorTabSelectors'
 import { useLazyEditorLsp } from '@/pages/editor/hooks/useLazyEditorLsp'
 import { useEditorWorkspace } from '@/pages/editor/hooks/useEditorWorkspace'
 
-/** VS Code: one editor widget, swap ITextModel by URI — no remount per tab. */
-const LazyCodeEditor = lazy(() => import('@/components/code/CodeEditor').then(m => ({ default: m.CodeEditor })))
+const LazyEditorMonacoHost = lazy(() =>
+  Promise.resolve({ default: EditorMonacoHost })
+)
 
 type EditorTabPaneProps = {
   activeTabId: string | null
   repoCwd: string
-  onSyncDirty: (tabId: string, content: string) => void
+  onSyncDirty: (tabId: string, alternativeVersionId: number) => void
   onCursorChange?: (position: EditorCursorPosition | null) => void
 }
 
@@ -27,11 +29,19 @@ export function EditorTabPane({ activeTabId, repoCwd, onSyncDirty, onCursorChang
   const { t } = useTranslation()
   const tab = useActiveEditorTab(activeTabId)
   const editorRef = useRef<CodeEditorHandle>(null)
-  const saveTabViewState = useEditorWorkspace(s => s.saveTabViewState)
+  const tabs = useEditorWorkspace(s => s.tabs)
   const onSyncDirtyRef = useRef(onSyncDirty)
   onSyncDirtyRef.current = onSyncDirty
   const dirtyFlushRaf = useRef<number | null>(null)
-  const pendingDirtyRef = useRef<{ tabId: string; value: string } | null>(null)
+  const pendingDirtyRef = useRef<{ tabId: string; alternativeVersionId: number } | null>(null)
+
+  useEffect(() => {
+    if (!repoCwd) return
+    syncOpenTabKeys(
+      repoCwd,
+      tabs.filter(t => t.kind === 'text').map(t => t.relativePath)
+    )
+  }, [repoCwd, tabs])
 
   useEffect(() => {
     if (!tab?.reveal || !editorRef.current) return
@@ -57,26 +67,12 @@ export function EditorTabPane({ activeTabId, repoCwd, onSyncDirty, onCursorChang
     return registerBridge()
   }, [tab?.id, tab?.kind, tab?.contentLoaded, registerBridge])
 
-  useEffect(() => {
-    if (!tab) return
-    const tabId = tab.id
-    return () => {
-      const state = editorRef.current?.saveViewState()
-      if (!state) return
-      try {
-        saveTabViewState(tabId, JSON.stringify(state))
-      } catch {
-        /* ignore */
-      }
-    }
-  }, [tab?.id, saveTabViewState])
-
   const tabMetaRef = useRef({ id: '' })
   if (tab) tabMetaRef.current = { id: tab.id }
 
   const lspTab =
     tab && tab.kind === 'text' ? { relativePath: tab.relativePath, languageId: tab.languageId } : null
-  const { onEditorMount, onLspContentChange } = useLazyEditorLsp(repoCwd, lspTab)
+  const { onEditorMount, onLspContentChange, onLspModelChange } = useLazyEditorLsp(repoCwd, lspTab)
 
   const handleEditorMount = useCallback(
     (editor: Monaco.editor.IStandaloneCodeEditor, monaco: typeof Monaco) => {
@@ -91,20 +87,20 @@ export function EditorTabPane({ activeTabId, repoCwd, onSyncDirty, onCursorChang
     const pending = pendingDirtyRef.current
     if (!pending) return
     pendingDirtyRef.current = null
-    onSyncDirtyRef.current(pending.tabId, pending.value)
+    onSyncDirtyRef.current(pending.tabId, pending.alternativeVersionId)
   }, [])
 
   const handleChange = useCallback(
-    (value: string) => {
+    (alternativeVersionId: number, changes: Monaco.editor.IModelContentChange[]) => {
       const tabId = tabMetaRef.current.id
       if (!tabId) return
-      pendingDirtyRef.current = { tabId, value }
+      pendingDirtyRef.current = { tabId, alternativeVersionId }
       if (dirtyFlushRaf.current == null) {
         dirtyFlushRaf.current = requestAnimationFrame(flushDirty)
       }
-      onLspContentChange(value)
+      onLspModelChange(changes)
     },
-    [flushDirty, onLspContentChange]
+    [flushDirty, onLspModelChange]
   )
 
   useEffect(() => {
@@ -124,7 +120,7 @@ export function EditorTabPane({ activeTabId, repoCwd, onSyncDirty, onCursorChang
   }
 
   if (tab.kind === 'compare') {
-    return <EditorComparePane tab={tab} />
+    return <EditorComparePane tab={tab} repoCwd={repoCwd} />
   }
 
   if (tab.kind !== 'text') {
@@ -143,14 +139,13 @@ export function EditorTabPane({ activeTabId, repoCwd, onSyncDirty, onCursorChang
         </div>
       }
     >
-      <LazyCodeEditor
+      <LazyEditorMonacoHost
         ref={editorRef}
-        filePath={tab.relativePath}
-        modelUri={documentUriForPath(repoCwd, tab.relativePath)}
-        defaultValue={tab.content}
-        diskRevision={tab.loadGeneration}
-        language={tab.languageId}
-        restoredViewStateJson={tab.viewStateJson}
+        repoCwd={repoCwd}
+        tabId={tab.id}
+        relativePath={tab.relativePath}
+        contentLoaded={tab.contentLoaded}
+        loadGeneration={tab.loadGeneration}
         onChange={handleChange}
         onCursorChange={onCursorChange}
         onMount={handleEditorMount}

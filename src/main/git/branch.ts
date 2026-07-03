@@ -48,7 +48,7 @@ export async function getBranches(cwd?: string): Promise<GitBranchResponse> {
     const enrichedEntries = await Promise.all(
       localBranches.all.map(async branchName => {
         const branch = localBranches.branches[branchName]
-        const enriched = await enrichLocalBranchTracking(git, branchName, branch as Record<string, unknown>)
+        const enriched = await enrichLocalBranchTracking(git, branchName, branch as unknown as Record<string, unknown>)
         return [branchName, enriched] as const
       })
     )

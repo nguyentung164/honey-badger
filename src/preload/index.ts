@@ -411,7 +411,7 @@ declare global {
         get_default_notification_sound_url: () => Promise<string | null>
         /** Repo-relative path under cwd/sourceFolder; used for context menu labels. */
         get_path_entry_kind: (payload: { relativePath: string; cwd?: string }) => Promise<'file' | 'directory' | 'missing'>
-        detect_file_kind: (filePath: string, options?: { cwd?: string }) => Promise<{ kind: 'text' | 'image' | 'binary'; mime?: string; size?: number }>
+        detect_file_kind: (filePath: string, options?: { cwd?: string }) => Promise<{ kind: 'text' | 'image' | 'binary'; mime?: string; size?: number; mtimeMs?: number }>
         read_file_data_url: (
           filePath: string,
           options?: { cwd?: string; gitRevision?: string; svnRevision?: string; svnFileStatus?: string }
@@ -433,6 +433,7 @@ declare global {
           includePattern?: string
           excludePattern?: string
         }) => Promise<import('shared/editor/types').SearchInFilesResult>
+        list_workspace_files: (payload: { cwd?: string; maxFiles?: number }) => Promise<import('shared/editor/types').ListWorkspaceFilesResult>
         replace_in_files: (payload: import('shared/editor/types').ReplaceInFilesPayload) => Promise<import('shared/editor/types').ReplaceInFilesResult>
         watch_workspace: (payload: { cwd?: string }) => Promise<{ success: boolean; error?: string }>
         unwatch_workspace: () => Promise<{ success: boolean }>
@@ -1718,7 +1719,8 @@ contextBridge.exposeInMainWorld('api', {
     detect_file_kind: (filePath: string, options?: { cwd?: string }) => ipcRenderer.invoke(IPC.SYSTEM.DETECT_FILE_KIND, filePath, options),
     read_file_data_url: (filePath: string, options?: { cwd?: string; gitRevision?: string }) =>
       ipcRenderer.invoke(IPC.SYSTEM.READ_FILE_DATA_URL, filePath, options),
-    list_dir: payload => ipcRenderer.invoke(IPC.SYSTEM.LIST_DIR, payload),
+    list_dir: (payload: { relativePath?: string; cwd?: string; includeHidden?: boolean }) =>
+      ipcRenderer.invoke(IPC.SYSTEM.LIST_DIR, payload),
     create_dir: (relativePath: string, options?: { cwd?: string }) => ipcRenderer.invoke(IPC.SYSTEM.CREATE_DIR, relativePath, options),
     delete_path: (relativePath: string, options?: { cwd?: string }) => ipcRenderer.invoke(IPC.SYSTEM.DELETE_PATH, relativePath, options),
     rename_path: (payload: { from: string; to: string; cwd?: string }) => ipcRenderer.invoke(IPC.SYSTEM.RENAME_PATH, payload),
@@ -1727,11 +1729,23 @@ contextBridge.exposeInMainWorld('api', {
       ipcRenderer.invoke(IPC.SYSTEM.STAGE_PATH_FOR_UNDO, relativePath, options),
     restore_undo_staging: (payload: { stagingId: string; relativePath: string; cwd?: string }) =>
       ipcRenderer.invoke(IPC.SYSTEM.RESTORE_UNDO_STAGING, payload),
-    search_in_files: payload => ipcRenderer.invoke(IPC.SYSTEM.SEARCH_IN_FILES, payload),
-    replace_in_files: payload => ipcRenderer.invoke(IPC.SYSTEM.REPLACE_IN_FILES, payload),
-    watch_workspace: payload => ipcRenderer.invoke(IPC.SYSTEM.WATCH_WORKSPACE, payload),
+    search_in_files: (payload: {
+      query: string
+      cwd?: string
+      caseSensitive?: boolean
+      wholeWord?: boolean
+      regex?: boolean
+      maxResults?: number
+      includePattern?: string
+      excludePattern?: string
+    }) => ipcRenderer.invoke(IPC.SYSTEM.SEARCH_IN_FILES, payload),
+    list_workspace_files: (payload: { cwd?: string; maxFiles?: number }) =>
+      ipcRenderer.invoke(IPC.SYSTEM.LIST_WORKSPACE_FILES, payload),
+    replace_in_files: (payload: import('shared/editor/types').ReplaceInFilesPayload) =>
+      ipcRenderer.invoke(IPC.SYSTEM.REPLACE_IN_FILES, payload),
+    watch_workspace: (payload: { cwd?: string }) => ipcRenderer.invoke(IPC.SYSTEM.WATCH_WORKSPACE, payload),
     unwatch_workspace: () => ipcRenderer.invoke(IPC.SYSTEM.UNWATCH_WORKSPACE),
-    on_workspace_file_changed: cb => {
+    on_workspace_file_changed: (cb: (event: import('shared/editor/types').WorkspaceFileChangedEvent) => void) => {
       const handler = (_: unknown, event: import('shared/editor/types').WorkspaceFileChangedEvent) => cb(event)
       ipcRenderer.on(IPC.SYSTEM.WORKSPACE_FILE_CHANGED, handler)
       return () => ipcRenderer.removeListener(IPC.SYSTEM.WORKSPACE_FILE_CHANGED, handler)
@@ -1739,15 +1753,15 @@ contextBridge.exposeInMainWorld('api', {
   },
 
   lsp: {
-    start: payload => ipcRenderer.invoke(IPC.LSP.START, payload),
-    stop: payload => ipcRenderer.invoke(IPC.LSP.STOP, payload),
-    send: payload => ipcRenderer.send(IPC.LSP.SEND, payload),
-    onMessage: cb => {
+    start: (payload: import('shared/lsp/types').LspStartPayload) => ipcRenderer.invoke(IPC.LSP.START, payload),
+    stop: (payload: import('shared/lsp/types').LspStopPayload) => ipcRenderer.invoke(IPC.LSP.STOP, payload),
+    send: (payload: import('shared/lsp/types').LspSendPayload) => ipcRenderer.send(IPC.LSP.SEND, payload),
+    onMessage: (cb: (event: import('shared/lsp/types').LspMessageEvent) => void) => {
       const handler = (_: unknown, event: import('shared/lsp/types').LspMessageEvent) => cb(event)
       ipcRenderer.on(IPC.LSP.STREAM_MESSAGE, handler)
       return () => ipcRenderer.removeListener(IPC.LSP.STREAM_MESSAGE, handler)
     },
-    onState: cb => {
+    onState: (cb: (event: import('shared/lsp/types').LspStateEvent) => void) => {
       const handler = (_: unknown, event: import('shared/lsp/types').LspStateEvent) => cb(event)
       ipcRenderer.on(IPC.LSP.STREAM_STATE, handler)
       return () => ipcRenderer.removeListener(IPC.LSP.STREAM_STATE, handler)
@@ -1755,18 +1769,18 @@ contextBridge.exposeInMainWorld('api', {
   },
 
   terminal: {
-    create: opts => ipcRenderer.invoke(IPC.TERMINAL.CREATE, opts),
-    destroy: id => ipcRenderer.invoke(IPC.TERMINAL.DESTROY, id),
+    create: (opts?: import('shared/terminal/types').TerminalCreateOptions) => ipcRenderer.invoke(IPC.TERMINAL.CREATE, opts),
+    destroy: (id: string) => ipcRenderer.invoke(IPC.TERMINAL.DESTROY, id),
     listShells: () => ipcRenderer.invoke(IPC.TERMINAL.LIST_SHELLS),
     getUserHome: () => ipcRenderer.invoke(IPC.TERMINAL.GET_USER_HOME),
-    write: payload => ipcRenderer.send(IPC.TERMINAL.WRITE, payload),
-    resize: payload => ipcRenderer.send(IPC.TERMINAL.RESIZE, payload),
-    onData: cb => {
+    write: (payload: import('shared/terminal/types').TerminalWritePayload) => ipcRenderer.send(IPC.TERMINAL.WRITE, payload),
+    resize: (payload: import('shared/terminal/types').TerminalResizePayload) => ipcRenderer.send(IPC.TERMINAL.RESIZE, payload),
+    onData: (cb: (payload: import('shared/terminal/types').TerminalDataPayload) => void) => {
       const handler = (_: unknown, payload: import('shared/terminal/types').TerminalDataPayload) => cb(payload)
       ipcRenderer.on(IPC.TERMINAL.STREAM_DATA, handler)
       return () => ipcRenderer.removeListener(IPC.TERMINAL.STREAM_DATA, handler)
     },
-    onExit: cb => {
+    onExit: (cb: (payload: import('shared/terminal/types').TerminalExitPayload) => void) => {
       const handler = (_: unknown, payload: import('shared/terminal/types').TerminalExitPayload) => cb(payload)
       ipcRenderer.on(IPC.TERMINAL.STREAM_EXIT, handler)
       return () => ipcRenderer.removeListener(IPC.TERMINAL.STREAM_EXIT, handler)

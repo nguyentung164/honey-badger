@@ -9,6 +9,8 @@ import { languageIdForLsp } from '@/lib/monacoLanguage'
 import { EditorCloseConfirm } from '@/pages/editor/EditorCloseConfirm'
 import { EditorFileChangeDialog } from '@/pages/editor/EditorFileChangeDialog'
 import { EditorGoToLineDialog } from '@/pages/editor/EditorGoToLineDialog'
+import { EditorLargeFileDialog } from '@/pages/editor/EditorLargeFileDialog'
+import type { OpenFileOptions } from '@/pages/editor/lib/editorWorkspaceTypes'
 import { EditorQuickOpen } from '@/pages/editor/EditorQuickOpen'
 import { EditorSidebar } from '@/pages/editor/EditorSidebar'
 import { EditorFileBreadcrumbs } from '@/pages/editor/editor-area/EditorFileBreadcrumbs'
@@ -27,6 +29,7 @@ import { type EditorCursorPosition, editorCommandBridge, runEditorAction } from 
 import { getEditorTabActivationOrder } from '@/pages/editor/lib/editorTabActivation'
 import { patchQuickOpenFileIndex, prewarmQuickOpenFileIndex } from '@/pages/editor/lib/quickOpenFileIndex'
 import { scheduleBackgroundWork } from '@/pages/editor/lib/scheduleBackgroundWork'
+import { scheduleEditorTabPrefetch } from '@/pages/editor/hooks/useEditorTabPrefetch'
 import { useEditorTabCloseQueue } from '@/pages/editor/lib/useEditorTabCloseQueue'
 import { joinRepoPath } from '@/pages/editor/lsp/documentUri'
 import { editorLanguageService, type OrganizeImportsResult } from '@/pages/editor/lsp/EditorLanguageService'
@@ -51,6 +54,12 @@ export function EditorWorkbench({ repoCwd = '', onRegisterLayoutLeave, onTermina
     queueMode?: boolean
   } | null>(null)
   const [fileChangeConfirm, setFileChangeConfirm] = useState<{ relativePath: string; fileName: string } | null>(null)
+  const [largeFileConfirm, setLargeFileConfirm] = useState<{
+    relativePath: string
+    fileName: string
+    size: number
+    opts?: OpenFileOptions
+  } | null>(null)
   const [quickOpen, setQuickOpen] = useState(false)
   const [goToLineOpen, setGoToLineOpen] = useState(false)
   const [cursor, setCursor] = useState<EditorCursorPosition | null>(null)
@@ -74,22 +83,12 @@ export function EditorWorkbench({ repoCwd = '', onRegisterLayoutLeave, onTermina
     [repoCwd]
   )
 
-  const { getGitStatus, refreshGitDecorations } = useEditorGitDecorations(repoCwd)
-
-  const getTabGitStatus = useCallback((relativePath: string) => getGitStatus(relativePath, false), [getGitStatus])
-
-  useEffect(() => {
-    scheduleBackgroundWork(
-      () => {
-        void import('@/components/code/CodeEditor')
-      },
-      { timeout: 4000 }
-    )
-  }, [])
-
-  const { panelGroupRef, initialLayout, onLayoutChanged } = useEditorSidebarWidth()
-
   const tabSummaries = useEditorTabSummaries()
+  const openTabPaths = useMemo(() => tabSummaries.map(t => t.relativePath), [tabSummaries])
+  const { getGitStatus, refreshGitDecorations } = useEditorGitDecorations(repoCwd, {
+    openTabPaths,
+    explorerActive: sidebarView === 'explorer',
+  })
   const recentQuickOpenPaths = useMemo(() => {
     const tabs = useEditorWorkspace.getState().tabs.filter(t => t.kind !== 'compare')
     const order = getEditorTabActivationOrder()
@@ -114,6 +113,19 @@ export function EditorWorkbench({ repoCwd = '', onRegisterLayoutLeave, onTermina
 
     return paths
   }, [tabSummaries])
+
+  const getTabGitStatus = useCallback((relativePath: string) => getGitStatus(relativePath, false), [getGitStatus])
+
+  useEffect(() => {
+    scheduleBackgroundWork(
+      () => {
+        void import('@/components/code/CodeEditor')
+      },
+      { timeout: 4000 }
+    )
+  }, [])
+
+  const { panelGroupRef, initialLayout, onLayoutChanged } = useEditorSidebarWidth()
   const activeTabId = useEditorWorkspace(s => s.activeTabId)
   const activeTabStatus = useActiveTabStatus(activeTabId)
   const lspStatus = useEditorLspStatusBar(repoCwd, activeTabStatus.languageId)
@@ -127,12 +139,44 @@ export function EditorWorkbench({ repoCwd = '', onRegisterLayoutLeave, onTermina
   const saveTab = useEditorWorkspace(s => s.saveTab)
   const saveActiveTab = useEditorWorkspace(s => s.saveActiveTab)
   const reloadTabFromDisk = useEditorWorkspace(s => s.reloadTabFromDisk)
+  const reloadTabFromDiskIfChanged = useEditorWorkspace(s => s.reloadTabFromDiskIfChanged)
+  const revertDirtyTabs = useEditorWorkspace(s => s.revertDirtyTabs)
   const pinTab = useEditorWorkspace(s => s.pinTab)
 
   useEffect(() => {
     if (!repoCwd) return
     startTransition(() => setRepoCwd(repoCwd))
   }, [repoCwd, setRepoCwd])
+
+  useEffect(() => {
+    if (!repoCwd) return
+    const onBranchChanged = () => {
+      const { tabs } = useEditorWorkspace.getState()
+      for (const tab of tabs) {
+        if (tab.kind === 'text' && !tab.isDirty && tab.contentLoaded) {
+          void reloadTabFromDiskIfChanged(tab.relativePath)
+        }
+      }
+      void refreshGitDecorations()
+    }
+    window.addEventListener('git-branch-changed', onBranchChanged)
+    return () => window.removeEventListener('git-branch-changed', onBranchChanged)
+  }, [repoCwd, refreshGitDecorations, reloadTabFromDiskIfChanged])
+
+  useEffect(() => {
+    const onLargeFileBlocked = (event: Event) => {
+      const detail = (event as CustomEvent<{ relativePath: string; size: number; opts?: OpenFileOptions }>).detail
+      if (!detail?.relativePath) return
+      setLargeFileConfirm({
+        relativePath: detail.relativePath,
+        fileName: detail.relativePath.split('/').pop() ?? detail.relativePath,
+        size: detail.size,
+        opts: detail.opts,
+      })
+    }
+    window.addEventListener('editor-large-file-blocked', onLargeFileBlocked as EventListener)
+    return () => window.removeEventListener('editor-large-file-blocked', onLargeFileBlocked as EventListener)
+  }, [])
 
   // Disable during `pnpm dev` — Vite HMR floods the watcher and freezes the UI.
   const fileWatcherEnabled = !import.meta.env.DEV
@@ -221,13 +265,16 @@ export function EditorWorkbench({ repoCwd = '', onRegisterLayoutLeave, onTermina
     setExplorerRevealRequest({ path: relativePath, seq: explorerRevealSeqRef.current })
   }, [])
 
-  const tabMenuActionsById = useMemo(() => {
-    const snapshot = useEditorWorkspace.getState().tabs
-    const tabIds = snapshot.map(row => row.id)
-    const map = new Map<string, EditorTabMenuActions>()
+  useEffect(() => {
+    if (!repoCwd || !activeTabId) return
+    scheduleEditorTabPrefetch(repoCwd, activeTabId)
+  }, [repoCwd, activeTabId, tabSummaries])
 
-    snapshot.forEach((row, tabIndex) => {
-      map.set(row.id, {
+  const getTabMenuActions = useCallback(
+    (row: (typeof tabSummaries)[number], tabIndex: number): EditorTabMenuActions => {
+      const snapshot = useEditorWorkspace.getState().tabs
+      const tabIds = snapshot.map(t => t.id)
+      return {
         onClose: () => requestCloseTab(row.id),
         onCloseOthers: () => requestCloseTabs(tabIds.filter(id => id !== row.id)),
         onCloseToRight: () => requestCloseTabs(tabIds.slice(tabIndex + 1)),
@@ -243,11 +290,10 @@ export function EditorWorkbench({ repoCwd = '', onRegisterLayoutLeave, onTermina
           revealPathInExplorer(row.relativePath)
         },
         onPin: () => pinTab(row.id),
-      })
-    })
-
-    return map
-  }, [tabSummaries, copyTabPathToClipboard, pinTab, repoCwd, requestCloseTab, requestCloseTabs, revealPathInExplorer, setActiveTab])
+      }
+    },
+    [copyTabPathToClipboard, pinTab, repoCwd, requestCloseTab, requestCloseTabs, revealPathInExplorer, setActiveTab]
+  )
 
   useEffect(() => {
     if (autoSave !== 'afterDelay' || !activeTabId) return
@@ -369,7 +415,9 @@ export function EditorWorkbench({ repoCwd = '', onRegisterLayoutLeave, onTermina
           fileName: dirty.relativePath.split('/').pop() ?? dirty.relativePath,
           onProceed: action,
         })
+        return
       }
+      action()
     })
   }, [onRegisterLayoutLeave])
 
@@ -443,7 +491,7 @@ export function EditorWorkbench({ repoCwd = '', onRegisterLayoutLeave, onTermina
                 onCloseTab={requestCloseTab}
                 onPinTab={pinTab}
                 getGitStatus={getTabGitStatus}
-                tabMenuActionsById={tabMenuActionsById}
+                getTabMenuActions={getTabMenuActions}
               />
               {breadcrumbs && activeTabStatus.relativePath ? (
                 <EditorFileBreadcrumbs
@@ -502,9 +550,7 @@ export function EditorWorkbench({ repoCwd = '', onRegisterLayoutLeave, onTermina
           if (!closeConfirm) return
           const { tabId, onProceed, queueMode } = closeConfirm
           if (onProceed) {
-            useEditorWorkspace.setState(state => ({
-              tabs: state.tabs.map(t => (t.isDirty ? { ...t, content: t.baseline, isDirty: false } : t)),
-            }))
+            revertDirtyTabs()
             onProceed()
             setCloseConfirm(null)
             return
@@ -542,6 +588,21 @@ export function EditorWorkbench({ repoCwd = '', onRegisterLayoutLeave, onTermina
         onGoTo={(line, column) => {
           editorCommandBridge.get()?.revealLine(line, column)
           setGoToLineOpen(false)
+        }}
+      />
+
+      <EditorLargeFileDialog
+        open={Boolean(largeFileConfirm)}
+        onOpenChange={open => {
+          if (!open) setLargeFileConfirm(null)
+        }}
+        fileName={largeFileConfirm?.fileName ?? ''}
+        sizeBytes={largeFileConfirm?.size ?? 0}
+        onOpenAnyway={() => {
+          if (!largeFileConfirm) return
+          const { relativePath, opts } = largeFileConfirm
+          setLargeFileConfirm(null)
+          void openFile(relativePath, { ...opts, forceLarge: true })
         }}
       />
     </div>

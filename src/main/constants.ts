@@ -248,6 +248,7 @@ export const IPC = {
     STAGE_PATH_FOR_UNDO: 'system:stage-path-for-undo',
     RESTORE_UNDO_STAGING: 'system:restore-undo-staging',
     SEARCH_IN_FILES: 'system:search-in-files',
+    LIST_WORKSPACE_FILES: 'system:list-workspace-files',
     REPLACE_IN_FILES: 'system:replace-in-files',
     WATCH_WORKSPACE: 'system:watch-workspace',
     UNWATCH_WORKSPACE: 'system:unwatch-workspace',

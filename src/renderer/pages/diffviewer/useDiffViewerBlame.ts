@@ -1,5 +1,5 @@
 import * as monaco from 'monaco-editor'
-import type { editor as MonacoEditor } from 'monaco-editor'
+import type { editor as MonacoEditor, IDisposable } from 'monaco-editor'
 import { useEffect, useRef } from 'react'
 import logger from '@/services/logger'
 import { formatBlameHoverMessage, formatBlameInlineLabel } from './diffViewerBlameFormat'
@@ -103,7 +103,7 @@ export function useDiffViewerBlame({
 }: UseDiffViewerBlameOptions) {
   const blameByLineRef = useRef<Map<number, { label: string; title: string }>>(new Map())
   const gutterRootRef = useRef<HTMLDivElement | null>(null)
-  const disposablesRef = useRef<MonacoEditor.IDisposable[]>([])
+  const disposablesRef = useRef<IDisposable[]>([])
   const applyGenerationRef = useRef(0)
 
   useEffect(() => {
@@ -227,7 +227,7 @@ export function useDiffViewerBlame({
         try {
           await waitForDiffStable(diffEditor)
         } catch (error) {
-          logger.warn('[DiffViewer] waitForDiffStable failed before blame:', error)
+          logger.warning('[DiffViewer] waitForDiffStable failed before blame:', error)
         }
 
         await waitForNextFrame()
@@ -244,7 +244,7 @@ export function useDiffViewerBlame({
 
         if (result?.status !== 'success' || !result.data?.lines?.length) {
           if (result?.status === 'error') {
-            logger.warn('[DiffViewer] git blame failed:', result.message ?? 'unknown error', { filePath, cwd, revision })
+            logger.warning('[DiffViewer] git blame failed:', result.message ?? 'unknown error', { filePath, cwd, revision })
           }
           blameByLineRef.current = new Map()
           removeGutter()

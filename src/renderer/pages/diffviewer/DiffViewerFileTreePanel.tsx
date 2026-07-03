@@ -50,6 +50,7 @@ interface DiffViewerFileTreePanelProps {
   onRefresh?: () => void | Promise<void>
 }
 
+
 const STAGING_TREE_PANEL_ID = 'diff-tree-changes-section'
 const STAGING_COMMIT_PANEL_ID = 'diff-tree-commit-section'
 

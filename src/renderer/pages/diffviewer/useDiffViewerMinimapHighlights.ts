@@ -1,4 +1,4 @@
-import type { editor as MonacoEditor } from 'monaco-editor'
+import type { editor as MonacoEditor, IDisposable } from 'monaco-editor'
 import { useEffect, useRef } from 'react'
 import type { DiffViewerFileKind } from './diffViewerPayload'
 import { buildMinimapDecorations, fingerprintLineChanges, getDiffViewerMinimapColors } from './diffViewerMinimap'
@@ -57,7 +57,7 @@ export function useDiffViewerMinimapHighlights({
     let retryCount = 0
     let debounceTimer: number | undefined
     let rafId: number | undefined
-    let diffDisposable: MonacoEditor.IDisposable | null = null
+    let diffDisposable: IDisposable | null = null
 
     const applyHighlights = () => {
       const diffEditor = editorRef.current

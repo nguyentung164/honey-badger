@@ -22,7 +22,7 @@ export function scheduleBackgroundWork(work: () => void, options: BackgroundWork
  * Coalesce rapid callbacks (e.g. LSP didChange, localStorage) into one idle flush.
  */
 export function createBackgroundFlusher<T>(flush: (value: T) => void, delayMs = 120) {
-  let timer: ReturnType<typeof setTimeout> | null = null
+  let timer: number | null = null
   let pending: T | null = null
   let cancelIdle: (() => void) | null = null
 
@@ -42,6 +42,17 @@ export function createBackgroundFlusher<T>(flush: (value: T) => void, delayMs = 
       timer = window.setTimeout(() => {
         cancelIdle = scheduleBackgroundWork(runFlush, { timeout: 1500 })
       }, delayMs)
+    },
+    /** Write the latest pending value immediately (e.g. app close). */
+    flush() {
+      if (timer) window.clearTimeout(timer)
+      timer = null
+      cancelIdle?.()
+      cancelIdle = null
+      if (pending == null) return
+      const value = pending
+      pending = null
+      flush(value)
     },
     cancel() {
       if (timer) window.clearTimeout(timer)

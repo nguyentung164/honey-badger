@@ -58,7 +58,7 @@ async function notifyAchievement(userId: string, code: string, name: string, tie
 
 async function notifyRankUp(userId: string, newRank: string): Promise<void> {
   try {
-    const rankDef = RANKS.find(r => r.code === newRank)
+    const rankDef = ACHIEVEMENT_RANKS.find(r => r.code === newRank)
     const title = `Rank Up! Bạn đã đạt rank ${rankDef?.name ?? newRank}`
     const body = JSON.stringify({ newRank })
     const id = await insertTaskNotification(userId, 'rank_up', title, body, null)

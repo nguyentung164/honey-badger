@@ -720,7 +720,7 @@ export function resolvedEdgeLabelChrome(
   const accentStops = effectiveLabelAccentStops(ls)
   const accentGradient = useAccentGradient && isMultiColorGradient(accentStops) ? accentStops : undefined
   const borderPreset = edgeLabelBorderWidthPreset(ls)
-  const showStaticBorder = ls.borderWidth > 0
+  const showStaticBorder = (ls.borderWidth ?? 0) > 0
   const effectiveBorderCol = useAccentGradient ? effectiveLabelAccentColor(ls) : borderCol || '#94a3b8'
   const staticBorderPx = showStaticBorder ? edgeLabelStaticBorderWidthPx(borderPreset) : 0
   const hasBorderChrome = staticBorderPx > 0

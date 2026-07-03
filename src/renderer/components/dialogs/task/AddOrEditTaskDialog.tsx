@@ -1461,11 +1461,7 @@ export function AddOrEditTaskDialog({
                                         size="sm"
                                         className="h-8 min-h-8 min-w-8 w-8 shrink-0 p-0 text-destructive hover:text-destructive"
                                         onClick={async () => {
-                                          const res = await window.api.task.deleteTaskLink(
-                                            task.id,
-                                            l.id,
-                                            l.version !== undefined ? l.version : undefined
-                                          )
+                                          const res = await window.api.task.deleteTaskLink(task.id, l.id)
                                           if (res.status === 'success') {
                                             loadRelations()
                                             onRelationsChange?.()

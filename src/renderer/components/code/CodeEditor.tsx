@@ -132,12 +132,15 @@ export const CodeEditor = forwardRef<CodeEditorHandle, CodeEditorProps>(function
       tabSize: editorSettings.tabSize,
       insertSpaces: editorSettings.insertSpaces,
     })
-    void import('monaco-editor').then(monaco => monaco.editor.remeasureFonts())
   }, [editorOptions, editorSettings.insertSpaces, editorSettings.tabSize])
 
+  const fontStyleKey = `${editorSettings.fontFamilyId}:${editorSettings.fontSize}:${editorSettings.fontWeight}:${editorSettings.enableLigatures}`
+
   useEffect(() => {
+    const editor = editorRef.current
+    if (!editor) return
     void import('monaco-editor').then(monaco => monaco.editor.remeasureFonts())
-  }, [fontStyle])
+  }, [fontStyleKey])
 
   useEffect(() => {
     const editor = editorRef.current

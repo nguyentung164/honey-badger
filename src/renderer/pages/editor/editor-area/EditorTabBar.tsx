@@ -1,12 +1,9 @@
 'use client'
 
-import { GitCompare, X } from 'lucide-react'
+import { EditorTabItem } from '@/pages/editor/editor-area/EditorTabItem'
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
-import { GitFileStatusBadge, type GitFileStatusCode } from '@/components/git/GitFileStatusBadge'
-import { MaterialFileIcon } from '@/components/icons/MaterialFileIcon'
-import { cn } from '@/lib/utils'
-import { EditorTabContextMenu, type EditorTabMenuActions } from '@/pages/editor/editor-area/EditorTabContextMenu'
-import { EXPLORER_GIT_LABEL_CLASS } from '@/pages/editor/explorer/explorerGitDecorations'
+import type { GitFileStatusCode } from '@/components/git/GitFileStatusBadge'
+import type { EditorTabMenuActions } from '@/pages/editor/editor-area/EditorTabContextMenu'
 import type { EditorTabSummary } from '@/pages/editor/hooks/useEditorTabSelectors'
 
 type EditorTabBarProps = {
@@ -16,7 +13,7 @@ type EditorTabBarProps = {
   onCloseTab: (tabId: string) => void
   onPinTab?: (tabId: string) => void
   getGitStatus?: (relativePath: string) => GitFileStatusCode | null
-  tabMenuActionsById: ReadonlyMap<string, EditorTabMenuActions>
+  getTabMenuActions: (tab: EditorTabSummary, tabIndex: number) => EditorTabMenuActions
 }
 
 type TabBarScrollMetrics = {
@@ -33,7 +30,7 @@ function readScrollMetrics(el: HTMLDivElement): TabBarScrollMetrics {
   }
 }
 
-export function EditorTabBar({ tabs, activeTabId, onSelectTab, onCloseTab, onPinTab, getGitStatus, tabMenuActionsById }: EditorTabBarProps) {
+export function EditorTabBar({ tabs, activeTabId, onSelectTab, onCloseTab, onPinTab, getGitStatus, getTabMenuActions }: EditorTabBarProps) {
   const hostRef = useRef<HTMLDivElement>(null)
   const scrollRef = useRef<HTMLDivElement>(null)
   const tabItemRefs = useRef(new Map<string, HTMLDivElement>())
@@ -123,6 +120,11 @@ export function EditorTabBar({ tabs, activeTabId, onSelectTab, onCloseTab, onPin
     return () => host.removeEventListener('wheel', onWheel, { capture: true })
   }, [tabs.length])
 
+  const setTabRef = useCallback((tabId: string, el: HTMLDivElement | null) => {
+    if (el) tabItemRefs.current.set(tabId, el)
+    else tabItemRefs.current.delete(tabId)
+  }, [])
+
   if (tabs.length === 0) return null
 
   const scrollRange = Math.max(0, scrollMetrics.scrollWidth - scrollMetrics.clientWidth)
@@ -134,70 +136,21 @@ export function EditorTabBar({ tabs, activeTabId, onSelectTab, onCloseTab, onPin
   return (
     <div ref={hostRef} className="editor-tab-bar-host flex shrink-0 flex-col border-b bg-muted/20">
       <div ref={scrollRef} className="editor-tab-bar flex h-[var(--editor-chrome-row-height)] items-stretch overflow-x-auto overflow-y-hidden">
-        {tabs.map((tab, tabIndex) => {
-          const active = tab.id === activeTabId
-          const isPreview = tab.isPreview && !tab.isPinned
-          const gitStatus = !tab.isCompare ? (getGitStatus?.(tab.relativePath) ?? null) : null
-          const tabMenuActions = tabMenuActionsById.get(tab.id)
-          const tabRow = (
-            <div
-              ref={el => {
-                if (el) tabItemRefs.current.set(tab.id, el)
-                else tabItemRefs.current.delete(tab.id)
-              }}
-              className={cn(
-                'group flex h-full max-w-[280px] shrink-0 items-center gap-1 border-r border-t-2 px-2 text-xs',
-                active ? 'border-t-[#0078d4] bg-background text-foreground' : 'border-t-transparent bg-muted/10 text-muted-foreground hover:bg-muted/40',
-                isPreview && !active && 'opacity-80'
-              )}
-            >
-              <button
-                type="button"
-                className="flex h-full min-w-0 flex-1 items-center gap-1.5"
-                onClick={() => onSelectTab(tab.id)}
-                onMouseDown={e => {
-                  if (e.button === 1) {
-                    e.preventDefault()
-                    onCloseTab(tab.id)
-                  }
-                }}
-                onDoubleClick={() => onPinTab?.(tab.id)}
-              >
-                {tab.isCompare ? (
-                  <GitCompare className="h-3.5 w-3.5 shrink-0 opacity-80" aria-hidden />
-                ) : (
-                  <MaterialFileIcon name={tab.relativePath} size={14} className="h-4.5 w-4.5 shrink-0 opacity-90 relative top-[-0.5px]" />
-                )}
-                {tab.isDirty ? <span className="shrink-0 text-[10px] leading-none">●</span> : null}
-                <span className={cn('min-w-0 truncate text-[13px] h-[20px]', (tab.isDirty || isPreview) && 'italic', gitStatus ? EXPLORER_GIT_LABEL_CLASS[gitStatus] : null)}>
-                  {tab.tabLabel}
-                </span>
-                {gitStatus ? <GitFileStatusBadge status={gitStatus} variant="trailing" size="sm" /> : null}
-              </button>
-              <button
-                type="button"
-                className="rounded p-0.5 opacity-0 hover:bg-muted group-hover:opacity-100"
-                aria-label="Close"
-                onClick={e => {
-                  e.stopPropagation()
-                  onCloseTab(tab.id)
-                }}
-              >
-                <X className="h-4 w-4" />
-              </button>
-            </div>
-          )
-
-          if (!tabMenuActions) {
-            return <div key={tab.id}>{tabRow}</div>
-          }
-
-          return (
-            <EditorTabContextMenu key={tab.id} tab={tab} tabIndex={tabIndex} tabCount={tabs.length} onSelectTab={onSelectTab} actions={tabMenuActions}>
-              {tabRow}
-            </EditorTabContextMenu>
-          )
-        })}
+        {tabs.map((tab, tabIndex) => (
+          <EditorTabItem
+            key={tab.id}
+            tab={tab}
+            tabIndex={tabIndex}
+            tabCount={tabs.length}
+            active={tab.id === activeTabId}
+            gitStatus={!tab.isCompare ? (getGitStatus?.(tab.relativePath) ?? null) : null}
+            tabMenuActions={getTabMenuActions(tab, tabIndex)}
+            onSelectTab={onSelectTab}
+            onCloseTab={onCloseTab}
+            onPinTab={onPinTab}
+            setTabRef={setTabRef}
+          />
+        ))}
       </div>
       {hasOverflow ? (
         <div className="editor-tab-bar-scroll-track" aria-hidden>

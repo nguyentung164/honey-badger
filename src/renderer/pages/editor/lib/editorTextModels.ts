@@ -6,6 +6,9 @@ type ModelRecord = {
   relativePath: string
   baseline: string
   diskRevision: number
+  /** Monaco getAlternativeVersionId() at last disk load / save — O(1) dirty check. */
+  baselineAlternativeVersionId: number | null
+  diskMtimeMs: number | null
 }
 
 const models = new Map<string, ModelRecord>()
@@ -14,7 +17,12 @@ export function modelKey(repoCwd: string, relativePath: string): string {
   return `${repoCwd}::${relativePath.replace(/\\/g, '/')}`
 }
 
-export function registerModelBaseline(repoCwd: string, relativePath: string, baseline: string): number {
+export function registerModelBaseline(
+  repoCwd: string,
+  relativePath: string,
+  baseline: string,
+  diskMtimeMs?: number | null
+): number {
   const key = modelKey(repoCwd, relativePath)
   const prev = models.get(key)
   const diskRevision = (prev?.diskRevision ?? 0) + 1
@@ -22,31 +30,74 @@ export function registerModelBaseline(repoCwd: string, relativePath: string, bas
     relativePath: relativePath.replace(/\\/g, '/'),
     baseline: baseline.replace(/\r\n/g, '\n'),
     diskRevision,
+    baselineAlternativeVersionId: prev?.baselineAlternativeVersionId ?? null,
+    diskMtimeMs: diskMtimeMs ?? prev?.diskMtimeMs ?? null,
   })
   return diskRevision
+}
+
+export function setModelBaselineVersion(repoCwd: string, relativePath: string, alternativeVersionId: number): void {
+  const key = modelKey(repoCwd, relativePath)
+  const rec = models.get(key)
+  if (rec) {
+    rec.baselineAlternativeVersionId = alternativeVersionId
+  } else {
+    models.set(key, {
+      relativePath: relativePath.replace(/\\/g, '/'),
+      baseline: '',
+      diskRevision: 1,
+      baselineAlternativeVersionId: alternativeVersionId,
+      diskMtimeMs: null,
+    })
+  }
 }
 
 export function getModelDiskRevision(repoCwd: string, relativePath: string): number {
   return models.get(modelKey(repoCwd, relativePath))?.diskRevision ?? 0
 }
 
+export function getModelDiskMtimeMs(repoCwd: string, relativePath: string): number | null {
+  return models.get(modelKey(repoCwd, relativePath))?.diskMtimeMs ?? null
+}
+
 export function getModelBaseline(repoCwd: string, relativePath: string): string {
   return models.get(modelKey(repoCwd, relativePath))?.baseline ?? ''
 }
 
+export function isDirtyByVersion(repoCwd: string, relativePath: string, alternativeVersionId: number): boolean {
+  const rec = models.get(modelKey(repoCwd, relativePath))
+  if (!rec || rec.baselineAlternativeVersionId == null) return false
+  return alternativeVersionId !== rec.baselineAlternativeVersionId
+}
+
+/** @deprecated Prefer isDirtyByVersion for hot paths. */
 export function isDirtyAgainstBaseline(repoCwd: string, relativePath: string, live: string): boolean {
   const baseline = getModelBaseline(repoCwd, relativePath)
   return live.replace(/\r\n/g, '\n') !== baseline
 }
 
-export function commitModelBaseline(repoCwd: string, relativePath: string, content: string): void {
+export function commitModelBaseline(
+  repoCwd: string,
+  relativePath: string,
+  content: string,
+  alternativeVersionId?: number | null,
+  diskMtimeMs?: number | null
+): void {
   const key = modelKey(repoCwd, relativePath)
   const rec = models.get(key)
   const normalized = content.replace(/\r\n/g, '\n')
   if (rec) {
     rec.baseline = normalized
+    if (alternativeVersionId != null) rec.baselineAlternativeVersionId = alternativeVersionId
+    if (diskMtimeMs != null) rec.diskMtimeMs = diskMtimeMs
   } else {
-    models.set(key, { relativePath, baseline: normalized, diskRevision: 1 })
+    models.set(key, {
+      relativePath,
+      baseline: normalized,
+      diskRevision: 1,
+      baselineAlternativeVersionId: alternativeVersionId ?? null,
+      diskMtimeMs: diskMtimeMs ?? null,
+    })
   }
 }
 

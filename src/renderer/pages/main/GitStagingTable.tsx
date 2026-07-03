@@ -668,13 +668,15 @@ export const GitStagingTable = forwardRef(({ onLoadingChange, cwd, label, commit
       if (event.key === 'F5' || (event.ctrlKey && event.key === 'r')) {
         event.preventDefault()
         logger.info('F5 or Ctrl+R pressed, reloading data...')
-        reloadData()
+        void reloadData().finally(() => {
+          ;(document.activeElement as HTMLElement | null)?.blur?.()
+        })
         toast.info(t('toast.getListSuccess'))
       }
     }
     window.addEventListener('keydown', handleKeyDown)
     return () => window.removeEventListener('keydown', handleKeyDown)
-  }, [reloadData])
+  }, [reloadData, t])
 
   const handleChangesCheckboxChange = useCallback((row: any) => {
     row.toggleSelected()

@@ -1,5 +1,8 @@
+'use client'
+
 import type * as Monaco from 'monaco-editor'
 import { useCallback, useEffect, useRef } from 'react'
+import { enableMonacoTypeScriptWorker } from '@/lib/monaco/configureMonacoWorkers'
 import { getLspLanguageId, languageIdForLsp } from '@/lib/monacoLanguage'
 import { disableMonacoTypeScriptValidation } from '@/pages/editor/lib/configureMonacoTypeScriptService'
 import { registerEditorNavigation, setEditorNavigationRepo } from '@/pages/editor/lib/registerEditorNavigation'
@@ -7,6 +10,7 @@ import { editorCommandBridge } from '@/pages/editor/lib/editorCommandBridge'
 import { editorLanguageService } from '@/pages/editor/lsp/EditorLanguageService'
 
 const LSP_IDLE_MS = 1500
+const MAX_LSP_OPEN_DOCUMENTS = 5
 
 type TabLspMeta = {
   relativePath: string
@@ -23,8 +27,7 @@ export function useLazyEditorLsp(repoCwd: string, tab: TabLspMeta | null) {
   const activatedRef = useRef(false)
   const idleTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const docVersionRef = useRef(1)
-  const openDocRef = useRef<TabLspMeta | null>(null)
-  const lastContentRef = useRef('')
+  const openDocPathsRef = useRef<string[]>([])
   const tabRef = useRef(tab)
   tabRef.current = tab
 
@@ -36,25 +39,47 @@ export function useLazyEditorLsp(repoCwd: string, tab: TabLspMeta | null) {
   }, [])
 
   const readEditorText = useCallback(() => {
-    return lastContentRef.current || editorCommandBridge.get()?.getValue() || ''
+    return editorCommandBridge.get()?.getValue() || ''
   }, [])
+
+  const evictOverflowLspDocs = useCallback((keepPath: string | null) => {
+    const order = openDocPathsRef.current
+    while (order.length > MAX_LSP_OPEN_DOCUMENTS) {
+      const evict = order.pop()
+      if (!evict || evict === keepPath) continue
+      editorLanguageService.closeDocument(evict)
+    }
+  }, [])
+
+  const trackOpenLspDoc = useCallback(
+    (relativePath: string) => {
+      const order = openDocPathsRef.current.filter(p => p !== relativePath)
+      order.unshift(relativePath)
+      openDocPathsRef.current = order
+      evictOverflowLspDocs(relativePath)
+    },
+    [evictOverflowLspDocs]
+  )
+
+  const openDocumentForPath = useCallback(
+    (relativePath: string, languageId: string) => {
+      if (!repoCwd || !languageIdForLsp(languageId)) return
+      const monaco = monacoRef.current
+      if (monaco) editorLanguageService.bind(repoCwd, monaco)
+      editorLanguageService.openDocument(relativePath, getLspLanguageId(relativePath), readEditorText())
+      trackOpenLspDoc(relativePath)
+      docVersionRef.current = 1
+      activatedRef.current = true
+      enableMonacoTypeScriptWorker()
+    },
+    [repoCwd, readEditorText, trackOpenLspDoc]
+  )
 
   const openCurrentDocument = useCallback(() => {
     const current = tabRef.current
-    const monaco = monacoRef.current
-    if (!current || !repoCwd || !monaco) return
-    if (!languageIdForLsp(current.languageId)) return
-
-    editorLanguageService.bind(repoCwd, monaco)
-    editorLanguageService.openDocument(
-      current.relativePath,
-      getLspLanguageId(current.relativePath),
-      readEditorText()
-    )
-    docVersionRef.current = 1
-    openDocRef.current = current
-    activatedRef.current = true
-  }, [repoCwd, readEditorText])
+    if (!current || !repoCwd) return
+    openDocumentForPath(current.relativePath, current.languageId)
+  }, [openDocumentForPath, repoCwd])
 
   const scheduleLazyActivation = useCallback(() => {
     const current = tabRef.current
@@ -81,41 +106,32 @@ export function useLazyEditorLsp(repoCwd: string, tab: TabLspMeta | null) {
     setEditorNavigationRepo(repoCwd)
   }, [repoCwd])
 
-  const onLspContentChange = useCallback(
-    (value: string) => {
+  const onLspModelChange = useCallback(
+    (changes: Monaco.editor.IModelContentChange[]) => {
       const current = tabRef.current
-      if (!current || !languageIdForLsp(current.languageId)) return
-
-      lastContentRef.current = value
+      if (!current || !languageIdForLsp(current.languageId) || changes.length === 0) return
 
       if (!activatedRef.current) {
         scheduleLazyActivation()
         return
       }
 
-      if (openDocRef.current?.relativePath !== current.relativePath) {
-        openCurrentDocument()
-        return
+      if (!openDocPathsRef.current.includes(current.relativePath)) {
+        openDocumentForPath(current.relativePath, current.languageId)
       }
 
       docVersionRef.current += 1
-      editorLanguageService.changeDocument(
+      editorLanguageService.changeDocumentIncremental(
         current.relativePath,
         getLspLanguageId(current.relativePath),
-        value,
+        changes,
         docVersionRef.current
       )
     },
-    [openCurrentDocument, scheduleLazyActivation]
+    [openDocumentForPath, scheduleLazyActivation]
   )
 
   useEffect(() => {
-    const previous = openDocRef.current
-    if (previous && tab && previous.relativePath !== tab.relativePath) {
-      editorLanguageService.closeDocument(previous.relativePath)
-      openDocRef.current = null
-      docVersionRef.current = 1
-    }
     clearIdleTimer()
 
     if (tab && languageIdForLsp(tab.languageId)) {
@@ -136,12 +152,12 @@ export function useLazyEditorLsp(repoCwd: string, tab: TabLspMeta | null) {
       clearIdleTimer()
       navigationDisposableRef.current?.dispose()
       navigationDisposableRef.current = null
-      if (openDocRef.current) {
-        editorLanguageService.closeDocument(openDocRef.current.relativePath)
-        openDocRef.current = null
+      for (const path of openDocPathsRef.current) {
+        editorLanguageService.closeDocument(path)
       }
+      openDocPathsRef.current = []
     }
   }, [clearIdleTimer])
 
-  return { onEditorMount, onLspContentChange }
+  return { onEditorMount, onLspContentChange: onLspModelChange, onLspModelChange }
 }

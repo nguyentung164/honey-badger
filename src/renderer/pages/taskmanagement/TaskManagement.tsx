@@ -88,6 +88,7 @@ import { isTaskBulkSelectable, TaskTableRow, type TaskTableRowTask } from './Tas
 import { Z_GANTT_BOARD_LOADING_OVERLAY } from './taskGanttZIndex'
 import {
   type KanbanMoveTaskResult,
+  type TaskMutationApiResult,
   TASK_SAVE_IN_PROGRESS_CODE,
   updateTaskPlanDatesWithRetry,
   updateTaskStatusWithRetry,
@@ -1306,9 +1307,10 @@ export function TaskManagement({ embedded = false }: { embedded?: boolean }) {
 
   const taskMutationApi = useMemo(
     () => ({
-      updateStatus: (id: string, status: string, v?: number) => window.api.task.updateStatus(id, status, v),
+      updateStatus: (id: string, status: string, v?: number) =>
+        window.api.task.updateStatus(id, status, v) as Promise<TaskMutationApiResult>,
       updateDates: (id: string, dates: { planStartDate?: string; planEndDate?: string }, v?: number) =>
-        window.api.task.updateDates(id, dates, v),
+        window.api.task.updateDates(id, dates, v) as Promise<TaskMutationApiResult>,
       getTask: (id: string) => window.api.task.getTask(id),
     }),
     []

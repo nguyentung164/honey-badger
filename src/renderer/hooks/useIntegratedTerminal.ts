@@ -1,6 +1,6 @@
 import { FitAddon } from '@xterm/addon-fit'
 import { WebglAddon } from '@xterm/addon-webgl'
-import { Terminal } from '@xterm/xterm'
+import { Terminal, type FontWeight } from '@xterm/xterm'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import {
   attachCopyOnSelect,
@@ -50,7 +50,7 @@ function applyTerminalOptions(term: Terminal, prefs: TerminalPrefs) {
   term.options.theme = buildXtermThemeForPrefs(prefs.cursorColorMode, prefs.cursorColor, prefs.cursorStyle)
   term.options.fontSize = prefs.fontSize
   term.options.fontFamily = resolveTerminalFontFamily(prefs.fontFamilyId)
-  term.options.fontWeight = resolveTerminalFontWeight(prefs.fontWeight)
+  term.options.fontWeight = resolveTerminalFontWeight(prefs.fontWeight) as FontWeight
   term.options.lineHeight = prefs.lineHeight
   term.options.cursorBlink = prefs.cursorBlink
   const cursor = resolveTerminalCursorOptions(prefs.cursorStyle)
@@ -325,7 +325,7 @@ export function useIntegratedTerminal({
         scrollback: currentPrefs.scrollback,
         fontFamily: resolveTerminalFontFamily(currentPrefs.fontFamilyId),
         fontSize: currentPrefs.fontSize,
-        fontWeight: resolveTerminalFontWeight(currentPrefs.fontWeight),
+        fontWeight: resolveTerminalFontWeight(currentPrefs.fontWeight) as FontWeight,
         lineHeight: currentPrefs.lineHeight,
         cursorBlink: currentPrefs.cursorBlink,
         cursorStyle: initialCursor.xtermCursorStyle,

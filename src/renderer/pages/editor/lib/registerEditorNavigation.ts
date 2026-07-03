@@ -37,7 +37,7 @@ function ensureDecorationStyle() {
   document.head.appendChild(style)
 }
 
-function isModifierHeld(event: MouseEvent | Monaco.IKeyboardEvent): boolean {
+function isModifierHeld(event: { ctrlKey: boolean; metaKey: boolean }): boolean {
   return event.ctrlKey || event.metaKey
 }
 

@@ -50,6 +50,7 @@ import { CommitFooterActions } from '@/pages/main/CommitFooterActions'
 import { CommitGenerateButton } from '@/pages/main/CommitGenerateButton'
 import { CommitMessagePanel } from '@/pages/main/CommitMessagePanel'
 import { useEditorWorkspace } from '@/pages/editor/hooks/useEditorWorkspace'
+import { useEditorSessionLifecycle } from '@/pages/editor/hooks/useEditorSessionLifecycle'
 import { DevPipelinesToolbarPortalContext } from '@/pages/main/DevPipelinesToolbarPortalContext'
 import { GitStagingTable } from '@/pages/main/GitStagingTable'
 import { IntegratedTerminalPanel } from '@/pages/main/IntegratedTerminalPanel'
@@ -542,6 +543,28 @@ export function MainPage() {
     editorLayoutLeaveRef.current = fn
   }, [])
 
+  useEditorSessionLifecycle()
+
+  const guardEditorWorkspaceChange = useCallback(
+    (proceed: () => void) => {
+      if (shellView !== 'editor') {
+        proceed()
+        return
+      }
+      if (!useEditorWorkspace.getState().hasDirtyTabs()) {
+        proceed()
+        return
+      }
+      const guard = editorLayoutLeaveRef.current
+      if (guard) {
+        guard(proceed)
+        return
+      }
+      toast.warning(t('editor.unsavedWait', 'Editor is still loading. Try again in a moment.'))
+    },
+    [shellView, t]
+  )
+
   const applyShellView = useCallback((v: MainShellView) => {
     setShellView(v)
     try {
@@ -554,12 +577,17 @@ export function MainPage() {
   const persistShellView = useCallback(
     (v: MainShellView) => {
       if (shellView === 'editor' && v !== 'editor' && useEditorWorkspace.getState().hasDirtyTabs()) {
-        editorLayoutLeaveRef.current?.(() => applyShellView(v))
+        const guard = editorLayoutLeaveRef.current
+        if (guard) {
+          guard(() => applyShellView(v))
+          return
+        }
+        toast.warning(t('editor.unsavedWait', 'Editor is still loading. Try again in a moment.'))
         return
       }
       applyShellView(v)
     },
-    [applyShellView, shellView]
+    [applyShellView, shellView, t]
   )
 
   const persistPrManagerDetached = useCallback((detached: boolean) => {
@@ -978,10 +1006,7 @@ export function MainPage() {
   useEffect(() => {
     const id = window.setTimeout(() => {
       if (gitCommitMessageInTree) {
-        applyMainPanelLayout({
-          'changed-files-table': 100,
-          'commit-message-panel': 0,
-        })
+        applyMainPanelLayout({ 'changed-files-table': 100 })
         return
       }
       const saved = tablePanelSizesRef.current
@@ -1828,6 +1853,9 @@ export function MainPage() {
           terminalOpen={terminalOpen}
           onTerminalToggle={handleTerminalToggle}
           terminalAvailable={canUseTerminal}
+          onEditorWorkspaceGuard={guardEditorWorkspaceChange}
+          multiRepoActiveTab={multiRepoActiveTab}
+          onMultiRepoActiveChange={setMultiRepoActiveTab}
         />
         <div className="flex min-h-0 flex-1 flex-col">
           <ResizablePanelGroup
@@ -1943,43 +1971,48 @@ export function MainPage() {
                       groupRef={panelGroupRef}
                       direction="vertical"
                       className="min-h-0 flex-1 rounded-sm border"
-                      defaultLayout={{ 'changed-files-table': panelSizes.topPanelSize, 'commit-message-panel': panelSizes.bottomPanelSize }}
+                      defaultLayout={
+                        gitCommitMessageInTree
+                          ? { 'changed-files-table': 100 }
+                          : { 'changed-files-table': panelSizes.topPanelSize, 'commit-message-panel': panelSizes.bottomPanelSize }
+                      }
                       onLayoutChanged={layout => {
                         if (gitCommitMessageInTree || isApplyingMainPanelLayoutRef.current) return
                         const top = layout['changed-files-table']
                         const bottom = layout['commit-message-panel']
                         if (typeof top !== 'number' || typeof bottom !== 'number') return
-                        // Diff mode collapses the commit panel; ignore that transient layout when switching back.
                         if (bottom <= 0) return
                         persistTablePanelSizes(top, bottom)
                       }}
                       resizeTargetMinimumSize={{ coarse: 37, fine: 27 }}
                     >
-                      <ResizablePanel id="changed-files-table" minSize={25} className="min-h-0 overflow-hidden" ref={topPanelRef}>
+                      <ResizablePanel
+                        id="changed-files-table"
+                        minSize={gitCommitMessageInTree ? 100 : 25}
+                        className="min-h-0 overflow-hidden"
+                        ref={topPanelRef}
+                      >
                         {renderStagingWorkspace()}
                       </ResizablePanel>
-                      <ResizableHandle className={gitCommitMessageInTree ? 'pointer-events-none opacity-0' : undefined} />
-                      <ResizablePanel
-                        id="commit-message-panel"
-                        className={cn('flex min-h-0 flex-col p-2', gitCommitMessageInTree && 'min-h-0 overflow-hidden')}
-                        minSize={gitCommitMessageInTree ? 0 : 25}
-                        ref={bottomPanelRef}
-                      >
-                        {!gitCommitMessageInTree ? (
-                          <CommitMessagePanel
-                            isLoadingGenerate={isLoadingGenerate}
-                            isAnyLoading={isAnyLoading}
-                            commitMessageRef={commitMessageRef}
-                            commitMessageSeed={commitMessageSeed}
-                            referenceIdRef={referenceIdRef}
-                            onReferenceIdChange={handleReferenceId}
-                            generateAction={renderCommitGenerateButton(false)}
-                            actions={renderCommitFooterActions(false)}
-                            actionsPlacement="header"
-                            className="h-full"
-                          />
-                        ) : null}
-                      </ResizablePanel>
+                      {!gitCommitMessageInTree ? (
+                        <>
+                          <ResizableHandle />
+                          <ResizablePanel id="commit-message-panel" className="flex min-h-0 flex-col p-2" minSize={25} ref={bottomPanelRef}>
+                            <CommitMessagePanel
+                              isLoadingGenerate={isLoadingGenerate}
+                              isAnyLoading={isAnyLoading}
+                              commitMessageRef={commitMessageRef}
+                              commitMessageSeed={commitMessageSeed}
+                              referenceIdRef={referenceIdRef}
+                              onReferenceIdChange={handleReferenceId}
+                              generateAction={renderCommitGenerateButton(false)}
+                              actions={renderCommitFooterActions(false)}
+                              actionsPlacement="header"
+                              className="h-full"
+                            />
+                          </ResizablePanel>
+                        </>
+                      ) : null}
                     </ResizablePanelGroup>
                   </div>
                 )}

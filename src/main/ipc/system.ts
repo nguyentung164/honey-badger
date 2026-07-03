@@ -89,7 +89,7 @@ async function searchInFilesRipgrep(
         reject(err)
         return
       }
-      resolve(typeof out === 'string' ? out : out ? out.toString() : '')
+      resolve(out == null ? '' : typeof out === 'string' ? out : Buffer.from(out).toString('utf8'))
     })
   })
 
@@ -118,6 +118,41 @@ async function searchInFilesRipgrep(
   }
 
   return { matches, truncated: matches.length >= maxResults }
+}
+
+async function listWorkspaceFilesRipgrep(
+  options?: { cwd?: string; maxFiles?: number }
+): Promise<{ files: string[]; truncated: boolean }> {
+  const basePathRaw = options?.cwd?.trim() || configurationStore.store.sourceFolder
+  const basePath = await resolveReadWriteBase(basePathRaw)
+  if (!basePath) return { files: [], truncated: false }
+
+  const maxFiles = Math.min(Math.max(options?.maxFiles ?? 20_000, 1), 50_000)
+  const args = ['--files', '--hidden', '--glob', '!.git/**', '--glob', '!node_modules/**', basePath]
+
+  const stdout = await new Promise<string>((resolve, reject) => {
+    execFile(rgPath, args, { maxBuffer: 32 * 1024 * 1024, windowsHide: true, cwd: basePath }, (err, out) => {
+      const code = err && typeof err === 'object' && 'code' in err ? (err as { code?: string | number }).code : undefined
+      if (err && code !== 1 && code !== '1') {
+        reject(err)
+        return
+      }
+      resolve(out == null ? '' : typeof out === 'string' ? out : Buffer.from(out).toString('utf8'))
+    })
+  })
+
+  const root = basePath.replace(/\\/g, '/').replace(/\/+$/, '')
+  const files: string[] = []
+  for (const line of stdout.split('\n')) {
+    const abs = line.trim().replace(/\\/g, '/')
+    if (!abs) continue
+    const relativePath = abs.startsWith(`${root}/`) ? abs.slice(root.length + 1) : path.basename(abs)
+    files.push(relativePath)
+    if (files.length >= maxFiles) break
+  }
+
+  files.sort((a, b) => a.localeCompare(b))
+  return { files, truncated: files.length >= maxFiles }
 }
 
 const REPLACE_SKIP_EXTENSIONS = new Set([
@@ -366,15 +401,15 @@ export function registerSystemIpcHandlers() {
       }
       const st = fs.statSync(absolutePath)
       if (extKind?.kind === 'image') {
-        return { kind: 'image' as const, mime: extKind.mime, size: st.size }
+        return { kind: 'image' as const, mime: extKind.mime, size: st.size, mtimeMs: st.mtimeMs }
       }
       const sampleSize = Math.min(st.size, 8192)
       const buf = await readFile(absolutePath, { encoding: null })
       const sample = buf.subarray(0, sampleSize)
       if (isBinary(filePath, sample)) {
-        return { kind: 'binary' as const, size: st.size }
+        return { kind: 'binary' as const, size: st.size, mtimeMs: st.mtimeMs }
       }
-      return { kind: 'text' as const, size: st.size }
+      return { kind: 'text' as const, size: st.size, mtimeMs: st.mtimeMs }
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err)
       l.error('detect-file-kind error:', err)
@@ -408,11 +443,12 @@ export function registerSystemIpcHandlers() {
             const relativePath = resolvePathRelativeToBase(basePath, filePath).replace(/\\/g, '/')
             const spec = `${gitRevision}:${relativePath}`
             try {
-              buf = await execFilePromise('git', ['-C', basePath, 'show', spec], {
+              const gitShow = await execFilePromise('git', ['-C', basePath, 'show', spec], {
                 encoding: 'buffer',
                 maxBuffer: DIFF_VIEWER_DATA_URL_MAX_BYTES + 1024,
                 windowsHide: true,
               })
+              buf = gitShow.stdout
             } catch (err) {
               if (isGitPathMissingAtRevisionError(err)) {
                 return { success: false as const, error: 'NOT_IN_REVISION' }
@@ -723,6 +759,18 @@ export function registerSystemIpcHandlers() {
       } catch (err) {
         l.error('SEARCH_IN_FILES error:', err)
         return { matches: [], truncated: false }
+      }
+    }
+  )
+
+  ipcMain.handle(
+    IPC.SYSTEM.LIST_WORKSPACE_FILES,
+    async (_event, payload: { cwd?: string; maxFiles?: number }) => {
+      try {
+        return await listWorkspaceFilesRipgrep(payload)
+      } catch (err) {
+        l.error('LIST_WORKSPACE_FILES error:', err)
+        return { files: [], truncated: false }
       }
     }
   )

@@ -39,6 +39,8 @@ export type EditorSettings = {
   explorerAutoReveal: boolean
   codeLens: boolean
   inlayHints: boolean
+  /** Reopen editor tabs from the last session when opening a repo (VS Code window.restoreWindows). */
+  restoreEditorTabs: boolean
 }
 
 const STORAGE_KEY = 'editor-settings-v1'
@@ -68,6 +70,7 @@ export const EDITOR_SETTINGS_DEFAULTS: EditorSettings = {
   explorerAutoReveal: true,
   codeLens: true,
   inlayHints: true,
+  restoreEditorTabs: true,
 }
 
 export const EDITOR_TAB_SIZE_OPTIONS = [2, 4, 8] as const
@@ -133,6 +136,7 @@ export function pickEditorSettings(state: EditorSettingsState): EditorSettings {
     explorerAutoReveal: state.explorerAutoReveal,
     codeLens: state.codeLens,
     inlayHints: state.inlayHints,
+    restoreEditorTabs: state.restoreEditorTabs,
   })
 }
 

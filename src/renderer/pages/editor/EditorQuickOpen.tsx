@@ -65,7 +65,10 @@ function buildSearchResults(fileQuery: string, files: readonly string[]): QuickO
 export function EditorQuickOpen({ open, onOpenChange, repoCwd, recentPaths = [], onOpenFile }: EditorQuickOpenProps) {
   const { t } = useTranslation()
   const [query, setQuery] = useState('')
-  const [files, setFiles] = useState<string[]>(() => (repoCwd ? peekQuickOpenFiles(repoCwd) : null) ?? [])
+  const [files, setFiles] = useState<string[]>(() => {
+    const cached = repoCwd ? peekQuickOpenFiles(repoCwd) : null
+    return cached ? [...cached] : []
+  })
   const [indexReady, setIndexReady] = useState(() => Boolean(repoCwd && peekQuickOpenFiles(repoCwd)))
   const [loading, setLoading] = useState(false)
 

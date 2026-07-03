@@ -21,7 +21,7 @@ export function buildMonacoEditorOptions(
     detectIndentation: false,
     fontFamily,
     fontLigatures: settings.enableLigatures,
-    automaticLayout: true,
+    automaticLayout: false,
     padding: { top: 8, bottom: 8 },
     lineNumbers: settings.lineNumbers,
     lineNumbersMinChars: 3,
@@ -62,7 +62,6 @@ export function buildMonacoEditorOptions(
     colorDecorators: !heavy,
     largeFileOptimizations: true,
     stickyScroll: { enabled: !heavy && settings.stickyScroll },
-    breadcrumbs: { enabled: !heavy && settings.breadcrumbs },
     codeLens: !heavy && settings.codeLens,
     inlayHints: { enabled: !heavy && settings.inlayHints ? 'on' : 'off' },
   }

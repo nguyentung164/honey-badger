@@ -3,7 +3,8 @@ import type { LspServerId } from 'shared/lsp/types'
 import { getLspLanguageId, languageIdForLsp } from '@/lib/monacoLanguage'
 import { editorCommandBridge } from '@/pages/editor/lib/editorCommandBridge'
 import { createBackgroundFlusher, scheduleBackgroundWork } from '@/pages/editor/lib/scheduleBackgroundWork'
-import { documentUriForPath, isLargeFileForLsp, uriRootsMatch, workspaceRootUri } from '@/pages/editor/lsp/documentUri'
+import { documentUriForPath, uriRootsMatch, workspaceRootUri } from '@/pages/editor/lsp/documentUri'
+import { countNewlines, isLargeFileByMetrics } from 'shared/fileUri'
 import {
   type LspRange,
   lspPositionToMonaco,
@@ -95,12 +96,14 @@ export class EditorLanguageService {
   private wired = false
   private pendingDiagnostics = new Map<string, Monaco.editor.IMarkerData[]>()
   private diagnosticsRaf: number | null = null
-  private changeFlusher = createBackgroundFlusher<{
-    relativePath: string
-    languageId: string
-    text: string
-    version: number
-  }>(payload => this.flushDocumentChange(payload), 150)
+  private changeFlusher = createBackgroundFlusher<{ relativePath: string; languageId: string }>(
+    payload => this.flushDocumentChange(payload),
+    150
+  )
+  private pendingIncremental = new Map<
+    string,
+    { relativePath: string; languageId: string; changes: Array<{ range: LspRange; rangeLength: number; text: string }>; version: number }
+  >()
   private codeLensData = new Map<string, LspCodeLens>()
   private nextLensId = 0
 
@@ -587,7 +590,7 @@ export class EditorLanguageService {
     if (!serverId || !this.repoCwd) return
     const uri = documentUriForPath(this.repoCwd, relativePath)
     const lspLanguageId = getLspLanguageId(relativePath)
-    const lspEnabled = !isLargeFileForLsp(text)
+    const lspEnabled = !isLargeFileByMetrics(text.length, countNewlines(text))
     const existing = this.documents.get(uri)
     const version = existing?.version ?? 1
     this.documents.set(uri, { uri, languageId: lspLanguageId, version, serverId, lspEnabled })
@@ -778,7 +781,7 @@ export class EditorLanguageService {
     const serverId = languageIdForLsp(languageId)
     if (!serverId || !this.repoCwd) return
     const uri = documentUriForPath(this.repoCwd, relativePath)
-    const lspEnabled = !isLargeFileForLsp(text)
+    const lspEnabled = !isLargeFileByMetrics(text.length, countNewlines(text))
     this.documents.set(uri, { uri, languageId, version: 1, serverId, lspEnabled })
     if (!lspEnabled) return
 
@@ -793,11 +796,46 @@ export class EditorLanguageService {
     )
   }
 
+  changeDocumentIncremental(
+    relativePath: string,
+    languageId: string,
+    monacoChanges: Monaco.editor.IModelContentChange[],
+    version: number
+  ) {
+    const serverId = languageIdForLsp(languageId)
+    if (!serverId || !this.repoCwd || monacoChanges.length === 0) return
+    const uri = documentUriForPath(this.repoCwd, relativePath)
+    const doc = this.documents.get(uri)
+    if (!doc) {
+      const text = editorCommandBridge.get()?.getValue() ?? ''
+      this.openDocument(relativePath, languageId, text)
+      return
+    }
+    doc.version = version
+    if (!doc.lspEnabled) return
+
+    const lspChanges = monacoChanges.map(c => ({
+      range: monacoRangeToLsp(c.range),
+      rangeLength: c.rangeLength,
+      text: c.text,
+    }))
+
+    const pending = this.pendingIncremental.get(uri)
+    if (pending) {
+      pending.changes.push(...lspChanges)
+      pending.version = version
+    } else {
+      this.pendingIncremental.set(uri, { relativePath, languageId, changes: lspChanges, version })
+    }
+    this.changeFlusher.push({ relativePath, languageId })
+  }
+
+  /** Full-document sync (disk reload). */
   changeDocument(relativePath: string, languageId: string, text: string, version: number) {
     const serverId = languageIdForLsp(languageId)
     if (!serverId || !this.repoCwd) return
     const uri = documentUriForPath(this.repoCwd, relativePath)
-    const lspEnabled = !isLargeFileForLsp(text)
+    const lspEnabled = !isLargeFileByMetrics(text.length, countNewlines(text))
     const doc = this.documents.get(uri)
     if (!doc) {
       this.openDocument(relativePath, languageId, text)
@@ -806,20 +844,27 @@ export class EditorLanguageService {
     doc.version = version
     doc.lspEnabled = lspEnabled
     if (!lspEnabled) return
-    this.changeFlusher.push({ relativePath, languageId, text, version })
-  }
-
-  private flushDocumentChange(payload: { relativePath: string; languageId: string; text: string; version: number }) {
-    const serverId = languageIdForLsp(payload.languageId)
-    if (!serverId || !this.repoCwd) return
-    const uri = documentUriForPath(this.repoCwd, payload.relativePath)
-    const doc = this.documents.get(uri)
-    if (!doc?.lspEnabled) return
     this.ensureServerFor(serverId)
     this.notify(serverId, 'textDocument/didChange', {
-      textDocument: { uri, version: payload.version },
-      contentChanges: [{ text: payload.text }],
+      textDocument: { uri, version },
+      contentChanges: [{ text }],
     })
+  }
+
+  private flushDocumentChange(_payload: { relativePath: string; languageId: string }) {
+    if (this.pendingIncremental.size === 0) return
+    for (const [uri, pending] of [...this.pendingIncremental.entries()]) {
+      this.pendingIncremental.delete(uri)
+      const serverId = languageIdForLsp(pending.languageId)
+      if (!serverId || !this.repoCwd) continue
+      const doc = this.documents.get(uri)
+      if (!doc?.lspEnabled) continue
+      this.ensureServerFor(serverId)
+      this.notify(serverId, 'textDocument/didChange', {
+        textDocument: { uri, version: pending.version },
+        contentChanges: pending.changes,
+      })
+    }
   }
 
   closeDocument(relativePath: string) {

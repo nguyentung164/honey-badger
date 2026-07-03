@@ -456,6 +456,14 @@ export function EditorSettingsDialog({ open, onOpenChange }: EditorSettingsDialo
                     checked={settings.explorerAutoReveal}
                     onCheckedChange={checked => patch({ explorerAutoReveal: checked })}
                   />
+
+                  <ToggleRow
+                    id="editor-restore-tabs"
+                    label={t('editor.settings.restoreEditorTabs')}
+                    description={t('editor.settings.restoreEditorTabsHint')}
+                    checked={settings.restoreEditorTabs}
+                    onCheckedChange={checked => patch({ restoreEditorTabs: checked })}
+                  />
                 </SettingsAccordionSection>
 
                 <SettingsAccordionSection value="workbench-files" title={t('editor.settings.groups.files')} description={t('editor.settings.groups.filesHint')}>

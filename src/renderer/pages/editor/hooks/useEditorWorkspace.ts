@@ -4,14 +4,29 @@ import i18n from '@/lib/i18n'
 import { getEditorLanguage } from '@/lib/monacoLanguage'
 import { useEditorSettings } from '@/pages/editor/hooks/useEditorSettings'
 import { editorCommandBridge, runEditorAction } from '@/pages/editor/lib/editorCommandBridge'
+import { EDITOR_OPEN_FILE_MAX_BYTES, LSP_LARGE_FILE_BYTES } from 'shared/fileUri'
+import { compareSideModelPath } from '@/pages/editor/lib/editorCompareModels'
+import {
+  clearViewStateForTab,
+  disposeCompareModels,
+  disposeTextModel,
+  ensureTextModel,
+  getModelAlternativeVersionId,
+  getModelText,
+  renameModelInRegistry,
+} from '@/pages/editor/lib/editorModelRegistry'
 import {
   commitModelBaseline,
-  isDirtyAgainstBaseline,
+  getModelBaseline,
+  getModelDiskMtimeMs,
+  isDirtyByVersion,
   registerModelBaseline,
   renameModelPath,
   unregisterModel,
 } from '@/pages/editor/lib/editorTextModels'
 import {
+  flushPersistedSession,
+  normalizeEditorRepoKey,
   readPersistedSession,
   schedulePersistedSession,
 } from '@/pages/editor/lib/editorSessionPersist'
@@ -38,7 +53,6 @@ type EditorWorkspaceState = {
   repoCwd: string
   tabs: EditorTab[]
   activeTabId: string | null
-  /** Bumped when tab bar / pane metadata changes — not on Monaco keystrokes. */
   tabsMetaRevision: number
   setRepoCwd: (cwd: string) => void
   openFile: (relativePath: string, opts?: OpenFileOptions) => Promise<void>
@@ -46,13 +60,15 @@ type EditorWorkspaceState = {
   closeTab: (tabId: string) => void
   setActiveTab: (tabId: string) => void
   pinTab: (tabId: string) => void
-  /** VS Code: only sync dirty flag; text lives in Monaco ITextModel. */
-  syncTabDirty: (tabId: string, liveContent: string) => void
+  syncTabDirty: (tabId: string, alternativeVersionId: number) => void
   saveTabViewState: (tabId: string, viewStateJson: string) => void
   saveTab: (tabId: string) => Promise<boolean>
   saveActiveTab: () => Promise<boolean>
   hasDirtyTabs: () => boolean
   reloadTabFromDisk: (relativePath: string) => Promise<void>
+  reloadTabFromDiskIfChanged: (relativePath: string) => Promise<void>
+  prefetchTabContent: (tabId: string) => Promise<boolean>
+  revertDirtyTabs: () => void
   renameExplorerPath: (from: string, to: string) => void
   closeTabsForExplorerDelete: (relativePath: string, isDir: boolean) => void
   resetForRepo: (cwd: string) => void
@@ -65,6 +81,26 @@ function tabIdForPath(relativePath: string): string {
 function isLikelyBinaryPath(relativePath: string): boolean {
   const ext = relativePath.split('.').pop()?.toLowerCase() ?? ''
   return BINARY_EXTENSIONS.has(ext)
+}
+
+async function detectTextFileMeta(
+  relativePath: string,
+  repoCwd: string
+): Promise<{ size: number; mtimeMs: number | null; kind: 'text' | 'image' | 'binary' }> {
+  const detected = await window.api.system.detect_file_kind(relativePath, { cwd: repoCwd })
+  return {
+    size: detected.size ?? 0,
+    mtimeMs: detected.mtimeMs ?? null,
+    kind: detected.kind ?? 'text',
+  }
+}
+
+function emitLargeFileBlocked(relativePath: string, size: number, opts?: OpenFileOptions): void {
+  window.dispatchEvent(
+    new CustomEvent('editor-large-file-blocked', {
+      detail: { relativePath, size, opts },
+    })
+  )
 }
 
 function bumpMeta(revision: number): number {
@@ -89,8 +125,6 @@ function createStubTab(relativePath: string): EditorTab {
     id: tabIdForPath(relativePath),
     relativePath,
     languageId: 'plaintext',
-    content: '',
-    baseline: '',
     isDirty: false,
     isLoading: false,
     contentLoaded: false,
@@ -104,6 +138,25 @@ function createStubTab(relativePath: string): EditorTab {
 
 function pinTabFields(): Pick<EditorTab, 'isPreview' | 'isPinned'> {
   return { isPreview: false, isPinned: true }
+}
+
+async function syncTextModelFromDisk(
+  repoCwd: string,
+  relativePath: string,
+  baseline: string,
+  languageId: string,
+  loadGeneration: number
+): Promise<void> {
+  const monaco = await import('monaco-editor')
+  ensureTextModel(monaco, repoCwd, relativePath, baseline, languageId, loadGeneration)
+}
+
+function resolveTabContent(repoCwd: string, tab: EditorTab, activeTabId: string | null): string {
+  if (tab.kind !== 'text') return ''
+  if (activeTabId === tab.id) {
+    return editorCommandBridge.get()?.getValue() ?? getModelText(repoCwd, tab.relativePath) ?? getModelBaseline(repoCwd, tab.relativePath)
+  }
+  return getModelText(repoCwd, tab.relativePath) ?? getModelBaseline(repoCwd, tab.relativePath)
 }
 
 async function loadTabContentForStore(
@@ -131,6 +184,7 @@ async function loadTabContentForStore(
 
   try {
     if (isLikelyBinaryPath(tab.relativePath)) {
+      const loadGeneration = registerModelBaseline(repoCwd, tab.relativePath, '')
       set(state => ({
         tabsMetaRevision: bumpMeta(state.tabsMetaRevision),
         tabs: state.tabs.map(t =>
@@ -141,7 +195,7 @@ async function loadTabContentForStore(
                 contentLoaded: true,
                 kind: 'binary',
                 languageId: 'plaintext',
-                loadGeneration: registerModelBaseline(repoCwd, tab.relativePath, ''),
+                loadGeneration,
               }
             : t
         ),
@@ -152,15 +206,15 @@ async function loadTabContentForStore(
     const content = await window.api.system.read_file(tab.relativePath, { cwd: repoCwd })
     const languageId = getEditorLanguage(tab.relativePath)
     const baseline = content.replace(/\r\n/g, '\n')
-    const loadGeneration = registerModelBaseline(repoCwd, tab.relativePath, baseline)
+    const meta = await detectTextFileMeta(tab.relativePath, repoCwd)
+    const loadGeneration = registerModelBaseline(repoCwd, tab.relativePath, baseline, meta.mtimeMs)
+    await syncTextModelFromDisk(repoCwd, tab.relativePath, baseline, languageId, loadGeneration)
 
     set(state => {
       const nextTabs = state.tabs.map(t =>
         t.id === tabId
           ? {
               ...t,
-              content: baseline,
-              baseline,
               languageId,
               isLoading: false,
               contentLoaded: true,
@@ -211,6 +265,12 @@ async function loadCompareTabContent(
     const left = leftContent.replace(/\r\n/g, '\n')
     const right = rightContent.replace(/\r\n/g, '\n')
     const languageId = getEditorLanguage(tab.relativePath)
+    const leftPath = compareSideModelPath(tabId, 'left')
+    const rightPath = compareSideModelPath(tabId, 'right')
+    const leftGen = registerModelBaseline(repoCwd, leftPath, left)
+    const rightGen = registerModelBaseline(repoCwd, rightPath, right)
+    await syncTextModelFromDisk(repoCwd, leftPath, left, languageId, leftGen)
+    await syncTextModelFromDisk(repoCwd, rightPath, right, languageId, rightGen)
 
     set(state => ({
       tabsMetaRevision: bumpMeta(state.tabsMetaRevision),
@@ -218,13 +278,10 @@ async function loadCompareTabContent(
         t.id === tabId
           ? {
               ...t,
-              content: left,
-              baseline: left,
-              compareContent: right,
               languageId,
               isLoading: false,
               contentLoaded: true,
-              loadGeneration: (state.tabs.find(x => x.id === tabId)?.loadGeneration ?? 0) + 1,
+              loadGeneration: Math.max(leftGen, rightGen),
             }
           : t
       ),
@@ -252,12 +309,18 @@ export const useEditorWorkspace = create<EditorWorkspaceState>((set, get) => ({
   tabsMetaRevision: 0,
 
   setRepoCwd: cwd => {
-    if (get().repoCwd === cwd) return
+    const prev = get().repoCwd
+    if (prev === cwd || (prev && cwd && normalizeEditorRepoKey(prev) === normalizeEditorRepoKey(cwd))) return
+    if (prev) {
+      const active = get().tabs.find(t => t.id === get().activeTabId)
+      flushPersistedSession(prev, get().tabs, active?.relativePath ?? null)
+    }
     get().resetForRepo(cwd)
   },
 
   resetForRepo: cwd => {
-    const { paths, activePath } = readPersistedSession(cwd)
+    const restoreTabs = useEditorSettings.getState().restoreEditorTabs
+    const { paths, activePath } = readPersistedSession(cwd, restoreTabs)
     const limited = paths.slice(0, MAX_EDITOR_TABS)
     const active = activePath && limited.includes(activePath) ? activePath : limited[0] ?? null
     const stubs = limited.map(p => createStubTab(p))
@@ -321,13 +384,19 @@ export const useEditorWorkspace = create<EditorWorkspaceState>((set, get) => ({
       return
     }
 
+    if (!opts?.forceLarge && !isLikelyBinaryPath(normalized)) {
+      const meta = await detectTextFileMeta(normalized, repoCwd)
+      if (meta.size > EDITOR_OPEN_FILE_MAX_BYTES) {
+        emitLargeFileBlocked(normalized, meta.size, opts)
+        return
+      }
+    }
+
     const id = tabIdForPath(normalized)
     const placeholder: EditorTab = {
       id,
       relativePath: normalized,
       languageId: 'plaintext',
-      content: '',
-      baseline: '',
       isDirty: false,
       isLoading: true,
       contentLoaded: false,
@@ -376,9 +445,6 @@ export const useEditorWorkspace = create<EditorWorkspaceState>((set, get) => ({
       relativePath: left,
       compareWithPath: right,
       languageId: getEditorLanguage(left),
-      content: '',
-      baseline: '',
-      compareContent: '',
       isDirty: false,
       isLoading: true,
       contentLoaded: false,
@@ -400,7 +466,11 @@ export const useEditorWorkspace = create<EditorWorkspaceState>((set, get) => ({
 
   closeTab: tabId => {
     const tab = get().tabs.find(t => t.id === tabId)
-    if (tab && get().repoCwd && tab.kind === 'text') unregisterModel(get().repoCwd, tab.relativePath)
+    const repoCwd = get().repoCwd
+    if (tab && repoCwd && tab.kind === 'compare') {
+      void import('monaco-editor').then(monaco => disposeCompareModels(repoCwd, tab.id, monaco))
+    }
+    clearViewStateForTab(tabId)
 
     set(state => {
       const next = state.tabs.filter(t => t.id !== tabId)
@@ -450,10 +520,12 @@ export const useEditorWorkspace = create<EditorWorkspaceState>((set, get) => ({
     }))
   },
 
-  syncTabDirty: (tabId, liveContent) => {
+  syncTabDirty: (tabId, alternativeVersionId) => {
     const { repoCwd } = get()
     if (!repoCwd) return
-    const isDirty = isDirtyAgainstBaseline(repoCwd, get().tabs.find(t => t.id === tabId)?.relativePath ?? '', liveContent)
+    const tab = get().tabs.find(t => t.id === tabId)
+    if (!tab || tab.kind !== 'text') return
+    const isDirty = isDirtyByVersion(repoCwd, tab.relativePath, alternativeVersionId)
 
     set(state => {
       let changed = false
@@ -474,18 +546,15 @@ export const useEditorWorkspace = create<EditorWorkspaceState>((set, get) => ({
 
   saveTab: async tabId => {
     const settings = useEditorSettings.getState()
-    const { repoCwd } = get()
+    const { repoCwd, activeTabId } = get()
     const tab = get().tabs.find(t => t.id === tabId)
     if (!tab || tab.kind !== 'text' || !repoCwd) return true
 
-    if (settings.formatOnSave && get().activeTabId === tabId) {
+    if (settings.formatOnSave && activeTabId === tabId) {
       await runEditorAction('editor.action.formatDocument')
     }
 
-    const content =
-      get().activeTabId === tabId
-        ? (editorCommandBridge.get()?.getValue() ?? tab.content)
-        : tab.content
+    const content = resolveTabContent(repoCwd, tab, activeTabId)
 
     const result = await window.api.system.write_file(tab.relativePath, content, { cwd: repoCwd })
     if (!result.success) {
@@ -493,12 +562,12 @@ export const useEditorWorkspace = create<EditorWorkspaceState>((set, get) => ({
       return false
     }
 
-    commitModelBaseline(repoCwd, tab.relativePath, content)
+    const versionId = getModelAlternativeVersionId(repoCwd, tab.relativePath)
+    const meta = await detectTextFileMeta(tab.relativePath, repoCwd)
+    commitModelBaseline(repoCwd, tab.relativePath, content, versionId ?? undefined, meta.mtimeMs)
     set(state => ({
       tabs: state.tabs.map(t =>
-        t.id === tabId
-          ? { ...t, content, baseline: content.replace(/\r\n/g, '\n'), isDirty: false, ...pinTabFields() }
-          : t
+        t.id === tabId ? { ...t, isDirty: false, ...pinTabFields() } : t
       ),
       tabsMetaRevision: bumpMeta(state.tabsMetaRevision),
     }))
@@ -522,14 +591,14 @@ export const useEditorWorkspace = create<EditorWorkspaceState>((set, get) => ({
     try {
       const content = await window.api.system.read_file(normalized, { cwd: repoCwd })
       const baseline = content.replace(/\r\n/g, '\n')
-      const loadGeneration = registerModelBaseline(repoCwd, normalized, baseline)
+      const meta = await detectTextFileMeta(normalized, repoCwd)
+      const loadGeneration = registerModelBaseline(repoCwd, normalized, baseline, meta.mtimeMs)
+      await syncTextModelFromDisk(repoCwd, normalized, baseline, tab.languageId, loadGeneration)
       set(state => ({
         tabs: state.tabs.map(t =>
           t.id === tab.id
             ? {
                 ...t,
-                content: baseline,
-                baseline,
                 isDirty: false,
                 contentLoaded: true,
                 loadGeneration,
@@ -543,6 +612,43 @@ export const useEditorWorkspace = create<EditorWorkspaceState>((set, get) => ({
     }
   },
 
+  reloadTabFromDiskIfChanged: async relativePath => {
+    const normalized = relativePath.replace(/\\/g, '/')
+    const { repoCwd, tabs } = get()
+    if (!repoCwd) return
+    const tab = tabs.find(t => t.relativePath === normalized)
+    if (!tab || tab.kind !== 'text' || !tab.contentLoaded) return
+    const prevMtime = getModelDiskMtimeMs(repoCwd, normalized)
+    const meta = await detectTextFileMeta(normalized, repoCwd)
+    if (prevMtime != null && meta.mtimeMs != null && prevMtime === meta.mtimeMs) return
+    await get().reloadTabFromDisk(normalized)
+  },
+
+  prefetchTabContent: async tabId => {
+    const tab = get().tabs.find(t => t.id === tabId)
+    if (!tab || tab.contentLoaded || tab.kind !== 'text' || !get().repoCwd) return false
+    if (!isLikelyBinaryPath(tab.relativePath)) {
+      const meta = await detectTextFileMeta(tab.relativePath, get().repoCwd)
+      if (meta.size > LSP_LARGE_FILE_BYTES) return false
+    }
+    await loadTabContentForStore(get, set, tabId)
+    return true
+  },
+
+  revertDirtyTabs: () => {
+    const { repoCwd, tabs } = get()
+    if (!repoCwd) return
+    for (const tab of tabs) {
+      if (!tab.isDirty || tab.kind !== 'text') continue
+      const baseline = getModelBaseline(repoCwd, tab.relativePath)
+      void syncTextModelFromDisk(repoCwd, tab.relativePath, baseline, tab.languageId, tab.loadGeneration + 1)
+    }
+    set(state => ({
+      tabs: state.tabs.map(t => (t.isDirty ? { ...t, isDirty: false } : t)),
+      tabsMetaRevision: bumpMeta(state.tabsMetaRevision),
+    }))
+  },
+
   renameExplorerPath: (from, to) => {
     const fromNorm = normalizeExplorerPath(from)
     const toNorm = normalizeExplorerPath(to)
@@ -550,6 +656,10 @@ export const useEditorWorkspace = create<EditorWorkspaceState>((set, get) => ({
 
     const { repoCwd } = get()
     if (!repoCwd) return
+
+    void import('monaco-editor').then(monaco => {
+      renameModelInRegistry(repoCwd, fromNorm, toNorm, monaco)
+    })
 
     set(state => {
       let activeTabId = state.activeTabId
@@ -614,7 +724,11 @@ export const useEditorWorkspace = create<EditorWorkspaceState>((set, get) => ({
     if (closing.length === 0) return
 
     for (const tab of closing) {
-      unregisterModel(repoCwd, tab.relativePath)
+      if (tab.kind === 'text') {
+        disposeTextModel(repoCwd, tab.relativePath)
+        unregisterModel(repoCwd, tab.relativePath)
+      }
+      clearViewStateForTab(tab.id)
     }
 
     set(state => {

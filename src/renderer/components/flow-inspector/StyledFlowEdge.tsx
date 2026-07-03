@@ -131,7 +131,6 @@ export const StyledFlowEdge = memo(function StyledFlowEdge(props: EdgeProps) {
       },
       {
         path,
-        runOrder: d.runOrder,
         fanMax: d.runOrderFanMax,
         fanIndex: d.runOrderFanIndex,
         strokeWidthPx: strokeW,

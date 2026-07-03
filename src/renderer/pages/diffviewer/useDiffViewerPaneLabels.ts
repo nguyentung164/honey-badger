@@ -1,4 +1,4 @@
-import type { editor as MonacoEditor } from 'monaco-editor'
+import type { editor as MonacoEditor, IDisposable } from 'monaco-editor'
 import { useEffect, useRef } from 'react'
 import {
   createDiffViewerPaneLabelHost,
@@ -47,7 +47,7 @@ export function useDiffViewerPaneLabels({
     let cancelled = false
     let retryTimer: number | undefined
     let retryCount = 0
-    const disposables: MonacoEditor.IDisposable[] = []
+    const disposables: IDisposable[] = []
 
     const removeHosts = () => {
       for (const host of [hostsRef.current.original, hostsRef.current.modified]) {

@@ -50,3 +50,8 @@ export type WorkspaceFileChangedEvent = {
   relativePath: string
   event: 'add' | 'change' | 'unlink'
 }
+
+export type ListWorkspaceFilesResult = {
+  files: string[]
+  truncated: boolean
+}

@@ -158,6 +158,10 @@ interface TitleBarProps {
   onTerminalToggle?: () => void
   /** When true, show terminal toggle on every shell tab (not only VCS). */
   terminalAvailable?: boolean
+  /** Prompt to save dirty editor tabs before repo/project/branch changes (Editor tab). */
+  onEditorWorkspaceGuard?: (proceed: () => void) => void
+  multiRepoActiveTab?: string
+  onMultiRepoActiveChange?: (tabId: string) => void
 }
 
 function TitleBarClockFlagVn({ size = 16 }: { size?: number }) {
@@ -234,6 +238,9 @@ export const TitleBar = ({
   terminalOpen = false,
   onTerminalToggle,
   terminalAvailable,
+  onEditorWorkspaceGuard,
+  multiRepoActiveTab = '0',
+  onMultiRepoActiveChange,
 }: TitleBarProps) => {
   const navigate = useNavigate()
   const { t } = useTranslation()
@@ -594,6 +601,19 @@ export const TitleBar = ({
     userJustSelectedProjectIdRef.current = projectId
     useSelectedProjectStore.getState().setSelectedProjectId(projectId)
   }, [])
+
+  const runWithEditorGuard = useCallback(
+    (action: () => void | Promise<void>) => {
+      if (enableShellSwitcher && shellView === 'editor' && onEditorWorkspaceGuard) {
+        onEditorWorkspaceGuard(() => {
+          void action()
+        })
+        return
+      }
+      void action()
+    },
+    [enableShellSwitcher, onEditorWorkspaceGuard, shellView]
+  )
 
   const loadSourceFoldersRequestIdRef = useRef<string | null>(null)
   const dataSnapshotRef = useRef<string | null>(null)
@@ -1350,6 +1370,8 @@ export const TitleBar = ({
 
   const canOpenEvmTool = Boolean(user && !isGuest && ['admin', 'pl', 'pm'].includes(user.role))
   const showVcsChrome = !hideVcsToolbar && (!enableShellSwitcher || shellView === 'vcs')
+  const showWorkspaceRepoChrome =
+    !hideVcsToolbar && (!enableShellSwitcher || shellView === 'vcs' || shellView === 'editor')
   const showTerminalToggle =
     Boolean(onTerminalToggle) &&
     (terminalAvailable ??
@@ -1758,36 +1780,40 @@ export const TitleBar = ({
   const switchBranch = async (branchName: string) => {
     if (branchName === currentBranch || !gitContextPath) return
 
-    try {
-      // Try checkout first; Git only fails when local changes would be overwritten
-      // (untracked files that don't conflict, or only staged new files, switch normally)
-      const result = await window.api.git.checkout_branch(branchName, undefined, gitContextPath)
+    const doSwitch = async () => {
+      try {
+        // Try checkout first; Git only fails when local changes would be overwritten
+        // (untracked files that don't conflict, or only staged new files, switch normally)
+        const result = await window.api.git.checkout_branch(branchName, undefined, gitContextPath)
 
-      if (result.status === 'error' && result.data?.hasUncommittedChanges) {
-        setPendingBranchSwitch(branchName)
-        const rawFiles = result.data.files || []
-        setUncommittedFiles(
-          Array.isArray(rawFiles)
-            ? rawFiles.map((file: any) => ({
-              filePath: typeof file === 'string' ? file : file.path,
-              status: file.working_dir ?? file.index ?? 'M',
-            }))
-            : []
-        )
-        setShowGitSwitchBranchDialog(true)
-        return
-      }
+        if (result.status === 'error' && result.data?.hasUncommittedChanges) {
+          setPendingBranchSwitch(branchName)
+          const rawFiles = result.data.files || []
+          setUncommittedFiles(
+            Array.isArray(rawFiles)
+              ? rawFiles.map((file: any) => ({
+                filePath: typeof file === 'string' ? file : file.path,
+                status: file.working_dir ?? file.index ?? 'M',
+              }))
+              : []
+          )
+          setShowGitSwitchBranchDialog(true)
+          return
+        }
 
-      if (result.status === 'success') {
-        toast.success(`Đã chuyển sang branch ${branchName}`)
-        await refreshGitStatus()
-      } else {
-        toast.error(result.message || 'Không thể chuyển branch')
+        if (result.status === 'success') {
+          toast.success(`Đã chuyển sang branch ${branchName}`)
+          await refreshGitStatus()
+        } else {
+          toast.error(result.message || 'Không thể chuyển branch')
+        }
+      } catch (error) {
+        logger.error('Error switching branch:', error)
+        toast.error('Không thể chuyển branch')
       }
-    } catch (error) {
-      logger.error('Error switching branch:', error)
-      toast.error('Không thể chuyển branch')
     }
+
+    runWithEditorGuard(doSwitch)
   }
 
   const handleStashAndSwitch = async () => {
@@ -1885,70 +1911,74 @@ export const TitleBar = ({
       return
     }
 
-    setIsChangingFolder(true)
-    const startTime = Date.now()
-    try {
-      setCurrentFolder(folderName)
-      localStorage.setItem('current-source-folder', folderName)
-      setFieldConfiguration('sourceFolder', folder.path)
+    const applyFolderChange = async () => {
+      setIsChangingFolder(true)
+      const startTime = Date.now()
+      try {
+        setCurrentFolder(folderName)
+        localStorage.setItem('current-source-folder', folderName)
+        setFieldConfiguration('sourceFolder', folder.path)
 
-      // Dùng cache folderVCSTypes đã detect khi load - tránh gọi detect_version_control lại (execSync ~200-500ms)
-      const cachedVcs = folderVCSTypes[folderName]
-      if (cachedVcs && cachedVcs !== 'none') {
-        setFieldConfiguration('versionControlSystem', cachedVcs)
-        await saveConfigurationConfig()
-        window.dispatchEvent(new CustomEvent('configuration-changed', { detail: { type: 'configuration' } }))
-        return
-      }
-      if (cachedVcs === 'none') {
-        await saveConfigurationConfig()
-        window.dispatchEvent(new CustomEvent('configuration-changed', { detail: { type: 'configuration', clearData: true } }))
-        return
-      }
-
-      // Fallback: folder mới chưa có trong cache (hiếm khi xảy ra)
-      const detectResult = await window.api.system.detect_version_control(folder.path)
-      if (detectResult.status === 'success' && detectResult.data) {
-        const { type: detectedType, isValid } = detectResult.data
-        if (isValid && detectedType !== 'none') {
-          setFieldConfiguration('versionControlSystem', detectedType as 'svn' | 'git')
+        // Dùng cache folderVCSTypes đã detect khi load - tránh gọi detect_version_control lại (execSync ~200-500ms)
+        const cachedVcs = folderVCSTypes[folderName]
+        if (cachedVcs && cachedVcs !== 'none') {
+          setFieldConfiguration('versionControlSystem', cachedVcs)
           await saveConfigurationConfig()
           window.dispatchEvent(new CustomEvent('configuration-changed', { detail: { type: 'configuration' } }))
+          return
+        }
+        if (cachedVcs === 'none') {
+          await saveConfigurationConfig()
+          window.dispatchEvent(new CustomEvent('configuration-changed', { detail: { type: 'configuration', clearData: true } }))
+          return
+        }
+
+        // Fallback: folder mới chưa có trong cache (hiếm khi xảy ra)
+        const detectResult = await window.api.system.detect_version_control(folder.path)
+        if (detectResult.status === 'success' && detectResult.data) {
+          const { type: detectedType, isValid } = detectResult.data
+          if (isValid && detectedType !== 'none') {
+            setFieldConfiguration('versionControlSystem', detectedType as 'svn' | 'git')
+            await saveConfigurationConfig()
+            window.dispatchEvent(new CustomEvent('configuration-changed', { detail: { type: 'configuration' } }))
+          } else {
+            toast.warning(`Folder "${folderName}" không phải Git hoặc SVN repository`)
+            await saveConfigurationConfig()
+            window.dispatchEvent(new CustomEvent('configuration-changed', { detail: { type: 'configuration', clearData: true } }))
+          }
         } else {
-          toast.warning(`Folder "${folderName}" không phải Git hoặc SVN repository`)
+          toast.error('Không thể phát hiện loại repository')
           await saveConfigurationConfig()
           window.dispatchEvent(new CustomEvent('configuration-changed', { detail: { type: 'configuration', clearData: true } }))
         }
-      } else {
-        toast.error('Không thể phát hiện loại repository')
-        await saveConfigurationConfig()
-        window.dispatchEvent(new CustomEvent('configuration-changed', { detail: { type: 'configuration', clearData: true } }))
-      }
-    } catch (error) {
-      logger.error('Error changing folder:', error)
-      const errMsg = error instanceof Error ? error.message : String(error)
-      toast.error(`Không thể thay đổi folder: ${errMsg}`)
-      // Revert: reload config từ file (chưa lưu được) rồi sync currentFolder
-      try {
-        await loadConfigurationConfig()
-        const cfgPath = useConfigurationStore.getState().sourceFolder
-        const prevFolder = sourceFolders.find(f => normalizePathForCompare(f.path) === normalizePathForCompare(cfgPath))?.name ?? sourceFolders[0]?.name
-        if (prevFolder) {
-          setCurrentFolder(prevFolder)
-          localStorage.setItem('current-source-folder', prevFolder)
+      } catch (error) {
+        logger.error('Error changing folder:', error)
+        const errMsg = error instanceof Error ? error.message : String(error)
+        toast.error(`Không thể thay đổi folder: ${errMsg}`)
+        // Revert: reload config từ file (chưa lưu được) rồi sync currentFolder
+        try {
+          await loadConfigurationConfig()
+          const cfgPath = useConfigurationStore.getState().sourceFolder
+          const prevFolder = sourceFolders.find(f => normalizePathForCompare(f.path) === normalizePathForCompare(cfgPath))?.name ?? sourceFolders[0]?.name
+          if (prevFolder) {
+            setCurrentFolder(prevFolder)
+            localStorage.setItem('current-source-folder', prevFolder)
+          }
+        } catch (revertErr) {
+          logger.error('Error reverting folder state:', revertErr)
         }
-      } catch (revertErr) {
-        logger.error('Error reverting folder state:', revertErr)
+      } finally {
+        // Đảm bảo loading hiển thị ít nhất 400ms để user thấy được
+        const elapsed = Date.now() - startTime
+        const minVisibleMs = 400
+        if (elapsed < minVisibleMs) {
+          await new Promise(r => setTimeout(r, minVisibleMs - elapsed))
+        }
+        setIsChangingFolder(false)
       }
-    } finally {
-      // Đảm bảo loading hiển thị ít nhất 400ms để user thấy được
-      const elapsed = Date.now() - startTime
-      const minVisibleMs = 400
-      if (elapsed < minVisibleMs) {
-        await new Promise(r => setTimeout(r, minVisibleMs - elapsed))
-      }
-      setIsChangingFolder(false)
     }
+
+    runWithEditorGuard(applyFolderChange)
   }
 
   const openSvnUpdateDialog = () => {
@@ -2812,7 +2842,7 @@ export const TitleBar = ({
             </div>
           )}
 
-          {showVcsChrome && (
+          {showWorkspaceRepoChrome && (
             <div className="flex gap-1 items-center justify-center h-full px-2" style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties}>
               {/* Refresh VCS Info Button - chỉ hiện với SVN (Git đã có Fetch trong dropdown Pull/Sync) */}
               {sourceFolders.length > 0 && currentFolder && versionControlSystem === 'svn' && (
@@ -2876,12 +2906,19 @@ export const TitleBar = ({
                             ) : (
                               <>
                                 {!isMultiRepoWorkspace && (
-                                  <DropdownMenuItem onClick={() => handleProjectSelect(null)} className={!selectedProjectId ? 'bg-muted' : ''}>
+                                  <DropdownMenuItem
+                                    onClick={() => runWithEditorGuard(() => handleProjectSelect(null))}
+                                    className={!selectedProjectId ? 'bg-muted' : ''}
+                                  >
                                     {t('showlog.allProjects', 'Tất cả')}
                                   </DropdownMenuItem>
                                 )}
                                 {projects.map(p => (
-                                  <DropdownMenuItem key={p.id} onClick={() => handleProjectSelect(p.id)} className={selectedProjectId === p.id ? 'bg-muted' : ''}>
+                                  <DropdownMenuItem
+                                    key={p.id}
+                                    onClick={() => runWithEditorGuard(() => handleProjectSelect(p.id))}
+                                    className={selectedProjectId === p.id ? 'bg-muted' : ''}
+                                  >
                                     {p.name}
                                   </DropdownMenuItem>
                                 ))}
@@ -2897,6 +2934,43 @@ export const TitleBar = ({
                       <ChevronRight className="h-3.5 w-3.5 text-pink-600 dark:text-pink-400 shrink-0" aria-hidden />
                     )}
                   {isMultiRepo && multiRepoLabels.length > 0 ? (
+                    enableShellSwitcher && shellView === 'editor' && onMultiRepoActiveChange && multiRepoLabels.length > 1 ? (
+                      <DropdownMenu>
+                        <Tooltip>
+                          <TooltipTrigger asChild>
+                            <DropdownMenuTrigger asChild>
+                              <Button
+                                variant="ghost"
+                                size="sm"
+                                className="flex items-center gap-1 px-2 py-1 h-7 text-xs font-medium rounded-r-md border-0 bg-transparent text-pink-800 dark:text-pink-400 hover:bg-muted hover:text-pink-900! dark:hover:text-pink-300!"
+                              >
+                                <GitBranch className="h-3 w-3 shrink-0" />
+                                <span className="font-medium max-w-[10rem] truncate">
+                                  {multiRepoLabels[Number(multiRepoActiveTab)] ?? multiRepoLabels[0]}
+                                </span>
+                                <ChevronDown className="h-3 w-3" />
+                              </Button>
+                            </DropdownMenuTrigger>
+                          </TooltipTrigger>
+                          <TooltipContent>{t('editor.titleBar.activeRepo', 'Repo đang mở')}</TooltipContent>
+                        </Tooltip>
+                        <DropdownMenuContent align="center">
+                          {multiRepoLabels.map((label, i) => (
+                            <DropdownMenuItem
+                              key={multiRepoPaths[i] ?? label}
+                              onClick={() =>
+                                runWithEditorGuard(() => {
+                                  onMultiRepoActiveChange(String(i))
+                                })
+                              }
+                              className={multiRepoActiveTab === String(i) ? 'bg-muted' : ''}
+                            >
+                              {label}
+                            </DropdownMenuItem>
+                          ))}
+                        </DropdownMenuContent>
+                      </DropdownMenu>
+                    ) : (
                     <span
                       className="flex items-center gap-1.5 px-2 py-1 text-xs font-medium rounded-md bg-muted/50 text-pink-800 dark:text-pink-400"
                       style={{ maxWidth: 'clamp(120px, 30vw, 600px)' }}
@@ -2932,6 +3006,7 @@ export const TitleBar = ({
                         })}
                       </span>
                     </span>
+                    )
                   ) : isMultiRepoWorkspace ? null : sourceFolders.length > 0 ? (
                     <DropdownMenu onOpenChange={open => open && refreshSourceFoldersList()}>
                       <Tooltip>

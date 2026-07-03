@@ -256,8 +256,12 @@
     "emptyState": "Chưa mở tệp",
     "emptyStateHint": "Chọn tệp từ Trình khám phá hoặc Tìm kiếm để mở.",
     "openFileFailed": "Không thể mở tệp.",
+    "largeFileTitle": "Tệp lớn",
+    "largeFileDescription": "{{file}} có dung lượng {{size}}. Mở tệp có thể làm chậm trình soạn thảo.",
+    "largeFileOpenAnyway": "Vẫn mở",
     "saveFailed": "Không thể lưu tệp.",
     "maxTabsReached": "Tối đa {{count}} tab. Đóng một tab để mở thêm.",
+    "unsavedWait": "Editor đang tải. Vui lòng thử lại sau giây lát.",
     "binaryNotEditable": "{{path}} không phải tệp văn bản nên không thể chỉnh sửa.",
     "searchPlaceholder": "Tìm kiếm",
     "searchHint": "Nhập để tìm trong các tệp của workspace.",
@@ -386,6 +390,8 @@
       "breadcrumbsHint": "Đường dẫn tệp phía trên editor và điều hướng symbol trong editor.",
       "explorerAutoReveal": "Hiện file đang mở trong Explorer",
       "explorerAutoRevealHint": "Khi đổi tab editor, tự mở thư mục và highlight file đang mở trong cây Explorer.",
+      "restoreEditorTabs": "Khôi phục tab editor khi mở app",
+      "restoreEditorTabsHint": "Mở lại các file từ phiên editor trước khi quay lại repository (giống VS Code restore window).",
       "renderWhitespace": "Hiển thị khoảng trắng",
       "renderWhitespaceNone": "Không",
       "renderWhitespaceSelection": "Vùng chọn",
@@ -461,6 +467,9 @@
         "hc-black": "Tương phản cao (tối)",
         "hc-light": "Tương phản cao (sáng)"
       }
+    },
+    "titleBar": {
+      "activeRepo": "Repo đang mở"
     }
   },
   "contextMenu": {
