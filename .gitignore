@@ -33,3 +33,6 @@ yarn-error.log*
 # Local MCP — may contain bearer tokens (e.g. Lazyweb)
 /.cursor/mcp.json
 dev-app-update.yml
+
+# Generated from vscode-material-icons on postinstall (scripts/copy-material-icons.mjs)
+/src/resources/public/material-icons/

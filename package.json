@@ -2,7 +2,7 @@
   "displayName": "Honey Badger",
   "name": "honey-badger",
   "description": "Honey Badger",
-  "version": "1.1.7",
+  "version": "1.1.9",
   "main": "./node_modules/.dev/main/index.js",
   "resources": "src/resources",
   "author": {
@@ -16,13 +16,14 @@
   },
   "scripts": {
     "start": "electron-vite preview",
-    "predev": "run-s clean:dev",
+    "predev": "run-s clean:dev copy:material-icons",
     "dev": "cross-env NODE_ENV=development electron-vite dev --watch",
     "compile:app": "electron-vite build",
     "compile:packageJSON": "tsx ./src/lib/electron-app/release/modules/prebuild.ts",
     "prebuild": "run-s clean:dev compile:app compile:packageJSON",
     "build": "pnpm electron-builder --publish always",
-    "postinstall": "run-s prebuild install:deps",
+    "postinstall": "run-s copy:material-icons prebuild install:deps",
+    "copy:material-icons": "node scripts/copy-material-icons.mjs",
     "install:deps": "electron-builder install-app-deps",
     "make:release": "tsx ./src/lib/electron-app/release/modules/release.ts",
     "release": "pnpm electron-builder --publish always",
@@ -158,6 +159,7 @@
     "tailwindcss-animate": "^1.0.7",
     "uuid": "^13.0.0",
     "vaul": "^1.1.2",
+    "vscode-material-icons": "^0.1.1",
     "zustand": "^5.0.12"
   },
   "devDependencies": {
