@@ -1,7 +1,7 @@
 'use client'
 import { Editor, useMonaco } from '@monaco-editor/react'
 import { FileWarning, GitMerge, SearchCheck, SendHorizontal } from 'lucide-react'
-import { forwardRef, useEffect, useRef, useState } from 'react'
+import { forwardRef, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { MERGE_STATUS_COLOR_CLASS_MAP, MERGE_STATUS_TEXT, type SvnMergeStatusCode } from '@/components/shared/constants'
 import { Button } from '@/components/ui/button'
@@ -18,7 +18,8 @@ import { GlowLoader } from '@/components/ui-elements/GlowLoader'
 import toast from '@/components/ui-elements/Toast'
 import { cn } from '@/lib/utils'
 import logger from '@/services/logger'
-import { useAppearanceStore, useButtonVariant } from '@/stores/useAppearanceStore'
+import { useButtonVariant } from '@/stores/useAppearanceStore'
+import { useAppMonacoThemeId, useSyncAppMonacoTheme } from '@/hooks/useAppMonacoTheme'
 import { SvnFileTable } from '../main/SvnFileTable'
 import { MergeSvnToolbar } from './MergeSvnToolbar'
 
@@ -53,8 +54,9 @@ interface MergeOutputItem {
 export function MergeSvn() {
   const { t } = useTranslation()
   const variant = useButtonVariant()
-  const { themeMode } = useAppearanceStore()
   const monaco = useMonaco()
+  const monacoTheme = useAppMonacoThemeId()
+  useSyncAppMonacoTheme(monaco, { includeDiff: true, includeEditorRules: false })
   const tableRef = useRef<any>(null)
   const [isLoading, setIsLoading] = useState(false)
   const [activeTab, setActiveTab] = useState('setup')
@@ -73,40 +75,6 @@ export function MergeSvn() {
   const [mergeTableSortDirection, setMergeTableSortDirection] = useState<'asc' | 'desc'>('asc')
   const [commitsSort, setCommitsSort] = useState<string | null>(null)
   const [commitsSortDirection, setCommitsSortDirection] = useState<'asc' | 'desc'>('asc')
-
-  useEffect(() => {
-    if (!monaco) return
-    monaco.editor.defineTheme('custom-dark', {
-      base: 'vs-dark',
-      inherit: true,
-      rules: [],
-      colors: {
-        'editor.background': '#202020',
-        'editorLineNumber.foreground': '#6c7086',
-        'editorCursor.foreground': '#f38ba8',
-        'diffEditor.insertedTextBackground': '#00fa5120',
-        'diffEditor.removedTextBackground': '#ff000220',
-        'diffEditor.insertedLineBackground': '#00aa5120',
-        'diffEditor.removedLineBackground': '#aa000220',
-      },
-    })
-    monaco.editor.defineTheme('custom-light', {
-      base: 'vs',
-      inherit: true,
-      rules: [],
-      colors: {
-        'editor.background': '#f9f9f9',
-        'editorLineNumber.foreground': '#9aa2b1',
-        'editorCursor.foreground': '#931845',
-        'diffEditor.insertedTextBackground': '#a2f3bdcc',
-        'diffEditor.removedTextBackground': '#f19999cc',
-        'diffEditor.insertedLineBackground': '#b7f5c6cc',
-        'diffEditor.removedLineBackground': '#f2a8a8cc',
-      },
-    })
-    const selectedTheme = themeMode === 'dark' ? 'custom-dark' : 'custom-light'
-    monaco.editor.setTheme(selectedTheme)
-  }, [monaco, themeMode])
 
   const checkMerge = async () => {
     setCommits([])
@@ -659,7 +627,7 @@ export function MergeSvn() {
                                 <Editor
                                   height="100%"
                                   language="typescript"
-                                  theme={themeMode === 'dark' ? 'custom-dark' : 'custom-light'}
+                                  theme={monacoTheme}
                                   value={selectedConflict.content.base}
                                   options={{
                                     renderWhitespace: 'all',
@@ -685,7 +653,7 @@ export function MergeSvn() {
                                 <Editor
                                   height="100%"
                                   language="typescript"
-                                  theme={themeMode === 'dark' ? 'custom-dark' : 'custom-light'}
+                                  theme={monacoTheme}
                                   value={selectedConflict.content.working}
                                   options={{
                                     renderWhitespace: 'all',
@@ -722,7 +690,7 @@ export function MergeSvn() {
                                     language="typescript"
                                     modified={selectedConflict.content.theirs}
                                     original={selectedConflict.content.mine}
-                                    theme={themeMode === 'dark' ? 'custom-dark' : 'custom-light'}
+                                    theme={monacoTheme}
                                     options={{
                                       renderWhitespace: 'all',
                                       readOnly: true,

@@ -1,6 +1,7 @@
 'use client'
 
 import { DiffEditor, useMonaco } from '@monaco-editor/react'
+import { useAppMonacoThemeId, useSyncAppMonacoTheme } from '@/hooks/useAppMonacoTheme'
 import { Archive, Eye, GitBranch, Loader2, Pencil, Trash2 } from 'lucide-react'
 import { useEffect, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
@@ -26,7 +27,7 @@ import toast from '@/components/ui-elements/Toast'
 import { getEditorLanguage } from '@/lib/editorLanguage'
 import { cn } from '@/lib/utils'
 import logger from '@/services/logger'
-import { useAppearanceStore, useAppearanceStoreSelect } from '@/stores/useAppearanceStore'
+import { useAppearanceStoreSelect } from '@/stores/useAppearanceStore'
 
 interface StashEntry {
   index: number
@@ -60,53 +61,15 @@ interface GitStashDialogProps {
   cwd?: string
 }
 
-const STASH_VIEWER_THEME_DARK = 'stash-viewer-dark'
-const STASH_VIEWER_THEME_LIGHT = 'stash-viewer-light'
-
 export function GitStashDialog({ open, onOpenChange, onStashApplied, cwd }: GitStashDialogProps) {
   const { t } = useTranslation()
   const buttonVariant = useAppearanceStoreSelect(s => s.buttonVariant)
   const language = useAppearanceStoreSelect(s => s.language)
-  const { themeMode } = useAppearanceStore()
   const monaco = useMonaco()
+  const monacoTheme = useAppMonacoThemeId()
+  useSyncAppMonacoTheme(monaco, { includeDiff: true, includeEditorRules: false })
 
-  useEffect(() => {
-    if (!monaco) return
-    monaco.editor.defineTheme(STASH_VIEWER_THEME_DARK, {
-      base: 'vs-dark',
-      inherit: true,
-      rules: [],
-      colors: {
-        'editor.background': '#1e1e1e',
-        'editorLineNumber.foreground': '#6c7086',
-        'diffEditor.insertedTextBackground': '#00fa5120',
-        'diffEditor.removedTextBackground': '#ff000220',
-        'diffEditor.insertedLineBackground': '#00aa5120',
-        'diffEditor.removedLineBackground': '#aa000220',
-      },
-    })
-    monaco.editor.defineTheme(STASH_VIEWER_THEME_LIGHT, {
-      base: 'vs',
-      inherit: true,
-      rules: [],
-      colors: {
-        'editor.background': '#ffffff',
-        'editorLineNumber.foreground': '#9aa2b1',
-        'diffEditor.insertedTextBackground': '#a2f3bdcc',
-        'diffEditor.removedTextBackground': '#f19999cc',
-        'diffEditor.insertedLineBackground': '#b7f5c6cc',
-        'diffEditor.removedLineBackground': '#f2a8a8cc',
-      },
-    })
-  }, [monaco])
-
-  useEffect(() => {
-    if (!monaco) return
-    const theme = themeMode === 'dark' ? STASH_VIEWER_THEME_DARK : STASH_VIEWER_THEME_LIGHT
-    monaco.editor.setTheme(theme)
-  }, [monaco, themeMode])
-
-  const stashEditorTheme = themeMode === 'dark' ? STASH_VIEWER_THEME_DARK : STASH_VIEWER_THEME_LIGHT
+  const stashEditorTheme = monacoTheme
   const stashEditorOptions = {
     readOnly: true,
     fontSize: 12,

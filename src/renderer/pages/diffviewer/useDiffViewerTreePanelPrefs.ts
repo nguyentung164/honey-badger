@@ -11,7 +11,8 @@ const STAGING_CHANGES_PANEL_MIN_SIZE = 15
 const STAGING_CHANGES_PANEL_MAX_SIZE = 85
 const STAGING_STAGED_PANEL_DEFAULT_SIZE = 55
 const STAGING_STAGED_PANEL_MIN_SIZE = 15
-const STAGING_STAGED_PANEL_MAX_SIZE = 85
+export const STAGING_COMMIT_PANEL_MIN_SIZE = 20
+const STAGING_STAGED_PANEL_MAX_SIZE = 100 - STAGING_COMMIT_PANEL_MIN_SIZE
 
 type TreePanelPrefs = {
   viewMode: DiffFileTreeViewMode
@@ -165,7 +166,7 @@ export function useDiffViewerTreePanelPrefs() {
 
   const toggleViewMode = useCallback(() => {
     setPrefs(prev => {
-      const viewMode = prev.viewMode === 'tree' ? 'flat' : 'tree'
+      const viewMode: DiffFileTreeViewMode = prev.viewMode === 'tree' ? 'flat' : 'tree'
       const next = {
         ...prev,
         viewMode,

@@ -3,6 +3,7 @@
 import { useMemo } from 'react'
 import { DiffViewerStagingBadge } from '@/components/git/DiffViewerStagingBadge'
 import { GitFileStatusBadge } from '@/components/git/GitFileStatusBadge'
+import { MaterialFileIcon } from '@/components/icons/MaterialFileIcon'
 import { cn } from '@/lib/utils'
 import { normalizeGitPath } from './diffViewerGitFiles'
 import type { DiffViewerFileEntry } from './diffViewerPayload'
@@ -47,8 +48,9 @@ export function DiffViewerFilePicker({
       )}
       title={entry.filePath}
     >
-      <GitFileStatusBadge status={entry.fileStatus} />
-      <span className="min-w-0 truncate">{fileName}</span>
+      <MaterialFileIcon name={fileName} kind="file" className="h-4.5 w-4.5" />
+      <span className="min-w-0 flex-1 truncate">{fileName}</span>
+      <GitFileStatusBadge status={entry.fileStatus} variant="trailing" />
       {showStageIndicators && entry.stagingState ? (
         <DiffViewerStagingBadge state={entry.stagingState} compact />
       ) : null}

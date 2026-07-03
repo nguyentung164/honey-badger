@@ -1,7 +1,6 @@
 'use client'
 import { Editor, useMonaco } from '@monaco-editor/react'
 import { Bot, Check, Copy, FileCode, Target } from 'lucide-react'
-import { useTheme } from 'next-themes'
 import { type ReactNode, useEffect, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import ReactMarkdown from 'react-markdown'
@@ -16,6 +15,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { GlowLoader } from '@/components/ui-elements/GlowLoader'
 import { OverlayLoader } from '@/components/ui-elements/OverlayLoader'
 import toast from '@/components/ui-elements/Toast'
+import { onAppMonacoBeforeMount, useAppMonacoThemeId, useSyncAppMonacoTheme } from '@/hooks/useAppMonacoTheme'
 import logger from '@/services/logger'
 import { useAppearanceStore, useButtonVariant } from '@/stores/useAppearanceStore'
 import type { BugInstance } from './constants'
@@ -57,9 +57,10 @@ export const SpotbugsAIChat = ({
   const variant = useButtonVariant()
   const { t } = useTranslation()
   const appearanceStore = useAppearanceStore()
-  const { language, themeMode } = appearanceStore
+  const { language } = appearanceStore
   const monaco = useMonaco()
-  const { resolvedTheme } = useTheme()
+  const monacoTheme = useAppMonacoThemeId()
+  useSyncAppMonacoTheme(monaco, { includeDiff: true, includeEditorRules: false })
   const [aiResponses, setAiResponses] = useState<Record<string, Record<string, string>>>({})
   const [aiResponse, setAiResponse] = useState('')
   const [isAiLoading, setIsAiLoading] = useState(false)
@@ -69,86 +70,6 @@ export const SpotbugsAIChat = ({
   const [copiedCode, setCopiedCode] = useState<string | null>(null)
   const [activeTab, setActiveTab] = useState<string>('code')
   const editorRef = useRef<any>(null)
-
-  useEffect(() => {
-    if (!monaco) return
-
-    monaco.editor.defineTheme('custom-dark', {
-      base: 'vs-dark',
-      inherit: true,
-      rules: [],
-      colors: {
-        'editor.background': '#202020',
-        'editorLineNumber.foreground': '#6c7086',
-        'editorCursor.foreground': '#f38ba8',
-        'diffEditor.insertedTextBackground': '#00fa5120',
-        'diffEditor.removedTextBackground': '#ff000220',
-        'diffEditor.insertedLineBackground': '#00aa5120',
-        'diffEditor.removedLineBackground': '#aa000220',
-      },
-    })
-
-    monaco.editor.defineTheme('custom-light', {
-      base: 'vs',
-      inherit: true,
-      rules: [],
-      colors: {
-        'editor.background': '#f9f9f9',
-        'editorLineNumber.foreground': '#9aa2b1',
-        'editorCursor.foreground': '#931845',
-        'diffEditor.insertedTextBackground': '#a2f3bdcc',
-        'diffEditor.removedTextBackground': '#f19999cc',
-        'diffEditor.insertedLineBackground': '#b7f5c6cc',
-        'diffEditor.removedLineBackground': '#f2a8a8cc',
-      },
-    })
-
-    const selectedTheme = themeMode === 'dark' ? 'custom-dark' : 'custom-light'
-    monaco.editor.setTheme(selectedTheme)
-  }, [monaco, themeMode, resolvedTheme])
-
-  useEffect(() => {
-    const handleStorageChange = (event: StorageEvent) => {
-      if (event.key === 'ui-settings') {
-        try {
-          const storage = JSON.parse(event.newValue || '{}')
-          const currentThemeMode = storage.state?.themeMode
-          if (currentThemeMode && monaco) {
-            const selectedTheme = currentThemeMode === 'dark' ? 'custom-dark' : 'custom-light'
-            monaco.editor.setTheme(selectedTheme)
-          }
-        } catch (error) {
-          logger.error('Error parsing storage event:', error)
-        }
-      }
-    }
-
-    window.addEventListener('storage', handleStorageChange)
-    return () => {
-      window.removeEventListener('storage', handleStorageChange)
-    }
-  }, [monaco])
-
-  useEffect(() => {
-    if (activeTab === 'code' && monaco) {
-      try {
-        const storedSettings = localStorage.getItem('ui-settings')
-        if (storedSettings) {
-          const settings = JSON.parse(storedSettings)
-          const currentThemeMode = settings.state?.themeMode || themeMode
-          const selectedTheme = currentThemeMode === 'dark' ? 'custom-dark' : 'custom-light'
-          monaco.editor.setTheme(selectedTheme)
-        } else {
-          const selectedTheme = themeMode === 'dark' ? 'custom-dark' : 'custom-light'
-          monaco.editor.setTheme(selectedTheme)
-        }
-      } catch (error) {
-        logger.error('Error reading theme from localStorage:', error)
-        const selectedTheme = themeMode === 'dark' ? 'custom-dark' : 'custom-light'
-        monaco.editor.setTheme(selectedTheme)
-      }
-    }
-  }, [activeTab, monaco, themeMode])
 
   useEffect(() => {
     setIsAiLoading(false)
@@ -412,19 +333,8 @@ export const SpotbugsAIChat = ({
               <Editor
                 defaultLanguage="java"
                 value={fileContents[selectedSourceLine] || '// Không có nội dung file'}
-                theme={(() => {
-                  try {
-                    const storedSettings = localStorage.getItem('ui-settings')
-                    if (storedSettings) {
-                      const settings = JSON.parse(storedSettings)
-                      const currentThemeMode = settings.state?.themeMode || themeMode
-                      return currentThemeMode === 'dark' ? 'custom-dark' : 'custom-light'
-                    }
-                  } catch (error) {
-                    logger.error('Error reading theme from localStorage:', error)
-                  }
-                  return themeMode === 'dark' ? 'custom-dark' : 'custom-light'
-                })()}
+                theme={monacoTheme}
+                beforeMount={onAppMonacoBeforeMount}
                 key={`monaco-editor-${selectedSourceLine}-${activeTab}`}
                 options={{
                   renderWhitespace: 'all',

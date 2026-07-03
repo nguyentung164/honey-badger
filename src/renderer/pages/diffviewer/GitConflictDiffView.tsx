@@ -28,7 +28,9 @@ import {
 import { useConfigurationStore } from '@/stores/useConfigurationStore'
 import { DiffConflictToolbar } from './DiffConflictToolbar'
 import { DiffViewerConflictPane } from './DiffViewerConflictPane'
-import { DiffViewerFileTreePanel } from './DiffViewerFileTreePanel'
+import { DiffViewerFileTreePanel, type DiffViewerFileTreeBulkAction } from './DiffViewerFileTreePanel'
+import toast from '@/components/ui-elements/Toast'
+import { resolveDiffViewerRevealPath } from './diffViewerUtils'
 import { GlowLoader } from '@/components/ui-elements/GlowLoader'
 import { enrichDiffViewerPayload } from './diffViewerPayload'
 import type { DiffViewerLoadPayload } from './diffViewerPayload'
@@ -111,7 +113,7 @@ export const GitConflictDiffView = forwardRef<CodeDiffViewerHandle, GitConflictD
       if (autoAdvance && prevPath) {
         const prevIdx = session.files.findIndex(f => pathsEqual(f.filePath, prevPath))
         if (prevIdx >= 0) {
-          nextIndex = wrapFileNavIndex(prevIdx + 1, session.files.length)
+          nextIndex = wrapFileNavIndex(prevIdx, 1, session.files.length) ?? 0
         }
       } else if (prevPath) {
         const sameIdx = session.files.findIndex(f => pathsEqual(f.filePath, prevPath))
@@ -197,6 +199,40 @@ export const GitConflictDiffView = forwardRef<CodeDiffViewerHandle, GitConflictD
       }
     }, [activeIndex, initFiles, refreshSession])
 
+    const handleTreeBulkAction = useCallback(
+      async (action: DiffViewerFileTreeBulkAction, indices: number[]) => {
+        if (indices.length === 0) return
+        const uniqueIndices = [...new Set(indices)].filter(index => index >= 0 && index < files.length)
+        if (uniqueIndices.length === 0) return
+
+        const selectedPaths = [
+          ...new Set(
+            uniqueIndices
+              .map(index => files[index]?.filePath)
+              .filter(Boolean)
+              .map(path => normalizeGitPath(path as string))
+          ),
+        ]
+
+        if (action === 'reveal') {
+          for (const path of selectedPaths) {
+            window.api.system.reveal_in_file_explorer(resolveDiffViewerRevealPath(path, repoCwd))
+          }
+          return
+        }
+
+        if (action === 'openInEditor') {
+          const path = selectedPaths[0]
+          if (!path) return
+          const result = await window.api.system.open_file_in_editor({ filePath: path, cwd: repoCwd })
+          if (!result?.success) {
+            toast.error(result?.error || t('dialog.diffViewer.openInEditorFailed'))
+          }
+        }
+      },
+      [files, repoCwd, t]
+    )
+
     useEffect(() => {
       const handleFilesChanged = () => {
         void handleRefreshAll()
@@ -221,11 +257,15 @@ export const GitConflictDiffView = forwardRef<CodeDiffViewerHandle, GitConflictD
     )
 
     const handlePrevFile = useCallback(() => {
-      navigateToFile(wrapFileNavIndex(activeIndex - 1, files.length))
+      if (files.length <= 1) return
+      const nextIndex = wrapFileNavIndex(activeIndex, -1, files.length)
+      if (nextIndex != null) navigateToFile(nextIndex)
     }, [activeIndex, files.length, navigateToFile])
 
     const handleNextFile = useCallback(() => {
-      navigateToFile(wrapFileNavIndex(activeIndex + 1, files.length))
+      if (files.length <= 1) return
+      const nextIndex = wrapFileNavIndex(activeIndex, 1, files.length)
+      if (nextIndex != null) navigateToFile(nextIndex)
     }, [activeIndex, files.length, navigateToFile])
 
     const handleResolve = useCallback(
@@ -384,6 +424,7 @@ export const GitConflictDiffView = forwardRef<CodeDiffViewerHandle, GitConflictD
                   disabled={Boolean(resolvingFile) || isSaving}
                   isRefreshing={isTreeRefreshing}
                   onSelectFile={navigateToFile}
+                  onBulkAction={(action, indices) => void handleTreeBulkAction(action, indices)}
                   onRefresh={() => void handleRefreshAll()}
                 />
               </div>

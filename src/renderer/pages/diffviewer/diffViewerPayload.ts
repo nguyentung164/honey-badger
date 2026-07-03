@@ -14,11 +14,14 @@ export type DiffViewerMode =
   | 'git-working'
   | 'svn-revision'
   | 'svn-working'
+  | 'workspace-compare'
 
 export type DiffViewerLoadPayload = {
   mode?: DiffViewerMode
   filePath: string
   fileStatus?: string
+  /** Second file for `workspace-compare` mode (original / left). */
+  compareWithPath?: string
   revision?: string
   currentRevision?: string
   isGit?: boolean

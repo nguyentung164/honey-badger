@@ -1,1 +1,1 @@
-["electron", "electron-vite", "@biomejs/biome", "sharp"]
+["electron", "electron-vite", "@biomejs/biome", "sharp", "node-pty"]

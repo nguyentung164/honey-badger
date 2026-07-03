@@ -23,6 +23,9 @@ import { getResolvedWatchPathsForFileWatcher, registerSettingsIpcHandlers } from
 import { registerSourceFolderIpcHandlers } from './ipc/sourcefolder'
 import { registerSvnIpcHandlers } from './ipc/svn'
 import { registerSystemIpcHandlers } from './ipc/system'
+import { registerLspIpcHandlers, stopAllLanguageServers } from './ipc/lsp'
+import { unwatchAllWorkspaces } from './workspace/workspaceWatcher'
+import { registerTerminalIpcHandlers } from './ipc/terminal'
 import { registerTaskIpcHandlers } from './ipc/task'
 import { registerUserIpcHandlers } from './ipc/user'
 import { registerVcsIpcHandlers } from './ipc/vcs'
@@ -58,8 +61,9 @@ import {
 import { initAutoUpdater } from './updater'
 import { initDeveloperModeShortcut } from './utils/developerModeShortcut'
 import { startFileWatcher } from './utils/fileWatcher'
-import { MainWindow } from './windows/main'
+import { initTerminalManager } from './terminal/manager'
 import { initOverlayManager } from './windows/overlayStateManager'
+import { MainWindow } from './windows/main'
 import { setupAppFeatures } from './windows/tray'
 
 export let mainWindow: BrowserWindow | null = null
@@ -96,6 +100,9 @@ makeAppWithSingleInstanceLock(async () => {
   registerOpenAiIpcHandlers()
   registerAiUsageIpcHandlers()
   registerSystemIpcHandlers()
+  registerLspIpcHandlers()
+  initTerminalManager()
+  registerTerminalIpcHandlers()
   registerNotificationsIpcHandlers()
   registerSourceFolderIpcHandlers()
   registerAchievementIpcHandlers()
@@ -172,4 +179,9 @@ makeAppWithSingleInstanceLock(async () => {
     initOverlayManager(win, tray)
     initAutoUpdater(win)
   }
+})
+
+app.on('will-quit', () => {
+  stopAllLanguageServers()
+  unwatchAllWorkspaces()
 })

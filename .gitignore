@@ -36,3 +36,6 @@ dev-app-update.yml
 
 # Generated from vscode-material-icons on postinstall (scripts/copy-material-icons.mjs)
 /src/resources/public/material-icons/
+
+# Generated from sarasa-mono-web on postinstall (scripts/copy-sarasa-fonts.mjs)
+/src/resources/public/fonts/sarasa-mono-sc/

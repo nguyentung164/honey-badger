@@ -1,4 +1,5 @@
 import type { editor as MonacoEditor } from 'monaco-editor'
+import { resolveMonacoLanguageId } from '@/lib/monacoLanguage'
 import type { ChangePosition, CharDiffStats, DiffStats } from './diffViewerTypes'
 
 const DIFF_COMPUTE_TIMEOUT_MS = 10_000
@@ -239,13 +240,7 @@ function getPathExtension(filePath?: string): string {
   return dot === -1 ? '' : fileName.slice(dot + 1).toLowerCase()
 }
 
-/** Map UI/file language to Monaco language id (formatting + highlighting). */
-export function resolveMonacoLanguageId(languageId: string, filePath?: string): string {
-  const ext = getPathExtension(filePath)
-  if (languageId === 'typescript' && ext === 'tsx') return 'typescriptreact'
-  if (languageId === 'javascript' && ext === 'jsx') return 'javascriptreact'
-  return languageId
-}
+export { resolveMonacoLanguageId }
 
 export function syncDiffEditorModelLanguage(
   diffEditor: MonacoEditor.IStandaloneDiffEditor,
@@ -446,7 +441,7 @@ export function goToAdjacentChange(diffEditor: MonacoEditor.IStandaloneDiffEdito
   diffEditor.goToDiff(direction === 'next' ? 'next' : 'previous')
 }
 
-export function goToFirstChange(diffEditor: MonacoEditor.IStandaloneDiffEditor): void {
+export function goToFirstChange(diffEditor: MonacoEditor.IStandaloneDiffEditor, options?: { focus?: boolean }): void {
   const changes = diffEditor.getLineChanges() ?? []
   if (changes.length === 0) return
 
@@ -460,7 +455,9 @@ export function goToFirstChange(diffEditor: MonacoEditor.IStandaloneDiffEditor):
   const editor = preferModified ? diffEditor.getModifiedEditor() : diffEditor.getOriginalEditor()
   editor.setPosition({ lineNumber: line, column: 1 })
   editor.revealLineInCenter(line)
-  editor.focus()
+  if (options?.focus !== false) {
+    editor.focus()
+  }
 }
 
 export function goToLastChange(diffEditor: MonacoEditor.IStandaloneDiffEditor): void {

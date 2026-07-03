@@ -1,12 +1,10 @@
 import Editor, { useMonaco } from '@monaco-editor/react'
 import { FileCode, Target } from 'lucide-react'
-import { useTheme } from 'next-themes'
-import { useEffect, useRef, useState } from 'react'
+import { useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Button } from '@/components/ui/button'
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog'
-import logger from '@/services/logger'
-import { useAppearanceStore } from '@/stores/useAppearanceStore'
+import { onAppMonacoBeforeMount, useAppMonacoThemeId, useSyncAppMonacoTheme } from '@/hooks/useAppMonacoTheme'
 
 interface CodeSnippetDialogProps {
   trigger: React.ReactNode
@@ -20,97 +18,10 @@ interface CodeSnippetDialogProps {
 export const CodeSnippetDialog = ({ trigger, title, fileContent, codeSnippet, startLine, endLine }: CodeSnippetDialogProps) => {
   const { t } = useTranslation()
   const monaco = useMonaco()
-  const { resolvedTheme } = useTheme()
-  const appearanceStore = useAppearanceStore()
+  const monacoTheme = useAppMonacoThemeId()
+  useSyncAppMonacoTheme(monaco, { includeDiff: true, includeEditorRules: false })
   const editorRef = useRef<any>(null)
-
-  useEffect(() => {
-    if (!monaco) return
-
-    monaco.editor.defineTheme('custom-dark', {
-      base: 'vs-dark',
-      inherit: true,
-      rules: [],
-      colors: {
-        'editor.background': '#202020',
-        'editorLineNumber.foreground': '#6c7086',
-        'editorCursor.foreground': '#f38ba8',
-        'diffEditor.insertedTextBackground': '#00fa5120',
-        'diffEditor.removedTextBackground': '#ff000220',
-        'diffEditor.insertedLineBackground': '#00aa5120',
-        'diffEditor.removedLineBackground': '#aa000220',
-      },
-    })
-
-    monaco.editor.defineTheme('custom-light', {
-      base: 'vs',
-      inherit: true,
-      rules: [],
-      colors: {
-        'editor.background': '#f9f9f9',
-        'editorLineNumber.foreground': '#9aa2b1',
-        'editorCursor.foreground': '#931845',
-        'diffEditor.insertedTextBackground': '#a2f3bdcc',
-        'diffEditor.removedTextBackground': '#f19999cc',
-        'diffEditor.insertedLineBackground': '#b7f5c6cc',
-        'diffEditor.removedLineBackground': '#f2a8a8cc',
-      },
-    })
-
-    const selectedTheme = appearanceStore.themeMode === 'dark' ? 'custom-dark' : 'custom-light'
-    monaco.editor.setTheme(selectedTheme)
-  }, [monaco, appearanceStore.themeMode, resolvedTheme])
-
-  useEffect(() => {
-    const handleStorageChange = (event: StorageEvent) => {
-      if (event.key === 'ui-settings') {
-        const storage = JSON.parse(event.newValue || '{}')
-        const html = document.documentElement
-        html.classList.remove('dark', 'light')
-        html.setAttribute('data-theme-mode', storage.state.themeMode)
-        html.setAttribute('data-font-size', storage.state.fontSize)
-        html.setAttribute('data-font-family', storage.state.fontFamily)
-        html.setAttribute('data-button-variant', storage.state.buttonVariant)
-        for (const cls of html.classList) {
-          if (cls.startsWith('theme-')) {
-            html.classList.remove(cls)
-          }
-        }
-        html.classList.add(storage.state.theme)
-        html.classList.add(storage.state.themeMode)
-        const selectedTheme = storage.state.themeMode === 'dark' ? 'custom-dark' : 'custom-light'
-        monaco?.editor.setTheme(selectedTheme)
-      }
-    }
-
-    window.addEventListener('storage', handleStorageChange)
-    return () => {
-      window.removeEventListener('storage', handleStorageChange)
-    }
-  }, [monaco])
-
   const [isOpen, setIsOpen] = useState(false)
-
-  useEffect(() => {
-    if (isOpen && monaco) {
-      try {
-        const storedSettings = localStorage.getItem('ui-settings')
-        if (storedSettings) {
-          const settings = JSON.parse(storedSettings)
-          const currentThemeMode = settings.state?.themeMode || appearanceStore.themeMode
-          const selectedTheme = currentThemeMode === 'dark' ? 'custom-dark' : 'custom-light'
-          monaco.editor.setTheme(selectedTheme)
-        } else {
-          const selectedTheme = appearanceStore.themeMode === 'dark' ? 'custom-dark' : 'custom-light'
-          monaco.editor.setTheme(selectedTheme)
-        }
-      } catch (error) {
-        logger.error('Error reading theme from localStorage:', error)
-        const selectedTheme = appearanceStore.themeMode === 'dark' ? 'custom-dark' : 'custom-light'
-        monaco.editor.setTheme(selectedTheme)
-      }
-    }
-  }, [isOpen, monaco, appearanceStore.themeMode])
 
   const scrollToHighlightedLine = () => {
     if (editorRef.current && startLine !== null && startLine !== undefined) {
@@ -154,19 +65,8 @@ export const CodeSnippetDialog = ({ trigger, title, fileContent, codeSnippet, st
                 height="100%"
                 language={displayLanguage}
                 value={displayContent}
-                theme={(() => {
-                  try {
-                    const storedSettings = localStorage.getItem('ui-settings')
-                    if (storedSettings) {
-                      const settings = JSON.parse(storedSettings)
-                      const currentThemeMode = settings.state?.themeMode || appearanceStore.themeMode
-                      return currentThemeMode === 'dark' ? 'custom-dark' : 'custom-light'
-                    }
-                  } catch (error) {
-                    logger.error('Error reading theme from localStorage:', error)
-                  }
-                  return appearanceStore.themeMode === 'dark' ? 'custom-dark' : 'custom-light'
-                })()}
+                theme={monacoTheme}
+                beforeMount={onAppMonacoBeforeMount}
                 key={`monaco-editor-${title}-${isOpen}`}
                 onMount={(editor, monacoInstance) => {
                   editorRef.current = editor

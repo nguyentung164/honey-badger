@@ -1,11 +1,11 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef } from 'react'
 import type { GroupImperativeHandle } from 'react-resizable-panels'
 
 export const DIFF_VIEWER_TREE_PANEL_ID = 'diff-viewer-tree-panel'
 export const DIFF_VIEWER_EDITOR_PANEL_ID = 'diff-viewer-editor-panel'
 export const DIFF_VIEWER_TREE_PANEL_WIDTH_KEY = 'diff-viewer-tree-panel-width'
 export const DIFF_VIEWER_TREE_PANEL_DEFAULT_WIDTH = 22
-export const DIFF_VIEWER_TREE_PANEL_MIN_WIDTH = 14
+export const DIFF_VIEWER_TREE_PANEL_MIN_WIDTH = 18
 export const DIFF_VIEWER_TREE_PANEL_MAX_WIDTH = 42
 
 function readTreePanelWidth(): number {
@@ -46,12 +46,10 @@ export function toTreePanelPercent(width: number): `${number}%` {
 
 export function useDiffViewerTreePanelWidth() {
   const initialTreeWidthRef = useRef(readTreePanelWidth())
-  const [treePanelWidth, setTreePanelWidth] = useState(initialTreeWidthRef.current)
   const panelGroupRef = useRef<GroupImperativeHandle | null>(null)
-  const treePanelWidthRef = useRef(treePanelWidth)
+  const treePanelWidthRef = useRef(initialTreeWidthRef.current)
   const persistDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const initialLayoutRef = useRef(buildInitialLayout(initialTreeWidthRef.current))
-  treePanelWidthRef.current = treePanelWidth
 
   useEffect(() => {
     return () => {
@@ -64,8 +62,8 @@ export function useDiffViewerTreePanelWidth() {
     const tree = layout[DIFF_VIEWER_TREE_PANEL_ID]
     if (typeof tree !== 'number') return
     const next = clampTreePanelWidth(tree)
+    if (treePanelWidthRef.current === next) return
     treePanelWidthRef.current = next
-    setTreePanelWidth(next)
     if (persistDebounceRef.current) clearTimeout(persistDebounceRef.current)
     persistDebounceRef.current = setTimeout(() => {
       writeTreePanelWidth(next)
@@ -74,7 +72,6 @@ export function useDiffViewerTreePanelWidth() {
   }, [])
 
   return {
-    treePanelWidth,
     panelGroupRef,
     initialLayout: initialLayoutRef.current,
     handleLayoutChanged,

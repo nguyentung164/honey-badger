@@ -6,7 +6,7 @@ import type { AiRepairProposal } from 'shared/automation/types'
 import { Button } from '@/components/ui/button'
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import toast from '@/components/ui-elements/Toast'
-import { useAppearanceStoreSelect } from '@/stores/useAppearanceStore'
+import { onAppMonacoBeforeMount, useGlobalAppMonacoThemeSync } from '@/hooks/useAppMonacoTheme'
 
 interface Props {
   caseResultId: string | null
@@ -17,7 +17,7 @@ interface Props {
 
 export function AiRepairDialog({ caseResultId, open, onOpenChange, onApplied }: Props) {
   const { t } = useTranslation()
-  const themeMode = useAppearanceStoreSelect(s => s.themeMode)
+  const monacoTheme = useGlobalAppMonacoThemeSync({ includeDiff: true, includeEditorRules: false })
   const [loading, setLoading] = useState(false)
   const [working, setWorking] = useState(false)
   const [proposal, setProposal] = useState<AiRepairProposal | null>(null)
@@ -88,7 +88,8 @@ export function AiRepairDialog({ caseResultId, open, onOpenChange, onApplied }: 
                 original={proposal.originalSpec}
                 modified={proposal.proposedSpec}
                 language="typescript"
-                theme={themeMode === 'dark' ? 'vs-dark' : 'vs'}
+                theme={monacoTheme}
+                beforeMount={onAppMonacoBeforeMount}
                 options={{ renderSideBySide: true, readOnly: true, minimap: { enabled: false } }}
               />
             </div>

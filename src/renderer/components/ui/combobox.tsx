@@ -186,8 +186,7 @@ function Combobox({
             style={triggerStyle}
             className={cn(
               'data-[placeholder]:text-muted-foreground [&_svg]:text-muted-foreground font-normal w-full min-w-0 shrink',
-              'grid grid-cols-[minmax(0,1fr)_auto] items-center gap-2',
-              /* Ghi đè ring từ buttonVariants — tránh border + ring chồng (Tailwind v4 không luôn bị globals.css tắt hết) */
+              'grid grid-cols-[minmax(0,1fr)_auto] items-center gap-2 pt-[0.375rem]',
               'shadow-none ring-0 focus-visible:ring-0',
               variant === 'outline' && 'border-input',
               size === 'default' && 'h-9',
@@ -196,7 +195,7 @@ function Combobox({
               triggerClassName
             )}
           >
-            <span className="flex min-h-0 min-w-0 items-center gap-1.5 overflow-hidden text-ellipsis whitespace-nowrap text-left leading-none" title={displayLabel}>
+            <span className="flex min-h-0 min-w-0 items-center gap-1.5 overflow-hidden text-ellipsis whitespace-nowrap text-left" title={displayLabel}>
               {triggerDisplay}
             </span>
             <ChevronsUpDownIcon className="size-4 shrink-0 opacity-50" />
@@ -207,12 +206,12 @@ function Combobox({
             {...(useLazyList
               ? { shouldFilter: false as const }
               : {
-                  filter: (itemValue: string, search: string) => {
-                    const v = itemValue.toLowerCase()
-                    const s = search.trim().toLowerCase()
-                    return v.includes(s) ? 1 : 0
-                  },
-                })}
+                filter: (itemValue: string, search: string) => {
+                  const v = itemValue.toLowerCase()
+                  const s = search.trim().toLowerCase()
+                  return v.includes(s) ? 1 : 0
+                },
+              })}
           >
             <CommandInput placeholder={searchPlaceholder} {...(useLazyList ? { value: lazyQuery, onValueChange: setLazyQuery } : {})} />
             {showLazyHint ? <p className="border-b border-border px-3 py-2 text-xs text-muted-foreground">{lazySearchHint}</p> : null}

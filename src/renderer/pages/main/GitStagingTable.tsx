@@ -2,9 +2,8 @@
 import { type ColumnDef, flexRender, getCoreRowModel, getFilteredRowModel, getSortedRowModel, type SortingState, useReactTable } from '@tanstack/react-table'
 import { t } from 'i18next'
 import { Check, Columns2, Copy, Folder, FolderOpen, History, ListFilter, Pencil, Plus, RotateCcw, Rows2, SquareMinus, SquarePlus, Trash2, X } from 'lucide-react'
-import { requestOpenShowLog } from '@/lib/openShowLog'
 import { IPC } from 'main/constants'
-import { forwardRef, type HTMLProps, lazy, Suspense, useCallback, useEffect, useImperativeHandle, useMemo, useRef, useState, type ReactNode } from 'react'
+import { forwardRef, type HTMLProps, lazy, type ReactNode, Suspense, useCallback, useEffect, useImperativeHandle, useMemo, useRef, useState } from 'react'
 import {
   AlertDialog,
   AlertDialogAction,
@@ -33,10 +32,18 @@ import { ResizableHandle, ResizablePanel, ResizablePanelGroup } from '@/componen
 import { TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 import { GlowLoader } from '@/components/ui-elements/GlowLoader'
 import toast from '@/components/ui-elements/Toast'
-import { createEmbeddedGitConflictPayload, createEmbeddedGitStagingDiffPayload, openGitStagingDiff, readGitStagingLayoutDirection, writeGitStagingLayoutDirection } from '@/lib/diffViewer/openDiffViewer'
-import { isGitConflictedFileStatus } from '@/pages/diffviewer/diffViewerConflictPayload'
+import {
+  createEmbeddedGitConflictPayload,
+  createEmbeddedGitStagingDiffPayload,
+  gitStagingRepoRootKey,
+  openGitStagingDiff,
+  readGitStagingLayoutDirection,
+  writeGitStagingLayoutDirection,
+} from '@/lib/diffViewer/openDiffViewer'
+import { requestOpenShowLog } from '@/lib/openShowLog'
 import { cn } from '@/lib/utils'
 import type { CodeDiffViewerHandle } from '@/pages/diffviewer/CodeDiffViewer'
+import { isGitConflictedFileStatus } from '@/pages/diffviewer/diffViewerConflictPayload'
 import logger from '@/services/logger'
 import { useAppearanceStoreSelect } from '@/stores/useAppearanceStore'
 import { useConfigurationStore } from '@/stores/useConfigurationStore'
@@ -199,10 +206,6 @@ Table.displayName = 'Table'
 
 const GIT_CHANGES_LOCAL_IGNORE_STORAGE_KEY = 'git-changes-local-ignore-regexes'
 
-function normalizeRepoRootPath(repo: string): string {
-  return repo.replace(/\\/g, '/').replace(/\/+$/, '')
-}
-
 function readLocalIgnoreRegexMap(): Record<string, string[]> {
   try {
     const raw = localStorage.getItem(GIT_CHANGES_LOCAL_IGNORE_STORAGE_KEY)
@@ -331,21 +334,24 @@ export const GitStagingTable = forwardRef(({ onLoadingChange, cwd, label, commit
   const [changesRowSelection, setChangesRowSelection] = useState({})
   const [stagedRowSelection, setStagedRowSelection] = useState({})
   const [stagedAnchorRowIndex, setStagedAnchorRowIndex] = useState<number | null>(null)
-  const [layoutDirection, setLayoutDirection] = useState<'horizontal' | 'vertical'>(() => readGitStagingLayoutDirection('__none__'))
+  const { sourceFolder } = useConfigurationStore()
+  const repoCwd = cwd ?? sourceFolder
+  const repoRootKey = useMemo(() => gitStagingRepoRootKey(repoCwd), [repoCwd])
+  const [layoutDirection, setLayoutDirection] = useState<'horizontal' | 'vertical'>(() => readGitStagingLayoutDirection(gitStagingRepoRootKey(cwd ?? sourceFolder)))
   const [embeddedDiffAnchor, setEmbeddedDiffAnchor] = useState<{
     filePath: string
     stagingState?: 'staged' | 'unstaged'
   } | null>(null)
   const [embeddedToolbarHost, setEmbeddedToolbarHost] = useState<HTMLDivElement | null>(null)
+  const handleEmbeddedToolbarHostRef = useCallback((node: HTMLDivElement | null) => {
+    setEmbeddedToolbarHost(prev => (prev === node ? prev : node))
+  }, [])
   const embeddedDiffViewerRef = useRef<CodeDiffViewerHandle>(null)
   const [discardConfirmOpen, setDiscardConfirmOpen] = useState(false)
   const [discardConfirmPayload, setDiscardConfirmPayload] = useState<string[] | null>(null)
   const [changesAnchorRowIndex, setChangesAnchorRowIndex] = useState<number | null>(null)
   const [changesFilter, setChangesFilter] = useState('')
   const [stagedFilter, setStagedFilter] = useState('')
-  const { sourceFolder } = useConfigurationStore()
-  const repoCwd = cwd ?? sourceFolder
-  const repoRootKey = useMemo(() => normalizeRepoRootPath((cwd ?? sourceFolder ?? '').trim() || '__none__'), [cwd, sourceFolder])
   const [changesIgnorePatterns, setChangesIgnorePatterns] = useState<string[]>([])
   const [changesIgnoreListOpen, setChangesIgnoreListOpen] = useState(false)
   const [localIgnoreCustomInput, setLocalIgnoreCustomInput] = useState('')
@@ -354,13 +360,24 @@ export const GitStagingTable = forwardRef(({ onLoadingChange, cwd, label, commit
   const [pathEntryKinds, setPathEntryKinds] = useState<Record<string, 'file' | 'directory' | 'missing'>>({})
 
   useEffect(() => {
+    lastReportedLayoutRef.current = null
     setLayoutDirection(readGitStagingLayoutDirection(repoRootKey))
     setEmbeddedDiffAnchor(null)
   }, [repoRootKey])
 
+  const onLayoutDirectionChangeRef = useRef(onLayoutDirectionChange)
+  onLayoutDirectionChangeRef.current = onLayoutDirectionChange
+  const lastReportedLayoutRef = useRef<'horizontal' | 'vertical' | null>(null)
+
+  const notifyLayoutDirectionChange = useCallback((direction: 'horizontal' | 'vertical') => {
+    if (lastReportedLayoutRef.current === direction) return
+    lastReportedLayoutRef.current = direction
+    onLayoutDirectionChangeRef.current?.(direction)
+  }, [])
+
   useEffect(() => {
-    onLayoutDirectionChange?.(layoutDirection)
-  }, [layoutDirection, onLayoutDirectionChange])
+    notifyLayoutDirectionChange(layoutDirection)
+  }, [layoutDirection, notifyLayoutDirectionChange])
 
   useEffect(() => {
     const map = readLocalIgnoreRegexMap()
@@ -1035,8 +1052,9 @@ export const GitStagingTable = forwardRef(({ onLoadingChange, cwd, label, commit
       }
       setLayoutDirection(direction)
       writeGitStagingLayoutDirection(repoRootKey, direction)
+      notifyLayoutDirectionChange(direction)
     },
-    [pickEmbeddedDiffAnchorFromSelection, repoRootKey]
+    [pickEmbeddedDiffAnchorFromSelection, repoRootKey, notifyLayoutDirectionChange]
   )
 
   const toggleLayout = useCallback(() => {
@@ -1357,33 +1375,24 @@ export const GitStagingTable = forwardRef(({ onLoadingChange, cwd, label, commit
   return (
     <div className="h-full relative flex flex-col">
       <div className={cn('h-full relative flex-1 min-h-0', label && 'mt-0')}>
-        {isTableLoading && (
-          <div className="absolute inset-0 z-20 flex items-center justify-center bg-background/60">
-            <GlowLoader className="h-10 w-10" />
-          </div>
-        )}
         {layoutDirection === 'vertical' ? (
           <div className="flex h-full min-h-0 flex-col overflow-hidden rounded-md">
             <div className="flex shrink-0 items-center gap-2 border-b bg-muted/30 px-2 py-1 min-h-8">
-              <Button
-                size="sm"
-                variant={buttonVariant}
-                className="h-6 w-6 shrink-0 p-0"
-                onClick={toggleLayout}
-                title={t('git.layoutToggleToTable')}
-              >
+              <Button size="sm" variant={buttonVariant} className="h-6 w-6 shrink-0 p-0" onClick={toggleLayout} title={t('git.layoutToggleToTable')}>
                 <Columns2 className="h-2.5 w-2.5" />
               </Button>
               {label ? <span className="shrink-0 text-xs font-medium text-muted-foreground">{label}</span> : null}
               <span className="shrink-0 text-sm font-semibold">{t('git.diffView')}</span>
-              <div ref={setEmbeddedToolbarHost} className="flex min-w-0 flex-1 items-center overflow-hidden" />
+              <div ref={handleEmbeddedToolbarHostRef} className="flex min-w-0 flex-1 items-center overflow-hidden" />
             </div>
             <div className="min-h-0 flex-1 overflow-hidden">
               <Suspense
                 fallback={
-                  <div className="flex h-full items-center justify-center">
-                    <GlowLoader className="h-10 w-10" />
-                  </div>
+                  isTableLoading ? null : (
+                    <div className="flex h-full items-center justify-center">
+                      <GlowLoader className="h-10 w-10" />
+                    </div>
+                  )
                 }
               >
                 <CodeDiffViewer
@@ -1393,6 +1402,7 @@ export const GitStagingTable = forwardRef(({ onLoadingChange, cwd, label, commit
                   embeddedPayload={embeddedDiffPayload}
                   embeddedToolbarHost={embeddedToolbarHost}
                   embeddedStagingFooter={commitMessagePanel}
+                  embeddedOnReloadFileList={reloadData}
                 />
               </Suspense>
             </div>

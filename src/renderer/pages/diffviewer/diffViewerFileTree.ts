@@ -108,7 +108,7 @@ export function filterFilesByStatus<T extends { fileStatus?: string }>(
   return files.filter(file => matchesStatusFilter(file.fileStatus, statusFilter))
 }
 
-function statusSortRank(status: string): number {
+function statusSortRank(status?: string): number {
   const key = (status || '').trim().toLowerCase()
   return STATUS_SORT_RANK[key] ?? 50
 }
@@ -317,70 +317,11 @@ export function buildDiffFileTreeSections(
   return [buildSection('files', 'dialog.diffViewer.navFiles', indexed, { viewMode, groupByFolder })]
 }
 
-function filterNodes(nodes: DiffFileTreeNode[], query: string): DiffFileTreeNode[] {
-  const result: DiffFileTreeNode[] = []
-
-  for (const node of nodes) {
-    if (node.kind === 'file') {
-      const haystack = `${node.fileName} ${node.entry.filePath}`.toLowerCase()
-      if (haystack.includes(query)) {
-        result.push(node)
-      }
-      continue
-    }
-
-    if (node.kind === 'group') {
-      const filteredChildren = node.children.filter(child => {
-        const haystack = `${child.fileName} ${child.entry.filePath}`.toLowerCase()
-        return haystack.includes(query)
-      })
-      const groupMatches =
-        node.label.toLowerCase().includes(query) || node.pathKey.toLowerCase().includes(query)
-      if (filteredChildren.length > 0) {
-        result.push({
-          ...node,
-          children: filteredChildren,
-        })
-      } else if (groupMatches) {
-        result.push(node)
-      }
-      continue
-    }
-
-    const filteredChildren = filterNodes(node.children, query)
-    const folderMatches = node.name.toLowerCase().includes(query) || node.pathKey.toLowerCase().includes(query)
-    if (filteredChildren.length > 0) {
-      result.push({
-        ...node,
-        children: filteredChildren,
-      })
-    } else if (folderMatches) {
-      result.push(node)
-    }
-  }
-
-  return result
-}
-
-export function filterDiffFileTreeSections(sections: DiffFileTreeSection[], query: string): DiffFileTreeSection[] {
-  const normalizedQuery = query.trim().toLowerCase()
-  if (!normalizedQuery) return sections
-
-  return sections.map(section => {
-    const nodes = filterNodes(section.nodes, normalizedQuery)
-    return {
-      ...section,
-      nodes,
-      flatFileIndices: collectFileIndicesFromNodes(nodes),
-    }
-  })
-}
-
 export function folderContainsFileIndex(node: DiffFileTreeFolderNode, targetIndex: number): boolean {
   for (const child of node.children) {
     if (child.kind === 'file') {
       if (child.index === targetIndex) return true
-    } else if (folderContainsFileIndex(child, targetIndex)) {
+    } else if (child.kind === 'folder' && folderContainsFileIndex(child, targetIndex)) {
       return true
     }
   }
@@ -431,4 +372,101 @@ export function resolveContextMenuIndices(selectedIndices: Set<number>, targetIn
     return [...selectedIndices].sort((a, b) => a - b)
   }
   return [targetIndex]
+}
+
+export const DIFF_TREE_ROW_HEIGHT = 23
+export const DIFF_TREE_SECTION_HEADER_HEIGHT = 26
+
+export type DiffFileTreeVisibleRow =
+  | { kind: 'file'; id: string; depth: number; node: DiffFileTreeFileNode }
+  | { kind: 'folder'; id: string; depth: number; node: DiffFileTreeFolderNode; expanded: boolean }
+  | { kind: 'group'; id: string; depth: number; node: DiffFileTreeGroupNode }
+
+export type DiffFileTreePanelVirtualRow =
+  | { kind: 'section-header'; id: string; section: DiffFileTreeSection }
+  | (DiffFileTreeVisibleRow & { section: DiffFileTreeSection })
+
+/** Depth-first visible rows for flat/tree modes (respects folder expand state). */
+export function flattenDiffFileTreeRows(
+  nodes: DiffFileTreeNode[],
+  options: {
+    depth?: number
+    expandedFolderIds: ReadonlySet<string>
+    forceExpandFolders?: boolean
+  }
+): DiffFileTreeVisibleRow[] {
+  const depth = options.depth ?? 0
+  const forceExpand = options.forceExpandFolders ?? false
+  const out: DiffFileTreeVisibleRow[] = []
+
+  for (const node of nodes) {
+    if (node.kind === 'file') {
+      out.push({ kind: 'file', id: node.id, depth, node })
+      continue
+    }
+
+    if (node.kind === 'group') {
+      out.push({ kind: 'group', id: node.id, depth, node })
+      for (const child of node.children) {
+        out.push({ kind: 'file', id: child.id, depth: depth + 1, node: child })
+      }
+      continue
+    }
+
+    const expanded = forceExpand || options.expandedFolderIds.has(node.id)
+    out.push({ kind: 'folder', id: node.id, depth, node, expanded })
+    if (expanded) {
+      out.push(
+        ...flattenDiffFileTreeRows(node.children, {
+          depth: depth + 1,
+          expandedFolderIds: options.expandedFolderIds,
+          forceExpandFolders: forceExpand,
+        })
+      )
+    }
+  }
+
+  return out
+}
+
+/** Collapsible multi-section panel: section headers interleaved with tree rows. */
+export function buildCollapsiblePanelVirtualRows(
+  sections: DiffFileTreeSection[],
+  options: {
+    expandedSectionIds: ReadonlySet<string>
+    expandedFolderIds: ReadonlySet<string>
+    forceExpandAll?: boolean
+  }
+): DiffFileTreePanelVirtualRow[] {
+  const force = options.forceExpandAll ?? false
+  const out: DiffFileTreePanelVirtualRow[] = []
+
+  for (const section of sections) {
+    out.push({ kind: 'section-header', id: `section-header:${section.id}`, section })
+    const sectionOpen = force || options.expandedSectionIds.has(section.id)
+    if (!sectionOpen) continue
+
+    const treeRows = flattenDiffFileTreeRows(section.nodes, {
+      expandedFolderIds: options.expandedFolderIds,
+      forceExpandFolders: force,
+    })
+
+    for (const row of treeRows) {
+      out.push({ ...row, section })
+    }
+  }
+
+  return out
+}
+
+export function estimateDiffFileTreePanelRowHeight(row: DiffFileTreePanelVirtualRow): number {
+  return row.kind === 'section-header' ? DIFF_TREE_SECTION_HEADER_HEIGHT : DIFF_TREE_ROW_HEIGHT
+}
+
+export function getDiffFileTreePanelVirtualRowKey(row: DiffFileTreePanelVirtualRow): string {
+  return row.id
+}
+
+export function getDiffFileTreeVisibleRowKey(row: DiffFileTreeVisibleRow): string {
+  return row.id
 }

@@ -1,13 +1,10 @@
 'use client'
 
-import { CircleAlert, HelpCircle } from 'lucide-react'
-import { memo, useEffect, useState, type ChangeEvent, type ComponentProps, type MutableRefObject, type RefObject } from 'react'
+import { type ChangeEvent, type ComponentProps, type MutableRefObject, memo, type ReactNode, type RefObject, useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { TranslatePanel } from '@/components/shared/TranslatePanel'
 import { Input } from '@/components/ui/input'
 import { Textarea } from '@/components/ui/textarea'
 import { OverlayLoader } from '@/components/ui-elements/OverlayLoader'
-import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import { cn } from '@/lib/utils'
 
 const IsolatedTextarea = memo(function IsolatedTextarea({
@@ -36,6 +33,9 @@ export type CommitMessagePanelProps = {
   commitMessageSeed: string
   referenceIdRef: RefObject<HTMLInputElement | null>
   onReferenceIdChange: (event: ChangeEvent<HTMLInputElement>) => void
+  generateAction?: ReactNode
+  actions?: ReactNode
+  actionsPlacement?: 'header' | 'footer'
   className?: string
 }
 
@@ -47,83 +47,52 @@ export const CommitMessagePanel = memo(function CommitMessagePanel({
   commitMessageSeed,
   referenceIdRef,
   onReferenceIdChange,
+  generateAction,
+  actions,
+  actionsPlacement = 'header',
   className,
 }: CommitMessagePanelProps) {
   const { t } = useTranslation()
+  const showHeaderActions = actions && actionsPlacement === 'header'
+  const showFooterActions = actions && actionsPlacement === 'footer'
 
   return (
     <div className={cn('relative flex min-h-0 flex-1 flex-col', compact ? 'p-1.5' : 'p-0', className)}>
-      <div className="relative min-h-0 flex-1">
+      <div className="relative flex min-h-0 flex-1 flex-col">
         <OverlayLoader isLoading={isLoadingGenerate} />
-        <TranslatePanel
-          text={() => commitMessageRef.current}
-          variant="inline"
-          readOnly={false}
-          disabled={isAnyLoading}
-          placeholder={t('placeholder.commitMessage')}
-          className="flex h-full min-h-0 flex-col"
-          renderHeader={({ translateButton, viewToggleButton }) => (
-            <div
-              className={cn(
-                'mb-1.5 flex shrink-0 items-center gap-1.5',
-                compact ? 'w-full flex-wrap' : 'mb-2 w-[500px]'
-              )}
-            >
-              <Input
-                id={compact ? 'reference-id-input-embedded' : 'reference-id-input'}
-                placeholder={t('placeholder.referenceId')}
-                className="h-7 min-w-0 flex-1 text-xs"
-                onChange={onReferenceIdChange}
-                ref={referenceIdRef}
-                spellCheck={false}
-              />
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <button
-                    type="button"
-                    className="shrink-0 rounded-full p-0.5 text-muted-foreground hover:text-foreground focus:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                    aria-label={t('joyride.main.referenceId')}
-                  >
-                    <HelpCircle className="h-3.5 w-3.5" />
-                  </button>
-                </TooltipTrigger>
-                <TooltipContent side="top">Ô này điền ticket id, issues id của Redmine, hoặc tên file tài liệu.</TooltipContent>
-              </Tooltip>
-              {translateButton}
-              <span className="shrink-0 text-[10px] text-muted-foreground" title={t('translation.commitUsesEnglish')}>
-                ({t('translation.commitUsesEnglish')})
-              </span>
-              {viewToggleButton}
-            </div>
+        <div
+          className={cn(
+            'mb-1.5 flex shrink-0 items-center',
+            compact ? 'w-full gap-2' : 'mb-2 w-full max-w-full gap-2.5',
+            showHeaderActions && 'min-w-0'
           )}
-          renderContent={(displayText, isTranslated) => (
-            <div className="absolute inset-0 h-full min-h-0 w-full">
-              <IsolatedTextarea
-                id={compact ? 'commit-message-area-embedded' : 'commit-message-area'}
-                placeholder={t('placeholder.commitMessage')}
-                className="absolute inset-0 h-full w-full resize-none p-2 text-xs"
-                valueRef={commitMessageRef}
-                initialValue={commitMessageSeed}
-                spellCheck={false}
-              />
-              {isTranslated ? (
-                <div className="absolute inset-0 h-full min-h-0 w-full cursor-default overflow-auto whitespace-pre-wrap break-words rounded-md border bg-background p-2 text-xs">
-                  {displayText}
-                </div>
-              ) : null}
-            </div>
-          )}
-        />
+        >
+          <Input
+            id={compact ? 'reference-id-input-embedded' : 'reference-id-input'}
+            placeholder={t('placeholder.referenceId')}
+            className={cn('shrink-0 text-xs', compact ? 'h-7 max-w-[35%]' : 'h-9 w-52 max-w-[min(280px,40%)]')}
+            onChange={onReferenceIdChange}
+            ref={referenceIdRef}
+            spellCheck={false}
+          />
+          {generateAction}
+          {showHeaderActions ? <div className="ml-auto flex min-w-0 shrink-0 items-center gap-2">{actions}</div> : null}
+        </div>
+        <div className="relative min-h-0 flex-1">
+          <IsolatedTextarea
+            id={compact ? 'commit-message-area-embedded' : 'commit-message-area'}
+            placeholder={t('placeholder.commitMessage')}
+            className="absolute inset-0 h-full w-full resize-none p-2 text-xs"
+            valueRef={commitMessageRef}
+            initialValue={commitMessageSeed}
+            spellCheck={false}
+            disabled={isAnyLoading}
+          />
+        </div>
       </div>
-      <span
-        className={cn(
-          'mt-1.5 flex shrink-0 flex-row items-center gap-1.5 text-muted-foreground',
-          compact ? 'text-[10px]' : 'mt-2 text-xs'
-        )}
-      >
-        <CircleAlert className="h-3.5 w-3.5 shrink-0 text-yellow-600 dark:text-yellow-400" />
-        {t('message.aiContentWarning')}
-      </span>
+      {showFooterActions ? (
+        <div className="mt-1.5 flex shrink-0 items-center justify-end border-t border-border/50 pt-1.5">{actions}</div>
+      ) : null}
     </div>
   )
 })

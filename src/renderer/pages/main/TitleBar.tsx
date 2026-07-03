@@ -20,6 +20,7 @@ import {
   Database,
   Eraser,
   FileWarning,
+  FileCode2,
   Folder,
   GitBranch,
   GitBranchPlus,
@@ -54,6 +55,7 @@ import { useNavigate } from 'react-router-dom'
 import { MAX_RANK_CODE } from 'shared/achievementRanks'
 import type { MainShellView } from 'shared/mainShellView'
 import { randomUuidV7 } from 'shared/randomUuidV7'
+import { EditorSettingsDialog } from '@/pages/editor/EditorSettingsDialog'
 import { AchievementUnlockDialog } from '@/components/achievement/AchievementUnlockDialog'
 import { getAchievementDemoMenuItemClass, getAchievementDemoMenuLabelClass, getAchievementDemoMenuTierClass } from '@/components/achievement/achievementTierDemo'
 import { BadgeCard } from '@/components/achievement/BadgeCard'
@@ -152,6 +154,10 @@ interface TitleBarProps {
   automationToolbarHostRef?: RefCallback<HTMLDivElement>
   devPipelinesToolbarHostRef?: RefCallback<HTMLDivElement>
   showLogToolbarHostRef?: RefCallback<HTMLDivElement>
+  terminalOpen?: boolean
+  onTerminalToggle?: () => void
+  /** When true, show terminal toggle on every shell tab (not only VCS). */
+  terminalAvailable?: boolean
 }
 
 function TitleBarClockFlagVn({ size = 16 }: { size?: number }) {
@@ -225,6 +231,9 @@ export const TitleBar = ({
   automationToolbarHostRef,
   devPipelinesToolbarHostRef,
   showLogToolbarHostRef,
+  terminalOpen = false,
+  onTerminalToggle,
+  terminalAvailable,
 }: TitleBarProps) => {
   const navigate = useNavigate()
   const { t } = useTranslation()
@@ -248,6 +257,7 @@ export const TitleBar = ({
   const [showLeaderboard, setShowLeaderboard] = useState(false)
   const [showAiUsageStats, setShowAiUsageStats] = useState(false)
   const [showHolidayCalendar, setShowHolidayCalendar] = useState(false)
+  const [showEditorSettings, setShowEditorSettings] = useState(false)
   const [titleBarClock, setTitleBarClock] = useState(() => new Date())
 
   useEffect(() => {
@@ -416,14 +426,12 @@ export const TitleBar = ({
 
   // Effect 1: check if single copy overflows → enable duplicate for marquee
   useEffect(() => {
-    setMarqueeDuplicate(false)
     const el = multiRepoBadgeScrollRef.current
     if (!el) return
     const t = setTimeout(() => {
       singleCopyScrollWidthRef.current = el.scrollWidth
-      if (el.scrollWidth > el.clientWidth) {
-        setMarqueeDuplicate(true)
-      }
+      const shouldDuplicate = el.scrollWidth > el.clientWidth
+      setMarqueeDuplicate(prev => (prev === shouldDuplicate ? prev : shouldDuplicate))
     }, 80)
     return () => clearTimeout(t)
   }, [multiRepoLabels])
@@ -435,7 +443,8 @@ export const TitleBar = ({
     const observer = new ResizeObserver(() => {
       const storedSingle = singleCopyScrollWidthRef.current
       if (storedSingle === 0) return
-      setMarqueeDuplicate(storedSingle > el.clientWidth)
+      const shouldDuplicate = storedSingle > el.clientWidth
+      setMarqueeDuplicate(prev => (prev === shouldDuplicate ? prev : shouldDuplicate))
     })
     observer.observe(el)
     return () => observer.disconnect()
@@ -1341,6 +1350,11 @@ export const TitleBar = ({
 
   const canOpenEvmTool = Boolean(user && !isGuest && ['admin', 'pl', 'pm'].includes(user.role))
   const showVcsChrome = !hideVcsToolbar && (!enableShellSwitcher || shellView === 'vcs')
+  const showTerminalToggle =
+    Boolean(onTerminalToggle) &&
+    (terminalAvailable ??
+      ((!isMultiRepo && sourceFolders.length > 0 && !!currentFolder) || (isMultiRepo && !!gitContextPath)))
+  const showEditorSettingsButton = Boolean(enableShellSwitcher && shellView === 'editor')
 
   const openEVMToolWindow = () => {
     if (isLoading) return
@@ -2327,7 +2341,7 @@ export const TitleBar = ({
                 type="single"
                 value={shellView}
                 onValueChange={v => {
-                  if (v === 'vcs' || v === 'tasks' || v === 'prManager' || v === 'automation' || v === 'devPipelines' || v === 'showLog') onShellViewChange(v)
+                  if (v === 'editor' || v === 'vcs' || v === 'tasks' || v === 'prManager' || v === 'automation' || v === 'devPipelines' || v === 'showLog') onShellViewChange(v)
                 }}
                 variant="default"
                 size="md"
@@ -2339,8 +2353,25 @@ export const TitleBar = ({
                 )}
               >
                 <ToggleGroupItem
+                  value="editor"
+                  aria-label={t('mainShell.editor')}
+                  className={cn(
+                    'group h-[21px] px-2 sm:px-2.5 py-0 text-xs gap-1 !rounded-md !border-0 !shadow-none',
+                    'transition-[color,transform,opacity,font-weight,text-decoration-thickness] duration-200 ease-out motion-reduce:transition-none',
+                    'active:scale-[0.98] motion-reduce:active:scale-100',
+                    'bg-transparent text-muted-foreground hover:bg-muted/60 hover:text-foreground',
+                    'data-[state=on]:bg-transparent data-[state=on]:hover:bg-transparent',
+                    'data-[state=on]:text-emerald-600 data-[state=on]:hover:text-emerald-700 dark:data-[state=on]:text-emerald-400 dark:data-[state=on]:hover:text-emerald-300',
+                    'data-[state=on]:underline data-[state=on]:decoration-emerald-600 data-[state=on]:decoration-2 data-[state=on]:underline-offset-[5px]',
+                    'dark:data-[state=on]:decoration-emerald-400'
+                  )}
+                >
+                  <FileCode2 className="h-3.5 w-3.5 shrink-0 transition-transform duration-200 ease-out group-data-[state=on]:scale-105 motion-reduce:group-data-[state=on]:scale-100" />
+                  <span className="hidden sm:inline max-w-[7rem] truncate">{t('mainShell.editor')}</span>
+                </ToggleGroupItem>
+                <ToggleGroupItem
                   value="vcs"
-                  aria-label={t('mainShell.workspace')}
+                  aria-label={t('mainShell.sourceControl')}
                   className={cn(
                     'group h-[21px] px-2 sm:px-2.5 py-0 text-xs gap-1 !rounded-md !border-0 !shadow-none',
                     'transition-[color,transform,opacity,font-weight,text-decoration-thickness] duration-200 ease-out motion-reduce:transition-none',
@@ -2353,7 +2384,7 @@ export const TitleBar = ({
                   )}
                 >
                   <Folder className="h-3.5 w-3.5 shrink-0 transition-transform duration-200 ease-out group-data-[state=on]:scale-105 motion-reduce:group-data-[state=on]:scale-100" />
-                  <span className="hidden sm:inline max-w-[7rem] truncate">{t('mainShell.workspace')}</span>
+                  <span className="hidden sm:inline max-w-[7rem] truncate">{t('mainShell.sourceControl')}</span>
                 </ToggleGroupItem>
                 {!tasksDetached && (
                   <ToggleGroupItem
@@ -2552,7 +2583,7 @@ export const TitleBar = ({
                 <TooltipContent side="bottom">{t('mainShell.tasksDockTooltip')}</TooltipContent>
               </Tooltip>
             )}
-            {enableShellSwitcher && shellView === 'vcs' && user && !isGuest && (
+            {enableShellSwitcher && (shellView === 'vcs' || shellView === 'editor') && user && !isGuest && (
               <>
                 <Separator orientation="vertical" className="h-4 w-px bg-muted mx-0.5 shrink-0" />
                 {reminderBellControl}
@@ -2737,36 +2768,52 @@ export const TitleBar = ({
           <div className="flex-1 min-w-0 shrink" aria-hidden style={{ WebkitAppRegion: 'drag' } as React.CSSProperties} />
         )}
 
-        <div className="flex shrink-0 gap-1 items-center h-full" style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties}>
-          {showVcsChrome && (
-            <div className="flex gap-1 items-center justify-center h-full px-2" style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties}>
-              {/* Terminal Button - single-repo: current folder; multi-repo: repo của tab active */}
-              {((!isMultiRepo && sourceFolders.length > 0 && currentFolder) || (isMultiRepo && gitContextPath)) && (
+        <div className="flex shrink-0 items-center gap-1 h-full" style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties}>
+          {(showTerminalToggle || showEditorSettingsButton) && (
+            <div className="flex items-center gap-0.5 px-1 pr-2">
+              {showTerminalToggle && (
                 <Tooltip>
                   <TooltipTrigger asChild>
                     <Button
                       variant="link"
                       size="sm"
-                      onClick={async () => {
-                        try {
-                          const folderPath = isMultiRepo && gitContextPath ? gitContextPath : sourceFolders.find(f => f.name === currentFolder)?.path || sourceFolder
-                          const result = await window.api.system.open_terminal(folderPath)
-                          if (!result?.success) {
-                            toast.error(result?.error || 'Không thể mở terminal')
-                          }
-                        } catch (err) {
-                          toast.error(err instanceof Error ? err.message : 'Không thể mở terminal')
-                        }
-                      }}
-                      className="shadow-none focus-visible:ring-0 focus-visible:ring-offset-0 hover:bg-muted transition-colors rounded-sm h-[25px] w-[25px]"
+                      onClick={() => onTerminalToggle?.()}
+                      className={cn(
+                        'shadow-none focus-visible:ring-0 focus-visible:ring-offset-0 hover:bg-muted transition-colors rounded-sm h-[25px] w-[25px]',
+                        terminalOpen && 'bg-muted'
+                      )}
                     >
                       <Terminal strokeWidth={1.25} absoluteStrokeWidth size={15} className="h-4 w-4" />
                     </Button>
                   </TooltipTrigger>
-                  <TooltipContent>{t('title.openTerminal')}</TooltipContent>
+                  <TooltipContent>
+                    {t('title.openTerminal')}
+                    <span className="ml-1 text-muted-foreground">({t('title.openTerminalShortcut')})</span>
+                  </TooltipContent>
                 </Tooltip>
               )}
 
+              {showEditorSettingsButton && (
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <Button
+                      variant="link"
+                      size="sm"
+                      onClick={() => setShowEditorSettings(true)}
+                      className="shadow-none focus-visible:ring-0 focus-visible:ring-offset-0 hover:bg-muted transition-colors rounded-sm h-[25px] w-[25px]"
+                      aria-label={t('editor.settings.title')}
+                    >
+                      <Settings2 strokeWidth={1.25} absoluteStrokeWidth size={15} className="h-4 w-4" />
+                    </Button>
+                  </TooltipTrigger>
+                  <TooltipContent>{t('editor.settings.title')}</TooltipContent>
+                </Tooltip>
+              )}
+            </div>
+          )}
+
+          {showVcsChrome && (
+            <div className="flex gap-1 items-center justify-center h-full px-2" style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties}>
               {/* Refresh VCS Info Button - chỉ hiện với SVN (Git đã có Fetch trong dropdown Pull/Sync) */}
               {sourceFolders.length > 0 && currentFolder && versionControlSystem === 'svn' && (
                 <Tooltip>
@@ -3573,6 +3620,7 @@ export const TitleBar = ({
       </div>
       {/* AchievementToastContainer phải luôn mount (ngoài conditional user) để không bỏ lỡ notification ngay sau login */}
       <AchievementUnlockDialog />
+      <EditorSettingsDialog open={showEditorSettings} onOpenChange={setShowEditorSettings} />
     </>
   )
 }

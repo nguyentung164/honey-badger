@@ -97,7 +97,8 @@ declare global {
             revision?: string
             currentRevision?: string
             cwd?: string
-            mode?: 'git-staging' | 'git-conflict' | 'git-history' | 'git-working' | 'svn-revision' | 'svn-working'
+            mode?: 'git-staging' | 'git-conflict' | 'git-history' | 'git-working' | 'svn-revision' | 'svn-working' | 'workspace-compare'
+            compareWithPath?: string
             conflictType?: 'merge' | 'rebase' | 'cherry-pick'
             svnTargetPath?: string
             files?: { filePath: string; fileStatus?: string; stagingState?: 'staged' | 'unstaged' }[]
@@ -154,7 +155,8 @@ declare global {
             currentCommitHash?: string
             isRootCommit?: boolean
             cwd?: string
-            mode?: 'git-staging' | 'git-conflict' | 'git-history' | 'git-working' | 'svn-revision' | 'svn-working'
+            mode?: 'git-staging' | 'git-conflict' | 'git-history' | 'git-working' | 'svn-revision' | 'svn-working' | 'workspace-compare'
+            compareWithPath?: string
             conflictType?: 'merge' | 'rebase' | 'cherry-pick'
             svnTargetPath?: string
             files?: { filePath: string; fileStatus?: string; stagingState?: 'staged' | 'unstaged' }[]
@@ -404,7 +406,6 @@ declare global {
         get_version_control_details: (folderPath: string) => Promise<{ status: string; data?: any; message?: string }>
         open_in_external_editor: (filePath: string) => Promise<{ success: boolean; error?: string }>
         open_file_in_editor: (payload: { filePath: string; lineNumber?: number; cwd?: string }) => Promise<{ success: boolean; error?: string }>
-        open_terminal: (folderPath?: string) => Promise<{ success: boolean; error?: string }>
         select_audio_file: () => Promise<string>
         get_notification_sound_url: (filePath: string) => Promise<string | null>
         get_default_notification_sound_url: () => Promise<string | null>
@@ -415,6 +416,46 @@ declare global {
           filePath: string,
           options?: { cwd?: string; gitRevision?: string; svnRevision?: string; svnFileStatus?: string }
         ) => Promise<{ success: true; dataUrl: string; mime?: string; size?: number } | { success: false; error: string; size?: number }>
+        list_dir: (payload: { relativePath?: string; cwd?: string; includeHidden?: boolean }) => Promise<import('shared/editor/types').ListDirResult>
+        create_dir: (relativePath: string, options?: { cwd?: string }) => Promise<{ success: boolean; error?: string }>
+        delete_path: (relativePath: string, options?: { cwd?: string }) => Promise<{ success: boolean; error?: string }>
+        rename_path: (payload: { from: string; to: string; cwd?: string }) => Promise<{ success: boolean; error?: string }>
+        copy_path: (payload: { from: string; to: string; cwd?: string }) => Promise<{ success: boolean; error?: string }>
+        stage_path_for_undo: (relativePath: string, options?: { cwd?: string }) => Promise<{ success: boolean; stagingId?: string; error?: string }>
+        restore_undo_staging: (payload: { stagingId: string; relativePath: string; cwd?: string }) => Promise<{ success: boolean; error?: string }>
+        search_in_files: (payload: {
+          query: string
+          cwd?: string
+          caseSensitive?: boolean
+          wholeWord?: boolean
+          regex?: boolean
+          maxResults?: number
+          includePattern?: string
+          excludePattern?: string
+        }) => Promise<import('shared/editor/types').SearchInFilesResult>
+        replace_in_files: (payload: import('shared/editor/types').ReplaceInFilesPayload) => Promise<import('shared/editor/types').ReplaceInFilesResult>
+        watch_workspace: (payload: { cwd?: string }) => Promise<{ success: boolean; error?: string }>
+        unwatch_workspace: () => Promise<{ success: boolean }>
+        on_workspace_file_changed: (cb: (event: import('shared/editor/types').WorkspaceFileChangedEvent) => void) => () => void
+      }
+
+      lsp: {
+        start: (payload: import('shared/lsp/types').LspStartPayload) => Promise<{ success: boolean; error?: string }>
+        stop: (payload: import('shared/lsp/types').LspStopPayload) => Promise<{ success: boolean }>
+        send: (payload: import('shared/lsp/types').LspSendPayload) => void
+        onMessage: (cb: (event: import('shared/lsp/types').LspMessageEvent) => void) => () => void
+        onState: (cb: (event: import('shared/lsp/types').LspStateEvent) => void) => () => void
+      }
+
+      terminal: {
+        create: (opts?: import('shared/terminal/types').TerminalCreateOptions) => Promise<import('shared/terminal/types').TerminalCreateResult>
+        destroy: (id: string) => Promise<{ success: boolean; error?: string }>
+        listShells: () => Promise<import('shared/terminal/shells').TerminalShellProfileInfo[]>
+        getUserHome: () => Promise<string>
+        write: (payload: import('shared/terminal/types').TerminalWritePayload) => void
+        resize: (payload: import('shared/terminal/types').TerminalResizePayload) => void
+        onData: (cb: (payload: import('shared/terminal/types').TerminalDataPayload) => void) => () => void
+        onExit: (cb: (payload: import('shared/terminal/types').TerminalExitPayload) => void) => () => void
       }
 
       sourcefolder: {
@@ -1493,6 +1534,7 @@ contextBridge.exposeInMainWorld('api', {
         revision?: string
         currentRevision?: string
         cwd?: string
+        compareWithPath?: string
         mode?: string
         svnTargetPath?: string
         files?: { filePath: string; fileStatus?: string; stagingState?: 'staged' | 'unstaged' }[]
@@ -1546,6 +1588,7 @@ contextBridge.exposeInMainWorld('api', {
         currentCommitHash?: string
         isRootCommit?: boolean
         cwd?: string
+        compareWithPath?: string
         mode?: string
         conflictType?: 'merge' | 'rebase' | 'cherry-pick'
         svnTargetPath?: string
@@ -1668,7 +1711,6 @@ contextBridge.exposeInMainWorld('api', {
     open_in_external_editor: (filePath: string) => ipcRenderer.invoke(IPC.SYSTEM.OPEN_IN_EXTERNAL_EDITOR, filePath),
     open_file_in_editor: (payload: { filePath: string; lineNumber?: number; cwd?: string }) =>
       ipcRenderer.invoke(IPC.SYSTEM.OPEN_FILE_IN_EDITOR, payload),
-    open_terminal: (folderPath?: string) => ipcRenderer.invoke(IPC.SYSTEM.OPEN_TERMINAL, folderPath),
     select_audio_file: () => ipcRenderer.invoke(IPC.SYSTEM.SELECT_AUDIO_FILE),
     get_notification_sound_url: (filePath: string) => ipcRenderer.invoke(IPC.SYSTEM.GET_NOTIFICATION_SOUND_URL, filePath),
     get_default_notification_sound_url: () => ipcRenderer.invoke(IPC.SYSTEM.GET_DEFAULT_NOTIFICATION_SOUND_URL),
@@ -1676,6 +1718,59 @@ contextBridge.exposeInMainWorld('api', {
     detect_file_kind: (filePath: string, options?: { cwd?: string }) => ipcRenderer.invoke(IPC.SYSTEM.DETECT_FILE_KIND, filePath, options),
     read_file_data_url: (filePath: string, options?: { cwd?: string; gitRevision?: string }) =>
       ipcRenderer.invoke(IPC.SYSTEM.READ_FILE_DATA_URL, filePath, options),
+    list_dir: payload => ipcRenderer.invoke(IPC.SYSTEM.LIST_DIR, payload),
+    create_dir: (relativePath: string, options?: { cwd?: string }) => ipcRenderer.invoke(IPC.SYSTEM.CREATE_DIR, relativePath, options),
+    delete_path: (relativePath: string, options?: { cwd?: string }) => ipcRenderer.invoke(IPC.SYSTEM.DELETE_PATH, relativePath, options),
+    rename_path: (payload: { from: string; to: string; cwd?: string }) => ipcRenderer.invoke(IPC.SYSTEM.RENAME_PATH, payload),
+    copy_path: (payload: { from: string; to: string; cwd?: string }) => ipcRenderer.invoke(IPC.SYSTEM.COPY_PATH, payload),
+    stage_path_for_undo: (relativePath: string, options?: { cwd?: string }) =>
+      ipcRenderer.invoke(IPC.SYSTEM.STAGE_PATH_FOR_UNDO, relativePath, options),
+    restore_undo_staging: (payload: { stagingId: string; relativePath: string; cwd?: string }) =>
+      ipcRenderer.invoke(IPC.SYSTEM.RESTORE_UNDO_STAGING, payload),
+    search_in_files: payload => ipcRenderer.invoke(IPC.SYSTEM.SEARCH_IN_FILES, payload),
+    replace_in_files: payload => ipcRenderer.invoke(IPC.SYSTEM.REPLACE_IN_FILES, payload),
+    watch_workspace: payload => ipcRenderer.invoke(IPC.SYSTEM.WATCH_WORKSPACE, payload),
+    unwatch_workspace: () => ipcRenderer.invoke(IPC.SYSTEM.UNWATCH_WORKSPACE),
+    on_workspace_file_changed: cb => {
+      const handler = (_: unknown, event: import('shared/editor/types').WorkspaceFileChangedEvent) => cb(event)
+      ipcRenderer.on(IPC.SYSTEM.WORKSPACE_FILE_CHANGED, handler)
+      return () => ipcRenderer.removeListener(IPC.SYSTEM.WORKSPACE_FILE_CHANGED, handler)
+    },
+  },
+
+  lsp: {
+    start: payload => ipcRenderer.invoke(IPC.LSP.START, payload),
+    stop: payload => ipcRenderer.invoke(IPC.LSP.STOP, payload),
+    send: payload => ipcRenderer.send(IPC.LSP.SEND, payload),
+    onMessage: cb => {
+      const handler = (_: unknown, event: import('shared/lsp/types').LspMessageEvent) => cb(event)
+      ipcRenderer.on(IPC.LSP.STREAM_MESSAGE, handler)
+      return () => ipcRenderer.removeListener(IPC.LSP.STREAM_MESSAGE, handler)
+    },
+    onState: cb => {
+      const handler = (_: unknown, event: import('shared/lsp/types').LspStateEvent) => cb(event)
+      ipcRenderer.on(IPC.LSP.STREAM_STATE, handler)
+      return () => ipcRenderer.removeListener(IPC.LSP.STREAM_STATE, handler)
+    },
+  },
+
+  terminal: {
+    create: opts => ipcRenderer.invoke(IPC.TERMINAL.CREATE, opts),
+    destroy: id => ipcRenderer.invoke(IPC.TERMINAL.DESTROY, id),
+    listShells: () => ipcRenderer.invoke(IPC.TERMINAL.LIST_SHELLS),
+    getUserHome: () => ipcRenderer.invoke(IPC.TERMINAL.GET_USER_HOME),
+    write: payload => ipcRenderer.send(IPC.TERMINAL.WRITE, payload),
+    resize: payload => ipcRenderer.send(IPC.TERMINAL.RESIZE, payload),
+    onData: cb => {
+      const handler = (_: unknown, payload: import('shared/terminal/types').TerminalDataPayload) => cb(payload)
+      ipcRenderer.on(IPC.TERMINAL.STREAM_DATA, handler)
+      return () => ipcRenderer.removeListener(IPC.TERMINAL.STREAM_DATA, handler)
+    },
+    onExit: cb => {
+      const handler = (_: unknown, payload: import('shared/terminal/types').TerminalExitPayload) => cb(payload)
+      ipcRenderer.on(IPC.TERMINAL.STREAM_EXIT, handler)
+      return () => ipcRenderer.removeListener(IPC.TERMINAL.STREAM_EXIT, handler)
+    },
   },
 
   sourcefolder: {

@@ -13,13 +13,21 @@ function CommandDialog({
   description = 'Search for a command to run...',
   children,
   className,
+  commandClassName,
   showCloseButton = true,
+  shouldFilter,
+  onCloseAutoFocus,
+  onOpenAutoFocus,
   ...props
 }: React.ComponentProps<typeof Dialog> & {
   title?: string
   description?: string
   className?: string
+  commandClassName?: string
   showCloseButton?: boolean
+  shouldFilter?: boolean
+  onCloseAutoFocus?: (event: Event) => void
+  onOpenAutoFocus?: (event: Event) => void
 }) {
   return (
     <Dialog {...props}>
@@ -27,8 +35,19 @@ function CommandDialog({
         <DialogTitle>{title}</DialogTitle>
         <DialogDescription>{description}</DialogDescription>
       </DialogHeader>
-      <DialogContent className={cn('overflow-hidden p-0', className)} showCloseButton={showCloseButton}>
-        <Command className="[&_[cmdk-group-heading]]:text-muted-foreground **:data-[slot=command-input-wrapper]:h-12 [&_[cmdk-group-heading]]:px-2 [&_[cmdk-group-heading]]:font-medium [&_[cmdk-group]]:px-2 [&_[cmdk-group]:not([hidden])_~[cmdk-group]]:pt-0 [&_[cmdk-input-wrapper]_svg]:h-5 [&_[cmdk-input-wrapper]_svg]:w-5 [&_[cmdk-input]]:h-12 [&_[cmdk-item]]:px-2 [&_[cmdk-item]]:py-3 [&_[cmdk-item]_svg]:h-5 [&_[cmdk-item]_svg]:w-5">
+      <DialogContent
+        className={cn('overflow-hidden p-0', className)}
+        showCloseButton={showCloseButton}
+        onCloseAutoFocus={onCloseAutoFocus}
+        onOpenAutoFocus={onOpenAutoFocus}
+      >
+        <Command
+          shouldFilter={shouldFilter}
+          className={cn(
+            '[&_[cmdk-group-heading]]:text-muted-foreground **:data-[slot=command-input-wrapper]:h-12 [&_[cmdk-group-heading]]:px-2 [&_[cmdk-group-heading]]:font-medium [&_[cmdk-group]]:px-2 [&_[cmdk-group]:not([hidden])_~[cmdk-group]]:pt-0 [&_[cmdk-input-wrapper]_svg]:h-5 [&_[cmdk-input-wrapper]_svg]:w-5 [&_[cmdk-input]]:h-12 [&_[cmdk-item]]:px-2 [&_[cmdk-item]]:py-3 [&_[cmdk-item]_svg]:h-5 [&_[cmdk-item]_svg]:w-5',
+            commandClassName
+          )}
+        >
           {children}
         </Command>
       </DialogContent>
@@ -36,10 +55,14 @@ function CommandDialog({
   )
 }
 
-function CommandInput({ className, ...props }: React.ComponentProps<typeof CommandPrimitive.Input>) {
+function CommandInput({
+  className,
+  hideSearchIcon = false,
+  ...props
+}: React.ComponentProps<typeof CommandPrimitive.Input> & { hideSearchIcon?: boolean }) {
   return (
     <div data-slot="command-input-wrapper" className="flex h-9 items-center gap-2 border-b px-3">
-      <SearchIcon className="size-4 shrink-0 opacity-50" />
+      {!hideSearchIcon ? <SearchIcon className="size-4 shrink-0 opacity-50" /> : null}
       <CommandPrimitive.Input
         data-slot="command-input"
         className={cn(
@@ -106,7 +129,7 @@ function CommandItem({ className, ...props }: React.ComponentProps<typeof Comman
 }
 
 function CommandShortcut({ className, ...props }: React.ComponentProps<'span'>) {
-  return <span data-slot="command-shortcut" className={cn('text-muted-foreground ml-auto text-xs tracking-widest', className)} {...props} />
+  return <span data-slot="command-shortcut" className={cn('text-muted-foreground ml-auto text-xs', className)} {...props} />
 }
 
 export { Command, CommandDialog, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList, CommandSeparator, CommandShortcut }

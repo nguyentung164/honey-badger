@@ -1,11 +1,17 @@
 import { execFile, spawn } from 'node:child_process'
+import crypto from 'node:crypto'
 import fs from 'node:fs'
 import { promisify } from 'node:util'
-import { mkdir, readFile, writeFile } from 'node:fs/promises'
 import path from 'node:path'
-import { dialog, ipcMain, shell } from 'electron'
+import { mkdir, readdir, readFile, writeFile, cp, rename as fsRename, rm } from 'node:fs/promises'
+import { dialog, ipcMain, shell, app } from 'electron'
 import l from 'electron-log'
+import { rgPath } from '@vscode/ripgrep'
+import { ripgrepGlobArgs } from 'shared/editor/globPatterns'
+import { applySearchReplace } from 'shared/editor/searchReplace'
+import type { ReplaceInFilesResult, SearchInFilesOptions } from 'shared/editor/types'
 import { DIFF_VIEWER_DATA_URL_MAX_BYTES, DIFF_VIEWER_IMAGE_EXTENSIONS, IPC } from 'main/constants'
+import { unwatchWorkspace, watchWorkspace } from 'main/workspace/workspaceWatcher'
 import { catBuffer } from 'main/svn/cat'
 import { isGitPathMissingAtRevisionError } from 'main/git/utils'
 import { getAutomationRoot } from '../automation/workspace'
@@ -13,6 +19,170 @@ import configurationStore from '../store/ConfigurationStore'
 import { isBinary } from '../utils/istextorbinary'
 import { getResourcePath, resolvePathRelativeToBase } from '../utils/utils'
 import { detectVersionControl, getVersionControlDetails } from '../utils/versionControlDetector'
+
+const DEFAULT_HIDDEN_DIR_NAMES = new Set(['.git', 'node_modules', '.svn', '.hg'])
+
+function shouldHideEntry(name: string, includeHidden: boolean): boolean {
+  if (includeHidden) return false
+  if (name.startsWith('.')) return true
+  return DEFAULT_HIDDEN_DIR_NAMES.has(name)
+}
+
+async function listDirectoryEntries(
+  relativePath: string,
+  options?: { cwd?: string; includeHidden?: boolean }
+): Promise<{ entries: { name: string; relativePath: string; kind: 'file' | 'directory' }[] }> {
+  const basePathRaw = options?.cwd?.trim() || configurationStore.store.sourceFolder
+  const basePath = await resolveReadWriteBase(basePathRaw)
+  if (!basePath) return { entries: [] }
+
+  const rel = relativePath?.trim() ? resolvePathRelativeToBase(basePath, relativePath) : ''
+  const absolutePath = rel ? path.join(basePath, rel) : basePath
+
+  if (!fs.existsSync(absolutePath)) return { entries: [] }
+  const st = fs.statSync(absolutePath)
+  if (!st.isDirectory()) return { entries: [] }
+
+  const dirents = await readdir(absolutePath, { withFileTypes: true })
+  const entries = dirents
+    .filter(d => !shouldHideEntry(d.name, Boolean(options?.includeHidden)))
+    .map(d => {
+      const childRel = rel ? `${rel.replace(/\\/g, '/')}/${d.name}` : d.name
+      return {
+        name: d.name,
+        relativePath: childRel.replace(/\\/g, '/'),
+        kind: d.isDirectory() ? ('directory' as const) : ('file' as const),
+      }
+    })
+    .sort((a, b) => {
+      if (a.kind !== b.kind) return a.kind === 'directory' ? -1 : 1
+      return a.name.localeCompare(b.name, undefined, { sensitivity: 'base' })
+    })
+
+  return { entries }
+}
+
+async function searchInFilesRipgrep(
+  query: string,
+  options?: SearchInFilesOptions
+): Promise<{ matches: { relativePath: string; line: number; column: number; preview: string }[]; truncated: boolean }> {
+  const basePathRaw = options?.cwd?.trim() || configurationStore.store.sourceFolder
+  const basePath = await resolveReadWriteBase(basePathRaw)
+  if (!basePath || !query.trim()) return { matches: [], truncated: false }
+
+  const maxResults = Math.min(Math.max(options?.maxResults ?? 500, 1), 2000)
+  const args = ['--json', '--line-number', '--column', '--max-count', String(maxResults)]
+  if (!options?.caseSensitive) args.push('-i')
+  if (options?.wholeWord) args.push('-w')
+  if (options?.regex) {
+    args.push('-e', query)
+  } else {
+    args.push('-F', query)
+  }
+  args.push(...ripgrepGlobArgs(options?.includePattern, options?.excludePattern))
+  args.push(basePath)
+
+  const stdout = await new Promise<string>((resolve, reject) => {
+    execFile(rgPath, args, { maxBuffer: 10 * 1024 * 1024, windowsHide: true, cwd: basePath }, (err, out) => {
+      const code = err && typeof err === 'object' && 'code' in err ? (err as { code?: string | number }).code : undefined
+      if (err && code !== 1 && code !== '1') {
+        reject(err)
+        return
+      }
+      resolve(typeof out === 'string' ? out : out ? out.toString() : '')
+    })
+  })
+
+  const matches: { relativePath: string; line: number; column: number; preview: string }[] = []
+  for (const line of stdout.split('\n')) {
+    if (!line.trim()) continue
+    try {
+      const parsed = JSON.parse(line) as {
+        type?: string
+        data?: { path?: { text?: string }; line_number?: number; submatches?: { start?: number; match?: { text?: string } }[]; lines?: { text?: string } }
+      }
+      if (parsed.type !== 'match' || !parsed.data?.path?.text) continue
+      const absPath = parsed.data.path.text.replace(/\\/g, '/')
+      const root = basePath.replace(/\\/g, '/').replace(/\/+$/, '')
+      const relativePath = absPath.startsWith(`${root}/`) ? absPath.slice(root.length + 1) : path.basename(absPath)
+      const sub = parsed.data.submatches?.[0]
+      matches.push({
+        relativePath,
+        line: parsed.data.line_number ?? 1,
+        column: (sub?.start ?? 0) + 1,
+        preview: (parsed.data.lines?.text ?? '').trimEnd(),
+      })
+    } catch {
+      /* skip malformed line */
+    }
+  }
+
+  return { matches, truncated: matches.length >= maxResults }
+}
+
+const REPLACE_SKIP_EXTENSIONS = new Set([
+  'png', 'jpg', 'jpeg', 'gif', 'webp', 'ico', 'bmp', 'svg', 'zip', 'gz', '7z', 'rar',
+  'exe', 'dll', 'so', 'dylib', 'woff', 'woff2', 'ttf', 'eot', 'mp3', 'mp4', 'pdf',
+])
+
+function isReplaceableTextFile(relativePath: string): boolean {
+  const ext = relativePath.split('.').pop()?.toLowerCase() ?? ''
+  return !REPLACE_SKIP_EXTENSIONS.has(ext)
+}
+
+async function replaceInFilesWorkspace(
+  query: string,
+  replace: string,
+  options?: SearchInFilesOptions & { relativePaths?: string[] }
+): Promise<ReplaceInFilesResult> {
+  const basePathRaw = options?.cwd?.trim() || configurationStore.store.sourceFolder
+  const basePath = await resolveReadWriteBase(basePathRaw)
+  if (!basePath || !query.trim()) {
+    return { fileCount: 0, replacementCount: 0, relativePaths: [], failures: [] }
+  }
+
+  let targetPaths = options?.relativePaths?.map(p => p.replace(/\\/g, '/')).filter(Boolean) ?? []
+  if (targetPaths.length === 0) {
+    const search = await searchInFilesRipgrep(query, { ...options, maxResults: 5000 })
+    targetPaths = [...new Set(search.matches.map(m => m.relativePath))]
+  }
+
+  const replaceOpts = {
+    caseSensitive: Boolean(options?.caseSensitive),
+    wholeWord: Boolean(options?.wholeWord),
+    regex: Boolean(options?.regex),
+  }
+
+  let replacementCount = 0
+  const changedPaths: string[] = []
+  const failures: Array<{ relativePath: string; error: string }> = []
+
+  for (const relativePath of targetPaths) {
+    if (!isReplaceableTextFile(relativePath)) continue
+    try {
+      const { absolute } = await resolveWorkspacePath(relativePath, options?.cwd)
+      const raw = await readFile(absolute, 'utf8')
+      const usesCrLf = raw.includes('\r\n')
+      const normalized = raw.replace(/\r\n/g, '\n').replace(/\r/g, '\n')
+      const { content, count } = applySearchReplace(normalized, query, replace, replaceOpts)
+      if (count === 0) continue
+      const output = usesCrLf ? content.replace(/\n/g, '\r\n') : content
+      await writeFile(absolute, output, 'utf8')
+      replacementCount += count
+      changedPaths.push(relativePath)
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err)
+      failures.push({ relativePath, error: message })
+    }
+  }
+
+  return {
+    fileCount: changedPaths.length,
+    replacementCount,
+    relativePaths: changedPaths,
+    failures,
+  }
+}
 
 const execFilePromise = promisify(execFile)
 
@@ -43,6 +213,15 @@ async function resolveAbsoluteFilePath(filePath: string, cwd?: string): Promise<
   const basePath = await resolveReadWriteBase(basePathRaw)
   const relativePath = resolvePathRelativeToBase(basePath, filePath)
   return basePath ? path.join(basePath, relativePath) : path.resolve(relativePath)
+}
+
+async function resolveWorkspacePath(relativePath: string, cwd?: string): Promise<{ basePath: string; relative: string; absolute: string }> {
+  const basePathRaw = cwd?.trim() || configurationStore.store.sourceFolder
+  const basePath = await resolveReadWriteBase(basePathRaw)
+  if (!basePath) throw new Error('No workspace folder configured')
+  const relative = relativePath?.trim() ? resolvePathRelativeToBase(basePath, relativePath) : ''
+  const absolute = relative ? path.join(basePath, relative) : basePath
+  return { basePath, relative: relative.replace(/\\/g, '/'), absolute }
 }
 
 function mimeForImageExt(ext: string): string | undefined {
@@ -427,50 +606,147 @@ export function registerSystemIpcHandlers() {
     }
   })
 
-  ipcMain.handle(IPC.SYSTEM.OPEN_TERMINAL, async (_event, folderPathArg?: string) => {
-    const folderPath = folderPathArg?.trim() ? path.resolve(folderPathArg.trim()) : path.resolve(configurationStore.store.sourceFolder || '')
-    if (!folderPath || !fs.existsSync(folderPath)) {
-      l.warn(`Open terminal: Folder not found or empty: ${folderPath}`)
-      return { success: false, error: 'Folder not found or not configured' }
-    }
-    try {
-      const isWin = process.platform === 'win32'
-      if (isWin) {
-        const openCmdFallback = () => {
-          // Dùng start để mở cửa sổ cmd mới (cần thiết khi chạy từ Electron GUI)
-          const escapedPath = folderPath.replace(/"/g, '""')
-          const cmd = `start cmd /k "cd /d ""${escapedPath}"""`
-          spawn(cmd, {
-            shell: true,
-            detached: true,
-            stdio: 'ignore',
-          })
-          l.info(`Opened cmd.exe at: ${folderPath}`)
-        }
-        const cp = spawn('wt', ['-d', folderPath], { detached: true, stdio: 'ignore' })
-        cp.on('error', (err: NodeJS.ErrnoException) => {
-          if (err?.code === 'ENOENT') {
-            openCmdFallback()
-          } else {
-            l.error('Error opening Windows Terminal:', err)
-          }
-        })
-        cp.on('spawn', () => {
-          l.info(`Opened Windows Terminal at: ${folderPath}`)
-        })
-      } else {
-        const escapedPath = folderPath.replace(/'/g, "'\\''")
-        spawn('x-terminal-emulator', ['-e', `bash -c 'cd "${escapedPath}" && exec bash'`], {
-          detached: true,
-          stdio: 'ignore',
-        })
+  ipcMain.handle(
+    IPC.SYSTEM.LIST_DIR,
+    async (_event, payload: { relativePath?: string; cwd?: string; includeHidden?: boolean }) => {
+      try {
+        return await listDirectoryEntries(payload?.relativePath ?? '', payload)
+      } catch (err) {
+        l.error('LIST_DIR error:', err)
+        return { entries: [] }
       }
-      l.info(`Opened terminal at: ${folderPath}`)
-      return { success: true }
-    } catch (err: any) {
-      l.error('Error opening terminal:', err)
-      return { success: false, error: err?.message || String(err) }
     }
+  )
+
+  ipcMain.handle(IPC.SYSTEM.CREATE_DIR, async (_event, relativePath: string, options?: { cwd?: string }) => {
+    try {
+      const { absolute } = await resolveWorkspacePath(relativePath, options?.cwd)
+      await mkdir(absolute, { recursive: false })
+      return { success: true as const }
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : String(err)
+      l.error('CREATE_DIR error:', err)
+      return { success: false as const, error: message }
+    }
+  })
+
+  ipcMain.handle(IPC.SYSTEM.DELETE_PATH, async (_event, relativePath: string, options?: { cwd?: string }) => {
+    try {
+      const { absolute } = await resolveWorkspacePath(relativePath, options?.cwd)
+      if (!fs.existsSync(absolute)) return { success: false as const, error: 'not_found' }
+      await shell.trashItem(absolute)
+      return { success: true as const }
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : String(err)
+      l.error('DELETE_PATH error:', err)
+      return { success: false as const, error: message }
+    }
+  })
+
+  ipcMain.handle(
+    IPC.SYSTEM.RENAME_PATH,
+    async (_event, payload: { from: string; to: string; cwd?: string }) => {
+      try {
+        const from = await resolveWorkspacePath(payload.from, payload.cwd)
+        const to = await resolveWorkspacePath(payload.to, payload.cwd)
+        await fsRename(from.absolute, to.absolute)
+        return { success: true as const }
+      } catch (err: unknown) {
+        const message = err instanceof Error ? err.message : String(err)
+        l.error('RENAME_PATH error:', err)
+        return { success: false as const, error: message }
+      }
+    }
+  )
+
+  ipcMain.handle(
+    IPC.SYSTEM.COPY_PATH,
+    async (_event, payload: { from: string; to: string; cwd?: string }) => {
+      try {
+        const from = await resolveWorkspacePath(payload.from, payload.cwd)
+        const to = await resolveWorkspacePath(payload.to, payload.cwd)
+        if (!fs.existsSync(from.absolute)) return { success: false as const, error: 'not_found' }
+        const st = fs.statSync(from.absolute)
+        await cp(from.absolute, to.absolute, { recursive: st.isDirectory() })
+        return { success: true as const }
+      } catch (err: unknown) {
+        const message = err instanceof Error ? err.message : String(err)
+        l.error('COPY_PATH error:', err)
+        return { success: false as const, error: message }
+      }
+    }
+  )
+
+  ipcMain.handle(IPC.SYSTEM.STAGE_PATH_FOR_UNDO, async (_event, relativePath: string, options?: { cwd?: string }) => {
+    try {
+      const { absolute } = await resolveWorkspacePath(relativePath, options?.cwd)
+      if (!fs.existsSync(absolute)) return { success: false as const, error: 'not_found' }
+      const stagingId = crypto.randomUUID()
+      const dest = path.join(app.getPath('userData'), 'explorer-undo', stagingId)
+      await mkdir(path.dirname(dest), { recursive: true })
+      const st = fs.statSync(absolute)
+      await cp(absolute, dest, { recursive: st.isDirectory() })
+      return { success: true as const, stagingId }
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : String(err)
+      l.error('STAGE_PATH_FOR_UNDO error:', err)
+      return { success: false as const, error: message }
+    }
+  })
+
+  ipcMain.handle(
+    IPC.SYSTEM.RESTORE_UNDO_STAGING,
+    async (_event, payload: { stagingId: string; relativePath: string; cwd?: string }) => {
+      try {
+        const staging = path.join(app.getPath('userData'), 'explorer-undo', payload.stagingId)
+        if (!fs.existsSync(staging)) return { success: false as const, error: 'staging_missing' }
+        const { absolute } = await resolveWorkspacePath(payload.relativePath, payload.cwd)
+        const parent = path.dirname(absolute)
+        if (!fs.existsSync(parent)) await mkdir(parent, { recursive: true })
+        const st = fs.statSync(staging)
+        await cp(staging, absolute, { recursive: st.isDirectory() })
+        await rm(staging, { recursive: true, force: true })
+        return { success: true as const }
+      } catch (err: unknown) {
+        const message = err instanceof Error ? err.message : String(err)
+        l.error('RESTORE_UNDO_STAGING error:', err)
+        return { success: false as const, error: message }
+      }
+    }
+  )
+
+  ipcMain.handle(
+    IPC.SYSTEM.SEARCH_IN_FILES,
+    async (_event, payload: import('shared/editor/types').SearchInFilesOptions & { query: string }) => {
+      try {
+        return await searchInFilesRipgrep(payload.query, payload)
+      } catch (err) {
+        l.error('SEARCH_IN_FILES error:', err)
+        return { matches: [], truncated: false }
+      }
+    }
+  )
+
+  ipcMain.handle(
+    IPC.SYSTEM.REPLACE_IN_FILES,
+    async (_event, payload: import('shared/editor/types').ReplaceInFilesPayload) => {
+      try {
+        return await replaceInFilesWorkspace(payload.query, payload.replace, payload)
+      } catch (err) {
+        l.error('REPLACE_IN_FILES error:', err)
+        return { fileCount: 0, replacementCount: 0, relativePaths: [], failures: [{ relativePath: '', error: String(err) }] }
+      }
+    }
+  )
+
+  ipcMain.handle(IPC.SYSTEM.WATCH_WORKSPACE, (event, payload: { cwd?: string }) => {
+    const basePathRaw = payload?.cwd?.trim() || configurationStore.store.sourceFolder
+    return watchWorkspace(event.sender, basePathRaw ?? '')
+  })
+
+  ipcMain.handle(IPC.SYSTEM.UNWATCH_WORKSPACE, event => {
+    unwatchWorkspace(event.sender)
+    return { success: true }
   })
 
   l.info('✅ System IPC Handlers Registered')

@@ -1,6 +1,7 @@
 'use client'
 
 import { DiffEditor, Editor, useMonaco } from '@monaco-editor/react'
+import { useAppMonacoThemeId, useSyncAppMonacoTheme } from '@/hooks/useAppMonacoTheme'
 import { ChevronLeft, ChevronRight, FileWarning, FolderOpen, Loader2, Pencil, RefreshCw } from 'lucide-react'
 import { IPC } from 'main/constants'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
@@ -14,7 +15,7 @@ import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/comp
 import toast from '@/components/ui-elements/Toast'
 import { type BlockResolution, buildResolvedContent, parseSvnConflictBlocks, type SvnConflictBlock } from '@/lib/svnConflictBlocks'
 import logger from '@/services/logger'
-import { useAppearanceStore, useAppearanceStoreSelect } from '@/stores/useAppearanceStore'
+import { useAppearanceStoreSelect } from '@/stores/useAppearanceStore'
 import { getConfigDataRelevantSnapshot, useConfigurationStore } from '@/stores/useConfigurationStore'
 import { ConflictEditor } from './ConflictEditor'
 
@@ -119,8 +120,10 @@ export function SvnConflictPanel({
 }: SvnConflictPanelProps) {
   const { t } = useTranslation()
   const buttonVariant = useAppearanceStoreSelect(s => s.buttonVariant)
-  const { themeMode } = useAppearanceStore()
   const monaco = useMonaco()
+  const monacoTheme = useAppMonacoThemeId()
+  useSyncAppMonacoTheme(monaco, { includeDiff: true, includeEditorRules: false })
+  const editorTheme = monacoTheme
 
   const [conflictData, setConflictData] = useState<{
     hasConflict: boolean
@@ -377,40 +380,6 @@ export function SvnConflictPanel({
     [editingFile, sourceFolder, handleResolveWithContent, t]
   )
 
-  useEffect(() => {
-    if (!monaco) return
-    monaco.editor.defineTheme('svn-conflict-dark', {
-      base: 'vs-dark',
-      inherit: true,
-      rules: [],
-      colors: {
-        'editor.background': '#202020',
-        'editorLineNumber.foreground': '#6c7086',
-        'editorCursor.foreground': '#f38ba8',
-        'diffEditor.insertedTextBackground': '#00fa5120',
-        'diffEditor.removedTextBackground': '#ff000220',
-        'diffEditor.insertedLineBackground': '#00aa5120',
-        'diffEditor.removedLineBackground': '#aa000220',
-      },
-    })
-    monaco.editor.defineTheme('svn-conflict-light', {
-      base: 'vs',
-      inherit: true,
-      rules: [],
-      colors: {
-        'editor.background': '#f9f9f9',
-        'editorLineNumber.foreground': '#9aa2b1',
-        'editorCursor.foreground': '#931845',
-        'diffEditor.insertedTextBackground': '#a2f3bdcc',
-        'diffEditor.removedTextBackground': '#f19999cc',
-        'diffEditor.insertedLineBackground': '#b7f5c6cc',
-        'diffEditor.removedLineBackground': '#f2a8a8cc',
-      },
-    })
-    const theme = themeMode === 'dark' ? 'svn-conflict-dark' : 'svn-conflict-light'
-    monaco.editor.setTheme(theme)
-  }, [monaco, themeMode])
-
   const handleResolve = async (filePath: string, resolution: 'working' | 'theirs' | 'mine' | 'base' | '', isRevisionConflict?: boolean) => {
     setResolvingFile(filePath)
     try {
@@ -435,7 +404,6 @@ export function SvnConflictPanel({
     return null
   }
 
-  const editorTheme = themeMode === 'dark' ? 'svn-conflict-dark' : 'svn-conflict-light'
   const editorLang = selectedFile ? getEditorLanguage(selectedFile.path) : 'plaintext'
   const editorOptions = {
     renderWhitespace: 'all' as const,

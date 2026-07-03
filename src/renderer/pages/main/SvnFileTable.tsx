@@ -30,7 +30,6 @@ import { Input } from '@/components/ui/input'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
-import { GlowLoader } from '@/components/ui-elements/GlowLoader'
 import { StatusIcon } from '@/components/ui-elements/StatusIcon'
 import toast from '@/components/ui-elements/Toast'
 import { cn } from '@/lib/utils'
@@ -376,7 +375,6 @@ interface SvnFileTableProps {
 export const SvnFileTable = forwardRef(({ targetPath, onLoadingChange }: SvnFileTableProps, ref) => {
   const [sorting, setSorting] = useState<SortingState>([])
   const [rowSelection, setRowSelection] = useState({})
-  const [isTableLoading, setIsTableLoading] = useState(false)
   const [data, setData] = useState<FileData[]>([])
   const hasLoaded = useRef(false)
   const [selectedFiles, setSelectedFiles] = useState<FileData[]>([])
@@ -551,7 +549,6 @@ export const SvnFileTable = forwardRef(({ targetPath, onLoadingChange }: SvnFile
 
   const reloadData = useCallback(
     async (isAutoReload = false) => {
-      setIsTableLoading(true)
       onLoadingChange?.(true)
       try {
         logger.info('Reloading data...', { isAutoReload })
@@ -567,7 +564,6 @@ export const SvnFileTable = forwardRef(({ targetPath, onLoadingChange }: SvnFile
           toast.error(errorMessage)
         }
       } finally {
-        setIsTableLoading(false)
         onLoadingChange?.(false)
         // Reset flag sau một chút để đảm bảo các lần reload tiếp theo vẫn hiển thị toast nếu cần
         setTimeout(() => {
@@ -1142,11 +1138,6 @@ export const SvnFileTable = forwardRef(({ targetPath, onLoadingChange }: SvnFile
 
   return (
     <div className="h-full p-2 relative">
-      {isTableLoading && (
-        <div className="absolute inset-0 z-20 flex items-center justify-center bg-background/60 rounded-md">
-          <GlowLoader className="h-10 w-10" />
-        </div>
-      )}
       <div className="flex flex-col border rounded-md h-full overflow-hidden">
         <div className="flex items-center gap-2 px-2 py-1.5 border-b bg-muted/30 shrink-0">
           <Input placeholder={t('placeholder.search')} value={globalFilter ?? ''} onChange={e => setGlobalFilter(e.target.value)} className="h-7 max-w-[200px] text-sm" />

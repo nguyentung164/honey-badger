@@ -1,10 +1,10 @@
 'use client'
 
-import { Editor } from '@monaco-editor/react'
 import { ChevronDown, ChevronUp, Info, Loader2, Save, X } from 'lucide-react'
 import type * as Monaco from 'monaco-editor'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
+import { CodeEditor, type CodeEditorHandle } from '@/components/code/CodeEditor'
 import {
   AlertDialog,
   AlertDialogAction,
@@ -19,7 +19,6 @@ import { Button } from '@/components/ui/button'
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
 import toast from '@/components/ui-elements/Toast'
 import { extractGitConflictHunks, hasConflictMarkers, lineNumberAtOffset, parseConflictMarkers, resolveSingleConflictHunk } from '@/lib/conflictMarkers'
-import { useAppearanceStore } from '@/stores/useAppearanceStore'
 
 const CONFLICT_APPLY_CMD = 'honey-badger.conflict.applyHunk'
 
@@ -62,20 +61,22 @@ export function ConflictEditor({
   onDirtyChange,
 }: ConflictEditorProps) {
   const { t } = useTranslation()
-  const { themeMode } = useAppearanceStore()
-  const editorRef = useRef<Monaco.editor.IStandaloneCodeEditor | null>(null)
+  const editorRef = useRef<CodeEditorHandle | null>(null)
   const monacoRef = useRef<typeof Monaco | null>(null)
   const decorationsRef = useRef<string[]>([])
   const mountDisposablesRef = useRef<Monaco.IDisposable[]>([])
   const conflictVisualTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const baselineContentRef = useRef(initialContent.replace(/\r\n/g, '\n'))
+  const [content, setContent] = useState(() => initialContent.replace(/\r\n/g, '\n'))
   const [isSaving, setIsSaving] = useState(false)
   const [showUnresolvedConfirm, setShowUnresolvedConfirm] = useState(false)
   const [conflictCount, setConflictCount] = useState(() => extractGitConflictHunks(initialContent.replace(/\r\n/g, '\n')).length)
   const [hasMarkers, setHasMarkers] = useState(() => hasConflictMarkers(initialContent))
 
   useEffect(() => {
-    baselineContentRef.current = initialContent.replace(/\r\n/g, '\n')
+    const normalized = initialContent.replace(/\r\n/g, '\n')
+    baselineContentRef.current = normalized
+    setContent(normalized)
     onDirtyChange?.(false)
   }, [filePath, initialContent, onDirtyChange])
 
@@ -145,7 +146,7 @@ export function ConflictEditor({
   )
 
   const goNeighborConflict = useCallback((direction: -1 | 1) => {
-    const editor = editorRef.current
+    const editor = editorRef.current?.getEditor()
     const monaco = monacoRef.current
     if (!editor || !monaco) return
     const model = editor.getModel()
@@ -167,7 +168,6 @@ export function ConflictEditor({
 
   const handleEditorMount = useCallback(
     (editor: Monaco.editor.IStandaloneCodeEditor, monaco: typeof Monaco) => {
-      editorRef.current = editor
       monacoRef.current = monaco
       const model = editor.getModel()
 
@@ -185,6 +185,7 @@ export function ConflictEditor({
           if (onDirtyChange) {
             const norm = editor.getValue().replace(/\r\n/g, '\n')
             onDirtyChange(norm !== baselineContentRef.current)
+            setContent(norm)
           }
         })
       )
@@ -194,7 +195,7 @@ export function ConflictEditor({
 
         mountDisposablesRef.current.push(
           monaco.editor.registerCommand(CONFLICT_APPLY_CMD, (_accessor, uriStr: unknown, hunkIndex: unknown, choice: unknown) => {
-            const ed = editorRef.current
+            const ed = editorRef.current?.getEditor()
             const m = ed?.getModel()
             if (!ed || !m || typeof uriStr !== 'string' || m.uri.toString() !== uriStr) return
             if (typeof hunkIndex !== 'number' || (choice !== 'ours' && choice !== 'theirs' && choice !== 'both')) return
@@ -279,7 +280,7 @@ export function ConflictEditor({
   )
 
   const handleSaveClick = useCallback(() => {
-    const editor = editorRef.current
+    const editor = editorRef.current?.getEditor()
     if (!editor) return
 
     const value = editor.getValue()
@@ -291,7 +292,7 @@ export function ConflictEditor({
   }, [doSave])
 
   const handleSaveConfirm = useCallback(() => {
-    const editor = editorRef.current
+    const editor = editorRef.current?.getEditor()
     if (!editor) return
     setShowUnresolvedConfirm(false)
     void doSave(editor.getValue())
@@ -299,10 +300,9 @@ export function ConflictEditor({
 
   const primaryDisabled = isSaving || (disablePrimaryWhenConflicted && hasMarkers)
 
-  const editorTheme = themeMode === 'dark' ? 'vs-dark' : 'vs'
   const editorOptions: Monaco.editor.IStandaloneEditorConstructionOptions = useMemo(() => {
-    const lineCount = initialContent.split('\n').length
-    const heavy = initialContent.length > 350_000 || lineCount > 6000
+    const lineCount = content.split('\n').length
+    const heavy = content.length > 350_000 || lineCount > 6000
     return {
       readOnly: false,
       renderWhitespace: heavy ? 'none' : 'all',
@@ -317,7 +317,7 @@ export function ConflictEditor({
       codeLens: enableConflictCodeLens,
       largeFileOptimizations: true,
     }
-  }, [enableConflictCodeLens, initialContent])
+  }, [content, enableConflictCodeLens])
 
   const primaryLabel = primaryAction === 'markResolved' ? t('conflictEditor.markAsResolved') : t('common.save')
   const embeddedChrome = chrome === 'embedded'
@@ -372,7 +372,16 @@ export function ConflictEditor({
           </div>
         </div>
         <div className="flex-1 min-h-0">
-          <Editor path={filePath} height="100%" language={language} theme={editorTheme} defaultValue={initialContent} options={editorOptions} onMount={handleEditorMount} />
+          <CodeEditor
+            ref={editorRef}
+            filePath={filePath}
+            value={content}
+            language={language}
+            onChange={setContent}
+            onMount={handleEditorMount}
+            editorOptions={editorOptions}
+            className="h-full min-h-0"
+          />
         </div>
 
         <AlertDialog open={showUnresolvedConfirm} onOpenChange={setShowUnresolvedConfirm}>

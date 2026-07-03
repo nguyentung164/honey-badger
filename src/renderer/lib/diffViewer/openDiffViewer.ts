@@ -1,28 +1,22 @@
 import toast from '@/components/ui-elements/Toast'
 import i18n from '@/lib/i18n'
 import {
-  buildDiffViewerFilesFromLogFiles,
-  resolveOpenFileIndex,
-} from '@/pages/diffviewer/diffViewerRefresh'
-import {
+  buildEmbeddedGitConflictPayloadSyncKey as buildEmbeddedGitConflictPayloadSyncKeyFromModule,
   buildGitConflictDiffPayload,
   buildGitConflictFileEntries,
-  buildEmbeddedGitConflictPayloadSyncKey as buildEmbeddedGitConflictPayloadSyncKeyFromModule,
   fetchGitConflictSession,
   isGitConflictedFileStatus,
 } from '@/pages/diffviewer/diffViewerConflictPayload'
 import { normalizeGitPath } from '@/pages/diffviewer/diffViewerGitFiles'
 import type { DiffViewerFileEntry, DiffViewerLoadPayload, DiffViewerMode } from '@/pages/diffviewer/diffViewerPayload'
+import { buildDiffViewerFilesFromLogFiles, resolveOpenFileIndex } from '@/pages/diffviewer/diffViewerRefresh'
 
 export type GitStagingTableFile = {
   filePath: string
   status: string
 }
 
-export function buildGitStagingFileEntries(
-  changesFiles: GitStagingTableFile[],
-  stagedFiles: GitStagingTableFile[]
-): DiffViewerFileEntry[] {
+export function buildGitStagingFileEntries(changesFiles: GitStagingTableFile[], stagedFiles: GitStagingTableFile[]): DiffViewerFileEntry[] {
   return [
     ...changesFiles.map(f => ({
       filePath: f.filePath,
@@ -48,9 +42,7 @@ export function buildGitStagingDiffPayload(opts: {
   const files = buildGitStagingFileEntries(opts.changesFiles, opts.stagedFiles)
   const normalizedPath = normalizeGitPath(opts.filePath)
   const preferredStagingState = opts.stagingState
-  const matchIndex = files.findIndex(
-    f => f.filePath === normalizedPath && (!preferredStagingState || f.stagingState === preferredStagingState)
-  )
+  const matchIndex = files.findIndex(f => f.filePath === normalizedPath && (!preferredStagingState || f.stagingState === preferredStagingState))
   const fallbackIndex = files.findIndex(f => f.filePath === normalizedPath)
   const currentFileIndex = matchIndex >= 0 ? matchIndex : fallbackIndex >= 0 ? fallbackIndex : 0
   const active = files[currentFileIndex]
@@ -68,8 +60,12 @@ export function buildGitStagingDiffPayload(opts: {
   }
 }
 
+export function gitStagingRepoRootKey(repoCwd?: string | null): string {
+  return (repoCwd ?? '').replace(/\\/g, '/').replace(/\/+$/, '').trim() || '__none__'
+}
+
 export function gitStagingLayoutStorageKey(repoRootKey: string): string {
-  return `git-staging-layout-v2:${repoRootKey}`
+  return `git-staging-layout-v3:${repoRootKey}`
 }
 
 export function readGitStagingLayoutDirection(repoRootKey: string): 'horizontal' | 'vertical' {
@@ -91,8 +87,7 @@ export function writeGitStagingLayoutDirection(repoRootKey: string, direction: '
 }
 export function buildEmbeddedGitStagingPayloadSyncKey(payload: DiffViewerLoadPayload | null | undefined): string {
   if (!payload) return ''
-  const files =
-    payload.files?.map(f => `${f.stagingState ?? ''}:${f.filePath}:${f.fileStatus ?? ''}`).join('|') ?? ''
+  const files = payload.files?.map(f => `${f.stagingState ?? ''}:${f.filePath}:${f.fileStatus ?? ''}`).join('|') ?? ''
   return `${payload.filePath}\0${payload.stagingState ?? ''}\0${payload.cwd ?? ''}\0${files}`
 }
 
@@ -139,8 +134,7 @@ function sendGitDiff(filePath: string, options: GitOpenOptions) {
     cwd: options.cwd,
     conflictType: options.conflictType,
     files: files.length > 0 ? files : undefined,
-    currentFileIndex:
-      files.length > 0 ? resolveOpenFileIndex(files, normalizedPath, options.currentFileIndex) : options.currentFileIndex,
+    currentFileIndex: files.length > 0 ? resolveOpenFileIndex(files, normalizedPath, options.currentFileIndex) : options.currentFileIndex,
     enableStageActions: options.enableStageActions ?? options.mode === 'git-staging',
   })
 }
@@ -156,8 +150,7 @@ function sendSvnDiff(filePath: string, options: SvnOpenOptions) {
     cwd: options.cwd,
     svnTargetPath: options.svnTargetPath,
     files: files.length > 0 ? files : undefined,
-    currentFileIndex:
-      files.length > 0 ? resolveOpenFileIndex(files, normalizedPath, options.currentFileIndex) : options.currentFileIndex,
+    currentFileIndex: files.length > 0 ? resolveOpenFileIndex(files, normalizedPath, options.currentFileIndex) : options.currentFileIndex,
   })
 }
 
@@ -232,13 +225,7 @@ export function createEmbeddedGitConflictPayload(opts: {
 }
 
 /** Git staging table — working tree vs index with stage/unstage. */
-export function openGitStagingDiff(opts: {
-  filePath: string
-  fileStatus: string
-  cwd?: string
-  files: DiffViewerFileEntry[]
-  currentFileIndex?: number
-}) {
+export function openGitStagingDiff(opts: { filePath: string; fileStatus: string; cwd?: string; files: DiffViewerFileEntry[]; currentFileIndex?: number }) {
   if (resolveGitDiffOpenMode(opts.fileStatus) === 'git-conflict') {
     const conflictFiles = opts.files.filter(f => isGitConflictedFileStatus(f.fileStatus))
     openGitConflictDiff({
@@ -308,12 +295,7 @@ export function openGitHistoryDiff(opts: {
 }
 
 /** VCS operation log — HEAD vs parent (read-only). */
-export function openGitHeadDiff(opts: {
-  filePath: string
-  fileStatus: string
-  parentHash?: string | null
-  cwd?: string
-}) {
+export function openGitHeadDiff(opts: { filePath: string; fileStatus: string; parentHash?: string | null; cwd?: string }) {
   sendGitDiff(opts.filePath, {
     fileStatus: opts.fileStatus,
     mode: 'git-history',
@@ -346,15 +328,20 @@ export function openSvnRevisionDiff(opts: {
   })
 }
 
+/** Compare two workspace files side-by-side (explorer multi-select). */
+export function openWorkspaceFileCompare(opts: { leftPath: string; rightPath: string; cwd?: string }) {
+  const left = normalizeGitPath(opts.leftPath)
+  const right = normalizeGitPath(opts.rightPath)
+  window.api.svn.open_diff(left, {
+    fileStatus: 'M',
+    mode: 'workspace-compare',
+    cwd: opts.cwd,
+    compareWithPath: right,
+  })
+}
+
 /** SVN working copy changes table — WC vs base. */
-export function openSvnWorkingDiff(opts: {
-  filePath: string
-  fileStatus: string
-  cwd?: string
-  svnTargetPath?: string
-  files?: DiffViewerFileEntry[]
-  currentFileIndex?: number
-}) {
+export function openSvnWorkingDiff(opts: { filePath: string; fileStatus: string; cwd?: string; svnTargetPath?: string; files?: DiffViewerFileEntry[]; currentFileIndex?: number }) {
   sendSvnDiff(opts.filePath, {
     fileStatus: opts.fileStatus,
     mode: 'svn-working',

@@ -18,6 +18,10 @@ export default {
   productName: displayName,
   copyright: `Copyright © ${currentYear} — ${author}`,
 
+  /** node-pty@1.x ships N-API prebuilds — no MSVC rebuild on Windows */
+  npmRebuild: false,
+  beforeBuild: 'scripts/beforeBuild.cjs',
+
   publish: [
     {
       provider: 'github',
@@ -42,6 +46,7 @@ export default {
     'node_modules/playwright-core/**',
     'node_modules/exceljs/**',
     'node_modules/pdfjs-dist/**',
+    'node_modules/node-pty/**',
   ],
 
   extraResources: [

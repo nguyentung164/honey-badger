@@ -12,7 +12,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Textarea } from '@/components/ui/textarea'
 import toast from '@/components/ui-elements/Toast'
-import { useAppearanceStoreSelect } from '@/stores/useAppearanceStore'
+import { onAppMonacoBeforeMount, useGlobalAppMonacoThemeSync } from '@/hooks/useAppMonacoTheme'
 
 interface Props {
   projectId: string
@@ -38,7 +38,7 @@ function emptyStep(order: number): TestStep {
 
 export function CaseEditor({ projectId, initial, defaultFlowId, flowOptions, open, onOpenChange, onSaved }: Props) {
   const { t } = useTranslation()
-  const themeMode = useAppearanceStoreSelect(s => s.themeMode)
+  const monacoTheme = useGlobalAppMonacoThemeSync({ includeDiff: false, includeEditorRules: true })
   const [code, setCode] = useState('')
   const [title, setTitle] = useState('')
   const [priority, setPriority] = useState<TestCasePriority>('medium')
@@ -354,7 +354,8 @@ export function CaseEditor({ projectId, initial, defaultFlowId, flowOptions, ope
                     height="192px"
                     defaultLanguage="typescript"
                     value={aiProposal}
-                    theme={themeMode === 'dark' ? 'vs-dark' : 'vs'}
+                    theme={monacoTheme}
+                    beforeMount={onAppMonacoBeforeMount}
                     options={{ readOnly: true, minimap: { enabled: false } }}
                   />
                 </div>
@@ -374,7 +375,8 @@ export function CaseEditor({ projectId, initial, defaultFlowId, flowOptions, ope
                 defaultLanguage="typescript"
                 value={spec}
                 onChange={v => setSpec(v ?? '')}
-                theme={themeMode === 'dark' ? 'vs-dark' : 'vs'}
+                theme={monacoTheme}
+                beforeMount={onAppMonacoBeforeMount}
                 options={{ minimap: { enabled: false }, automaticLayout: true }}
               />
             </div>

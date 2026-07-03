@@ -1,6 +1,6 @@
 import { TASK_AUTH_STORAGE_KEY } from '@/stores/useTaskAuthStore'
 
-export type MainShellView = 'vcs' | 'tasks' | 'prManager' | 'automation' | 'devPipelines' | 'showLog'
+export type MainShellView = 'editor' | 'vcs' | 'tasks' | 'prManager' | 'automation' | 'devPipelines' | 'showLog'
 
 export const MAIN_SHELL_VIEW_KEY = 'main-shell-view'
 
@@ -111,7 +111,7 @@ export function canViewTaskChartTab(role: string | undefined): boolean {
 export function readStoredShellView(): MainShellView | null {
   try {
     const v = localStorage.getItem(MAIN_SHELL_VIEW_KEY)
-    if (v === 'vcs' || v === 'tasks' || v === 'prManager' || v === 'automation' || v === 'devPipelines' || v === 'showLog') return v
+    if (v === 'editor' || v === 'vcs' || v === 'tasks' || v === 'prManager' || v === 'automation' || v === 'devPipelines' || v === 'showLog') return v
   } catch {
     /* ignore */
   }

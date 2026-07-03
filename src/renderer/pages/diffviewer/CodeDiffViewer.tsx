@@ -1,14 +1,16 @@
 'use client'
 import { DiffEditor, type DiffOnMount, useMonaco } from '@monaco-editor/react'
-import type { editor as MonacoEditor } from 'monaco-editor'
 import { IPC } from 'main/constants'
+import type { editor as MonacoEditor } from 'monaco-editor'
+import { useTheme } from 'next-themes'
+import { forwardRef, type ReactNode, useCallback, useEffect, useImperativeHandle, useMemo, useRef, useState } from 'react'
+import { useTranslation } from 'react-i18next'
 import type { FilesChangedPayload } from 'shared/filesChanged'
 import { filesChangedTargetsRepo } from 'shared/filesChanged'
-import { useCallback, useEffect, useMemo, useRef, useState, forwardRef, useImperativeHandle, type ReactNode } from 'react'
-import { useTranslation } from 'react-i18next'
-import toast from '@/components/ui-elements/Toast'
 import { ResizableHandle, ResizablePanel, ResizablePanelGroup } from '@/components/ui/resizable'
-import { SYNCED_EVENT, type UiSettingsSyncedDetail } from '@/lib/syncUiSettings'
+import toast from '@/components/ui-elements/Toast'
+import { useAppMonacoThemeId, useSyncAppMonacoTheme } from '@/hooks/useAppMonacoTheme'
+import { buildEmbeddedGitConflictPayloadSyncKey, buildEmbeddedGitStagingPayloadSyncKey } from '@/lib/diffViewer/openDiffViewer'
 import logger from '@/services/logger'
 import { useAppearanceStore } from '@/stores/useAppearanceStore'
 import { useConfigurationStore } from '@/stores/useConfigurationStore'
@@ -17,41 +19,54 @@ import { DiffFooterBar } from './DiffFooterBar'
 import { DiffToolbar } from './DiffToolbar'
 import { DiffViewerCloseConfirm } from './DiffViewerCloseConfirm'
 import { DiffViewerDiscardConfirm } from './DiffViewerDiscardConfirm'
-import { DiffViewerFileTreePanel, type DiffViewerFileTreeBulkAction } from './DiffViewerFileTreePanel'
+import { type DiffViewerFileTreeBulkAction, DiffViewerFileTreePanel } from './DiffViewerFileTreePanel'
 import { DiffViewerLoadState } from './DiffViewerLoadState'
+import {
+  type DiffViewerFilesRefreshResult,
+  isGitEntryStaged,
+  isGitEntryUnstaged,
+  mergeGitFilesRefreshIntoContext,
+  normalizeGitPath,
+  pathsEqual,
+  resolveAutoAdvanceTargetIndex,
+  resolveDiffViewerRepoCwd,
+  resolveDisplayedFileEntry,
+  wrapFileNavIndex,
+} from './diffViewerGitFiles'
 import type { DiffViewerFileKind, DiffViewerLoadPayload, DiffViewerMode, ImageLoadContext } from './diffViewerPayload'
 import { deriveDiffViewerMode, diffViewerIsGitConflictMode, diffViewerSupportsFileListRefresh, diffViewerSupportsStageActions, enrichDiffViewerPayload } from './diffViewerPayload'
-import { mergeGitFilesRefreshIntoContext, normalizeGitPath, pathsEqual, resolveAutoAdvanceTargetIndex, resolveDisplayedFileEntry, resolveDiffViewerRepoCwd, isGitEntryStaged, isGitEntryUnstaged, wrapFileNavIndex, type DiffViewerFilesRefreshResult } from './diffViewerGitFiles'
+import { loadGitStagingDiffContent, resolveStagingDiffProfile, resolveStagingPaneLabels } from './diffViewerStagingDiff'
 import type { CharDiffStats, DiffStats } from './diffViewerTypes'
 import {
+  clampEditorPosition,
   computeCharDiffStats,
   computeDiffStats,
-  clampEditorPosition,
+  formatDiffEditor,
   getChangePosition,
   getCharChangeCount,
   getCurrentLineChange,
   goToAdjacentChange,
   goToFirstChange,
   goToLastChange,
-  resolveDiffViewerRevealPath,
-  swapDiffEditorModels,
-  triggerFindReplaceWidget,
-  triggerFindWidget,
-  formatDiffEditor,
   readDiffEditorPaneText,
   removeEmptyLinesFromDiffEditor,
   resetDiffEditorCursors,
+  resolveDiffViewerRevealPath,
   stabilizeDiffEditorAfterEdit,
+  swapDiffEditorModels,
   syncDiffEditorModelLanguage,
+  triggerFindReplaceWidget,
+  triggerFindWidget,
   waitForDiffCompute,
 } from './diffViewerUtils'
-import { useDiffViewerBlame } from './useDiffViewerBlame'
-import { useDiffViewerMinimapHighlights } from './useDiffViewerMinimapHighlights'
-import { useDiffViewerPaneLabels } from './useDiffViewerPaneLabels'
-import { loadGitStagingDiffContent, resolveStagingDiffProfile, resolveStagingPaneLabels } from './diffViewerStagingDiff'
-import { useDiffViewerDirty } from './useDiffViewerDirty'
+import { GitConflictDiffView } from './GitConflictDiffView'
 import { useDiffViewerAutoAdvance } from './useDiffViewerAutoAdvance'
+import { useDiffViewerBlame } from './useDiffViewerBlame'
+import { useDiffViewerDirty } from './useDiffViewerDirty'
 import { useDiffViewerFileNav } from './useDiffViewerFileNav'
+import { useDiffViewerMinimapHighlights } from './useDiffViewerMinimapHighlights'
+import { applyDiffViewerEditorOptions, buildDiffEditorOptions, useDiffViewerOptions } from './useDiffViewerOptions'
+import { useDiffViewerPaneLabels } from './useDiffViewerPaneLabels'
 import {
   DIFF_VIEWER_EDITOR_PANEL_ID,
   DIFF_VIEWER_TREE_PANEL_ID,
@@ -59,9 +74,6 @@ import {
   DIFF_VIEWER_TREE_PANEL_MIN_WIDTH,
   useDiffViewerTreePanelWidth,
 } from './useDiffViewerTreePanelWidth'
-import { buildDiffEditorOptions, applyDiffViewerEditorOptions, useDiffViewerOptions } from './useDiffViewerOptions'
-import { buildEmbeddedGitConflictPayloadSyncKey, buildEmbeddedGitStagingPayloadSyncKey } from '@/lib/diffViewer/openDiffViewer'
-import { GitConflictDiffView } from './GitConflictDiffView'
 
 export type CodeDiffViewerHandle = {
   /** Run after user saves/discards or when there are no unsaved edits. */
@@ -79,6 +91,8 @@ export type CodeDiffViewerProps = {
   embeddedToolbarHost?: HTMLElement | null
   /** Commit message panel below Staged in tree (MainPage diff layout only). */
   embeddedStagingFooter?: ReactNode
+  /** Reload git staging file list from parent (embedded MainPage diff layout). */
+  embeddedOnReloadFileList?: () => void | Promise<void>
 }
 
 const EXT_TO_LANG: Record<string, string> = {
@@ -115,10 +129,10 @@ const EXT_TO_LANG: Record<string, string> = {
   java: 'java',
   javascript: 'javascript',
   js: 'javascript',
-  jsx: 'javascriptreact',
+  jsx: 'javascript',
   typescript: 'typescript',
   ts: 'typescript',
-  tsx: 'typescriptreact',
+  tsx: 'typescript',
   json: 'json',
   jsonc: 'json',
   kotlin: 'kotlin',
@@ -210,11 +224,18 @@ function formatLoadError(error: unknown): string {
 }
 
 export const CodeDiffViewer = forwardRef<CodeDiffViewerHandle, CodeDiffViewerProps>(function CodeDiffViewer(
-  { embedded = false, embeddedRepoCwd, embeddedPayload = null, embeddedToolbarHost = null, embeddedStagingFooter = null },
+  { embedded = false, embeddedRepoCwd, embeddedPayload = null, embeddedToolbarHost = null, embeddedStagingFooter = null, embeddedOnReloadFileList },
   ref
 ) {
   const monaco = useMonaco()
+  const monacoTheme = useAppMonacoThemeId()
+  useSyncAppMonacoTheme(monaco, { includeDiff: true, includeEditorRules: false })
   const { themeMode } = useAppearanceStore()
+  const { resolvedTheme } = useTheme()
+  const minimapThemeMode = useMemo((): 'light' | 'dark' => {
+    if (themeMode === 'dark' || themeMode === 'light') return themeMode
+    return resolvedTheme === 'dark' ? 'dark' : 'light'
+  }, [themeMode, resolvedTheme])
   const { t } = useTranslation()
   const [originalCode, setOriginalCode] = useState('')
   const [modifiedCode, setModifiedCode] = useState('')
@@ -227,12 +248,7 @@ export const CodeDiffViewer = forwardRef<CodeDiffViewerHandle, CodeDiffViewerPro
   const [cwd, setCwd] = useState<string | undefined>(undefined)
   const sourceFolder = useConfigurationStore(s => s.sourceFolder)
   const getRepoCwd = useCallback(
-    (payloadCwd?: string) =>
-      resolveDiffViewerRepoCwd(
-        payloadCwd ?? loadContextRef.current?.cwd,
-        cwd ?? embeddedRepoCwd,
-        embedded ? undefined : sourceFolder
-      ),
+    (payloadCwd?: string) => resolveDiffViewerRepoCwd(payloadCwd ?? loadContextRef.current?.cwd, cwd ?? embeddedRepoCwd, embedded ? undefined : sourceFolder),
     [cwd, embeddedRepoCwd, sourceFolder, embedded]
   )
   const notifyStagingChanged = useCallback(() => {
@@ -286,8 +302,7 @@ export const CodeDiffViewer = forwardRef<CodeDiffViewerHandle, CodeDiffViewerPro
   const { panelGroupRef, initialLayout, handleLayoutChanged } = useDiffViewerTreePanelWidth()
 
   const notifyContentChangeRef = useRef<((event: { isFlush?: boolean }) => void) | null>(null)
-  const { files, activeIndex, activeFile, initFiles, goToFile, refreshFilesFromGit, refreshFromContext, hasMultipleFiles, setActiveEntryStagingState } =
-    useDiffViewerFileNav()
+  const { files, activeIndex, activeFile, initFiles, goToFile, refreshFilesFromGit, refreshFromContext, hasMultipleFiles, setActiveEntryStagingState } = useDiffViewerFileNav()
 
   const displayedFileEntry = useMemo(() => {
     if (activeFile && pathsEqual(activeFile.filePath, filePath)) {
@@ -299,8 +314,7 @@ export const CodeDiffViewer = forwardRef<CodeDiffViewerHandle, CodeDiffViewerPro
     })
   }, [files, filePath, activeFile])
 
-  const stagingHintForRefresh =
-    activeFile && pathsEqual(activeFile.filePath, filePath) ? activeFile.stagingState : undefined
+  const stagingHintForRefresh = activeFile && pathsEqual(activeFile.filePath, filePath) ? activeFile.stagingState : undefined
 
   const stagingDiffProfile = useMemo(() => {
     if (diffViewerMode !== 'git-staging') return null
@@ -309,10 +323,7 @@ export const CodeDiffViewer = forwardRef<CodeDiffViewerHandle, CodeDiffViewerPro
     return resolveStagingDiffProfile(state)
   }, [diffViewerMode, stagingHintForRefresh, displayedFileEntry?.stagingState])
 
-  const hasStagedEntryForPath = useMemo(
-    () => Boolean(filePath) && files.some(f => pathsEqual(f.filePath, filePath) && isGitEntryStaged(f)),
-    [files, filePath]
-  )
+  const hasStagedEntryForPath = useMemo(() => Boolean(filePath) && files.some(f => pathsEqual(f.filePath, filePath) && isGitEntryStaged(f)), [files, filePath])
 
   const stagingPaneLabels = useMemo(() => {
     if (diffViewerMode !== 'git-staging') return null
@@ -327,17 +338,11 @@ export const CodeDiffViewer = forwardRef<CodeDiffViewerHandle, CodeDiffViewerPro
   const baseVcsEditable = currentRevision == null && currentCommitHash == null
   const editable = baseVcsEditable && (stagingDiffProfile?.modifiedEditable ?? true)
   const editorViewOptions = useMemo(
-    () =>
-      stagingDiffProfile
-        ? { ...viewOptions, originalEditable: stagingDiffProfile.originalEditable && viewOptions.originalEditable }
-        : viewOptions,
+    () => (stagingDiffProfile ? { ...viewOptions, originalEditable: stagingDiffProfile.originalEditable && viewOptions.originalEditable } : viewOptions),
     [viewOptions, stagingDiffProfile]
   )
 
-  const editorOptions = useMemo(
-    () => buildDiffEditorOptions(editorViewOptions, { readOnly: !editable }),
-    [editorViewOptions, editable]
-  )
+  const editorOptions = useMemo(() => buildDiffEditorOptions(editorViewOptions, { readOnly: !editable }), [editorViewOptions, editable])
 
   const { isDirty, setBaseline, notifyContentChange, beginProgrammaticUpdate, endProgrammaticUpdate } = useDiffViewerDirty(editable)
   notifyContentChangeRef.current = notifyContentChange
@@ -378,7 +383,7 @@ export const CodeDiffViewer = forwardRef<CodeDiffViewerHandle, CodeDiffViewerPro
   useDiffViewerMinimapHighlights({
     enabled: viewOptions.minimap,
     fileKind,
-    themeMode,
+    themeMode: minimapThemeMode,
     editorRef,
     editorMountEpoch,
     contentEpoch,
@@ -423,7 +428,7 @@ export const CodeDiffViewer = forwardRef<CodeDiffViewerHandle, CodeDiffViewerPro
       autoFocusFirstChangeKeyRef.current = focusKey
       if (changes.length === 0) return
 
-      goToFirstChange(diffEditor)
+      goToFirstChange(diffEditor, { focus: false })
       refreshDiffState()
     })()
 
@@ -433,16 +438,11 @@ export const CodeDiffViewer = forwardRef<CodeDiffViewerHandle, CodeDiffViewerPro
   }, [contentEpoch, editorMountEpoch, fileKind, refreshDiffState])
 
   const loadImageDataUrl = useCallback(
-    async (
-      path: string,
-      source?: { gitRevision?: string; svnRevision?: string; svnFileStatus?: string }
-    ): Promise<string | null> => {
+    async (path: string, source?: { gitRevision?: string; svnRevision?: string; svnFileStatus?: string }): Promise<string | null> => {
       const opts = {
         ...(cwd ? { cwd } : {}),
         ...(source?.gitRevision ? { gitRevision: source.gitRevision } : {}),
-        ...(source && 'svnRevision' in source
-          ? { svnRevision: source.svnRevision, svnFileStatus: source.svnFileStatus ?? '' }
-          : {}),
+        ...(source && 'svnRevision' in source ? { svnRevision: source.svnRevision, svnFileStatus: source.svnFileStatus ?? '' } : {}),
       }
       const result = await window.api.system.read_file_data_url(path, opts)
       if (result.success) return result.dataUrl
@@ -479,8 +479,7 @@ export const CodeDiffViewer = forwardRef<CodeDiffViewerHandle, CodeDiffViewerPro
       }
 
       const { revision: rev, currentRevision: curRev } = ctx
-      const svnAt = (revision?: string) =>
-        loadImageDataUrl(path, { svnRevision: revision ?? '', svnFileStatus: fileStatus })
+      const svnAt = (revision?: string) => loadImageDataUrl(path, { svnRevision: revision ?? '', svnFileStatus: fileStatus })
 
       if (!curRev) {
         setOriginalDataUrl(await svnAt(rev))
@@ -612,15 +611,7 @@ export const CodeDiffViewer = forwardRef<CodeDiffViewerHandle, CodeDiffViewerPro
   )
 
   const handleRefreshGit = useCallback(
-    async (
-      path: string,
-      status: string,
-      hash?: string,
-      curHash?: string,
-      rootCommit?: boolean,
-      cwdOverride?: string,
-      stagingState?: 'staged' | 'unstaged'
-    ) => {
+    async (path: string, status: string, hash?: string, curHash?: string, rootCommit?: boolean, cwdOverride?: string, stagingState?: 'staged' | 'unstaged') => {
       const generation = ++loadGenerationRef.current
       const isStale = () => generation !== loadGenerationRef.current
 
@@ -709,6 +700,29 @@ export const CodeDiffViewer = forwardRef<CodeDiffViewerHandle, CodeDiffViewerPro
     [applyLoadedTextContent, loadImageSides, setBaseline]
   )
 
+  const handleRefreshWorkspaceCompare = useCallback(
+    async (leftPath: string, rightPath: string, cwdOverride?: string) => {
+      const generation = ++loadGenerationRef.current
+      const isStale = () => generation !== loadGenerationRef.current
+      try {
+        setLoadError(null)
+        setIsLoading(true)
+        const catOpts = cwdOverride ? { cwd: cwdOverride } : undefined
+        const [leftContent, rightContent] = await Promise.all([window.api.system.read_file(leftPath, catOpts), window.api.system.read_file(rightPath, catOpts)])
+        if (isStale()) return
+        setFileKind('text')
+        applyLoadedTextContent(leftContent, rightContent)
+      } catch (error) {
+        if (isStale()) return
+        setLoadError(formatLoadError(error))
+        logger.error('Error loading workspace compare:', error)
+      } finally {
+        if (generation === loadGenerationRef.current) setIsLoading(false)
+      }
+    },
+    [applyLoadedTextContent]
+  )
+
   const runLoad = useCallback(
     (ctx: DiffViewerLoadPayload) => {
       const enriched = enrichDiffViewerPayload({
@@ -722,8 +736,12 @@ export const CodeDiffViewer = forwardRef<CodeDiffViewerHandle, CodeDiffViewerPro
       const path = enriched.filePath ?? ''
       if (!path) return
       setIsSwapped(false)
+      const mode = deriveDiffViewerMode(enriched)
+      if (mode === 'workspace-compare' && enriched.compareWithPath) {
+        void handleRefreshWorkspaceCompare(path, normalizeGitPath(enriched.compareWithPath), enriched.cwd)
+        return
+      }
       if (enriched.isGit) {
-        const mode = deriveDiffViewerMode(enriched)
         void handleRefreshGit(
           path,
           enriched.fileStatus ?? '',
@@ -737,7 +755,7 @@ export const CodeDiffViewer = forwardRef<CodeDiffViewerHandle, CodeDiffViewerPro
         void handleRefresh(path, enriched.fileStatus ?? '', enriched.revision, enriched.currentRevision, enriched.cwd)
       }
     },
-    [handleRefresh, handleRefreshGit, getRepoCwd, isGit]
+    [handleRefresh, handleRefreshGit, handleRefreshWorkspaceCompare, getRepoCwd, isGit]
   )
 
   const applyPayload = useCallback(
@@ -805,11 +823,7 @@ export const CodeDiffViewer = forwardRef<CodeDiffViewerHandle, CodeDiffViewerPro
         }
 
         setIsSwapped(false)
-        runLoad(
-          refreshed.currentInList
-            ? nextCtx
-            : { ...nextCtx, filePath: ctx.filePath, fileStatus: ctx.fileStatus, stagingState: ctx.stagingState }
-        )
+        runLoad(refreshed.currentInList ? nextCtx : { ...nextCtx, filePath: ctx.filePath, fileStatus: ctx.fileStatus, stagingState: ctx.stagingState })
         return
       }
     }
@@ -818,14 +832,15 @@ export const CodeDiffViewer = forwardRef<CodeDiffViewerHandle, CodeDiffViewerPro
     runLoad(ctx)
   }, [runLoad, refreshFromContext, stagingHintForRefresh, filePath])
 
-  const handleTreeRefresh = useCallback(async () => {
-    setIsTreeRefreshing(true)
-    try {
-      await onRefresh()
-    } finally {
-      setIsTreeRefreshing(false)
+  const handleTreeRefresh = useCallback(() => {
+    if (embedded && embeddedOnReloadFileList) {
+      void embeddedOnReloadFileList()
+      toast.info(t('toast.getListSuccess'))
+      return
     }
-  }, [onRefresh])
+    setIsTreeRefreshing(true)
+    void onRefresh().finally(() => setIsTreeRefreshing(false))
+  }, [embedded, embeddedOnReloadFileList, onRefresh, t])
 
   const navigateToFile = useCallback(
     (index: number) => {
@@ -1011,12 +1026,7 @@ export const CodeDiffViewer = forwardRef<CodeDiffViewerHandle, CodeDiffViewerPro
         return
       }
 
-      const targetIndex =
-        autoAdvance
-          ? resolveAutoAdvanceTargetIndex(advanceFromIndex, refreshed.files, actedFilePath)
-          : refreshed.currentInList
-            ? refreshed.activeIndex
-            : null
+      const targetIndex = autoAdvance ? resolveAutoAdvanceTargetIndex(advanceFromIndex, refreshed.files, actedFilePath) : refreshed.currentInList ? refreshed.activeIndex : null
 
       if (targetIndex != null && refreshed.files[targetIndex]) {
         const entry = refreshed.files[targetIndex]
@@ -1048,10 +1058,10 @@ export const CodeDiffViewer = forwardRef<CodeDiffViewerHandle, CodeDiffViewerPro
         refreshed.currentInList
           ? nextCtx
           : {
-              ...nextCtx,
-              filePath: ctx.filePath,
-              fileStatus: refreshed.activeFile?.fileStatus ?? options?.stagingStateHint ?? ctx.fileStatus,
-            }
+            ...nextCtx,
+            filePath: ctx.filePath,
+            fileStatus: refreshed.activeFile?.fileStatus ?? options?.stagingStateHint ?? ctx.fileStatus,
+          }
       )
     },
     [autoAdvance, filePath, goToFile, runLoad]
@@ -1067,16 +1077,12 @@ export const CodeDiffViewer = forwardRef<CodeDiffViewerHandle, CodeDiffViewerPro
     isGitActionInProgressRef.current = true
     try {
       const opts = repoCwd ? { cwd: repoCwd } : undefined
-      const result = isStaged
-        ? await window.api.git.reset_staged([filePath], opts)
-        : await window.api.git.add([filePath], opts)
+      const result = isStaged ? await window.api.git.reset_staged([filePath], opts) : await window.api.git.add([filePath], opts)
       if (result.status === 'success') {
         setActiveEntryStagingState(activeIndex, filePath, nextStagingState)
         toast.success(isStaged ? t('dialog.diffViewer.unstageSuccess') : t('dialog.diffViewer.stageSuccess'))
         const lookupStagingState = isStaged ? 'staged' : nextStagingState
-        const refreshed = repoCwd
-          ? await refreshFilesFromGit(repoCwd, filePath, lookupStagingState)
-          : null
+        const refreshed = repoCwd ? await refreshFilesFromGit(repoCwd, filePath, lookupStagingState) : null
         const ctx = loadContextRef.current
         if (!ctx) return
         applyGitActionRefresh(advanceFromIndex, filePath, refreshed, ctx, { stagingStateHint: nextStagingState })
@@ -1090,18 +1096,7 @@ export const CodeDiffViewer = forwardRef<CodeDiffViewerHandle, CodeDiffViewerPro
       isGitActionInProgressRef.current = false
       setIsStaging(false)
     }
-  }, [
-    filePath,
-    diffViewerMode,
-    stagingHintForRefresh,
-    activeIndex,
-    getRepoCwd,
-    t,
-    setActiveEntryStagingState,
-    refreshFilesFromGit,
-    applyGitActionRefresh,
-    notifyStagingChanged,
-  ])
+  }, [filePath, diffViewerMode, stagingHintForRefresh, activeIndex, getRepoCwd, t, setActiveEntryStagingState, refreshFilesFromGit, applyGitActionRefresh, notifyStagingChanged])
 
   const handleRevertRequest = useCallback(() => {
     if (!filePath || !diffViewerSupportsStageActions(diffViewerMode)) return
@@ -1124,9 +1119,7 @@ export const CodeDiffViewer = forwardRef<CodeDiffViewerHandle, CodeDiffViewerPro
       const result = await window.api.git.discardChanges(pathsToRevert, repoCwd)
       if (result.status === 'success') {
         toast.success(t('toast.revertSuccess'))
-        const refreshed = repoCwd
-          ? await refreshFilesFromGit(repoCwd, actedFilePath, 'unstaged')
-          : null
+        const refreshed = repoCwd ? await refreshFilesFromGit(repoCwd, actedFilePath, 'unstaged') : null
         const ctx = loadContextRef.current
         if (!ctx) return
         applyGitActionRefresh(advanceFromIndex, actedFilePath, refreshed, ctx)
@@ -1140,24 +1133,10 @@ export const CodeDiffViewer = forwardRef<CodeDiffViewerHandle, CodeDiffViewerPro
       isGitActionInProgressRef.current = false
       setIsReverting(false)
     }
-  }, [
-    discardConfirmPaths,
-    filePath,
-    diffViewerMode,
-    activeIndex,
-    getRepoCwd,
-    t,
-    refreshFilesFromGit,
-    applyGitActionRefresh,
-    notifyStagingChanged,
-  ])
+  }, [discardConfirmPaths, filePath, diffViewerMode, activeIndex, getRepoCwd, t, refreshFilesFromGit, applyGitActionRefresh, notifyStagingChanged])
 
   const refreshAfterTreeBulkGitAction = useCallback(
-    async (
-      actedFilePath: string,
-      lookupStagingState?: 'staged' | 'unstaged',
-      stagingStateHint?: 'staged' | 'unstaged'
-    ) => {
+    async (actedFilePath: string, lookupStagingState?: 'staged' | 'unstaged', stagingStateHint?: 'staged' | 'unstaged') => {
       const repoCwd = getRepoCwd()
       if (!repoCwd) return
       const refreshed = await refreshFilesFromGit(repoCwd, actedFilePath, lookupStagingState)
@@ -1185,9 +1164,7 @@ export const CodeDiffViewer = forwardRef<CodeDiffViewerHandle, CodeDiffViewerPro
             .map(path => normalizeGitPath(path as string)) as string[]
         ),
       ]
-      const actedFilePath = normalizeGitPath(
-        files[uniqueIndices[0]]?.filePath ?? files[activeIndex]?.filePath ?? filePath ?? selectedPaths[0] ?? ''
-      )
+      const actedFilePath = normalizeGitPath(files[uniqueIndices[0]]?.filePath ?? files[activeIndex]?.filePath ?? filePath ?? selectedPaths[0] ?? '')
 
       if (action === 'reveal') {
         for (const path of selectedPaths) {
@@ -1281,15 +1258,7 @@ export const CodeDiffViewer = forwardRef<CodeDiffViewerHandle, CodeDiffViewerPro
         setIsStaging(false)
       }
     },
-    [
-      files,
-      activeIndex,
-      filePath,
-      getRepoCwd,
-      diffViewerMode,
-      t,
-      refreshAfterTreeBulkGitAction,
-    ]
+    [files, activeIndex, filePath, getRepoCwd, diffViewerMode, t, refreshAfterTreeBulkGitAction]
   )
 
   useEffect(() => {
@@ -1392,17 +1361,7 @@ export const CodeDiffViewer = forwardRef<CodeDiffViewerHandle, CodeDiffViewerPro
     } finally {
       setIsFormatting(false)
     }
-  }, [
-    monaco,
-    editable,
-    fileKind,
-    language,
-    filePath,
-    syncEditorTextFromModel,
-    refreshDiffStateAfterCompute,
-    t,
-    editorViewOptions.originalEditable,
-  ])
+  }, [monaco, editable, fileKind, language, filePath, syncEditorTextFromModel, refreshDiffStateAfterCompute, t, editorViewOptions.originalEditable])
 
   const handleRemoveEmptyLines = useCallback(async () => {
     const diffEditor = editorRef.current
@@ -1433,14 +1392,7 @@ export const CodeDiffViewer = forwardRef<CodeDiffViewerHandle, CodeDiffViewerPro
     } finally {
       setIsRemovingEmptyLines(false)
     }
-  }, [
-    editable,
-    fileKind,
-    syncEditorTextFromModel,
-    refreshDiffStateAfterCompute,
-    t,
-    editorViewOptions.originalEditable,
-  ])
+  }, [editable, fileKind, syncEditorTextFromModel, refreshDiffStateAfterCompute, t, editorViewOptions.originalEditable])
 
   const handleSwap = useCallback(() => {
     const diffEditor = editorRef.current
@@ -1489,7 +1441,7 @@ export const CodeDiffViewer = forwardRef<CodeDiffViewerHandle, CodeDiffViewerPro
     modifiedEditor.onDidChangeModelContent(event => {
       const newModifiedCode = modifiedEditor.getModel()?.getValue() || ''
       setModifiedCode(newModifiedCode)
-      notifyContentChangeRef.current(event)
+      notifyContentChangeRef.current?.(event)
       requestAnimationFrame(() => {
         clampEditorPosition(modifiedEditor)
         refreshDiffState()
@@ -1568,11 +1520,8 @@ export const CodeDiffViewer = forwardRef<CodeDiffViewerHandle, CodeDiffViewerPro
       const ctx = loadContextRef.current
       if (ctx) {
         const activeEntry =
-          files.find(
-            f =>
-              pathsEqual(f.filePath, currentPath) &&
-              (f.stagingState === ctx.stagingState || f.stagingState === stagingHintRef.current)
-          ) ?? files.find(f => pathsEqual(f.filePath, currentPath))
+          files.find(f => pathsEqual(f.filePath, currentPath) && (f.stagingState === ctx.stagingState || f.stagingState === stagingHintRef.current)) ??
+          files.find(f => pathsEqual(f.filePath, currentPath))
         const activeIndex = activeEntry ? files.indexOf(activeEntry) : Math.max(0, ctx.currentFileIndex ?? 0)
         const nextStaging = activeEntry?.stagingState ?? ctx.stagingState
         const stagingChanged = nextStaging !== ctx.stagingState
@@ -1654,17 +1603,7 @@ export const CodeDiffViewer = forwardRef<CodeDiffViewerHandle, CodeDiffViewerPro
     return () => {
       window.removeEventListener('keydown', handleKeyDown)
     }
-  }, [
-    embedded,
-    handleFind,
-    handleFindReplace,
-    handleFormat,
-    handleNextChange,
-    handlePrevChange,
-    handleSaveFile,
-    handlePrevFile,
-    handleNextFile,
-  ])
+  }, [embedded, handleFind, handleFindReplace, handleFormat, handleNextChange, handlePrevChange, handleSaveFile, handlePrevFile, handleNextFile])
 
   useEffect(() => {
     if (embedded) return
@@ -1676,49 +1615,6 @@ export const CodeDiffViewer = forwardRef<CodeDiffViewerHandle, CodeDiffViewerPro
     window.addEventListener('beforeunload', handleBeforeUnload)
     return () => window.removeEventListener('beforeunload', handleBeforeUnload)
   }, [embedded, isDirty])
-
-  useEffect(() => {
-    const handleUiSettingsSynced = (e: CustomEvent<UiSettingsSyncedDetail>) => {
-      const selectedTheme = e.detail.themeMode === 'dark' ? 'custom-dark' : 'custom-light'
-      monaco?.editor.setTheme(selectedTheme)
-    }
-    window.addEventListener(SYNCED_EVENT, handleUiSettingsSynced as EventListener)
-    return () => window.removeEventListener(SYNCED_EVENT, handleUiSettingsSynced as EventListener)
-  }, [monaco])
-
-  useEffect(() => {
-    if (!monaco) return
-    monaco.editor.defineTheme('custom-dark', {
-      base: 'vs-dark',
-      inherit: true,
-      rules: [],
-      colors: {
-        'editor.background': '#202020',
-        'editorLineNumber.foreground': '#6c7086',
-        'editorCursor.foreground': '#f38ba8',
-        'diffEditor.insertedTextBackground': '#00fa5120',
-        'diffEditor.removedTextBackground': '#ff000220',
-        'diffEditor.insertedLineBackground': '#00aa5120',
-        'diffEditor.removedLineBackground': '#aa000220',
-      },
-    })
-    monaco.editor.defineTheme('custom-light', {
-      base: 'vs',
-      inherit: true,
-      rules: [],
-      colors: {
-        'editor.background': '#f9f9f9',
-        'editorLineNumber.foreground': '#9aa2b1',
-        'editorCursor.foreground': '#931845',
-        'diffEditor.insertedTextBackground': '#a2f3bdcc',
-        'diffEditor.removedTextBackground': '#f19999cc',
-        'diffEditor.insertedLineBackground': '#b7f5c6cc',
-        'diffEditor.removedLineBackground': '#f2a8a8cc',
-      },
-    })
-    const selectedTheme = themeMode === 'dark' ? 'custom-dark' : 'custom-light'
-    monaco.editor.setTheme(selectedTheme)
-  }, [monaco, themeMode])
 
   useEffect(() => {
     isLoadingRef.current = isLoading
@@ -1788,16 +1684,12 @@ export const CodeDiffViewer = forwardRef<CodeDiffViewerHandle, CodeDiffViewerPro
   })
 
   const showStageButton = diffViewerSupportsStageActions(diffViewerMode) && fileKind === 'text'
-  const showRevertButton =
-    showStageButton && stagingHintForRefresh !== 'staged' && displayedFileEntry?.stagingState !== 'staged'
+  const showRevertButton = showStageButton && stagingHintForRefresh !== 'staged' && displayedFileEntry?.stagingState !== 'staged'
   const showFormatButton = fileKind === 'text' && (editable || editorViewOptions.originalEditable)
   const showBlameToggle = isGit && fileKind === 'text'
 
   const isModifiedWithoutDiffChanges =
-    !isLoading &&
-    fileKind === 'text' &&
-    changePosition.total === 0 &&
-    ['modified', 'M'].includes((displayedFileEntry?.fileStatus ?? '').toLowerCase())
+    !isLoading && fileKind === 'text' && changePosition.total === 0 && ['modified', 'M'].includes((displayedFileEntry?.fileStatus ?? '').toLowerCase())
 
   const renderMainContent = () => {
     if (!filePath) {
@@ -1826,7 +1718,7 @@ export const CodeDiffViewer = forwardRef<CodeDiffViewerHandle, CodeDiffViewerPro
           language={language}
           original={originalCode}
           modified={modifiedCode}
-          theme={themeMode === 'dark' ? 'custom-dark' : 'custom-light'}
+          theme={monacoTheme}
           keepCurrentOriginalModel
           keepCurrentModifiedModel
           onMount={handleEditorMount}
@@ -1836,22 +1728,10 @@ export const CodeDiffViewer = forwardRef<CodeDiffViewerHandle, CodeDiffViewerPro
     )
   }
 
-  const conflictEmbeddedPayload =
-    embedded && embeddedPayload?.mode === 'git-conflict'
-      ? embeddedPayload
-      : embedded
-        ? null
-        : gitConflictPayload
+  const conflictEmbeddedPayload = embedded && embeddedPayload?.mode === 'git-conflict' ? embeddedPayload : embedded ? null : gitConflictPayload
 
   if (conflictEmbeddedPayload || (!embedded && gitConflictPayload)) {
-    return (
-      <GitConflictDiffView
-        ref={ref}
-        embedded={embedded}
-        embeddedPayload={conflictEmbeddedPayload ?? gitConflictPayload}
-        embeddedToolbarHost={embeddedToolbarHost}
-      />
-    )
+    return <GitConflictDiffView ref={ref} embedded={embedded} embeddedPayload={conflictEmbeddedPayload ?? gitConflictPayload} embeddedToolbarHost={embeddedToolbarHost} />
   }
 
   const toolbarProps = {
@@ -1916,20 +1796,9 @@ export const CodeDiffViewer = forwardRef<CodeDiffViewerHandle, CodeDiffViewerPro
       {(!embedded || embeddedToolbarHost) && <DiffToolbar {...toolbarProps} />}
 
       <div className="flex flex-1 min-h-0 h-full flex-col overflow-hidden">
-        <ResizablePanelGroup
-          orientation="horizontal"
-          className="h-full"
-          groupRef={panelGroupRef}
-          defaultLayout={initialLayout}
-          onLayoutChanged={handleLayoutChanged}
-        >
-          <ResizablePanel
-            id={DIFF_VIEWER_TREE_PANEL_ID}
-            minSize={`${DIFF_VIEWER_TREE_PANEL_MIN_WIDTH}%`}
-            maxSize={`${DIFF_VIEWER_TREE_PANEL_MAX_WIDTH}%`}
-            className="h-full"
-          >
-            <div className="h-full pr-2 flex flex-col min-h-0 overflow-hidden">
+        <ResizablePanelGroup orientation="horizontal" className="h-full" groupRef={panelGroupRef} defaultLayout={initialLayout} onLayoutChanged={handleLayoutChanged}>
+          <ResizablePanel id={DIFF_VIEWER_TREE_PANEL_ID} minSize={`${DIFF_VIEWER_TREE_PANEL_MIN_WIDTH}%`} maxSize={`${DIFF_VIEWER_TREE_PANEL_MAX_WIDTH}%`} className="h-full">
+            <div className="h-full flex flex-col min-h-0 overflow-hidden border-r border-border/40">
               <DiffViewerFileTreePanel
                 files={files}
                 activeIndex={activeIndex}
@@ -1947,11 +1816,7 @@ export const CodeDiffViewer = forwardRef<CodeDiffViewerHandle, CodeDiffViewerPro
 
           <ResizableHandle className="bg-transparent" />
 
-          <ResizablePanel
-            id={DIFF_VIEWER_EDITOR_PANEL_ID}
-            minSize="45%"
-            className="h-full flex flex-col min-h-0"
-          >
+          <ResizablePanel id={DIFF_VIEWER_EDITOR_PANEL_ID} minSize="45%" className="h-full flex flex-col min-h-0">
             {renderMainContent()}
           </ResizablePanel>
         </ResizablePanelGroup>
