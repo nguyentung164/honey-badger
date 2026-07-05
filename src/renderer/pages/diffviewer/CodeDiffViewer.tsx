@@ -11,6 +11,7 @@ import { ResizableHandle, ResizablePanel, ResizablePanelGroup } from '@/componen
 import toast from '@/components/ui-elements/Toast'
 import { useAppMonacoThemeId, useSyncAppMonacoTheme } from '@/hooks/useAppMonacoTheme'
 import { buildEmbeddedGitConflictPayloadSyncKey, buildEmbeddedGitStagingPayloadSyncKey } from '@/lib/diffViewer/openDiffViewer'
+import { requestOpenEditor } from '@/lib/openEditor'
 import logger from '@/services/logger'
 import { useAppearanceStore } from '@/stores/useAppearanceStore'
 import { useConfigurationStore } from '@/stores/useConfigurationStore'
@@ -1176,10 +1177,7 @@ export const CodeDiffViewer = forwardRef<CodeDiffViewerHandle, CodeDiffViewerPro
       if (action === 'openInEditor') {
         const path = selectedPaths[0]
         if (!path) return
-        const result = await window.api.system.open_file_in_editor({ filePath: path, cwd })
-        if (!result?.success) {
-          toast.error(result?.error || t('dialog.diffViewer.openInEditorFailed'))
-        }
+        requestOpenEditor({ filePath: path, cwd: getRepoCwd() })
         return
       }
 
@@ -1406,7 +1404,7 @@ export const CodeDiffViewer = forwardRef<CodeDiffViewerHandle, CodeDiffViewerPro
     requestAnimationFrame(refreshDiffState)
   }, [editable, refreshDiffState, setBaseline])
 
-  const handleOpenInEditor = useCallback(async () => {
+  const handleOpenInEditor = useCallback(() => {
     if (!filePath) return
     const diffEditor = editorRef.current
     const change = diffEditor ? getCurrentLineChange(diffEditor) : null
@@ -1416,11 +1414,8 @@ export const CodeDiffViewer = forwardRef<CodeDiffViewerHandle, CodeDiffViewerPro
         : change && change.originalStartLineNumber > 0
           ? change.originalStartLineNumber
           : cursorPosition.line
-    const result = await window.api.system.open_file_in_editor({ filePath, lineNumber: line, cwd })
-    if (!result?.success) {
-      toast.error(result?.error || t('dialog.diffViewer.openInEditorFailed'))
-    }
-  }, [filePath, cwd, cursorPosition.line, t])
+    requestOpenEditor({ filePath, cwd: getRepoCwd(), line })
+  }, [filePath, getRepoCwd, cursorPosition.line])
 
   const handleRevealInExplorer = useCallback(() => {
     if (!filePath) return

@@ -2991,11 +2991,232 @@ body > canvas {
 .hb-monaco-editor-root .monaco-editor .line-numbers,
 .hb-monaco-editor-root .monaco-editor .sticky-widget,
 .hb-monaco-editor-root .monaco-editor .sticky-line-content {
-  font-family: var(--hb-editor-font-family) !important;
-  font-weight: var(--hb-editor-font-weight) !important;
-  font-variation-settings: var(--hb-editor-font-variation-settings) !important;
-  font-feature-settings: var(--hb-editor-font-feature-settings) !important;
+  font-family: var(--hb-editor-font-family, ui-monospace, monospace) !important;
+  font-weight: var(--hb-editor-font-weight, 400) !important;
+  font-size: var(--hb-editor-font-size, 14px) !important;
+  font-variation-settings: var(--hb-editor-font-variation-settings, normal) !important;
+  font-feature-settings: var(--hb-editor-font-feature-settings, normal) !important;
   font-synthesis: none !important;
+}
+
+.hb-monaco-editor-root .monaco-editor .view-line .hb-editor-settings-preview-unused {
+  opacity: 0.45;
+}
+
+/* Editor — git SCM gutter (VS Code quickDiffDecorator / dirtydiffDecorator.css) */
+.monaco-editor .dirty-diff-glyph {
+  margin-left: 5px;
+  z-index: 5;
+  cursor: pointer;
+}
+
+.monaco-editor .dirty-diff-glyph::before {
+  position: absolute;
+  content: '';
+  height: 100%;
+  width: 0;
+  left: -2px;
+}
+
+.monaco-editor .editor-git-dirty-diff-added:not(.pattern),
+.monaco-editor .editor-git-dirty-diff-modified:not(.pattern) {
+  border-left-style: solid;
+  border-left-width: 3px;
+}
+
+.monaco-editor .editor-git-dirty-diff-added.primary {
+  border-left-color: var(--vscode-editorGutter-addedBackground, #487e02);
+}
+
+.monaco-editor .editor-git-dirty-diff-added.primary::before {
+  background: var(--vscode-editorGutter-addedBackground, #487e02);
+}
+
+.monaco-editor .editor-git-dirty-diff-modified.primary {
+  border-left-color: var(--vscode-editorGutter-modifiedBackground, #1b81a8);
+}
+
+.monaco-editor .editor-git-dirty-diff-modified.primary::before {
+  background: var(--vscode-editorGutter-modifiedBackground, #1b81a8);
+}
+
+.monaco-editor .margin:hover .editor-git-dirty-diff-added::before,
+.monaco-editor .margin:hover .editor-git-dirty-diff-modified::before,
+.monaco-editor .editor-git-dirty-diff-added:hover::before,
+.monaco-editor .editor-git-dirty-diff-modified:hover::before {
+  width: 3px;
+  left: -2px;
+}
+
+/* Deleted: triangle + vertical line on hover (VS Code dirty-diff-deleted) */
+.monaco-editor .margin-view-overlays .cldr.editor-git-dirty-diff-deleted {
+  width: 12px !important;
+  min-width: 12px;
+  overflow: visible;
+  padding-bottom: 6px;
+  margin-bottom: -6px;
+}
+
+.monaco-editor .editor-git-dirty-diff-deleted.dirty-diff-glyph::before {
+  position: absolute;
+  content: '';
+  top: auto;
+  left: 6px;
+  bottom: 0;
+  width: 3px;
+  height: 0;
+  margin-left: 0;
+  background: var(--vscode-editorGutter-deletedBackground, #ad0707);
+  transition: height 80ms linear;
+  pointer-events: none;
+}
+
+.monaco-editor .editor-git-dirty-diff-deleted::after {
+  content: '';
+  position: absolute;
+  left: 6px;
+  bottom: -4px;
+  box-sizing: border-box;
+  width: 4px;
+  height: 0;
+  z-index: 9;
+  border-top: 4px solid transparent;
+  border-bottom: 4px solid transparent;
+  border-left: 4px solid var(--vscode-editorGutter-deletedBackground, #ad0707);
+  pointer-events: auto;
+  cursor: pointer;
+  transition: border-top-width 80ms linear, border-bottom-width 80ms linear, bottom 80ms linear;
+}
+
+.monaco-editor .editor-git-dirty-diff-deleted:hover::before {
+  height: 100%;
+}
+
+/* Editor — git SCM inline peek (VS Code ZoneWidget + QuickDiffWidget) */
+.editor-git-peek-root.zone-widget {
+  position: absolute;
+  z-index: 10;
+  pointer-events: auto;
+  box-sizing: border-box;
+}
+
+.editor-git-peek-root .zone-widget-container {
+  box-sizing: border-box;
+  width: 100%;
+  border-top-style: solid;
+  border-bottom-style: solid;
+  overflow: hidden;
+  background: var(--background);
+}
+
+.editor-git-peek-root .peekview-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: nowrap;
+  width: 100%;
+  min-height: 22px;
+  padding: 0 2px 0 0;
+  background: color-mix(in srgb, var(--muted) 72%, var(--background));
+}
+
+.editor-git-peek-root .peekview-title {
+  display: flex;
+  align-items: baseline;
+  gap: 0;
+  flex: 0 1 auto;
+  min-width: 0;
+  margin-left: 8px;
+  font-size: 11px;
+  line-height: 22px;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.editor-git-peek-root .peekview-title .meta:not(:empty)::before {
+  content: '—';
+  padding: 0 0.35em;
+  color: var(--muted-foreground);
+}
+
+.editor-git-peek-filename {
+  flex-shrink: 0;
+  font-weight: 600;
+  color: var(--foreground);
+}
+
+.editor-git-peek-detail {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  color: var(--muted-foreground);
+  font-weight: 400;
+}
+
+.editor-git-peek-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  flex: 1;
+  min-width: 0;
+  padding-right: 2px;
+  text-align: right;
+}
+
+.editor-git-peek-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  border: none;
+  border-radius: 0;
+  background: transparent;
+  color: var(--muted-foreground);
+  font-size: 16px;
+  line-height: 22px;
+  cursor: pointer;
+}
+
+.editor-git-peek-btn:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--foreground) 10%, transparent);
+  color: var(--foreground);
+}
+
+.editor-git-peek-btn:disabled {
+  opacity: 0.35;
+  cursor: default;
+}
+
+.editor-git-peek-body {
+  position: relative;
+  min-height: 0;
+  overflow: hidden;
+  border-top: 1px solid color-mix(in srgb, var(--foreground) 12%, transparent);
+}
+
+.editor-git-peek-body .monaco-diff-editor,
+.editor-git-peek-body .monaco-diff-editor .editor {
+  background: var(--background) !important;
+}
+
+.editor-git-peek-body .monaco-diff-editor .codicon-diff-remove,
+.editor-git-peek-body .monaco-diff-editor .codicon-discard,
+.editor-git-peek-body .monaco-diff-editor .gutter-revert-button {
+  cursor: pointer;
+  opacity: 0.85;
+}
+
+.editor-git-peek-body .monaco-diff-editor .codicon-diff-remove:hover,
+.editor-git-peek-body .monaco-diff-editor .codicon-discard:hover,
+.editor-git-peek-body .monaco-diff-editor .gutter-revert-button:hover {
+  opacity: 1;
+}
+
+.editor-git-peek-body .monaco-diff-editor .diffViewport {
+  background: transparent;
 }
 
 /* CodeDiffViewer — pane labels aligned to each diff side (VS Code style) */
@@ -3160,6 +3381,39 @@ body > canvas {
 
 .terminal-settings-cursor--blink {
   animation: terminal-settings-cursor-blink 1s step-end infinite;
+}
+
+/* VS Code gitDecoration.*ResourceForeground — explorer tree, tabs, SCM badges */
+:root {
+  --hb-git-modified: #895503;
+  --hb-git-added: #587c0c;
+  --hb-git-untracked: #007100;
+  --hb-git-staged: #587c0c;
+  --hb-git-deleted: #ad0707;
+  --hb-git-renamed: #587c0c;
+  --hb-git-conflicted: #ad0707;
+  --hb-explorer-row-hover: rgb(0 0 0 / 0.07);
+  --hb-explorer-row-active: rgb(0 0 0 / 0.05);
+  --hb-search-match-bg: rgb(234 179 8 / 0.35);
+  --hb-tree-active-fg: #7a6332;
+  --hb-tree-active-bg: rgb(0 0 0 / 0.05);
+  --hb-tree-flat-dir: #6b6b6b;
+}
+
+[data-theme-mode="dark"] {
+  --hb-git-modified: #e2c08d;
+  --hb-git-added: #73c991;
+  --hb-git-untracked: #73c991;
+  --hb-git-staged: #73c991;
+  --hb-git-deleted: #f14c4c;
+  --hb-git-renamed: #73c991;
+  --hb-git-conflicted: #e51400;
+  --hb-explorer-row-hover: #2a2d2e;
+  --hb-explorer-row-active: #37373d;
+  --hb-search-match-bg: rgb(234 92 0 / 0.45);
+  --hb-tree-active-fg: #fadc34;
+  --hb-tree-active-bg: rgb(255 255 255 / 0.1);
+  --hb-tree-flat-dir: #858585;
 }
 
 /* VS Code Quick Open (Go to File) */

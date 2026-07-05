@@ -9,6 +9,11 @@ import { useGlobalAppMonacoThemeSync, onAppMonacoBeforeMount } from '@/hooks/use
 import { resolveEditorMonacoFontStyle } from '@/pages/editor/lib/editorMonacoTheme'
 import { useEditorMonacoSettings } from '@/pages/editor/hooks/useEditorSettings'
 import { buildMonacoEditorOptions } from '@/pages/editor/lib/buildMonacoEditorOptions'
+import {
+  applyEditorMonacoSettings,
+  editorSettingsFingerprint,
+  refreshEditorMonacoAfterSettings,
+} from '@/pages/editor/lib/applyEditorMonacoSettings'
 
 export type CodeEditorHandle = {
   getEditor: () => Monaco.editor.IStandaloneCodeEditor | null
@@ -60,6 +65,7 @@ export const CodeEditor = forwardRef<CodeEditorHandle, CodeEditorProps>(function
   ref
 ) {
   const editorSettings = useEditorMonacoSettings()
+  const settingsKey = useMemo(() => editorSettingsFingerprint(editorSettings), [editorSettings])
   const editorTheme = useGlobalAppMonacoThemeSync({ includeDiff: true, includeEditorRules: true })
 
   const fontStyle = useMemo(() => resolveEditorMonacoFontStyle(editorSettings), [editorSettings])
@@ -94,7 +100,11 @@ export const CodeEditor = forwardRef<CodeEditorHandle, CodeEditorProps>(function
       if (!restoredViewStateJson || viewStateRestoredRef.current) return
       try {
         const state = JSON.parse(restoredViewStateJson) as Monaco.editor.ICodeEditorViewState
-        editor.restoreViewState(state)
+        editor.restoreViewState({
+          cursorState: state.cursorState,
+          viewState: state.viewState,
+          contributionsState: {},
+        })
         viewStateRestoredRef.current = true
       } catch {
         /* ignore corrupt state */
@@ -108,13 +118,15 @@ export const CodeEditor = forwardRef<CodeEditorHandle, CodeEditorProps>(function
       editorRef.current = editor
       viewStateRestoredRef.current = false
       applyViewState(editor)
+      applyEditorMonacoSettings(editor, editorSettings, readOnly, isHeavyFile)
       editor.onDidChangeCursorPosition(e => {
         const pos = { line: e.position.lineNumber, column: e.position.column }
         onCursorChangeRef.current?.(pos)
       })
       onMountRef.current?.(editor, monaco)
+      refreshEditorMonacoAfterSettings(editor)
     },
-    [applyViewState]
+    [applyViewState, editorSettings, isHeavyFile, readOnly]
   )
 
   useEffect(() => {
@@ -127,20 +139,12 @@ export const CodeEditor = forwardRef<CodeEditorHandle, CodeEditorProps>(function
   useEffect(() => {
     const editor = editorRef.current
     if (!editor) return
-    editor.updateOptions(editorOptions)
-    editor.getModel()?.updateOptions({
-      tabSize: editorSettings.tabSize,
-      insertSpaces: editorSettings.insertSpaces,
-    })
-  }, [editorOptions, editorSettings.insertSpaces, editorSettings.tabSize])
-
-  const fontStyleKey = `${editorSettings.fontFamilyId}:${editorSettings.fontSize}:${editorSettings.fontWeight}:${editorSettings.enableLigatures}`
-
-  useEffect(() => {
-    const editor = editorRef.current
-    if (!editor) return
-    void import('monaco-editor').then(monaco => monaco.editor.remeasureFonts())
-  }, [fontStyleKey])
+    applyEditorMonacoSettings(editor, editorSettings, readOnly, isHeavyFile)
+    if (editorOptionsOverride) {
+      editor.updateOptions(editorOptionsOverride)
+    }
+    refreshEditorMonacoAfterSettings(editor)
+  }, [editorOptionsOverride, editorSettings, isHeavyFile, readOnly, settingsKey])
 
   useEffect(() => {
     const editor = editorRef.current

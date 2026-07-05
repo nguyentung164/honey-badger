@@ -61,6 +61,7 @@ export function registerSettingsIpcHandlers() {
   l.info('🔄 Registering Settings IPC Handlers...')
 
   // Appearance Settings
+  ipcMain.handle(IPC.SETTING.APPEARANCE.GET, () => appearanceStore.store)
   ipcMain.handle(IPC.SETTING.APPEARANCE.SET, (_, key, value) => appearanceStore.set(key, value))
 
   // Configuration Settings

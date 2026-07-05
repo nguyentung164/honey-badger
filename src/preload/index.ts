@@ -53,6 +53,7 @@ declare global {
       }
 
       appearance: {
+        get: () => Promise<import('main/store/AppearanceStore').AppearanceSchema>
         set: (key: string, value: any) => Promise<void>
       }
 
@@ -411,6 +412,11 @@ declare global {
         get_default_notification_sound_url: () => Promise<string | null>
         /** Repo-relative path under cwd/sourceFolder; used for context menu labels. */
         get_path_entry_kind: (payload: { relativePath: string; cwd?: string }) => Promise<'file' | 'directory' | 'missing'>
+        resolve_node_module: (payload: {
+          specifier: string
+          fromRelativePath: string
+          cwd?: string
+        }) => Promise<string | null>
         detect_file_kind: (filePath: string, options?: { cwd?: string }) => Promise<{ kind: 'text' | 'image' | 'binary'; mime?: string; size?: number; mtimeMs?: number }>
         read_file_data_url: (
           filePath: string,
@@ -432,12 +438,17 @@ declare global {
           maxResults?: number
           includePattern?: string
           excludePattern?: string
+          useExcludesAndIgnoreFiles?: boolean
+          onlyRelativePaths?: string[]
         }) => Promise<import('shared/editor/types').SearchInFilesResult>
         list_workspace_files: (payload: { cwd?: string; maxFiles?: number }) => Promise<import('shared/editor/types').ListWorkspaceFilesResult>
         replace_in_files: (payload: import('shared/editor/types').ReplaceInFilesPayload) => Promise<import('shared/editor/types').ReplaceInFilesResult>
         watch_workspace: (payload: { cwd?: string }) => Promise<{ success: boolean; error?: string }>
         unwatch_workspace: () => Promise<{ success: boolean }>
+        set_editor_open_files: (payload: { paths: string[] }) => Promise<{ success: boolean }>
+        on_editor_open_file_changed: (cb: (event: import('shared/editor/types').EditorOpenFileChangedEvent) => void) => () => void
         on_workspace_file_changed: (cb: (event: import('shared/editor/types').WorkspaceFileChangedEvent) => void) => () => void
+        on_app_window_focus: (cb: () => void) => () => void
       }
 
       lsp: {
@@ -1395,6 +1406,7 @@ contextBridge.exposeInMainWorld('api', {
   },
 
   appearance: {
+    get: () => ipcRenderer.invoke(IPC.SETTING.APPEARANCE.GET),
     set: (key: string, value: any) => ipcRenderer.invoke(IPC.SETTING.APPEARANCE.SET, key, value),
   },
 
@@ -1716,6 +1728,8 @@ contextBridge.exposeInMainWorld('api', {
     get_notification_sound_url: (filePath: string) => ipcRenderer.invoke(IPC.SYSTEM.GET_NOTIFICATION_SOUND_URL, filePath),
     get_default_notification_sound_url: () => ipcRenderer.invoke(IPC.SYSTEM.GET_DEFAULT_NOTIFICATION_SOUND_URL),
     get_path_entry_kind: (payload: { relativePath: string; cwd?: string }) => ipcRenderer.invoke(IPC.SYSTEM.GET_PATH_ENTRY_KIND, payload),
+    resolve_node_module: (payload: { specifier: string; fromRelativePath: string; cwd?: string }) =>
+      ipcRenderer.invoke(IPC.SYSTEM.RESOLVE_NODE_MODULE, payload),
     detect_file_kind: (filePath: string, options?: { cwd?: string }) => ipcRenderer.invoke(IPC.SYSTEM.DETECT_FILE_KIND, filePath, options),
     read_file_data_url: (filePath: string, options?: { cwd?: string; gitRevision?: string }) =>
       ipcRenderer.invoke(IPC.SYSTEM.READ_FILE_DATA_URL, filePath, options),
@@ -1738,6 +1752,8 @@ contextBridge.exposeInMainWorld('api', {
       maxResults?: number
       includePattern?: string
       excludePattern?: string
+      useExcludesAndIgnoreFiles?: boolean
+      onlyRelativePaths?: string[]
     }) => ipcRenderer.invoke(IPC.SYSTEM.SEARCH_IN_FILES, payload),
     list_workspace_files: (payload: { cwd?: string; maxFiles?: number }) =>
       ipcRenderer.invoke(IPC.SYSTEM.LIST_WORKSPACE_FILES, payload),
@@ -1745,10 +1761,22 @@ contextBridge.exposeInMainWorld('api', {
       ipcRenderer.invoke(IPC.SYSTEM.REPLACE_IN_FILES, payload),
     watch_workspace: (payload: { cwd?: string }) => ipcRenderer.invoke(IPC.SYSTEM.WATCH_WORKSPACE, payload),
     unwatch_workspace: () => ipcRenderer.invoke(IPC.SYSTEM.UNWATCH_WORKSPACE),
+    set_editor_open_files: (payload: { paths: string[] }) =>
+      ipcRenderer.invoke(IPC.SYSTEM.SET_EDITOR_OPEN_FILES, payload),
+    on_editor_open_file_changed: (cb: (event: import('shared/editor/types').EditorOpenFileChangedEvent) => void) => {
+      const handler = (_: unknown, event: import('shared/editor/types').EditorOpenFileChangedEvent) => cb(event)
+      ipcRenderer.on(IPC.SYSTEM.EDITOR_OPEN_FILE_CHANGED, handler)
+      return () => ipcRenderer.removeListener(IPC.SYSTEM.EDITOR_OPEN_FILE_CHANGED, handler)
+    },
     on_workspace_file_changed: (cb: (event: import('shared/editor/types').WorkspaceFileChangedEvent) => void) => {
       const handler = (_: unknown, event: import('shared/editor/types').WorkspaceFileChangedEvent) => cb(event)
       ipcRenderer.on(IPC.SYSTEM.WORKSPACE_FILE_CHANGED, handler)
       return () => ipcRenderer.removeListener(IPC.SYSTEM.WORKSPACE_FILE_CHANGED, handler)
+    },
+    on_app_window_focus: (cb: () => void) => {
+      const handler = () => cb()
+      ipcRenderer.on(IPC.SYSTEM.APP_WINDOW_FOCUS, handler)
+      return () => ipcRenderer.removeListener(IPC.SYSTEM.APP_WINDOW_FOCUS, handler)
     },
   },
 

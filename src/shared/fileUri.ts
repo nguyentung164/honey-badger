@@ -5,7 +5,11 @@ export function normalizeAbsolutePath(absPath: string): string {
 }
 
 export function pathToFileUri(absPath: string): string {
-  const normalized = normalizeAbsolutePath(absPath)
+  let normalized = normalizeAbsolutePath(absPath)
+  // Windows: tsserver treats file URIs as case-sensitive — normalize drive letter.
+  if (/^[a-z]:\//.test(normalized)) {
+    normalized = normalized[0].toUpperCase() + normalized.slice(1)
+  }
   if (/^[A-Za-z]:\//.test(normalized)) return `file:///${normalized}`
   if (normalized.startsWith('/')) return `file://${normalized}`
   return `file:///${normalized}`
@@ -27,6 +31,16 @@ export function fileUriToPath(rootUri: string): string {
 
 export function workspaceRootUri(absPath: string): string {
   return pathToFileUri(absPath)
+}
+
+/** Normalize LSP / tsserver file URIs so they match Monaco model URIs on Windows. */
+export function canonicalizeFileUri(uri: string): string {
+  if (!uri.startsWith('file:')) return uri
+  try {
+    return pathToFileUri(fileUriToPath(uri))
+  } catch {
+    return uri
+  }
 }
 
 export function uriRootsMatch(a: string, b: string): boolean {

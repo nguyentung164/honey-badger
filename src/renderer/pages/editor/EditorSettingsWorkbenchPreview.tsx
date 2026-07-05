@@ -4,16 +4,23 @@ import { ChevronDown, ChevronRight, FileCode2 } from 'lucide-react'
 import { useMemo } from 'react'
 import { useTranslation } from 'react-i18next'
 import { MaterialFileIcon } from '@/components/icons/MaterialFileIcon'
+import {
+  SETTINGS_FONT_CAPTION,
+  SETTINGS_FONT_MICRO,
+  SETTINGS_FONT_NANO,
+  SettingsPreviewHintChips,
+} from '@/components/settings/settingsDialogUi'
 import { cn } from '@/lib/utils'
-import type { EditorSettings } from '@/pages/editor/hooks/useEditorSettings'
+import { useEditorMonacoSettings } from '@/pages/editor/hooks/useEditorSettings'
 import { EditorFileBreadcrumbs } from '@/pages/editor/editor-area/EditorFileBreadcrumbs'
-import { EDITOR_SETTINGS_PREVIEW_HEIGHT } from '@/pages/editor/lib/buildEditorSettingsPreviewOptions'
+import { collectEditorSettingsPreviewBehaviorHints } from '@/pages/editor/lib/editorSettingsPreviewHints'
 import { useAppAppearanceThemeKey } from '@/hooks/useAppAppearanceThemeKey'
 import { resolveEditorThemePreviewColors } from '@/pages/editor/lib/editorMonacoTheme'
 import { resolveAppIsDarkFromDocument } from '@/lib/theme/appThemeMode'
 
 const PREVIEW_WORKSPACE_LABEL = 'honey-badger'
 const PREVIEW_FILE_PATH = 'src/pages/editor/EditorSettingsPreview.tsx'
+const PREVIEW_RESTORED_TABS = ['EditorWorkbench.tsx', 'EditorSettingsPreview.tsx', 'types.ts'] as const
 
 type TreeNode = {
   name: string
@@ -65,7 +72,8 @@ function ExplorerTreeMock({
           <li key={node.path}>
             <div
               className={cn(
-                'flex h-5 items-center gap-1 rounded-sm pr-1.5 text-[10px] leading-none',
+                'flex h-5 items-center gap-1 rounded-sm pr-1.5 leading-none',
+                SETTINGS_FONT_CAPTION,
                 isActive ? 'bg-primary/15 text-foreground ring-1 ring-primary/25' : 'text-muted-foreground'
               )}
               style={{ paddingLeft }}
@@ -95,12 +103,12 @@ function ExplorerTreeMock({
 }
 
 type EditorSettingsWorkbenchPreviewProps = {
-  settings: EditorSettings
   className?: string
 }
 
-export function EditorSettingsWorkbenchPreview({ settings, className }: EditorSettingsWorkbenchPreviewProps) {
+export function EditorSettingsWorkbenchPreview({ className }: EditorSettingsWorkbenchPreviewProps) {
   const { t } = useTranslation()
+  const settings = useEditorMonacoSettings()
   const appAppearanceKey = useAppAppearanceThemeKey()
   const colors = useMemo(() => {
     void appAppearanceKey
@@ -110,22 +118,23 @@ export function EditorSettingsWorkbenchPreview({ settings, className }: EditorSe
   const autoSaveLabel = autoSaveOn
     ? t('editor.settings.previewAutoSaveOn', { delay: (settings.autoSaveDelayMs / 1000).toFixed(1) })
     : t('editor.settings.previewAutoSaveOff')
+  const saveHints = collectEditorSettingsPreviewBehaviorHints(settings, t, 'workbench')
 
   return (
-    <div className={cn('overflow-hidden rounded-lg border border-border/70 shadow-inner', className)}>
-      <div className="flex items-center justify-between border-b border-border/60 bg-muted/15 px-3 py-1.5">
-        <span className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground">{t('editor.settings.previewWorkbench')}</span>
-        <span className="text-[10px] text-muted-foreground/80">{autoSaveLabel}</span>
+    <div className={cn('flex h-full min-h-[18rem] flex-col overflow-hidden rounded-md border border-border/60 shadow-sm', className)}>
+      <div className="flex shrink-0 items-center justify-between border-b border-border/50 bg-muted/10 px-2.5 py-1">
+        <span className={cn(SETTINGS_FONT_MICRO, 'font-medium uppercase tracking-wider text-muted-foreground')}>{t('editor.settings.previewWorkbench')}</span>
+        <span className={cn(SETTINGS_FONT_MICRO, 'text-muted-foreground/80')}>{autoSaveLabel}</span>
       </div>
 
-      <div className="flex bg-background" style={{ height: EDITOR_SETTINGS_PREVIEW_HEIGHT }}>
+      <div className="flex min-h-0 flex-1 bg-background">
         <div className="flex w-[42%] min-w-0 flex-col border-r border-border/60 bg-muted/8">
-          <div className="border-b border-border/50 px-2 py-1 text-[9px] font-medium uppercase tracking-wide text-muted-foreground">Explorer</div>
+          <div className={cn('border-b border-border/50 px-2 py-1 font-medium uppercase tracking-wide text-muted-foreground', SETTINGS_FONT_MICRO)}>Explorer</div>
           <div className="min-h-0 flex-1 overflow-hidden p-1.5">
             {settings.explorerAutoReveal ? (
               <ExplorerTreeMock activePath={PREVIEW_FILE_PATH} highlight />
             ) : (
-              <div className="space-y-1 px-1 py-2 text-[10px] text-muted-foreground/70">
+              <div className={cn('space-y-1 px-1 py-2 text-muted-foreground/70', SETTINGS_FONT_CAPTION)}>
                 <div className="flex items-center gap-1">
                   <ChevronRight className="size-2.5" aria-hidden />
                   <span>src</span>
@@ -137,21 +146,44 @@ export function EditorSettingsWorkbenchPreview({ settings, className }: EditorSe
         </div>
 
         <div className="flex min-w-0 flex-1 flex-col">
-          <div className="flex shrink-0 items-center gap-1 border-b border-border/60 bg-muted/12 px-2 py-1">
-            <FileCode2 className="size-3 shrink-0 text-primary/80" aria-hidden />
-            <span className="truncate text-[10px] font-medium text-foreground">EditorSettingsPreview.tsx</span>
+          <div className="flex shrink-0 items-center gap-1 overflow-x-auto border-b border-border/60 bg-muted/12 px-1 py-0.5">
+            {(settings.restoreEditorTabs ? PREVIEW_RESTORED_TABS : [PREVIEW_RESTORED_TABS[1]]).map(tabName => {
+              const active = tabName === 'EditorSettingsPreview.tsx'
+              return (
+                <div
+                  key={tabName}
+                  className={cn(
+                    'flex max-w-[7rem] shrink-0 items-center gap-1 rounded-sm px-1.5 py-0.5',
+                    SETTINGS_FONT_MICRO,
+                    active ? 'bg-background text-foreground shadow-sm ring-1 ring-border/60' : 'text-muted-foreground'
+                  )}
+                >
+                  <FileCode2 className="size-2.5 shrink-0 opacity-70" aria-hidden />
+                  <span className="truncate">{tabName}</span>
+                </div>
+              )
+            })}
           </div>
 
           {settings.breadcrumbs ? (
             <EditorFileBreadcrumbs relativePath={PREVIEW_FILE_PATH} workspaceLabel={PREVIEW_WORKSPACE_LABEL} />
           ) : (
-            <div className="shrink-0 border-b border-border/40 px-3 py-1 text-[10px] italic text-muted-foreground/45">{t('editor.settings.previewBreadcrumbsHidden')}</div>
+            <div className={cn('shrink-0 border-b border-border/40 px-3 py-1 italic text-muted-foreground/45', SETTINGS_FONT_CAPTION)}>{t('editor.settings.previewBreadcrumbsHidden')}</div>
           )}
 
+          {settings.stickyScroll ? (
+            <div className={cn('shrink-0 border-b border-border/50 bg-muted/25 px-2 py-0.5 font-mono text-muted-foreground', SETTINGS_FONT_NANO)}>
+              export function preview()
+            </div>
+          ) : null}
+
           <div
-            className="min-h-0 flex-1 overflow-hidden p-2 font-mono text-[9px] leading-relaxed"
+            className={cn('min-h-0 flex-1 overflow-hidden p-2 font-mono leading-relaxed', SETTINGS_FONT_MICRO)}
             style={{ background: colors.background, color: colors.foreground }}
           >
+            {settings.codeLens ? (
+              <div className={cn('mb-0.5 font-medium text-primary/75', SETTINGS_FONT_NANO)}>2 references</div>
+            ) : null}
             <span style={{ color: colors.keyword }}>export</span>{' '}
             <span style={{ color: colors.keyword }}>function</span>{' '}
             <span style={{ color: colors.function }}>preview</span>
@@ -163,19 +195,32 @@ export function EditorSettingsWorkbenchPreview({ settings, className }: EditorSe
             <br />
             <span>{'}'}</span>
             <br />
-            <span style={{ color: colors.comment }}>{'// type · variable · number'}</span>
+            <span style={{ color: colors.comment }}>{'// inlay hints · unused · links'}</span>
             <br />
             <span style={{ color: colors.type }}>const</span>{' '}
-            <span style={{ color: colors.variable }}>count</span>
-            <span>{': '}</span>
-            <span style={{ color: colors.type }}>number</span>
+            <span style={{ color: colors.variable }}>appId</span>
+            {settings.inlayHints ? <span className="opacity-45">: string</span> : null}
             <span>{' = '}</span>
-            <span style={{ color: colors.number }}>42</span>
+            <span style={{ color: colors.string }}>{'`com.example.my-app`'}</span>
+            <br />
+            <span style={{ color: colors.type }}>const</span>{' '}
+            <span className={cn(settings.showUnused && 'opacity-45')} style={{ color: colors.variable }}>
+              unusedPreview
+            </span>
+            {settings.inlayHints ? <span className="opacity-45">: number</span> : null}
+            <span>{' = 42'}</span>
+            <br />
+            <span style={{ color: colors.comment }}>{'// '}</span>
+            {settings.links ? (
+              <span className="underline decoration-primary/50 underline-offset-2 text-primary/85">https://example.com/docs</span>
+            ) : (
+              <span style={{ color: colors.string }}>https://example.com/docs</span>
+            )}
           </div>
 
-          <div className="flex shrink-0 items-center justify-between border-t border-border/60 bg-muted/15 px-2 py-0.5 text-[9px] text-muted-foreground">
-            <span className="truncate">EditorSettingsPreview.tsx</span>
-            <span className={cn('shrink-0 tabular-nums', autoSaveOn ? 'text-primary/90' : 'text-muted-foreground/60')}>{autoSaveLabel}</span>
+          <div className={cn('flex shrink-0 items-center justify-between gap-2 border-t border-border/60 bg-muted/15 px-2 py-1', SETTINGS_FONT_MICRO)}>
+            <span className="truncate text-muted-foreground">EditorSettingsPreview.tsx</span>
+            <SettingsPreviewHintChips bare hints={[autoSaveLabel, ...saveHints]} className="max-w-[72%] justify-end" />
           </div>
         </div>
       </div>

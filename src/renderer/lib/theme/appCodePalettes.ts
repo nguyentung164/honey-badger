@@ -1,5 +1,5 @@
 import { THEMES } from '@/components/shared/constants'
-import { APP_CODE_PALETTE_REGISTRY } from '@/lib/theme/appCodePaletteData'
+import { APP_CODE_PALETTE_REGISTRY, APP_SELECTION_REGISTRY } from '@/lib/theme/appCodePaletteData'
 import type { AppCodePalette, AppThemeId } from '@/lib/theme/appCodePaletteTypes'
 import type * as Monaco from 'monaco-editor'
 
@@ -16,7 +16,9 @@ export function resolveCurrentAppThemeId(): AppThemeId {
 
 export function resolveAppCodePalette(themeId: AppThemeId, appIsDark: boolean): AppCodePalette {
   const mode = appIsDark ? 'dark' : 'light'
-  return APP_CODE_PALETTE_REGISTRY[themeId]?.[mode] ?? APP_CODE_PALETTE_REGISTRY['theme-default'][mode]
+  const base = APP_CODE_PALETTE_REGISTRY[themeId]?.[mode] ?? APP_CODE_PALETTE_REGISTRY['theme-default'][mode]
+  const selection = APP_SELECTION_REGISTRY[themeId]?.[mode] ?? APP_SELECTION_REGISTRY['theme-default'][mode]
+  return { ...base, selection }
 }
 
 function stripHash(color: string): string {

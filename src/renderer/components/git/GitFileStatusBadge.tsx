@@ -30,15 +30,15 @@ const STATUS_BG: Record<GitFileStatusCode, string> = {
   conflicted: 'bg-red-500 text-white',
 }
 
-/** VS Code SCM-style letter colors (trailing column). */
+/** VS Code SCM-style letter colors (trailing column) — matches explorer gitDecoration tokens. */
 const STATUS_TRAILING: Record<GitFileStatusCode, string> = {
-  modified: 'text-amber-600 dark:text-[#d1b036]',
-  added: 'text-emerald-600 dark:text-emerald-400',
-  staged: 'text-emerald-600 dark:text-emerald-400',
-  deleted: 'text-red-600 dark:text-red-400',
-  renamed: 'text-violet-600 dark:text-violet-400',
-  untracked: 'text-emerald-600 dark:text-emerald-400',
-  conflicted: 'text-red-600 dark:text-red-400',
+  modified: 'text-[var(--hb-git-modified)]',
+  added: 'text-[var(--hb-git-added)]',
+  staged: 'text-[var(--hb-git-staged)]',
+  deleted: 'text-[var(--hb-git-deleted)]',
+  renamed: 'text-[var(--hb-git-renamed)]',
+  untracked: 'text-[var(--hb-git-untracked)]',
+  conflicted: 'text-[var(--hb-git-conflicted)]',
 }
 
 interface GitFileStatusBadgeProps {

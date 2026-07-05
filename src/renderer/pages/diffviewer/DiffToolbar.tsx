@@ -2,12 +2,12 @@
 import { t } from 'i18next'
 import {
   ArrowLeftRight,
+  ChevronDown as ChevronDownNav,
   ChevronLeft,
   ChevronRight,
+  ChevronsDown,
+  ChevronsUp,
   ChevronUp,
-  ChevronDown as ChevronDownNav,
-  ChevronFirst,
-  ChevronLast,
   Columns2,
   FoldVertical,
   GitCommitHorizontal,
@@ -28,20 +28,13 @@ import {
 import type React from 'react'
 import { createPortal } from 'react-dom'
 import { Button } from '@/components/ui/button'
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuLabel,
-  DropdownMenuSeparator,
-  DropdownMenuTrigger,
-} from '@/components/ui/dropdown-menu'
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator, DropdownMenuTrigger } from '@/components/ui/dropdown-menu'
 import { Slider } from '@/components/ui/slider'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import { cn } from '@/lib/utils'
-import { DIFF_VIEWER_FONT_SIZE_MAX, DIFF_VIEWER_FONT_SIZE_MIN, type DiffViewerViewOptionKey, type DiffViewerViewOptions } from './diffViewerTypes'
 import { DiffViewerFilePicker } from './DiffViewerFilePicker'
 import type { DiffViewerFileEntry } from './diffViewerPayload'
+import { DIFF_VIEWER_FONT_SIZE_MAX, DIFF_VIEWER_FONT_SIZE_MIN, type DiffViewerViewOptionKey, type DiffViewerViewOptions } from './diffViewerTypes'
 
 export interface DiffToolbarProps {
   onRefresh?: () => void
@@ -104,26 +97,14 @@ export interface DiffToolbarProps {
   headerPortalTarget?: HTMLElement | null
 }
 
-const toggleBtnClass =
-  'shadow-none focus-visible:ring-0 focus-visible:ring-offset-0 hover:bg-muted transition-colors rounded-sm h-[25px] w-[25px]'
-const settingsBtnClass =
-  'h-7 w-7 shrink-0 rounded-sm p-0 shadow-none hover:bg-muted focus-visible:ring-0 focus-visible:ring-offset-0'
+const toggleBtnClass = 'shadow-none focus-visible:ring-0 focus-visible:ring-offset-0 hover:bg-muted transition-colors rounded-sm h-[25px] w-[25px]'
+const settingsBtnClass = 'h-7 w-7 shrink-0 rounded-sm p-0 shadow-none hover:bg-muted focus-visible:ring-0 focus-visible:ring-offset-0'
 const viewMenuActiveClass = 'text-green-600 dark:text-green-400 focus:text-green-600 dark:focus:text-green-400'
 const navPositionClass = 'min-w-[2.75rem] px-0.5 text-center text-xs tabular-nums shrink-0'
 const dragStyle = { WebkitAppRegion: 'drag' } as React.CSSProperties
 const noDragStyle = { WebkitAppRegion: 'no-drag' } as React.CSSProperties
 
-function NavIconButton({
-  onClick,
-  disabled,
-  label,
-  children,
-}: {
-  onClick: () => void
-  disabled?: boolean
-  label: string
-  children: React.ReactNode
-}) {
+function NavIconButton({ onClick, disabled, label, children }: { onClick: () => void; disabled?: boolean; label: string; children: React.ReactNode }) {
   return (
     <Tooltip>
       <TooltipTrigger asChild>
@@ -154,11 +135,7 @@ function ViewMenuToggleItem({
   onSelect: () => void
 }) {
   return (
-    <DropdownMenuItem
-      disabled={disabled}
-      onClick={onSelect}
-      className={cn('gap-2', active && viewMenuActiveClass)}
-    >
+    <DropdownMenuItem disabled={disabled} onClick={onSelect} className={cn('gap-2', active && viewMenuActiveClass)}>
       <Icon strokeWidth={1.25} className="h-4 w-4 shrink-0" />
       <span>{label}</span>
     </DropdownMenuItem>
@@ -178,15 +155,7 @@ function DiffToolbarSettingsMenu({
   compact = false,
 }: Pick<
   DiffToolbarProps,
-  | 'onSwapSides'
-  | 'showBlameToggle'
-  | 'showBlame'
-  | 'onToggleBlame'
-  | 'showAutoAdvanceToggle'
-  | 'autoAdvance'
-  | 'onToggleAutoAdvance'
-  | 'viewOptions'
-  | 'onViewOptionChange'
+  'onSwapSides' | 'showBlameToggle' | 'showBlame' | 'onToggleBlame' | 'showAutoAdvanceToggle' | 'autoAdvance' | 'onToggleAutoAdvance' | 'viewOptions' | 'onViewOptionChange'
 > & { compact?: boolean }) {
   return (
     <DropdownMenu>
@@ -254,26 +223,13 @@ function DiffToolbarSettingsMenu({
           onSelect={() => onViewOptionChange('minimap', !viewOptions.minimap)}
         />
         {showBlameToggle && onToggleBlame && (
-          <ViewMenuToggleItem
-            icon={GitCommitHorizontal}
-            label={t('dialog.diffViewer.blameToggle')}
-            active={showBlame}
-            onSelect={() => onToggleBlame()}
-          />
+          <ViewMenuToggleItem icon={GitCommitHorizontal} label={t('dialog.diffViewer.blameToggle')} active={showBlame} onSelect={() => onToggleBlame()} />
         )}
         {showAutoAdvanceToggle && onToggleAutoAdvance ? (
-          <ViewMenuToggleItem
-            icon={SkipForward}
-            label={t('dialog.diffViewer.autoAdvanceMenu')}
-            active={autoAdvance}
-            onSelect={() => onToggleAutoAdvance()}
-          />
+          <ViewMenuToggleItem icon={SkipForward} label={t('dialog.diffViewer.autoAdvanceMenu')} active={autoAdvance} onSelect={() => onToggleAutoAdvance()} />
         ) : null}
         <DropdownMenuSeparator />
-        <DropdownMenuItem
-          className="flex cursor-default flex-col items-stretch gap-2 p-2 focus:bg-accent"
-          onSelect={e => e.preventDefault()}
-        >
+        <DropdownMenuItem className="flex cursor-default flex-col items-stretch gap-2 p-2 focus:bg-accent" onSelect={e => e.preventDefault()}>
           <div className="flex items-center justify-between gap-2">
             <span className="text-xs text-muted-foreground">{t('dialog.diffViewer.fontSize')}</span>
             <span className="text-xs font-medium tabular-nums">{viewOptions.fontSize}</span>
@@ -303,24 +259,12 @@ function DiffToolbarChangeNav({
   changePosition,
   disableChangeNav,
   showNoChangesBadge,
-}: Pick<
-  DiffToolbarProps,
-  | 'onPrevChange'
-  | 'onNextChange'
-  | 'onFirstChange'
-  | 'onLastChange'
-  | 'changePosition'
-  | 'disableChangeNav'
-  | 'showNoChangesBadge'
->) {
+}: Pick<DiffToolbarProps, 'onPrevChange' | 'onNextChange' | 'onFirstChange' | 'onLastChange' | 'changePosition' | 'disableChangeNav' | 'showNoChangesBadge'>) {
   if (showNoChangesBadge) {
     return (
       <Tooltip>
         <TooltipTrigger asChild>
-          <span
-            className="inline-flex shrink-0 items-center rounded px-1.5 py-0 text-[9px] leading-4 font-medium bg-muted text-muted-foreground cursor-default"
-            tabIndex={-1}
-          >
+          <span className="inline-flex shrink-0 items-center rounded px-1.5 py-0 text-[9px] leading-4 font-medium bg-muted text-muted-foreground cursor-default" tabIndex={-1}>
             {t('dialog.diffViewer.noChangesChip')}
           </span>
         </TooltipTrigger>
@@ -335,7 +279,7 @@ function DiffToolbarChangeNav({
     <div className="flex items-center gap-0.5 shrink-0">
       {onFirstChange && (
         <NavIconButton onClick={onFirstChange} disabled={disableChangeNav} label={t('dialog.diffViewer.firstChange')}>
-          <ChevronFirst strokeWidth={1.25} className="h-4 w-4" />
+          <ChevronsUp strokeWidth={1.25} className="h-4 w-4" />
         </NavIconButton>
       )}
       {onPrevChange && (
@@ -345,22 +289,11 @@ function DiffToolbarChangeNav({
       )}
       <Tooltip>
         <TooltipTrigger asChild>
-          <span
-            className={cn(
-              navPositionClass,
-              'cursor-default',
-              changePosition && changePosition.total > 0 ? 'text-muted-foreground' : 'text-muted-foreground/50'
-            )}
-            tabIndex={-1}
-          >
+          <span className={cn(navPositionClass, 'cursor-default', changePosition && changePosition.total > 0 ? 'text-muted-foreground' : 'text-muted-foreground/50')} tabIndex={-1}>
             {changePosition && changePosition.total > 0 ? `${changePosition.current}/${changePosition.total}` : '—'}
           </span>
         </TooltipTrigger>
-        <TooltipContent>
-          {changePosition && changePosition.total > 0
-            ? t('dialog.diffViewer.changePosition', changePosition)
-            : t('dialog.diffViewer.noChanges')}
-        </TooltipContent>
+        <TooltipContent>{changePosition && changePosition.total > 0 ? t('dialog.diffViewer.changePosition', changePosition) : t('dialog.diffViewer.noChanges')}</TooltipContent>
       </Tooltip>
       {onNextChange && (
         <NavIconButton onClick={onNextChange} disabled={disableChangeNav} label={t('dialog.diffViewer.nextChange')}>
@@ -369,7 +302,7 @@ function DiffToolbarChangeNav({
       )}
       {onLastChange && (
         <NavIconButton onClick={onLastChange} disabled={disableChangeNav} label={t('dialog.diffViewer.lastChange')}>
-          <ChevronLast strokeWidth={1.25} className="h-4 w-4" />
+          <ChevronsDown strokeWidth={1.25} className="h-4 w-4" />
         </NavIconButton>
       )}
     </div>
@@ -424,13 +357,7 @@ export function DiffToolbarHeaderControls(props: DiffToolbarProps) {
   const compact = Boolean(headerPortalTarget)
 
   return (
-    <div
-      className={cn(
-        'flex min-w-0 items-center gap-0.5',
-        headerPortalTarget ? 'h-7 flex-1 overflow-hidden' : 'shrink'
-      )}
-      style={noDragStyle}
-    >
+    <div className={cn('flex min-w-0 items-center gap-0.5', headerPortalTarget ? 'h-7 flex-1 overflow-hidden' : 'shrink')} style={noDragStyle}>
       <div className="flex min-w-0 items-center gap-0 shrink overflow-hidden">
         <DiffViewerFilePicker
           filePath={filePath}
@@ -482,10 +409,7 @@ export function DiffToolbarHeaderControls(props: DiffToolbarProps) {
                 size="sm"
                 onClick={onFormat}
                 disabled={isFormatting || disableFormat}
-                className={cn(
-                  toggleBtnClass,
-                  'text-sky-500 dark:text-sky-300 hover:text-sky-400 dark:hover:text-sky-200 hover:bg-sky-400/15'
-                )}
+                className={cn(toggleBtnClass, 'text-sky-500 dark:text-sky-300 hover:text-sky-400 dark:hover:text-sky-200 hover:bg-sky-400/15')}
                 aria-label={t('dialog.diffViewer.formatCode')}
               >
                 <Wand2 strokeWidth={1.25} className="h-4 w-4" />
@@ -502,10 +426,7 @@ export function DiffToolbarHeaderControls(props: DiffToolbarProps) {
                 size="sm"
                 onClick={onRemoveEmptyLines}
                 disabled={isRemovingEmptyLines || disableRemoveEmptyLines}
-                className={cn(
-                  toggleBtnClass,
-                  'text-violet-500 dark:text-violet-300 hover:text-violet-400 dark:hover:text-violet-200 hover:bg-violet-400/15'
-                )}
+                className={cn(toggleBtnClass, 'text-violet-500 dark:text-violet-300 hover:text-violet-400 dark:hover:text-violet-200 hover:bg-violet-400/15')}
                 aria-label={t('dialog.diffViewer.removeEmptyLines')}
               >
                 <ListMinus strokeWidth={1.25} className="h-4 w-4" />

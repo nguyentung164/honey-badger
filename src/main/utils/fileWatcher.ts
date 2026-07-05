@@ -181,11 +181,12 @@ export function startFileWatcher(folderPathOrPaths: string | string[], mainWindo
     ignored: p => shouldIgnore(p),
     persistent: true,
     ignoreInitial: true,
-    awaitWriteFinish: { stabilityThreshold: 200 },
+    awaitWriteFinish: { stabilityThreshold: 50, pollInterval: 25 },
   })
 
   const handler = (eventPath: string) => {
     l.debug('File watcher: change detected:', eventPath)
+    // Editor fast lane is handled by dedicated open-file watcher only (no duplicate IPC).
     debouncedEmit(mainWindow, eventPath)
   }
 

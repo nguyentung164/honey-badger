@@ -6,7 +6,11 @@ import { GitFileStatusBadge, type GitFileStatusCode } from '@/components/git/Git
 import { MaterialFileIcon } from '@/components/icons/MaterialFileIcon'
 import { cn } from '@/lib/utils'
 import { ExplorerRowInlineEdit } from '@/pages/editor/explorer/ExplorerRowInlineEdit'
-import { EXPLORER_GIT_DOT_CLASS, EXPLORER_GIT_LABEL_CLASS } from '@/pages/editor/explorer/explorerGitDecorations'
+import {
+  EXPLORER_GIT_DOT_CLASS,
+  EXPLORER_GIT_FOLDER_LABEL_CLASS,
+  EXPLORER_GIT_LABEL_CLASS,
+} from '@/pages/editor/explorer/explorerGitDecorations'
 import { EXPLORER_TREE_BASE_PADDING_PX, EXPLORER_TREE_INDENT_PX, EXPLORER_TREE_ROW_HEIGHT } from '@/pages/editor/explorer/explorerTreeConstants'
 import type { FileTreeRow } from '@/pages/editor/lib/flattenFileTree'
 
@@ -61,7 +65,7 @@ export const ExplorerRow = memo(
         className={cn(
           'flex w-full min-w-0 cursor-pointer items-center gap-1 px-2 text-left outline-none',
           isCut && 'opacity-40',
-          isSelected ? cn('bg-primary/15 hover:bg-primary/20', !gitStatus && 'text-primary') : 'text-foreground hover:bg-black/[0.07] dark:hover:bg-[#2a2d2e]'
+          isSelected ? cn('bg-primary/15 hover:bg-primary/20', !gitStatus && 'text-primary') : 'text-foreground hover:bg-[var(--hb-explorer-row-hover)]'
         )}
         style={{ height: EXPLORER_TREE_ROW_HEIGHT, paddingLeft, contain: 'layout style paint' }}
         onMouseDown={e => {
@@ -128,7 +132,12 @@ export const ExplorerRow = memo(
             onCancel={onEditCancel}
           />
         ) : (
-          <span className={cn('min-w-0 flex-1 truncate text-[13px]', gitStatus ? EXPLORER_GIT_LABEL_CLASS[gitStatus] : isSelected && 'text-primary')}>
+          <span
+            className={cn(
+              'min-w-0 flex-1 truncate text-[13px]',
+              gitStatus ? (isDir ? EXPLORER_GIT_FOLDER_LABEL_CLASS : EXPLORER_GIT_LABEL_CLASS)[gitStatus] : isSelected && 'text-primary'
+            )}
+          >
             {node.name}
           </span>
         )}

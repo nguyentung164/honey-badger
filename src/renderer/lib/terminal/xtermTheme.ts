@@ -56,7 +56,7 @@ function isAppDarkMode(): boolean {
 
 function buildAppThemeFromPalette(appIsDark: boolean): ITheme {
   const themeId = resolveCurrentAppThemeId()
-  const { terminal } = resolveAppCodePalette(themeId, appIsDark)
+  const { terminal, selection } = resolveAppCodePalette(themeId, appIsDark)
   const readVar = (varName: string, fallback: string) =>
     readCssVarForAppearance(varName, themeId, appIsDark, fallback, (el, name, fb) => readCssVarAsXtermColor(name, fb, el))
 
@@ -68,8 +68,8 @@ function buildAppThemeFromPalette(appIsDark: boolean): ITheme {
     foreground: readVar('--foreground', fallbackFg),
     cursor: readVar('--primary', fallbackFg),
     cursorAccent: readVar('--primary-foreground', fallbackBg),
-    selectionBackground: readVar('--accent', appIsDark ? '#264f78' : '#add6ff'),
-    selectionForeground: readVar('--accent-foreground', appIsDark ? '#ffffff' : fallbackFg),
+    selectionBackground: selection.background,
+    selectionForeground: selection.foreground,
     black: terminal.black,
     red: terminal.red,
     green: terminal.green,

@@ -1,11 +1,12 @@
 import {
+  type DiffViewerFilesRefreshResult,
   fetchDiffViewerFilesFromGit,
   findDiffViewerFileIndex,
   mergeGitFilesRefreshIntoContext,
   normalizeGitPath,
   resolveDiffViewerFilesRefresh,
-  type DiffViewerFilesRefreshResult,
 } from './diffViewerGitFiles'
+
 import type { DiffViewerFileEntry, DiffViewerLoadPayload } from './diffViewerPayload'
 import { deriveDiffViewerMode, enrichDiffViewerPayload } from './diffViewerPayload'
 
@@ -18,9 +19,7 @@ export function buildDiffViewerFilesFromCommitFiles(files: CommitFileRow[]): Dif
   }))
 }
 
-export function buildDiffViewerFilesFromLogFiles(
-  files: { filePath: string; action?: string; fileStatus?: string }[]
-): DiffViewerFileEntry[] {
+export function buildDiffViewerFilesFromLogFiles(files: { filePath: string; action?: string; fileStatus?: string }[]): DiffViewerFileEntry[] {
   return files.map(f => ({
     filePath: normalizeGitPath(f.filePath),
     fileStatus: f.fileStatus ?? f.action ?? 'M',
@@ -38,16 +37,10 @@ export function buildDiffViewerFilesFromSvnChanged(files: SvnChangedRow[]): Diff
     }))
 }
 
-export async function fetchDiffViewerFilesFromCommit(
-  commitHash: string,
-  cwd?: string
-): Promise<{ files: DiffViewerFileEntry[]; parentHash: string | null } | null> {
+export async function fetchDiffViewerFilesFromCommit(commitHash: string, cwd?: string): Promise<{ files: DiffViewerFileEntry[]; parentHash: string | null } | null> {
   try {
     const opts = cwd ? { cwd } : undefined
-    const [filesResult, parentHash] = await Promise.all([
-      window.api.git.getCommitFiles(commitHash, opts),
-      window.api.git.getParentCommit(commitHash, opts),
-    ])
+    const [filesResult, parentHash] = await Promise.all([window.api.git.getCommitFiles(commitHash, opts), window.api.git.getParentCommit(commitHash, opts)])
     if (filesResult?.status !== 'success' || !filesResult.data?.files) return null
     return {
       files: buildDiffViewerFilesFromCommitFiles(filesResult.data.files),
@@ -134,12 +127,7 @@ export async function refreshDiffViewerFileList(
   return { refreshed: resolved, nextCtx: enrichDiffViewerPayload(nextCtx) }
 }
 
-export function resolveOpenFileIndex(
-  files: DiffViewerFileEntry[],
-  filePath: string,
-  currentFileIndex?: number,
-  stagingState?: 'staged' | 'unstaged'
-): number {
+export function resolveOpenFileIndex(files: DiffViewerFileEntry[], filePath: string, currentFileIndex?: number, stagingState?: 'staged' | 'unstaged'): number {
   if (typeof currentFileIndex === 'number' && currentFileIndex >= 0 && currentFileIndex < files.length) {
     return currentFileIndex
   }

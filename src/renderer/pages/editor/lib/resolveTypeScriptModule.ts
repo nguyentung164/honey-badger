@@ -1,7 +1,19 @@
 import { fileUriToPath, joinRepoPath, normalizeAbsolutePath } from 'shared/fileUri'
 
 const MODULE_EXTENSIONS = ['', '.ts', '.tsx', '.js', '.jsx', '.mjs', '.cjs', '.json']
+const WORKSPACE_MODULE_EXTENSIONS = ['.tsx', '.ts', '.jsx', '.js', '.mjs', '.cjs']
 const INDEX_EXTENSIONS = ['index.ts', 'index.tsx', 'index.js', 'index.jsx', 'index.mjs']
+const WORKSPACE_INDEX_EXTENSIONS = ['index.tsx', 'index.ts', 'index.jsx', 'index.js']
+
+const resolveCache = new Map<string, string | null>()
+
+function resolveCacheKey(specifier: string, fromRelativePath: string, repoCwd: string): string {
+  return `${repoCwd}|${fromRelativePath}|${specifier}`
+}
+
+function isWorkspaceSpecifier(specifier: string): boolean {
+  return specifier.startsWith('.') || specifier.startsWith('@/') || specifier.startsWith('~/')
+}
 
 function normalizeRelativePath(relativePath: string): string {
   return relativePath.replace(/\\/g, '/').replace(/^\/+/, '')
@@ -44,16 +56,37 @@ function buildBaseCandidates(specifier: string, fromRelativePath: string): strin
   return mapBareSpecifier(specifier)
 }
 
-function expandFileCandidates(basePath: string): string[] {
+function expandFileCandidates(basePath: string, workspaceStyle: boolean): string[] {
   const normalized = normalizeRelativePath(basePath)
+  const extensions = workspaceStyle ? WORKSPACE_MODULE_EXTENSIONS : MODULE_EXTENSIONS
+  const indexFiles = workspaceStyle ? WORKSPACE_INDEX_EXTENSIONS : INDEX_EXTENSIONS
   const out = new Set<string>()
-  for (const ext of MODULE_EXTENSIONS) {
+  for (const ext of extensions) {
     out.add(normalized + ext)
   }
-  for (const indexFile of INDEX_EXTENSIONS) {
+  for (const indexFile of indexFiles) {
     out.add(`${normalized}/${indexFile}`)
   }
   return [...out]
+}
+
+async function findFirstExistingFile(
+  candidates: readonly string[],
+  repoCwd: string
+): Promise<string | null> {
+  const batchSize = 6
+  for (let i = 0; i < candidates.length; i += batchSize) {
+    const batch = candidates.slice(i, i + batchSize)
+    const hits = await Promise.all(
+      batch.map(async candidate => {
+        const kind = await pathEntryKind(candidate, repoCwd)
+        return kind === 'file' ? candidate : null
+      })
+    )
+    const found = hits.find(Boolean)
+    if (found) return found
+  }
+  return null
 }
 
 async function pathEntryKind(relativePath: string, repoCwd: string): Promise<'file' | 'directory' | 'missing'> {
@@ -72,21 +105,33 @@ export async function resolveTypeScriptModulePath(
   if (!specifier || !repoCwd) return null
   if (specifier.startsWith('node:')) return null
 
+  const cacheKey = resolveCacheKey(specifier, fromRelativePath, repoCwd)
+  if (resolveCache.has(cacheKey)) return resolveCache.get(cacheKey) ?? null
+
+  const workspaceStyle = isWorkspaceSpecifier(specifier)
   const bases = buildBaseCandidates(specifier, fromRelativePath)
   for (const base of bases) {
-    for (const candidate of expandFileCandidates(base)) {
-      const kind = await pathEntryKind(candidate, repoCwd)
-      if (kind === 'file') return candidate
+    const found = await findFirstExistingFile(expandFileCandidates(base, workspaceStyle), repoCwd)
+    if (found) {
+      resolveCache.set(cacheKey, found)
+      return found
     }
-    const dirKind = await pathEntryKind(base, repoCwd)
-    if (dirKind === 'directory') {
-      for (const indexFile of INDEX_EXTENSIONS) {
-        const candidate = `${base}/${indexFile}`
-        const kind = await pathEntryKind(candidate, repoCwd)
-        if (kind === 'file') return candidate
+    if (!workspaceStyle) {
+      const dirKind = await pathEntryKind(base, repoCwd)
+      if (dirKind === 'directory') {
+        const indexFound = await findFirstExistingFile(
+          INDEX_EXTENSIONS.map(indexFile => `${base}/${indexFile}`),
+          repoCwd
+        )
+        if (indexFound) {
+          resolveCache.set(cacheKey, indexFound)
+          return indexFound
+        }
       }
     }
   }
+
+  resolveCache.set(cacheKey, null)
   return null
 }
 

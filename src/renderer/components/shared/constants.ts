@@ -113,7 +113,7 @@ export const THEMES = [
   'theme-rose-pine',
 ] as const
 
-export const BUTTON_VARIANTS = ['default', 'secondary', 'destructive', 'outline', 'ghost', 'link'] as const
+export const BUTTON_VARIANTS = ['secondary', 'outline', 'ghost'] as const
 
 export const LANGUAGES = [
   { code: 'en', label: 'English' },

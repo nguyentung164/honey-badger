@@ -1,6 +1,7 @@
 import type * as Monaco from 'monaco-editor'
 import { getEditorLanguage, resolveMonacoLanguageId } from '@/lib/monacoLanguage'
 import { compareSideModelPath } from '@/pages/editor/lib/editorCompareModels'
+import { emitTextModelReady } from '@/pages/editor/lib/editorModelLifecycle'
 import { getModelDiskRevision, modelKey, setModelBaselineVersion, unregisterModel } from '@/pages/editor/lib/editorTextModels'
 import { documentUriForPath } from '@/pages/editor/lsp/documentUri'
 
@@ -56,6 +57,46 @@ function parseUri(monaco: typeof Monaco, repoCwd: string, relativePath: string):
   return monaco.Uri.parse(documentUriForPath(repoCwd, relativePath))
 }
 
+function isMonacoCanceledError(error: unknown): boolean {
+  if (!error || typeof error !== 'object') return false
+  const record = error as { name?: string; message?: string }
+  return record.name === 'Canceled' || record.message === 'Canceled'
+}
+
+/** Restore scroll + cursor only — contribution state (word highlight) races on model swap. */
+function restoreEditorViewStateSafe(
+  editor: Monaco.editor.IStandaloneCodeEditor,
+  state: Monaco.editor.ICodeEditorViewState
+): void {
+  try {
+    editor.restoreViewState({
+      cursorState: state.cursorState,
+      viewState: state.viewState,
+      contributionsState: {},
+    })
+  } catch (error) {
+    if (!isMonacoCanceledError(error)) {
+      /* ignore other restore failures */
+    }
+  }
+}
+
+function scheduleRestoreEditorViewState(
+  editor: Monaco.editor.IStandaloneCodeEditor,
+  model: Monaco.editor.ITextModel,
+  state: Monaco.editor.ICodeEditorViewState
+): void {
+  const modelUri = model.uri.toString()
+  requestAnimationFrame(() => {
+    try {
+      if (editor.getModel()?.uri.toString() !== modelUri) return
+      restoreEditorViewStateSafe(editor, state)
+    } catch {
+      /* editor disposed before rAF */
+    }
+  })
+}
+
 export function getExistingModel(
   monaco: typeof Monaco,
   repoCwd: string,
@@ -93,6 +134,7 @@ export function ensureTextModel(
   const uri = parseUri(monaco, repoCwd, relativePath)
   const resolvedLanguage = resolveMonacoLanguageId(languageId, relativePath)
   let model = monaco.editor.getModel(uri)
+  let contentUpdated = false
 
   if (!model) {
     model = monaco.editor.createModel(content, resolvedLanguage, uri)
@@ -101,9 +143,11 @@ export function ensureTextModel(
     evictModelsIfNeeded(monaco)
   } else {
     const prevRevision = getModelDiskRevision(repoCwd, relativePath)
-    if (diskRevision > prevRevision && model.getValue() !== content) {
+    const isStaleLoad = diskRevision < prevRevision
+    if (!isStaleLoad && model.getValue() !== content) {
       model.setValue(content)
       setModelBaselineVersion(repoCwd, relativePath, model.getAlternativeVersionId())
+      contentUpdated = true
     }
     if (model.getLanguageId() !== resolvedLanguage) {
       monaco.editor.setModelLanguage(model, resolvedLanguage)
@@ -115,6 +159,10 @@ export function ensureTextModel(
     metaByKey.set(key, { repoCwd, relativePath, lastAccess: Date.now(), pinned: openTabKeys.has(key) })
   }
 
+  if (contentUpdated) {
+    emitTextModelReady({ repoCwd, relativePath, content, languageId: resolvedLanguage, reason: 'disk-reload' })
+  }
+
   return model
 }
 
@@ -123,27 +171,48 @@ export function attachModelToEditor(
   monaco: typeof Monaco,
   repoCwd: string,
   relativePath: string,
-  tabId: string
+  tabId: string,
+  revealAt?: { line: number; column: number }
 ): Monaco.editor.ITextModel | null {
   const model = getExistingModel(monaco, repoCwd, relativePath)
   if (!model) return null
 
   const current = editor.getModel()
-  if (current?.uri.toString() !== model.uri.toString()) {
+  const modelChanged = current?.uri.toString() !== model.uri.toString()
+  if (modelChanged) {
     editor.setModel(model)
   }
 
   touchModel(modelKey(repoCwd, relativePath))
 
+  if (revealAt) {
+    const position = { lineNumber: revealAt.line, column: revealAt.column }
+    editor.setPosition(position)
+    editor.revealPositionInCenterIfOutsideViewport(position)
+    return model
+  }
+
   const restoredJson = readViewStateForTab(tabId)
   if (restoredJson) {
     try {
       const state = JSON.parse(restoredJson) as Monaco.editor.ICodeEditorViewState
-      editor.restoreViewState(state)
+      if (modelChanged) {
+        scheduleRestoreEditorViewState(editor, model, state)
+      } else {
+        restoreEditorViewStateSafe(editor, state)
+      }
     } catch {
       /* ignore corrupt state */
     }
   }
+
+  emitTextModelReady({
+    repoCwd,
+    relativePath,
+    content: model.getValue(),
+    languageId: model.getLanguageId(),
+    reason: 'attach',
+  })
 
   return model
 }
@@ -212,4 +281,11 @@ export function renameModelInRegistry(repoCwd: string, fromPath: string, toPath:
   const lang = resolveMonacoLanguageId(getEditorLanguage(toPath), toPath)
   model.dispose()
   m.editor.createModel(value, lang, parseUri(m, repoCwd, toPath))
+  emitTextModelReady({
+    repoCwd,
+    relativePath: toPath.replace(/\\/g, '/'),
+    content: value,
+    languageId: lang,
+    reason: 'attach',
+  })
 }

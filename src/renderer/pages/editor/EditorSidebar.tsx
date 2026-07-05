@@ -1,10 +1,13 @@
 'use client'
 
-import { Files, Search } from 'lucide-react'
+import { Files, Search, Settings2 } from 'lucide-react'
 import type { ReactNode } from 'react'
-import { useMemo } from 'react'
+import { useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
+import { Button } from '@/components/ui/button'
+import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import { cn } from '@/lib/utils'
+import { EditorSettingsDialog } from '@/pages/editor/EditorSettingsDialog'
 import type { EditorSidebarView } from '@/pages/editor/hooks/useEditorSidebarView'
 
 type EditorSidebarProps = {
@@ -15,6 +18,7 @@ type EditorSidebarProps = {
 
 export function EditorSidebar({ activeView, onViewChange, children }: EditorSidebarProps) {
   const { t } = useTranslation()
+  const [showEditorSettings, setShowEditorSettings] = useState(false)
   const title = activeView === 'explorer' ? t('editor.explorer') : t('editor.search')
 
   const items = useMemo(
@@ -52,11 +56,28 @@ export function EditorSidebar({ activeView, onViewChange, children }: EditorSide
             )
           })}
         </div>
-        <div className="min-w-0 flex-1 truncate px-2 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
-          {title}
+        <div className="flex min-w-0 flex-1 items-center gap-1 pr-1">
+          <div className="min-w-0 flex-1 truncate px-2 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
+            {title}
+          </div>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button
+                variant="link"
+                size="sm"
+                onClick={() => setShowEditorSettings(true)}
+                className="shadow-none focus-visible:ring-0 focus-visible:ring-offset-0 hover:bg-muted transition-colors rounded-sm h-[25px] w-[25px] shrink-0"
+                aria-label={t('editor.settings.title')}
+              >
+                <Settings2 strokeWidth={1.25} absoluteStrokeWidth size={15} className="h-4 w-4" />
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent>{t('editor.settings.title')}</TooltipContent>
+          </Tooltip>
         </div>
       </div>
       <div className="min-h-0 flex-1 overflow-hidden">{children}</div>
+      <EditorSettingsDialog open={showEditorSettings} onOpenChange={setShowEditorSettings} />
     </div>
   )
 }

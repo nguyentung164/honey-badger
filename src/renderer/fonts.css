@@ -3,5 +3,5 @@
 /* Emoji */
 @import url("https://fonts.googleapis.com/css2?family=Noto+Color+Emoji&display=swap");
 
-/* Sarasa Mono SC — bundled subset (scripts/copy-sarasa-fonts.mjs from sarasa-mono-web) */
+/* Sarasa: OS families (J/SC/K/TC/HC) first; HB Sarasa Mono SC Subset = Regular-only web fallback. */
 @import url("/fonts/sarasa-mono-sc/sarasa-mono-sc.css");

@@ -106,9 +106,6 @@ export async function waitForDiffCompute(diffEditor: MonacoEditor.IStandaloneDif
     await model.waitForDiff().catch(() => undefined)
     return
   }
-  if (diffEditor.getLineChanges() !== null) {
-    return
-  }
   await waitForDiffComputeViaEvent(diffEditor)
 }
 
@@ -125,7 +122,7 @@ function waitForDiffComputeViaEvent(diffEditor: MonacoEditor.IStandaloneDiffEdit
 
     const sub = diffEditor.onDidUpdateDiff(finish)
     const timer = window.setTimeout(finish, DIFF_COMPUTE_TIMEOUT_MS)
-    if (diffEditor.getLineChanges() !== null) finish()
+    // Never finish synchronously from getLineChanges() — [] !== null before diff is ready.
   })
 }
 

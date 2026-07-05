@@ -13,6 +13,8 @@ export type SearchInFilesMatch = {
   line: number
   column: number
   preview: string
+  /** Occurrences on this line (VS Code counts each submatch, not just lines). */
+  occurrences?: number
 }
 
 export type SearchInFilesOptions = {
@@ -25,6 +27,10 @@ export type SearchInFilesOptions = {
   includePattern?: string
   /** Comma-separated globs (VS Code “files to exclude”). */
   excludePattern?: string
+  /** When false, ripgrep runs with --no-ignore (VS Code “exclude settings and ignore files” off). */
+  useExcludesAndIgnoreFiles?: boolean
+  /** Limit search to these workspace-relative paths (VS Code “search only in open editors”). */
+  onlyRelativePaths?: string[]
 }
 
 export type SearchInFilesResult = {
@@ -49,6 +55,10 @@ export type ReplaceInFilesResult = {
 export type WorkspaceFileChangedEvent = {
   relativePath: string
   event: 'add' | 'change' | 'unlink'
+}
+
+export type EditorOpenFileChangedEvent = {
+  absolutePath: string
 }
 
 export type ListWorkspaceFilesResult = {

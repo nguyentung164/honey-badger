@@ -62,23 +62,32 @@ export const EditorTabItem = memo(function EditorTabItem({
         ) : (
           <MaterialFileIcon name={tab.relativePath} size={14} className="h-4.5 w-4.5 shrink-0 opacity-90 relative top-[-0.5px]" />
         )}
-        {tab.isDirty ? <span className="shrink-0 text-[10px] leading-none">●</span> : null}
         <span className={cn('min-w-0 truncate text-[13px] h-[20px]', (tab.isDirty || isPreview) && 'italic', gitStatus ? EXPLORER_GIT_LABEL_CLASS[gitStatus] : null)}>
           {tab.tabLabel}
         </span>
         {gitStatus ? <GitFileStatusBadge status={gitStatus} variant="trailing" size="sm" /> : null}
       </button>
-      <button
-        type="button"
-        className="rounded p-0.5 opacity-0 hover:bg-muted group-hover:opacity-100"
-        aria-label="Close"
-        onClick={e => {
-          e.stopPropagation()
-          onCloseTab(tab.id)
-        }}
-      >
-        <X className="h-4 w-4" />
-      </button>
+      <div className="relative flex h-5 w-5 shrink-0 items-center justify-center">
+        {tab.isDirty ? (
+          <span
+            className="pointer-events-none absolute inset-0 flex items-center justify-center group-hover:opacity-0"
+            aria-hidden
+          >
+            <span className="size-2.5 rounded-full bg-current" />
+          </span>
+        ) : null}
+        <button
+          type="button"
+          className="flex h-full w-full items-center justify-center rounded p-0.5 opacity-0 hover:bg-muted group-hover:opacity-100"
+          aria-label="Close"
+          onClick={e => {
+            e.stopPropagation()
+            onCloseTab(tab.id)
+          }}
+        >
+          <X className="h-4 w-4" />
+        </button>
+      </div>
     </div>
   )
 

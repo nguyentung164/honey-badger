@@ -104,13 +104,24 @@ export const TERMINAL_FONT_FAMILY_LABEL_KEYS: Record<TerminalFontFamilyId, strin
   'sarasa-mono': 'terminal.settings.fontFamily.sarasaMono',
 }
 
+/**
+ * Web-only Regular subset (woff2). Must NOT share a PostScript/family name with OS Sarasa
+ * or Chromium will match weight 400 from @font-face and never use installed Bold/Light faces.
+ */
+export const SARASA_MONO_BUNDLED_FONT_FAMILY = 'HB Sarasa Mono SC Subset'
+
+/** OS-installed Sarasa regional variants (VS Code: user picks one; we try all). */
+const SARASA_MONO_SYSTEM_FONT_STACK = ['Sarasa Mono J', 'Sarasa Mono SC', 'Sarasa Mono K', 'Sarasa Mono TC', 'Sarasa Mono HC', 'Sarasa Mono']
+  .map(name => `"${name}"`)
+  .join(', ')
+
 export const TERMINAL_FONT_FAMILY_CSS: Record<TerminalFontFamilyId, string> = {
   system: 'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace',
   'jetbrains-mono': '"JetBrains Mono", ui-monospace, monospace',
   cascadia: '"Cascadia Code", "Cascadia Mono", Consolas, monospace',
   consolas: 'Consolas, "Courier New", monospace',
   'fira-code': '"Fira Code", Consolas, monospace',
-  'sarasa-mono': '"Sarasa Mono SC", "Sarasa Mono", ui-monospace, monospace',
+  'sarasa-mono': `${SARASA_MONO_SYSTEM_FONT_STACK}, "${SARASA_MONO_BUNDLED_FONT_FAMILY}", ui-monospace, monospace`,
 }
 
 export const TERMINAL_CWD_MODE_ORDER: TerminalCwdMode[] = ['repo', 'home', 'custom']
@@ -209,16 +220,35 @@ export function resolveTerminalFontWeight(id: TerminalFontWeightId): string {
   return TERMINAL_FONT_WEIGHT_CSS[id] ?? '400'
 }
 
-/** CSS font weight + variable-font axis for accurate weight previews. */
+/** Bundled variable fonts where `font-variation-settings: 'wght'` is used (VS Code `editor.fontVariations: true`). */
+const VARIABLE_FONT_WEIGHT_AXIS_IDS = new Set<TerminalFontFamilyId>(['jetbrains-mono'])
+
+export function fontFamilyUsesVariableWeightAxis(id: TerminalFontFamilyId): boolean {
+  return VARIABLE_FONT_WEIGHT_AXIS_IDS.has(id)
+}
+
+/**
+ * Static families (Sarasa Mono SC, Cascadia, Consolas, …): weight comes from OS-installed faces.
+ * Matches VS Code with `editor.fontVariations: false` — only CSS `font-weight`, no `wght` axis.
+ */
 export function resolveFontWeightPreviewStyle(
   fontFamilyId: TerminalFontFamilyId,
   weightId: TerminalFontWeightId
 ): { fontFamily: string; fontWeight: number; fontVariationSettings: string; fontSynthesis: 'none' } {
   const w = Number(TERMINAL_FONT_WEIGHT_CSS[weightId] ?? '400')
+  const fontFamily = resolveTerminalFontFamily(fontFamilyId)
+  if (fontFamilyUsesVariableWeightAxis(fontFamilyId)) {
+    return {
+      fontFamily,
+      fontWeight: w,
+      fontVariationSettings: `'wght' ${w}`,
+      fontSynthesis: 'none',
+    }
+  }
   return {
-    fontFamily: resolveTerminalFontFamily(fontFamilyId),
+    fontFamily,
     fontWeight: w,
-    fontVariationSettings: `'wght' ${w}`,
+    fontVariationSettings: 'normal',
     fontSynthesis: 'none',
   }
 }

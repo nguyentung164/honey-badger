@@ -2,6 +2,7 @@ import chokidar from 'chokidar'
 import type { WebContents } from 'electron'
 import l from 'electron-log'
 import { IPC } from 'main/constants'
+import { emitEditorOpenFileChangedIfWatched } from 'main/workspace/editorOpenFileWatch'
 
 type WatchSession = {
   watcher: ReturnType<typeof chokidar.watch>
@@ -34,19 +35,22 @@ export function watchWorkspace(sender: WebContents, rootPath: string): { success
     const watcher = chokidar.watch(rootPath, {
       ignored: IGNORED,
       ignoreInitial: true,
-      awaitWriteFinish: { stabilityThreshold: 200, pollInterval: 50 },
+      awaitWriteFinish: { stabilityThreshold: 50, pollInterval: 25 },
       depth: 99,
     })
 
-    const emit = (relativePath: string, event: 'add' | 'change' | 'unlink') => {
-      if (!sender.isDestroyed()) {
-        sender.send(IPC.SYSTEM.WORKSPACE_FILE_CHANGED, { relativePath, event })
+    const emit = (absolutePath: string, event: 'add' | 'change' | 'unlink') => {
+      if (sender.isDestroyed()) return
+      const relativePath = normalizeRelative(rootPath, absolutePath)
+      if (event === 'change') {
+        emitEditorOpenFileChangedIfWatched(absolutePath)
       }
+      sender.send(IPC.SYSTEM.WORKSPACE_FILE_CHANGED, { relativePath, event })
     }
 
-    watcher.on('add', p => emit(normalizeRelative(rootPath, p), 'add'))
-    watcher.on('change', p => emit(normalizeRelative(rootPath, p), 'change'))
-    watcher.on('unlink', p => emit(normalizeRelative(rootPath, p), 'unlink'))
+    watcher.on('add', p => emit(p, 'add'))
+    watcher.on('change', p => emit(p, 'change'))
+    watcher.on('unlink', p => emit(p, 'unlink'))
     watcher.on('error', err => l.warn('workspace watcher error:', err))
 
     sessions.set(id, { watcher, rootPath })

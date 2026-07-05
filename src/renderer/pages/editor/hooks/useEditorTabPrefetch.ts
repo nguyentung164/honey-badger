@@ -3,14 +3,23 @@ import { scheduleBackgroundWork } from '@/pages/editor/lib/scheduleBackgroundWor
 import { useEditorWorkspace } from '@/pages/editor/hooks/useEditorWorkspace'
 
 const PREFETCH_COUNT = 4
+let prefetchCancel: (() => void) | null = null
 
 /** VS Code-style MRU prefetch: warm ITextModel for likely next tabs during idle time. */
 export function scheduleEditorTabPrefetch(_repoCwd: string, activeTabId: string | null): void {
+  prefetchCancel?.()
+  prefetchCancel = null
   if (!activeTabId) return
 
-  scheduleBackgroundWork(() => {
+  prefetchCancel = scheduleBackgroundWork(() => {
+    prefetchCancel = null
     void prefetchAdjacentTabs(activeTabId)
   }, { timeout: 2000 })
+}
+
+export function cancelEditorTabPrefetch(): void {
+  prefetchCancel?.()
+  prefetchCancel = null
 }
 
 async function prefetchAdjacentTabs(activeTabId: string): Promise<void> {

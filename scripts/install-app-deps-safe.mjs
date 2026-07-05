@@ -1,26 +1,33 @@
 #!/usr/bin/env node
 /**
- * Runs electron-builder install-app-deps. On Windows, node-pty ships N-API prebuilds
- * (prebuilds/win32-x64) that work across Electron versions — no MSVC compile needed.
- * If rebuild fails (no Visual Studio Build Tools), continue so install/postinstall succeeds.
+ * Installs app dependencies for electron-builder packaging.
+ *
+ * On Windows, node-pty@1.x ships N-API prebuilds (prebuilds/win32-x64) that work
+ * across Electron versions — no MSVC / @electron/rebuild needed (see beforeBuild.cjs).
  */
 import { spawnSync } from 'node:child_process'
+import { dirname, join } from 'node:path'
+import { fileURLToPath } from 'node:url'
 
-const result = spawnSync('pnpm', ['electron-builder', 'install-app-deps'], {
-  stdio: 'inherit',
-  shell: true,
-  env: process.env,
-})
+const projectRoot = join(dirname(fileURLToPath(import.meta.url)), '..')
+const appDir = join(projectRoot, 'node_modules', '.dev')
 
-if (result.status === 0) {
-  process.exit(0)
+function run(command, args, options = {}) {
+  return spawnSync(command, args, {
+    stdio: 'inherit',
+    shell: true,
+    env: process.env,
+    ...options,
+  })
 }
 
 if (process.platform === 'win32') {
-  console.warn(
-    '\n[install:deps] electron-builder install-app-deps failed on Windows — continuing with node-pty N-API prebuilds (no MSVC required).\n'
+  console.log(
+    '[install:deps] Windows — installing app deps without native rebuild (node-pty prebuilds)',
   )
-  process.exit(0)
+  const result = run('pnpm', ['install'], { cwd: appDir })
+  process.exit(result.status ?? 1)
 }
 
-process.exit(result.status ?? 1)
+const result = run('pnpm', ['electron-builder', 'install-app-deps'], { cwd: projectRoot })
+process.exit(result.status ?? 0)

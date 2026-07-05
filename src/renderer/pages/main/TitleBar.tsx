@@ -20,7 +20,6 @@ import {
   Database,
   Eraser,
   FileWarning,
-  FileCode2,
   Folder,
   GitBranch,
   GitBranchPlus,
@@ -55,7 +54,6 @@ import { useNavigate } from 'react-router-dom'
 import { MAX_RANK_CODE } from 'shared/achievementRanks'
 import type { MainShellView } from 'shared/mainShellView'
 import { randomUuidV7 } from 'shared/randomUuidV7'
-import { EditorSettingsDialog } from '@/pages/editor/EditorSettingsDialog'
 import { AchievementUnlockDialog } from '@/components/achievement/AchievementUnlockDialog'
 import { getAchievementDemoMenuItemClass, getAchievementDemoMenuLabelClass, getAchievementDemoMenuTierClass } from '@/components/achievement/achievementTierDemo'
 import { BadgeCard } from '@/components/achievement/BadgeCard'
@@ -102,7 +100,6 @@ import {
 } from '@/components/ui/dropdown-menu'
 import { Progress } from '@/components/ui/progress'
 import { Separator } from '@/components/ui/separator'
-import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import toast from '@/components/ui-elements/Toast'
 import { emitAchievementToast } from '@/hooks/useAchievementNotification'
@@ -116,6 +113,8 @@ import { getConfigDataRelevantSnapshot, useConfigurationStore } from '@/stores/u
 import { useMultiRepoEffectiveStore } from '@/stores/useMultiRepoEffectiveStore'
 import { useSelectedProjectStore } from '@/stores/useSelectedProjectStore'
 import { useTaskAuthStore } from '@/stores/useTaskAuthStore'
+import { ShellTabSwitcher } from '@/pages/main/ShellTabSwitcher'
+import { shellTabDockButtonClass } from '@/pages/main/shellTabStyles'
 
 const DevReportForm = lazy(() => import('@/pages/dailyreport/DevReportForm').then(m => ({ default: m.DevReportForm })))
 const TaskReminderDialog = lazy(() => import('@/components/dialogs/task/TaskReminderDialog').then(m => ({ default: m.TaskReminderDialog })))
@@ -156,7 +155,7 @@ interface TitleBarProps {
   showLogToolbarHostRef?: RefCallback<HTMLDivElement>
   terminalOpen?: boolean
   onTerminalToggle?: () => void
-  /** When true, show terminal toggle on every shell tab (not only VCS). */
+  /** When true, integrated terminal can be used (repo/home cwd resolved). */
   terminalAvailable?: boolean
   /** Prompt to save dirty editor tabs before repo/project/branch changes (Editor tab). */
   onEditorWorkspaceGuard?: (proceed: () => void) => void
@@ -264,7 +263,6 @@ export const TitleBar = ({
   const [showLeaderboard, setShowLeaderboard] = useState(false)
   const [showAiUsageStats, setShowAiUsageStats] = useState(false)
   const [showHolidayCalendar, setShowHolidayCalendar] = useState(false)
-  const [showEditorSettings, setShowEditorSettings] = useState(false)
   const [titleBarClock, setTitleBarClock] = useState(() => new Date())
 
   useEffect(() => {
@@ -564,7 +562,7 @@ export const TitleBar = ({
       return []
     }
     return window.api.sourcefolder.get()
-  }, [selectedProjectId, isLoggedIn, t])
+  }, [selectedProjectId, isLoggedIn])
 
   // Làm mới danh sách source folder khi mở dropdown (dùng ref để lấy selectedProjectId mới nhất, tránh list cũ khi click nhanh Project rồi Source Folder)
   const refreshSourceFoldersList = useCallback(async () => {
@@ -737,7 +735,7 @@ export const TitleBar = ({
               setCurrentFolder(folders[0].name)
               localStorage.setItem('current-source-folder', folders[0].name)
               setFieldConfiguration('sourceFolder', folders[0].path)
-              await saveConfigurationConfig()
+              await window.api.configuration.patch({ sourceFolder: folders[0].path })
               logger.info(`Đổi project: chọn source folder đầu tiên: ${folders[0].name}`)
             }
           }
@@ -781,7 +779,7 @@ export const TitleBar = ({
               setCurrentFolder(fallbackFolder.name)
               localStorage.setItem('current-source-folder', fallbackFolder.name)
               setFieldConfiguration('sourceFolder', fallbackFolder.path)
-              await saveConfigurationConfig()
+              await window.api.configuration.patch({ sourceFolder: fallbackFolder.path })
               logger.warning(`config.sourceFolder không có trong sourceFolders, đã fallback sang: ${fallbackFolder.name}`)
             }
           }
@@ -815,7 +813,7 @@ export const TitleBar = ({
               if (detectedType !== currentVCS) {
                 logger.info(`Re-detect VCS: ${currentVCS} -> ${detectedType}, cập nhật config`)
                 setFieldConfiguration('versionControlSystem', detectedType)
-                await saveConfigurationConfig()
+                await window.api.configuration.patch({ versionControlSystem: detectedType })
               }
             }
           } catch (err) {
@@ -942,7 +940,7 @@ export const TitleBar = ({
               setCurrentFolder(fallbackFolder.name)
               localStorage.setItem('current-source-folder', fallbackFolder.name)
               setFieldConfiguration('sourceFolder', fallbackFolder.path)
-              await saveConfigurationConfig()
+              await window.api.configuration.patch({ sourceFolder: fallbackFolder.path })
               logger.warning(`sourceFolder không tìm thấy trong list, đã fallback sang: ${fallbackFolder.name}`)
               const vcsType = vcsTypes[fallbackFolder.name]
               if (vcsType && vcsType !== 'none') {
@@ -1374,9 +1372,9 @@ export const TitleBar = ({
     !hideVcsToolbar && (!enableShellSwitcher || shellView === 'vcs' || shellView === 'editor')
   const showTerminalToggle =
     Boolean(onTerminalToggle) &&
+    (!enableShellSwitcher || shellView === 'editor') &&
     (terminalAvailable ??
       ((!isMultiRepo && sourceFolders.length > 0 && !!currentFolder) || (isMultiRepo && !!gitContextPath)))
-  const showEditorSettingsButton = Boolean(enableShellSwitcher && shellView === 'editor')
 
   const openEVMToolWindow = () => {
     if (isLoading) return
@@ -2367,171 +2365,15 @@ export const TitleBar = ({
           </div>
           <div className="flex items-center h-full min-w-0 gap-1" style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties}>
             {enableShellSwitcher && onShellViewChange && (
-              <ToggleGroup
-                type="single"
-                value={shellView}
-                onValueChange={v => {
-                  if (v === 'editor' || v === 'vcs' || v === 'tasks' || v === 'prManager' || v === 'automation' || v === 'devPipelines' || v === 'showLog') onShellViewChange(v)
-                }}
-                variant="default"
-                size="md"
-                spacing={0}
-                className={cn(
-                  'h-[25px] shrink-0 rounded-md border-0 shadow-none p-0.5 gap-0.5',
-                  'bg-muted/90 text-muted-foreground dark:bg-muted/45 dark:text-muted-foreground',
-                  'transition-[background-color,color] duration-200 ease-out'
-                )}
-              >
-                <ToggleGroupItem
-                  value="editor"
-                  aria-label={t('mainShell.editor')}
-                  className={cn(
-                    'group h-[21px] px-2 sm:px-2.5 py-0 text-xs gap-1 !rounded-md !border-0 !shadow-none',
-                    'transition-[color,transform,opacity,font-weight,text-decoration-thickness] duration-200 ease-out motion-reduce:transition-none',
-                    'active:scale-[0.98] motion-reduce:active:scale-100',
-                    'bg-transparent text-muted-foreground hover:bg-muted/60 hover:text-foreground',
-                    'data-[state=on]:bg-transparent data-[state=on]:hover:bg-transparent',
-                    'data-[state=on]:text-emerald-600 data-[state=on]:hover:text-emerald-700 dark:data-[state=on]:text-emerald-400 dark:data-[state=on]:hover:text-emerald-300',
-                    'data-[state=on]:underline data-[state=on]:decoration-emerald-600 data-[state=on]:decoration-2 data-[state=on]:underline-offset-[5px]',
-                    'dark:data-[state=on]:decoration-emerald-400'
-                  )}
-                >
-                  <FileCode2 className="h-3.5 w-3.5 shrink-0 transition-transform duration-200 ease-out group-data-[state=on]:scale-105 motion-reduce:group-data-[state=on]:scale-100" />
-                  <span className="hidden sm:inline max-w-[7rem] truncate">{t('mainShell.editor')}</span>
-                </ToggleGroupItem>
-                <ToggleGroupItem
-                  value="vcs"
-                  aria-label={t('mainShell.sourceControl')}
-                  className={cn(
-                    'group h-[21px] px-2 sm:px-2.5 py-0 text-xs gap-1 !rounded-md !border-0 !shadow-none',
-                    'transition-[color,transform,opacity,font-weight,text-decoration-thickness] duration-200 ease-out motion-reduce:transition-none',
-                    'active:scale-[0.98] motion-reduce:active:scale-100',
-                    'bg-transparent text-muted-foreground hover:bg-muted/60 hover:text-foreground',
-                    'data-[state=on]:bg-transparent data-[state=on]:hover:bg-transparent',
-                    'data-[state=on]:text-emerald-600 data-[state=on]:hover:text-emerald-700 dark:data-[state=on]:text-emerald-400 dark:data-[state=on]:hover:text-emerald-300',
-                    'data-[state=on]:underline data-[state=on]:decoration-emerald-600 data-[state=on]:decoration-2 data-[state=on]:underline-offset-[5px]',
-                    'dark:data-[state=on]:decoration-emerald-400'
-                  )}
-                >
-                  <Folder className="h-3.5 w-3.5 shrink-0 transition-transform duration-200 ease-out group-data-[state=on]:scale-105 motion-reduce:group-data-[state=on]:scale-100" />
-                  <span className="hidden sm:inline max-w-[7rem] truncate">{t('mainShell.sourceControl')}</span>
-                </ToggleGroupItem>
-                {!tasksDetached && (
-                  <ToggleGroupItem
-                    value="tasks"
-                    aria-label={t('mainShell.tasks')}
-                    className={cn(
-                      'group h-[21px] px-2 sm:px-2.5 py-0 text-xs gap-1 !rounded-md !border-0 !shadow-none',
-                      'transition-[color,transform,opacity,font-weight,text-decoration-thickness] duration-200 ease-out motion-reduce:transition-none',
-                      'active:scale-[0.98] motion-reduce:active:scale-100',
-                      'bg-transparent text-muted-foreground hover:bg-muted/60 hover:text-foreground',
-                      'data-[state=on]:bg-transparent data-[state=on]:hover:bg-transparent',
-                      'data-[state=on]:text-emerald-600 data-[state=on]:hover:text-emerald-700 dark:data-[state=on]:text-emerald-400 dark:data-[state=on]:hover:text-emerald-300',
-                      'data-[state=on]:underline data-[state=on]:decoration-emerald-600 data-[state=on]:decoration-2 data-[state=on]:underline-offset-[5px]',
-                      'dark:data-[state=on]:decoration-emerald-400'
-                    )}
-                  >
-                    <CheckSquare
-                      strokeWidth={1.25}
-                      absoluteStrokeWidth
-                      className="h-3.5 w-3.5 shrink-0 transition-transform duration-200 ease-out group-data-[state=on]:scale-105 motion-reduce:group-data-[state=on]:scale-100"
-                    />
-                    <span className="hidden sm:inline max-w-[7rem] truncate">{t('mainShell.tasks')}</span>
-                  </ToggleGroupItem>
-                )}
-                {!prManagerDetached && (
-                  <ToggleGroupItem
-                    value="prManager"
-                    aria-label={t('mainShell.prManager')}
-                    className={cn(
-                      'group h-[21px] px-2 sm:px-2.5 py-0 text-xs gap-1 !rounded-md !border-0 !shadow-none',
-                      'transition-[color,transform,opacity,font-weight,text-decoration-thickness] duration-200 ease-out motion-reduce:transition-none',
-                      'active:scale-[0.98] motion-reduce:active:scale-100',
-                      'bg-transparent text-muted-foreground hover:bg-muted/60 hover:text-foreground',
-                      'data-[state=on]:bg-transparent data-[state=on]:hover:bg-transparent',
-                      'data-[state=on]:text-emerald-600 data-[state=on]:hover:text-emerald-700 dark:data-[state=on]:text-emerald-400 dark:data-[state=on]:hover:text-emerald-300',
-                      'data-[state=on]:underline data-[state=on]:decoration-emerald-600 data-[state=on]:decoration-2 data-[state=on]:underline-offset-[5px]',
-                      'dark:data-[state=on]:decoration-emerald-400'
-                    )}
-                  >
-                    <GitPullRequest
-                      strokeWidth={1.25}
-                      absoluteStrokeWidth
-                      className="h-3.5 w-3.5 shrink-0 transition-transform duration-200 ease-out group-data-[state=on]:scale-105 motion-reduce:group-data-[state=on]:scale-100"
-                    />
-                    <span className="hidden sm:inline max-w-[7rem] truncate">{t('mainShell.prManager')}</span>
-                  </ToggleGroupItem>
-                )}
-                {!automationDetached && (
-                  <ToggleGroupItem
-                    value="automation"
-                    aria-label={t('mainShell.automation')}
-                    className={cn(
-                      'group h-[21px] px-2 sm:px-2.5 py-0 text-xs gap-1 !rounded-md !border-0 !shadow-none',
-                      'transition-[color,transform,opacity,font-weight,text-decoration-thickness] duration-200 ease-out motion-reduce:transition-none',
-                      'active:scale-[0.98] motion-reduce:active:scale-100',
-                      'bg-transparent text-muted-foreground hover:bg-muted/60 hover:text-foreground',
-                      'data-[state=on]:bg-transparent data-[state=on]:hover:bg-transparent',
-                      'data-[state=on]:text-emerald-600 data-[state=on]:hover:text-emerald-700 dark:data-[state=on]:text-emerald-400 dark:data-[state=on]:hover:text-emerald-300',
-                      'data-[state=on]:underline data-[state=on]:decoration-emerald-600 data-[state=on]:decoration-2 data-[state=on]:underline-offset-[5px]',
-                      'dark:data-[state=on]:decoration-emerald-400'
-                    )}
-                  >
-                    <Bot
-                      strokeWidth={1.25}
-                      absoluteStrokeWidth
-                      className="h-3.5 w-3.5 shrink-0 transition-transform duration-200 ease-out group-data-[state=on]:scale-105 motion-reduce:group-data-[state=on]:scale-100"
-                    />
-                    <span className="hidden sm:inline max-w-[7rem] truncate">{t('mainShell.automation')}</span>
-                  </ToggleGroupItem>
-                )}
-                {!devPipelinesDetached && (
-                  <ToggleGroupItem
-                    value="devPipelines"
-                    aria-label={t('mainShell.devPipelines', 'Dev Pipelines')}
-                    className={cn(
-                      'group h-[21px] px-2 sm:px-2.5 py-0 text-xs gap-1 !rounded-md !border-0 !shadow-none',
-                      'transition-[color,transform,opacity,font-weight,text-decoration-thickness] duration-200 ease-out motion-reduce:transition-none',
-                      'active:scale-[0.98] motion-reduce:active:scale-100',
-                      'bg-transparent text-muted-foreground hover:bg-muted/60 hover:text-foreground',
-                      'data-[state=on]:bg-transparent data-[state=on]:hover:bg-transparent',
-                      'data-[state=on]:text-violet-600 data-[state=on]:hover:text-violet-700 dark:data-[state=on]:text-violet-400 dark:data-[state=on]:hover:text-violet-300',
-                      'data-[state=on]:underline data-[state=on]:decoration-violet-600 data-[state=on]:decoration-2 data-[state=on]:underline-offset-[5px]',
-                      'dark:data-[state=on]:decoration-violet-400'
-                    )}
-                  >
-                    <Rocket
-                      strokeWidth={1.25}
-                      absoluteStrokeWidth
-                      className="h-3.5 w-3.5 shrink-0 transition-transform duration-200 ease-out group-data-[state=on]:scale-105 motion-reduce:group-data-[state=on]:scale-100"
-                    />
-                    <span className="hidden sm:inline max-w-[7rem] truncate">{t('mainShell.devPipelines', 'Dev Pipelines')}</span>
-                  </ToggleGroupItem>
-                )}
-                {!showLogDetached && (
-                  <ToggleGroupItem
-                    value="showLog"
-                    aria-label={t('mainShell.showLog', 'Show Log')}
-                    className={cn(
-                      'group h-[21px] px-2 sm:px-2.5 py-0 text-xs gap-1 !rounded-md !border-0 !shadow-none',
-                      'transition-[color,transform,opacity,font-weight,text-decoration-thickness] duration-200 ease-out motion-reduce:transition-none',
-                      'active:scale-[0.98] motion-reduce:active:scale-100',
-                      'bg-transparent text-muted-foreground hover:bg-muted/60 hover:text-foreground',
-                      'data-[state=on]:bg-transparent data-[state=on]:hover:bg-transparent',
-                      'data-[state=on]:text-blue-600 data-[state=on]:hover:text-blue-700 dark:data-[state=on]:text-blue-400 dark:data-[state=on]:hover:text-blue-300',
-                      'data-[state=on]:underline data-[state=on]:decoration-blue-600 data-[state=on]:decoration-2 data-[state=on]:underline-offset-[5px]',
-                      'dark:data-[state=on]:decoration-blue-400'
-                    )}
-                  >
-                    <History
-                      strokeWidth={1.25}
-                      absoluteStrokeWidth
-                      className="h-3.5 w-3.5 shrink-0 transition-transform duration-200 ease-out group-data-[state=on]:scale-105 motion-reduce:group-data-[state=on]:scale-100"
-                    />
-                    <span className="hidden sm:inline max-w-[7rem] truncate">{t('mainShell.showLog', 'Show Log')}</span>
-                  </ToggleGroupItem>
-                )}
-              </ToggleGroup>
+              <ShellTabSwitcher
+                shellView={shellView}
+                onShellViewChange={onShellViewChange}
+                tasksDetached={tasksDetached}
+                prManagerDetached={prManagerDetached}
+                automationDetached={automationDetached}
+                devPipelinesDetached={devPipelinesDetached}
+                showLogDetached={showLogDetached}
+              />
             )}
             {enableShellSwitcher && automationDetached && onAutomationDock && (
               <Tooltip>
@@ -2540,7 +2382,7 @@ export const TitleBar = ({
                     type="button"
                     variant="ghost"
                     size="icon"
-                    className="h-[25px] w-[25px] shrink-0 rounded-sm text-emerald-600 hover:bg-muted hover:text-emerald-700 dark:text-emerald-400 dark:hover:text-emerald-300"
+                    className={shellTabDockButtonClass('automation')}
                     onClick={onAutomationDock}
                   >
                     <Bot strokeWidth={1.25} absoluteStrokeWidth className="h-3.5 w-3.5" />
@@ -2556,7 +2398,7 @@ export const TitleBar = ({
                     type="button"
                     variant="ghost"
                     size="icon"
-                    className="h-[25px] w-[25px] shrink-0 rounded-sm text-violet-600 hover:bg-muted hover:text-violet-700 dark:text-violet-400 dark:hover:text-violet-300"
+                    className={shellTabDockButtonClass('devPipelines')}
                     onClick={onDevPipelinesDock}
                   >
                     <Rocket strokeWidth={1.25} absoluteStrokeWidth className="h-3.5 w-3.5" />
@@ -2572,7 +2414,7 @@ export const TitleBar = ({
                     type="button"
                     variant="ghost"
                     size="icon"
-                    className="h-[25px] w-[25px] shrink-0 rounded-sm text-blue-600 hover:bg-muted hover:text-blue-700 dark:text-blue-400 dark:hover:text-blue-300"
+                    className={shellTabDockButtonClass('showLog')}
                     onClick={onShowLogDock}
                   >
                     <History strokeWidth={1.25} absoluteStrokeWidth className="h-3.5 w-3.5" />
@@ -2588,7 +2430,7 @@ export const TitleBar = ({
                     type="button"
                     variant="ghost"
                     size="icon"
-                    className="h-[25px] w-[25px] shrink-0 rounded-sm text-emerald-600 hover:bg-muted hover:text-emerald-700 dark:text-emerald-400 dark:hover:text-emerald-300"
+                    className={shellTabDockButtonClass('prManager')}
                     onClick={onPrManagerDock}
                   >
                     <GitPullRequest strokeWidth={1.25} absoluteStrokeWidth className="h-3.5 w-3.5" />
@@ -2604,7 +2446,7 @@ export const TitleBar = ({
                     type="button"
                     variant="ghost"
                     size="icon"
-                    className="h-[25px] w-[25px] shrink-0 rounded-sm text-emerald-600 hover:bg-muted hover:text-emerald-700 dark:text-emerald-400 dark:hover:text-emerald-300"
+                    className={shellTabDockButtonClass('tasks')}
                     onClick={onTasksDock}
                   >
                     <CheckSquare strokeWidth={1.25} absoluteStrokeWidth className="h-3.5 w-3.5" />
@@ -2799,46 +2641,27 @@ export const TitleBar = ({
         )}
 
         <div className="flex shrink-0 items-center gap-1 h-full" style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties}>
-          {(showTerminalToggle || showEditorSettingsButton) && (
+          {showTerminalToggle && (
             <div className="flex items-center gap-0.5 px-1 pr-2">
-              {showTerminalToggle && (
-                <Tooltip>
-                  <TooltipTrigger asChild>
-                    <Button
-                      variant="link"
-                      size="sm"
-                      onClick={() => onTerminalToggle?.()}
-                      className={cn(
-                        'shadow-none focus-visible:ring-0 focus-visible:ring-offset-0 hover:bg-muted transition-colors rounded-sm h-[25px] w-[25px]',
-                        terminalOpen && 'bg-muted'
-                      )}
-                    >
-                      <Terminal strokeWidth={1.25} absoluteStrokeWidth size={15} className="h-4 w-4" />
-                    </Button>
-                  </TooltipTrigger>
-                  <TooltipContent>
-                    {t('title.openTerminal')}
-                    <span className="ml-1 text-muted-foreground">({t('title.openTerminalShortcut')})</span>
-                  </TooltipContent>
-                </Tooltip>
-              )}
-
-              {showEditorSettingsButton && (
-                <Tooltip>
-                  <TooltipTrigger asChild>
-                    <Button
-                      variant="link"
-                      size="sm"
-                      onClick={() => setShowEditorSettings(true)}
-                      className="shadow-none focus-visible:ring-0 focus-visible:ring-offset-0 hover:bg-muted transition-colors rounded-sm h-[25px] w-[25px]"
-                      aria-label={t('editor.settings.title')}
-                    >
-                      <Settings2 strokeWidth={1.25} absoluteStrokeWidth size={15} className="h-4 w-4" />
-                    </Button>
-                  </TooltipTrigger>
-                  <TooltipContent>{t('editor.settings.title')}</TooltipContent>
-                </Tooltip>
-              )}
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button
+                    variant="link"
+                    size="sm"
+                    onClick={() => onTerminalToggle?.()}
+                    className={cn(
+                      'shadow-none focus-visible:ring-0 focus-visible:ring-offset-0 hover:bg-muted transition-colors rounded-sm h-[25px] w-[25px]',
+                      terminalOpen && 'bg-muted'
+                    )}
+                  >
+                    <Terminal strokeWidth={1.25} absoluteStrokeWidth size={15} className="h-4 w-4" />
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent>
+                  {t('title.openTerminal')}
+                  <span className="ml-1 text-muted-foreground">({t('title.openTerminalShortcut')})</span>
+                </TooltipContent>
+              </Tooltip>
             </div>
           )}
 
@@ -3695,7 +3518,6 @@ export const TitleBar = ({
       </div>
       {/* AchievementToastContainer phải luôn mount (ngoài conditional user) để không bỏ lỡ notification ngay sau login */}
       <AchievementUnlockDialog />
-      <EditorSettingsDialog open={showEditorSettings} onOpenChange={setShowEditorSettings} />
     </>
   )
 }

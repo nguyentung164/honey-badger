@@ -1,4 +1,10 @@
-import { app, type BrowserWindow } from 'electron'
+import './bootstrap/appPaths'
+import { app, BrowserWindow } from 'electron'
+
+if (!app.requestSingleInstanceLock()) {
+  app.quit()
+  process.exit(0)
+}
 import log from 'electron-log/main'
 import { makeAppWithSingleInstanceLock } from 'lib/electron-app/factories/app/instance'
 import { makeAppSetup } from 'lib/electron-app/factories/app/setup'
@@ -111,6 +117,13 @@ makeAppWithSingleInstanceLock(async () => {
   // Assign the created window to the exported variable
   mainWindow = await makeAppSetup(MainWindow)
   setMainWindowRef(mainWindow)
+
+  app.on('second-instance', () => {
+    const win = mainWindow ?? BrowserWindow.getAllWindows()[0]
+    if (!win || win.isDestroyed()) return
+    if (win.isMinimized()) win.restore()
+    win.focus()
+  })
 
   initDeveloperModeShortcut()
 

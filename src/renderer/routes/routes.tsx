@@ -8,6 +8,7 @@ import { CommitWorkflowGlobalDialogs } from '@/components/commit-workflow/Commit
 import { useCommitWorkflowStore } from '@/lib/commitWorkflow/commitWorkflowUtils'
 import { TaskAuthStorageSync } from '@/components/provider/TaskAuthStorageSync'
 import { GlowLoader } from '@/components/ui-elements/GlowLoader'
+import { applyAppearanceToDocument } from '../lib/syncUiSettings'
 import i18n from '../lib/i18n'
 import { MainPage } from '../pages/main/MainPage'
 import { useAppearanceStoreSelect } from '../stores/useAppearanceStore'
@@ -78,18 +79,19 @@ export function AppRoutes() {
   const fontFamily = useAppearanceStoreSelect(s => s.fontFamily)
   const buttonVariant = useAppearanceStoreSelect(s => s.buttonVariant)
   const language = useAppearanceStoreSelect(s => s.language)
-  const setTheme = useAppearanceStoreSelect(s => s.setTheme)
-  const setThemeMode = useAppearanceStoreSelect(s => s.setThemeMode)
-  const setLanguage = useAppearanceStoreSelect(s => s.setLanguage)
+  // Re-apply persisted appearance to DOM on load — do not call setTheme/setThemeMode here
+  // (those persist to localStorage + main IPC and can race zustand rehydration on startup).
   useEffect(() => {
-    setTheme(theme)
-    setThemeMode(themeMode)
-    document.documentElement.setAttribute('data-font-size', fontSize)
-    document.documentElement.setAttribute('data-font-family', fontFamily)
-    document.documentElement.setAttribute('data-button-variant', buttonVariant)
-    setLanguage(language)
-    i18n.changeLanguage(language)
-  }, [theme, themeMode, fontSize, fontFamily, buttonVariant, language, setTheme, setThemeMode, setLanguage])
+    applyAppearanceToDocument({ theme, themeMode, fontSize, fontFamily, buttonVariant })
+  }, [theme, themeMode, fontSize, fontFamily, buttonVariant])
+
+  // i18n only when language actually changes — avoid languageChanged on theme/font toggles
+  // (that would retrigger TitleBar folder sync via unstable `t` in effect deps).
+  useEffect(() => {
+    if (i18n.language !== language) {
+      void i18n.changeLanguage(language)
+    }
+  }, [language])
   return (
     <Router>
       <TaskAuthStorageSync />

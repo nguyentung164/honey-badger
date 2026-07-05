@@ -5,9 +5,9 @@ import { useTranslation } from 'react-i18next'
 import { ResizableHandle, ResizablePanel, ResizablePanelGroup } from '@/components/ui/resizable'
 import { GlowLoader } from '@/components/ui-elements/GlowLoader'
 import toast from '@/components/ui-elements/Toast'
-import { languageIdForLsp } from '@/lib/monacoLanguage'
 import { EditorCloseConfirm } from '@/pages/editor/EditorCloseConfirm'
 import { EditorFileChangeDialog } from '@/pages/editor/EditorFileChangeDialog'
+import { EditorDirtyWriteDialog } from '@/pages/editor/EditorDirtyWriteDialog'
 import { EditorGoToLineDialog } from '@/pages/editor/EditorGoToLineDialog'
 import { EditorLargeFileDialog } from '@/pages/editor/EditorLargeFileDialog'
 import type { OpenFileOptions } from '@/pages/editor/lib/editorWorkspaceTypes'
@@ -19,6 +19,7 @@ import { EditorTabBar } from '@/pages/editor/editor-area/EditorTabBar'
 import type { EditorTabMenuActions } from '@/pages/editor/editor-area/EditorTabContextMenu'
 import { EditorTabPane } from '@/pages/editor/editor-area/EditorTabPane'
 import { useEditorGitDecorations } from '@/pages/editor/hooks/useEditorGitDecorations'
+import { useEditorLspPrepare } from '@/pages/editor/hooks/useEditorLspPrepare'
 import { useEditorLspStatusBar } from '@/pages/editor/hooks/useEditorLspStatusBar'
 import { useEditorSettings } from '@/pages/editor/hooks/useEditorSettings'
 import { type EditorSidebarView, readEditorSidebarView, writeEditorSidebarView } from '@/pages/editor/hooks/useEditorSidebarView'
@@ -27,12 +28,19 @@ import { useActiveTabStatus, useEditorTabSummaries } from '@/pages/editor/hooks/
 import { useEditorWorkspace } from '@/pages/editor/hooks/useEditorWorkspace'
 import { type EditorCursorPosition, editorCommandBridge, runEditorAction } from '@/pages/editor/lib/editorCommandBridge'
 import { getEditorTabActivationOrder } from '@/pages/editor/lib/editorTabActivation'
-import { patchQuickOpenFileIndex, prewarmQuickOpenFileIndex } from '@/pages/editor/lib/quickOpenFileIndex'
+import { useEditorExternalFileSync } from '@/pages/editor/hooks/useEditorExternalFileSync'
+import {
+  EDITOR_DIRTY_WRITE_EVENT,
+  resolveDirtyWriteChoice,
+  type DirtyWritePromptPayload,
+} from '@/pages/editor/lib/editorDirtyWritePrompt'
+import { prewarmQuickOpenFileIndex } from '@/pages/editor/lib/quickOpenFileIndex'
 import { scheduleBackgroundWork } from '@/pages/editor/lib/scheduleBackgroundWork'
-import { scheduleEditorTabPrefetch } from '@/pages/editor/hooks/useEditorTabPrefetch'
+import { cancelEditorTabPrefetch, scheduleEditorTabPrefetch } from '@/pages/editor/hooks/useEditorTabPrefetch'
+import { useEditorShellOpenRequest } from '@/pages/editor/hooks/useEditorShellOpenRequest'
 import { useEditorTabCloseQueue } from '@/pages/editor/lib/useEditorTabCloseQueue'
 import { joinRepoPath } from '@/pages/editor/lsp/documentUri'
-import { editorLanguageService, type OrganizeImportsResult } from '@/pages/editor/lsp/EditorLanguageService'
+import type { FormatDocumentResult, OrganizeImportsResult } from '@/pages/editor/lsp/EditorLanguageService'
 
 const LazyExplorerPanel = lazy(() => import('@/pages/editor/explorer/EditorExplorerPanel').then(m => ({ default: m.EditorExplorerPanel })))
 const LazySearchPanel = lazy(() => import('@/pages/editor/search/EditorSearchPanel').then(m => ({ default: m.EditorSearchPanel })))
@@ -54,6 +62,7 @@ export function EditorWorkbench({ repoCwd = '', onRegisterLayoutLeave, onTermina
     queueMode?: boolean
   } | null>(null)
   const [fileChangeConfirm, setFileChangeConfirm] = useState<{ relativePath: string; fileName: string } | null>(null)
+  const [dirtyWritePrompt, setDirtyWritePrompt] = useState<DirtyWritePromptPayload | null>(null)
   const [largeFileConfirm, setLargeFileConfirm] = useState<{
     relativePath: string
     fileName: string
@@ -84,7 +93,11 @@ export function EditorWorkbench({ repoCwd = '', onRegisterLayoutLeave, onTermina
   )
 
   const tabSummaries = useEditorTabSummaries()
-  const openTabPaths = useMemo(() => tabSummaries.map(t => t.relativePath), [tabSummaries])
+  const openTabPaths = useMemo(
+    () => tabSummaries.filter(t => !t.isCompare).map(t => t.relativePath),
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- stable by path set, not tab metadata revision
+    [tabSummaries.map(t => (t.isCompare ? '' : t.relativePath)).join('\0')]
+  )
   const { getGitStatus, refreshGitDecorations } = useEditorGitDecorations(repoCwd, {
     openTabPaths,
     explorerActive: sidebarView === 'explorer',
@@ -129,7 +142,7 @@ export function EditorWorkbench({ repoCwd = '', onRegisterLayoutLeave, onTermina
   const activeTabId = useEditorWorkspace(s => s.activeTabId)
   const activeTabStatus = useActiveTabStatus(activeTabId)
   const lspStatus = useEditorLspStatusBar(repoCwd, activeTabStatus.languageId)
-  const tabCount = useEditorWorkspace(s => s.tabs.length)
+  useEditorLspPrepare(repoCwd)
   const setRepoCwd = useEditorWorkspace(s => s.setRepoCwd)
   const openFile = useEditorWorkspace(s => s.openFile)
   const openCompare = useEditorWorkspace(s => s.openCompare)
@@ -140,6 +153,8 @@ export function EditorWorkbench({ repoCwd = '', onRegisterLayoutLeave, onTermina
   const saveActiveTab = useEditorWorkspace(s => s.saveActiveTab)
   const reloadTabFromDisk = useEditorWorkspace(s => s.reloadTabFromDisk)
   const reloadTabFromDiskIfChanged = useEditorWorkspace(s => s.reloadTabFromDiskIfChanged)
+  const revertActiveTabFromDisk = useEditorWorkspace(s => s.revertActiveTabFromDisk)
+  const markTabOutOfSyncWithDisk = useEditorWorkspace(s => s.markTabOutOfSyncWithDisk)
   const revertDirtyTabs = useEditorWorkspace(s => s.revertDirtyTabs)
   const pinTab = useEditorWorkspace(s => s.pinTab)
 
@@ -147,6 +162,18 @@ export function EditorWorkbench({ repoCwd = '', onRegisterLayoutLeave, onTermina
     if (!repoCwd) return
     startTransition(() => setRepoCwd(repoCwd))
   }, [repoCwd, setRepoCwd])
+
+  useEditorShellOpenRequest({ repoCwd, openFile })
+
+  useEffect(() => {
+    const onDirtyWriteRequest = (event: Event) => {
+      const detail = (event as CustomEvent<DirtyWritePromptPayload>).detail
+      if (!detail?.relativePath) return
+      setDirtyWritePrompt(detail)
+    }
+    window.addEventListener(EDITOR_DIRTY_WRITE_EVENT, onDirtyWriteRequest)
+    return () => window.removeEventListener(EDITOR_DIRTY_WRITE_EVENT, onDirtyWriteRequest)
+  }, [])
 
   useEffect(() => {
     if (!repoCwd) return
@@ -178,68 +205,13 @@ export function EditorWorkbench({ repoCwd = '', onRegisterLayoutLeave, onTermina
     return () => window.removeEventListener('editor-large-file-blocked', onLargeFileBlocked as EventListener)
   }, [])
 
-  // Disable during `pnpm dev` — Vite HMR floods the watcher and freezes the UI.
-  const fileWatcherEnabled = !import.meta.env.DEV
-
-  useEffect(() => {
-    if (!repoCwd || !fileWatcherEnabled) return
-
-    const pendingEvents = new Map<string, 'add' | 'change' | 'unlink'>()
-    let flushTimer: number | null = null
-
-    const flushEvents = () => {
-      flushTimer = null
-      const batch = [...pendingEvents.entries()]
-      pendingEvents.clear()
-      for (const [relativePath, event] of batch) {
-        const tab = useEditorWorkspace.getState().tabs.find(t => t.relativePath === relativePath)
-        if (!tab) continue
-        if (event === 'unlink') {
-          if (tab.isDirty) {
-            setFileChangeConfirm({
-              relativePath,
-              fileName: relativePath.split('/').pop() ?? relativePath,
-            })
-          } else {
-            useEditorWorkspace.getState().closeTab(tab.id)
-          }
-          continue
-        }
-        if (tab.isDirty) {
-          setFileChangeConfirm({
-            relativePath,
-            fileName: relativePath.split('/').pop() ?? relativePath,
-          })
-          continue
-        }
-        void reloadTabFromDisk(relativePath)
-      }
-    }
-
-    const queueEvent = (relativePath: string, event: 'add' | 'change' | 'unlink') => {
-      patchQuickOpenFileIndex(repoCwd, relativePath, event)
-      pendingEvents.set(relativePath, event)
-      if (flushTimer) return
-      flushTimer = window.setTimeout(flushEvents, 400)
-    }
-
-    const unsub = window.api.system.on_workspace_file_changed(event => {
-      queueEvent(event.relativePath, event.event)
-    })
-    return () => {
-      if (flushTimer) window.clearTimeout(flushTimer)
-      unsub()
-      void window.api.system.unwatch_workspace()
-    }
-  }, [repoCwd, fileWatcherEnabled, reloadTabFromDisk])
-
-  useEffect(() => {
-    if (!repoCwd || tabCount === 0 || !fileWatcherEnabled) return
-    const watchTimer = window.setTimeout(() => {
-      void window.api.system.watch_workspace({ cwd: repoCwd })
-    }, 600)
-    return () => window.clearTimeout(watchTimer)
-  }, [repoCwd, tabCount, fileWatcherEnabled])
+  useEditorExternalFileSync({
+    repoCwd,
+    activeTabId,
+    openTabPaths,
+    onRequestReloadConfirm: payload => setFileChangeConfirm(payload),
+    onCloseTab: tabId => closeTab(tabId),
+  })
 
   const { requestCloseTab, requestCloseTabs, advanceCloseQueue, clearCloseQueue } = useEditorTabCloseQueue({
     closeTab,
@@ -268,7 +240,8 @@ export function EditorWorkbench({ repoCwd = '', onRegisterLayoutLeave, onTermina
   useEffect(() => {
     if (!repoCwd || !activeTabId) return
     scheduleEditorTabPrefetch(repoCwd, activeTabId)
-  }, [repoCwd, activeTabId, tabSummaries])
+    return () => cancelEditorTabPrefetch()
+  }, [repoCwd, activeTabId])
 
   const getTabMenuActions = useCallback(
     (row: (typeof tabSummaries)[number], tabIndex: number): EditorTabMenuActions => {
@@ -290,9 +263,13 @@ export function EditorWorkbench({ repoCwd = '', onRegisterLayoutLeave, onTermina
           revealPathInExplorer(row.relativePath)
         },
         onPin: () => pinTab(row.id),
+        onRevert: () => {
+          setActiveTab(row.id)
+          void revertActiveTabFromDisk()
+        },
       }
     },
-    [copyTabPathToClipboard, pinTab, repoCwd, requestCloseTab, requestCloseTabs, revealPathInExplorer, setActiveTab]
+    [copyTabPathToClipboard, pinTab, repoCwd, requestCloseTab, requestCloseTabs, revealPathInExplorer, revertActiveTabFromDisk, setActiveTab]
   )
 
   useEffect(() => {
@@ -320,6 +297,29 @@ export function EditorWorkbench({ repoCwd = '', onRegisterLayoutLeave, onTermina
         case 'not_supported':
         case 'failed':
           toast.error(t('editor.lsp.organizeImportsFailed'))
+          break
+      }
+    },
+    [t]
+  )
+
+  const handleFormatDocumentResult = useCallback(
+    (result: FormatDocumentResult) => {
+      switch (result) {
+        case 'success':
+          toast.success(t('editor.lsp.formatDocumentSuccess'))
+          break
+        case 'not_ready':
+          toast.warning(t('editor.lsp.formatDocumentNotReady'))
+          break
+        case 'no_action':
+          toast.info(t('editor.lsp.formatDocumentNoAction'))
+          break
+        case 'not_supported':
+          toast.info(t('editor.lsp.formatDocumentNotSupported'))
+          break
+        case 'failed':
+          toast.error(t('editor.lsp.formatDocumentFailed'))
           break
       }
     },
@@ -383,22 +383,10 @@ export function EditorWorkbench({ repoCwd = '', onRegisterLayoutLeave, onTermina
         void runEditorAction('editor.action.startFindReplaceAction')
         return
       }
-      if (e.altKey && e.shiftKey && e.key === 'F' && inMonaco) {
-        e.preventDefault()
-        void runEditorAction('editor.action.formatDocument')
-        return
-      }
-      if (e.altKey && e.shiftKey && e.key === 'O' && inMonaco) {
-        e.preventDefault()
-        const tab = activeTabId ? useEditorWorkspace.getState().tabs.find(t => t.id === activeTabId) : undefined
-        if (tab?.kind === 'text' && languageIdForLsp(tab.languageId)) {
-          void editorLanguageService.organizeImports(tab.relativePath, tab.languageId).then(handleOrganizeImportsResult)
-        }
-      }
     }
     window.addEventListener('keydown', onKeyDown)
     return () => window.removeEventListener('keydown', onKeyDown)
-  }, [activeTabId, handleOrganizeImportsResult, onTerminalToggle, quickOpen, requestCloseTab, saveActiveTab])
+  }, [onTerminalToggle, quickOpen, requestCloseTab, saveActiveTab])
 
   useEffect(() => {
     const register = onRegisterLayoutLeave
@@ -472,6 +460,7 @@ export function EditorWorkbench({ repoCwd = '', onRegisterLayoutLeave, onTermina
                 ) : (
                   <LazySearchPanel
                     repoCwd={repoCwd}
+                    openTabPaths={openTabPaths}
                     onOpenMatch={match => void openFile(match.relativePath, { line: match.line, column: match.column, pin: true })}
                     onFilesReplaced={paths => {
                       for (const relativePath of paths) void reloadTabFromDisk(relativePath)
@@ -501,7 +490,15 @@ export function EditorWorkbench({ repoCwd = '', onRegisterLayoutLeave, onTermina
                 />
               ) : null}
               <div className="min-h-0 flex-1">
-                <EditorTabPane activeTabId={activeTabId} repoCwd={repoCwd} onSyncDirty={syncTabDirty} onCursorChange={handleCursorChange} />
+                <EditorTabPane
+                  activeTabId={activeTabId}
+                  repoCwd={repoCwd}
+                  getGitStatus={getTabGitStatus}
+                  onSyncDirty={syncTabDirty}
+                  onCursorChange={handleCursorChange}
+                  onOrganizeImportsResult={handleOrganizeImportsResult}
+                  onFormatDocumentResult={handleFormatDocumentResult}
+                />
               </div>
               <EditorStatusBar
                 relativePath={activeTabStatus.relativePath}
@@ -571,7 +568,34 @@ export function EditorWorkbench({ repoCwd = '', onRegisterLayoutLeave, onTermina
           if (!fileChangeConfirm) return
           void reloadTabFromDisk(fileChangeConfirm.relativePath).then(() => setFileChangeConfirm(null))
         }}
-        onKeepLocal={() => setFileChangeConfirm(null)}
+        onKeepLocal={() => {
+          if (!fileChangeConfirm) return
+          markTabOutOfSyncWithDisk(fileChangeConfirm.relativePath)
+          setFileChangeConfirm(null)
+        }}
+      />
+
+      <EditorDirtyWriteDialog
+        open={Boolean(dirtyWritePrompt)}
+        onOpenChange={open => {
+          if (!open) {
+            resolveDirtyWriteChoice('cancel')
+            setDirtyWritePrompt(null)
+          }
+        }}
+        fileName={dirtyWritePrompt?.fileName ?? ''}
+        onOverwrite={() => {
+          resolveDirtyWriteChoice('overwrite')
+          setDirtyWritePrompt(null)
+        }}
+        onRevert={() => {
+          resolveDirtyWriteChoice('revert')
+          setDirtyWritePrompt(null)
+        }}
+        onCompare={() => {
+          resolveDirtyWriteChoice('compare')
+          setDirtyWritePrompt(null)
+        }}
       />
 
       <EditorQuickOpen
@@ -580,6 +604,9 @@ export function EditorWorkbench({ repoCwd = '', onRegisterLayoutLeave, onTermina
         repoCwd={repoCwd}
         recentPaths={recentQuickOpenPaths}
         onOpenFile={(path, opts) => void openFile(path, opts)}
+        onRunCommand={commandId => {
+          if (commandId === 'revert') void revertActiveTabFromDisk()
+        }}
       />
 
       <EditorGoToLineDialog

@@ -131,14 +131,14 @@ const TreeFileRow = memo(function TreeFileRow({
         'flex h-6 w-full min-w-0 cursor-default items-center gap-1.5 px-2 text-left text-xs outline-none focus-visible:ring-1 focus-visible:ring-ring',
         flatView
           ? cn(
-            isActive && 'bg-black/[0.05] dark:bg-[#37373d]',
+            isActive && 'bg-[var(--hb-explorer-row-active)]',
             !isActive && isSelected && 'bg-primary/15 hover:bg-primary/20',
-            !isActive && !isSelected && 'hover:bg-black/[0.07] dark:hover:bg-[#2a2d2e]'
+            !isActive && !isSelected && 'hover:bg-[var(--hb-explorer-row-hover)]'
           )
           : cn(
-            isActive && 'bg-black/[0.05] text-[#7a6332] dark:bg-white/10 dark:text-[#fadc34]',
+            isActive && 'bg-[var(--hb-tree-active-bg)] text-[var(--hb-tree-active-fg)]',
             !isActive && isSelected && 'bg-primary/15 text-primary hover:bg-primary/20',
-            !isActive && !isSelected && 'text-foreground hover:bg-black/[0.07] dark:hover:bg-[#2a2d2e]'
+            !isActive && !isSelected && 'text-foreground hover:bg-[var(--hb-explorer-row-hover)]'
           ),
         interactionDisabled && 'opacity-60'
       )}
@@ -151,7 +151,7 @@ const TreeFileRow = memo(function TreeFileRow({
           <span
             className={cn(
               'shrink-0',
-              isActive && 'text-foreground dark:text-[#e1e1e1]',
+              isActive && 'text-foreground',
               !isActive && isSelected && 'text-primary',
               !isActive && !isSelected && 'text-foreground'
             )}
@@ -159,11 +159,11 @@ const TreeFileRow = memo(function TreeFileRow({
             {node.fileName}
           </span>
           {flatDirPath ? (
-            <span className={cn('min-w-0 truncate', isActive ? 'text-[#858585]' : 'text-muted-foreground')}>{flatDirPath}</span>
+            <span className={cn('min-w-0 truncate', isActive ? 'text-[var(--hb-tree-flat-dir)]' : 'text-muted-foreground')}>{flatDirPath}</span>
           ) : null}
         </span>
       ) : (
-        <span className={cn('min-w-0 flex-1 truncate text-[12px] h-[19.5px] font-normal', isActive && 'text-[#7a6332] dark:text-[#fadc34]', !isActive && isSelected && 'text-primary')}>
+        <span className={cn('min-w-0 flex-1 truncate text-[12px] h-[19.5px] font-normal', isActive && 'text-[var(--hb-tree-active-fg)]', !isActive && isSelected && 'text-primary')}>
           {node.fileName}
         </span>
       )}

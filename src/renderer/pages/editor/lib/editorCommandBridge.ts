@@ -9,6 +9,8 @@ export type EditorCommandBridge = {
   getCursorPosition: () => EditorCursorPosition | null
   runAction: (actionId: string) => Promise<boolean>
   revealLine: (line: number, column?: number) => void
+  /** Active Monaco editor widget — used to preserve cursor on quiet disk reload. */
+  getMonacoEditor?: () => import('monaco-editor').editor.IStandaloneCodeEditor | null
 }
 
 let activeBridge: EditorCommandBridge | null = null

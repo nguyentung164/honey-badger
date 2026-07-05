@@ -13,24 +13,74 @@ export type QuickOpenFuzzyMatch = {
 }
 
 const SEPARATOR_RE = /[-_./\\ ]/
+const LINE_SUFFIX_RE = /:(\d+)(?::(\d+))?$/
 
-/** VS Code Quick Open: `path:line` or `path:line:column`. */
+/** Normalize path portion of a Quick Open query (forward slashes, no trailing spaces). */
+export function normalizeQuickOpenFileQuery(fileQuery: string): string {
+  return fileQuery.replace(/\\/g, '/').trim()
+}
+
+/**
+ * VS Code Quick Open: `path:line` or `path:line:column`.
+ * Line suffix is parsed from the end so Windows drive letters (`C:\…`) still work.
+ */
 export function parseQuickOpenQuery(raw: string): QuickOpenParsedQuery {
   const trimmed = raw.trim()
-  const match = trimmed.match(/^(.+?):(\d+)(?::(\d+))?$/)
-  if (match?.[1] && match[2]) {
-    const fileQuery = match[1]
-    const line = Number.parseInt(match[2], 10)
-    const column = match[3] ? Number.parseInt(match[3], 10) : undefined
-    if (fileQuery.length > 0 && Number.isFinite(line) && line > 0) {
-      return {
-        fileQuery,
-        line,
-        column: column != null && Number.isFinite(column) && column > 0 ? column : undefined,
-      }
+  const suffixMatch = trimmed.match(LINE_SUFFIX_RE)
+  if (!suffixMatch?.[1] || suffixMatch.index == null) return { fileQuery: trimmed }
+
+  const fileQuery = trimmed.slice(0, suffixMatch.index).trimEnd()
+  if (!fileQuery) return { fileQuery: trimmed }
+
+  const line = Number.parseInt(suffixMatch[1], 10)
+  const column = suffixMatch[2] ? Number.parseInt(suffixMatch[2], 10) : undefined
+  if (!Number.isFinite(line) || line <= 0) return { fileQuery: trimmed }
+
+  return {
+    fileQuery: normalizeQuickOpenFileQuery(fileQuery),
+    line,
+    column: column != null && Number.isFinite(column) && column > 0 ? column : undefined,
+  }
+}
+
+/**
+ * Resolve pasted absolute or partial paths to a repo-relative path from the file index.
+ * e.g. `E:\repo\src\foo.ts` or `src\foo.ts` → `src/foo.ts`
+ */
+export function tryResolveQuickOpenFilePath(
+  fileQuery: string,
+  repoCwd: string,
+  files: readonly string[],
+): string | null {
+  const q = normalizeQuickOpenFileQuery(fileQuery)
+  if (!q) return null
+
+  const fileSet = new Set(files)
+  if (fileSet.has(q)) return q
+
+  const qLower = q.toLowerCase()
+  for (const f of files) {
+    if (f.toLowerCase() === qLower) return f
+  }
+
+  const repo = normalizeQuickOpenFileQuery(repoCwd).replace(/\/+$/, '')
+  const repoLower = repo.toLowerCase()
+  if (repo && qLower.startsWith(`${repoLower}/`)) {
+    const rel = q.slice(repo.length + 1)
+    if (fileSet.has(rel)) return rel
+    for (const f of files) {
+      if (f.toLowerCase() === rel.toLowerCase()) return f
     }
   }
-  return { fileQuery: trimmed }
+
+  let best: string | null = null
+  for (const f of files) {
+    const fl = f.toLowerCase()
+    if (qLower === fl || qLower.endsWith(`/${fl}`)) {
+      if (!best || f.length > best.length) best = f
+    }
+  }
+  return best
 }
 
 function charAt(value: string, index: number): string {
@@ -178,8 +228,9 @@ export function formatQuickOpenDirname(dirname: string): string {
 export function scoreQuickOpenPath(fileQuery: string, relativePath: string): QuickOpenFuzzyMatch | null {
   const { fileName, dirname } = splitQuickOpenPath(relativePath)
   const normalized = relativePath.replace(/\\/g, '/')
+  const query = normalizeQuickOpenFileQuery(fileQuery)
 
-  const fileMatch = fuzzyScoreLabel(fileQuery, fileName)
+  const fileMatch = fuzzyScoreLabel(query, fileName)
   if (fileMatch) {
     return {
       score: fileMatch.score * 1000 + Math.max(0, 200 - fileName.length),
@@ -189,7 +240,7 @@ export function scoreQuickOpenPath(fileQuery: string, relativePath: string): Qui
     }
   }
 
-  const pathMatch = fuzzyScoreLabel(fileQuery, normalized)
+  const pathMatch = fuzzyScoreLabel(query, normalized)
   if (!pathMatch) return null
 
   const fileStart = normalized.lastIndexOf('/') + 1

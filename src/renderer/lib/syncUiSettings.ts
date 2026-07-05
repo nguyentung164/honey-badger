@@ -13,7 +13,7 @@ export interface UiSettingsSyncedDetail {
   theme: string
 }
 
-function applyThemeToDocument(state: { themeMode?: string; theme?: string }) {
+export function applyThemeToDocument(state: { themeMode?: string; theme?: string }) {
   const html = document.documentElement
   const themeMode = state.themeMode || 'light'
   const theme = state.theme || 'theme-default'
@@ -26,6 +26,21 @@ function applyThemeToDocument(state: { themeMode?: string; theme?: string }) {
     if (cls.startsWith('theme-')) html.classList.remove(cls)
   }
   html.classList.add(theme)
+}
+
+/** Apply appearance prefs to the document only — no Zustand/IPC/localStorage writes. */
+export function applyAppearanceToDocument(state: {
+  themeMode?: string
+  theme?: string
+  fontSize?: string
+  fontFamily?: string
+  buttonVariant?: string
+}) {
+  applyThemeToDocument(state)
+  const html = document.documentElement
+  if (state.fontSize) html.setAttribute('data-font-size', state.fontSize)
+  if (state.fontFamily) html.setAttribute('data-font-family', state.fontFamily)
+  if (state.buttonVariant) html.setAttribute('data-button-variant', state.buttonVariant)
 }
 
 function handleStorage(event: StorageEvent) {

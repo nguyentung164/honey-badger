@@ -1,6 +1,6 @@
 import { t } from 'i18next'
 import { Folder, GitBranch, RefreshCw } from 'lucide-react'
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState, type KeyboardEvent, type MouseEvent } from 'react'
 import { Badge } from '@/components/ui/badge'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import toast from '@/components/ui-elements/Toast'
@@ -135,12 +135,31 @@ export function VersionControlInfo({
         {getStatusText()}
       </Badge>
     )
-    return onBadgeClick ? (
-      <button type="button" onClick={onBadgeClick} className="inline-flex focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2 rounded-md">
+    if (!onBadgeClick) return badge
+
+    const handleBadgeClick = (e: MouseEvent) => {
+      e.stopPropagation()
+      onBadgeClick()
+    }
+    const handleBadgeKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Enter' || e.key === ' ') {
+        e.preventDefault()
+        e.stopPropagation()
+        onBadgeClick()
+      }
+    }
+
+    return (
+      // biome-ignore lint/a11y/useSemanticElements: badge sits inside AccordionTrigger (button); cannot nest <button>.
+      <span
+        role="button"
+        tabIndex={0}
+        onClick={handleBadgeClick}
+        onKeyDown={handleBadgeKeyDown}
+        className="inline-flex focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2 rounded-md"
+      >
         {badge}
-      </button>
-    ) : (
-      badge
+      </span>
     )
   }
 

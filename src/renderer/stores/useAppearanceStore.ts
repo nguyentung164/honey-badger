@@ -89,7 +89,7 @@ const useStore = create<AppearanceStore>()(
       themeMode: 'light',
       fontSize: 'medium',
       fontFamily: 'sans',
-      buttonVariant: 'default',
+      buttonVariant: 'secondary',
       language: 'en',
       panelHeight: 150,
       setTheme: theme => {

@@ -2,6 +2,7 @@ import { Component, type ErrorInfo, type ReactNode, useEffect } from 'react'
 import ReactDom from 'react-dom/client'
 import './lib/i18n'
 import { setupElectronLogFormat } from './lib/electronLogSetup'
+import { bootstrapPersistedState } from './lib/bootstrapPersistedState'
 import { initSyncUiSettings } from './lib/syncUiSettings'
 
 setupElectronLogFormat()
@@ -60,9 +61,15 @@ if (!rootEl) {
 } else if (typeof window.api === 'undefined') {
   rootEl.innerHTML = '<div style="padding:24px;font-family:system-ui">Không tải được preload (window.api). Kiểm tra log main / đường dẫn preload.</div>'
 } else {
-  ReactDom.createRoot(rootEl).render(
-    <RootErrorBoundary>
-      <App />
-    </RootErrorBoundary>
-  )
+  void bootstrapPersistedState()
+    .catch(err => {
+      console.error('[renderer] bootstrapPersistedState failed', err)
+    })
+    .finally(() => {
+      ReactDom.createRoot(rootEl).render(
+        <RootErrorBoundary>
+          <App />
+        </RootErrorBoundary>
+      )
+    })
 }

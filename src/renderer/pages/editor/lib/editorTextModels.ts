@@ -76,6 +76,12 @@ export function isDirtyAgainstBaseline(repoCwd: string, relativePath: string, li
   return live.replace(/\r\n/g, '\n') !== baseline
 }
 
+/** Force dirty indicator when buffer diverged from disk but user chose to keep local. */
+export function forceBufferDirtyState(repoCwd: string, relativePath: string, alternativeVersionId: number | null): void {
+  if (alternativeVersionId == null) return
+  setModelBaselineVersion(repoCwd, relativePath, alternativeVersionId - 1)
+}
+
 export function commitModelBaseline(
   repoCwd: string,
   relativePath: string,

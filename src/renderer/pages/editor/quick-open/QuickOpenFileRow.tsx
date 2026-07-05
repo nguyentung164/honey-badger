@@ -12,10 +12,18 @@ export type QuickOpenFileRowProps = {
   fileName: string
   dirname: string
   matchIndices: readonly number[]
+  locationSuffix?: string
   onSelect: () => void
 }
 
-export const QuickOpenFileRow = memo(function QuickOpenFileRow({ path, fileName, dirname, matchIndices, onSelect }: QuickOpenFileRowProps) {
+export const QuickOpenFileRow = memo(function QuickOpenFileRow({
+  path,
+  fileName,
+  dirname,
+  matchIndices,
+  locationSuffix,
+  onSelect,
+}: QuickOpenFileRowProps) {
   const displayDir = dirname ? formatQuickOpenDirname(dirname) : ''
 
   return (
@@ -39,6 +47,9 @@ export const QuickOpenFileRow = memo(function QuickOpenFileRow({ path, fileName,
         <QuickOpenHighlightLabel label={fileName} matchIndices={matchIndices} className="text-[13px] leading-[22px]" />
         {displayDir ? (
           <span className="truncate text-[13px] leading-[22px] text-[var(--hb-quick-open-path)]">{displayDir}</span>
+        ) : null}
+        {locationSuffix ? (
+          <span className="shrink-0 text-[13px] leading-[22px] text-[var(--hb-quick-open-path)]">{locationSuffix}</span>
         ) : null}
       </span>
     </CommandItem>

@@ -40,6 +40,7 @@ import {
   readGitStagingLayoutDirection,
   writeGitStagingLayoutDirection,
 } from '@/lib/diffViewer/openDiffViewer'
+import { requestOpenEditor } from '@/lib/openEditor'
 import { requestOpenShowLog } from '@/lib/openShowLog'
 import { cn } from '@/lib/utils'
 import type { CodeDiffViewerHandle } from '@/pages/diffviewer/CodeDiffViewer'
@@ -528,9 +529,12 @@ export const GitStagingTable = forwardRef(({ onLoadingChange, cwd, label, commit
   const lastChangesClickRef = useRef({ time: 0, rowId: '' })
   const lastStagedClickRef = useRef({ time: 0, rowId: '' })
 
-  const loadGitStatus = useCallback(async () => {
-    setIsTableLoading(true)
-    onLoadingChange?.(true)
+  const loadGitStatus = useCallback(async (options?: { silent?: boolean }) => {
+    const silent = options?.silent === true
+    if (!silent) {
+      setIsTableLoading(true)
+      onLoadingChange?.(true)
+    }
     try {
       const result = await window.api.git.status(cwd ? { cwd } : undefined)
       logger.info('Git status result:', result)
@@ -633,13 +637,15 @@ export const GitStagingTable = forwardRef(({ onLoadingChange, cwd, label, commit
     } catch (error) {
       logger.error('Error loading git status:', error)
     } finally {
-      setIsTableLoading(false)
-      onLoadingChange?.(false)
+      if (!silent) {
+        setIsTableLoading(false)
+        onLoadingChange?.(false)
+      }
     }
-  }, [onLoadingChange, cwd, sourceFolder])
+  }, [onLoadingChange, cwd, sourceFolder, t])
 
-  const reloadData = useCallback(async () => {
-    await loadGitStatus()
+  const reloadData = useCallback(async (options?: { silent?: boolean }) => {
+    await loadGitStatus(options)
   }, [loadGitStatus])
 
   const clearData = useCallback(() => {
@@ -812,16 +818,12 @@ export const GitStagingTable = forwardRef(({ onLoadingChange, cwd, label, commit
     [cwd, sourceFolder, t]
   )
 
-  const openInExternalEditor = useCallback(async (filePath: string) => {
-    try {
-      const result = await window.api.system.open_in_external_editor(filePath)
-      if (!result?.success) {
-        toast.error(result?.error || 'Failed to open in external editor')
-      }
-    } catch (err) {
-      toast.error(err instanceof Error ? err.message : 'Failed to open in external editor')
-    }
-  }, [])
+  const openInEditor = useCallback(
+    (filePath: string) => {
+      requestOpenEditor({ filePath, cwd: repoCwd })
+    },
+    [repoCwd]
+  )
 
   const handleFilePathDoubleClick = useCallback(
     async (row: any) => {
@@ -1258,8 +1260,8 @@ export const GitStagingTable = forwardRef(({ onLoadingChange, cwd, label, commit
                             <FolderOpen strokeWidth={1.25} className="ml-3 h-4 w-4" />
                           </ContextMenuShortcut>
                         </ContextMenuItem>
-                        <ContextMenuItem disabled={row.original.status === 'deleted'} onClick={() => openInExternalEditor(filePath)}>
-                          {t('contextMenu.openInExternalEditor')}
+                        <ContextMenuItem disabled={row.original.status === 'deleted'} onClick={() => openInEditor(filePath)}>
+                          {t('contextMenu.openInEditor')}
                           <ContextMenuShortcut>
                             <Pencil strokeWidth={1.25} className="ml-3 h-4 w-4" />
                           </ContextMenuShortcut>

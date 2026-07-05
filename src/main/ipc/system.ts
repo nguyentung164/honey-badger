@@ -1,6 +1,7 @@
 import { execFile, spawn } from 'node:child_process'
 import crypto from 'node:crypto'
 import fs from 'node:fs'
+import { createRequire } from 'node:module'
 import { promisify } from 'node:util'
 import path from 'node:path'
 import { mkdir, readdir, readFile, writeFile, cp, rename as fsRename, rm } from 'node:fs/promises'
@@ -12,6 +13,7 @@ import { applySearchReplace } from 'shared/editor/searchReplace'
 import type { ReplaceInFilesResult, SearchInFilesOptions } from 'shared/editor/types'
 import { DIFF_VIEWER_DATA_URL_MAX_BYTES, DIFF_VIEWER_IMAGE_EXTENSIONS, IPC } from 'main/constants'
 import { unwatchWorkspace, watchWorkspace } from 'main/workspace/workspaceWatcher'
+import { setEditorOpenFiles } from 'main/workspace/editorOpenFileWatch'
 import { catBuffer } from 'main/svn/cat'
 import { isGitPathMissingAtRevisionError } from 'main/git/utils'
 import { getAutomationRoot } from '../automation/workspace'
@@ -65,25 +67,36 @@ async function listDirectoryEntries(
 async function searchInFilesRipgrep(
   query: string,
   options?: SearchInFilesOptions
-): Promise<{ matches: { relativePath: string; line: number; column: number; preview: string }[]; truncated: boolean }> {
+): Promise<{ matches: { relativePath: string; line: number; column: number; preview: string; occurrences?: number }[]; truncated: boolean }> {
   const basePathRaw = options?.cwd?.trim() || configurationStore.store.sourceFolder
   const basePath = await resolveReadWriteBase(basePathRaw)
   if (!basePath || !query.trim()) return { matches: [], truncated: false }
 
-  const maxResults = Math.min(Math.max(options?.maxResults ?? 500, 1), 2000)
-  const args = ['--json', '--line-number', '--column', '--max-count', String(maxResults)]
+  // VS Code default: search.maxResults = 20_000 (total occurrences, not lines).
+  const maxResults = Math.min(Math.max(options?.maxResults ?? 20_000, 1), 20_000)
+  const args = ['--json', '--line-number', '--column', '--hidden', '--no-require-git']
   if (!options?.caseSensitive) args.push('-i')
   if (options?.wholeWord) args.push('-w')
+  if (options?.useExcludesAndIgnoreFiles === false) {
+    args.push('--no-ignore', '--no-ignore-global')
+  }
   if (options?.regex) {
     args.push('-e', query)
   } else {
     args.push('-F', query)
   }
   args.push(...ripgrepGlobArgs(options?.includePattern, options?.excludePattern))
-  args.push(basePath)
+  const onlyPaths = options?.onlyRelativePaths?.map(p => p.replace(/\\/g, '/')).filter(Boolean) ?? []
+  if (onlyPaths.length > 0) {
+    for (const relativePath of onlyPaths) {
+      args.push(path.join(basePath, relativePath))
+    }
+  } else {
+    args.push(basePath)
+  }
 
   const stdout = await new Promise<string>((resolve, reject) => {
-    execFile(rgPath, args, { maxBuffer: 10 * 1024 * 1024, windowsHide: true, cwd: basePath }, (err, out) => {
+    execFile(rgPath, args, { maxBuffer: 64 * 1024 * 1024, windowsHide: true, cwd: basePath }, (err, out) => {
       const code = err && typeof err === 'object' && 'code' in err ? (err as { code?: string | number }).code : undefined
       if (err && code !== 1 && code !== '1') {
         reject(err)
@@ -93,31 +106,46 @@ async function searchInFilesRipgrep(
     })
   })
 
-  const matches: { relativePath: string; line: number; column: number; preview: string }[] = []
+  const matches: { relativePath: string; line: number; column: number; preview: string; occurrences?: number }[] = []
+  let occurrenceTotal = 0
+  let truncated = false
   for (const line of stdout.split('\n')) {
     if (!line.trim()) continue
     try {
       const parsed = JSON.parse(line) as {
         type?: string
-        data?: { path?: { text?: string }; line_number?: number; submatches?: { start?: number; match?: { text?: string } }[]; lines?: { text?: string } }
+        data?: {
+          path?: { text?: string }
+          line_number?: number
+          submatches?: { start?: number; match?: { text?: string } }[]
+          lines?: { text?: string }
+        }
       }
       if (parsed.type !== 'match' || !parsed.data?.path?.text) continue
       const absPath = parsed.data.path.text.replace(/\\/g, '/')
       const root = basePath.replace(/\\/g, '/').replace(/\/+$/, '')
       const relativePath = absPath.startsWith(`${root}/`) ? absPath.slice(root.length + 1) : path.basename(absPath)
-      const sub = parsed.data.submatches?.[0]
+      const subs = parsed.data.submatches?.length ? parsed.data.submatches : [{ start: 0 }]
+      const lineOccurrences = subs.length
+      if (occurrenceTotal + lineOccurrences > maxResults) {
+        truncated = true
+        break
+      }
+      const sub = subs[0]
       matches.push({
         relativePath,
         line: parsed.data.line_number ?? 1,
         column: (sub?.start ?? 0) + 1,
         preview: (parsed.data.lines?.text ?? '').trimEnd(),
+        occurrences: lineOccurrences,
       })
+      occurrenceTotal += lineOccurrences
     } catch {
       /* skip malformed line */
     }
   }
 
-  return { matches, truncated: matches.length >= maxResults }
+  return { matches, truncated }
 }
 
 async function listWorkspaceFilesRipgrep(
@@ -498,8 +526,34 @@ export function registerSystemIpcHandlers() {
     }
   })
 
+  ipcMain.handle(
+    IPC.SYSTEM.RESOLVE_NODE_MODULE,
+    async (_event, payload: { specifier: string; cwd?: string; fromRelativePath: string }) => {
+      try {
+        const specifier = typeof payload?.specifier === 'string' ? payload.specifier.trim() : ''
+        const fromRelativePath = typeof payload?.fromRelativePath === 'string' ? payload.fromRelativePath.trim() : ''
+        if (!specifier || !fromRelativePath) return null
+        if (specifier.startsWith('.') || specifier.startsWith('@/') || specifier.startsWith('~/')) return null
+
+        const basePathRaw = payload?.cwd?.trim() || configurationStore.store.sourceFolder
+        const basePath = await resolveReadWriteBase(basePathRaw)
+        if (!basePath) return null
+
+        const fromAbs = path.join(basePath, resolvePathRelativeToBase(basePath, fromRelativePath))
+        const req = createRequire(fromAbs)
+        const resolvedAbs = req.resolve(specifier)
+        const relativePath = path.relative(basePath, resolvedAbs).replace(/\\/g, '/')
+        if (!relativePath || relativePath.startsWith('..')) return null
+        return relativePath
+      } catch (err) {
+        l.debug(`resolve_node_module failed for ${payload?.specifier}:`, err)
+        return null
+      }
+    }
+  )
+
   ipcMain.handle(IPC.SYSTEM.READ_FILE, async (_event, filePath: string, options?: { cwd?: string }) => {
-    l.info(`Attempting to read file: ${filePath}`)
+    l.debug(`Reading file: ${filePath}`)
     try {
       if (!filePath || typeof filePath !== 'string') {
         throw new Error('Invalid filePath provided for reading.')
@@ -508,9 +562,7 @@ export function registerSystemIpcHandlers() {
       const basePath = await resolveReadWriteBase(basePathRaw)
       const relativePath = resolvePathRelativeToBase(basePath, filePath)
       const absolutePath = basePath ? path.join(basePath, relativePath) : path.resolve(relativePath)
-      l.info(`Reading file from absolute path: ${absolutePath}`)
       const content = await readFile(absolutePath, 'utf-8')
-      l.info(`File read successfully: ${filePath}`)
       return content
     } catch (err: any) {
       l.error(`Error reading file ${filePath}:`, err)
@@ -787,13 +839,20 @@ export function registerSystemIpcHandlers() {
     }
   )
 
-  ipcMain.handle(IPC.SYSTEM.WATCH_WORKSPACE, (event, payload: { cwd?: string }) => {
+  ipcMain.handle(IPC.SYSTEM.WATCH_WORKSPACE, async (event, payload: { cwd?: string }) => {
     const basePathRaw = payload?.cwd?.trim() || configurationStore.store.sourceFolder
-    return watchWorkspace(event.sender, basePathRaw ?? '')
+    const basePath = await resolveReadWriteBase(basePathRaw)
+    return watchWorkspace(event.sender, basePath ?? basePathRaw ?? '')
   })
 
   ipcMain.handle(IPC.SYSTEM.UNWATCH_WORKSPACE, event => {
     unwatchWorkspace(event.sender)
+    return { success: true }
+  })
+
+  ipcMain.handle(IPC.SYSTEM.SET_EDITOR_OPEN_FILES, (event, payload: { paths?: string[] }) => {
+    const paths = Array.isArray(payload?.paths) ? payload.paths : []
+    setEditorOpenFiles(event.sender, paths.filter((p): p is string => typeof p === 'string'))
     return { success: true }
   })
 

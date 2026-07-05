@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { CommandDialog, CommandEmpty, CommandGroup, CommandInput, CommandList } from '@/components/ui/command'
+import { CommandDialog, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from '@/components/ui/command'
 import { GlowLoader } from '@/components/ui-elements/GlowLoader'
 import { getQuickOpenFiles, peekQuickOpenFiles } from '@/pages/editor/lib/quickOpenFileIndex'
 import { QuickOpenFileRow } from '@/pages/editor/quick-open/QuickOpenFileRow'
@@ -10,6 +10,7 @@ import {
   parseQuickOpenQuery,
   scoreQuickOpenPath,
   splitQuickOpenPath,
+  tryResolveQuickOpenFilePath,
   type QuickOpenFuzzyMatch,
 } from 'shared/editor/quickOpenFuzzy'
 import { cn } from '@/lib/utils'
@@ -20,9 +21,20 @@ type EditorQuickOpenProps = {
   repoCwd: string
   recentPaths?: readonly string[]
   onOpenFile: (relativePath: string, opts?: { line?: number; column?: number; pin?: boolean }) => void
+  onRunCommand?: (commandId: string) => void
 }
 
 type QuickOpenResult = QuickOpenFuzzyMatch & { path: string }
+
+type QuickOpenCommand = {
+  id: string
+  label: string
+  keywords: string
+}
+
+const EDITOR_COMMANDS: QuickOpenCommand[] = [
+  { id: 'revert', label: 'editor.revertFile', keywords: 'revert file reload disk' },
+]
 
 function buildRecentResults(recentPaths: readonly string[], files: readonly string[], indexReady: boolean): QuickOpenResult[] {
   const fileSet = indexReady ? new Set(files) : null
@@ -51,7 +63,13 @@ function buildRecentResults(recentPaths: readonly string[], files: readonly stri
   return results
 }
 
-function buildSearchResults(fileQuery: string, files: readonly string[]): QuickOpenResult[] {
+function buildSearchResults(fileQuery: string, files: readonly string[], repoCwd: string): QuickOpenResult[] {
+  const resolved = tryResolveQuickOpenFilePath(fileQuery, repoCwd, files)
+  if (resolved) {
+    const { fileName, dirname } = splitQuickOpenPath(resolved)
+    return [{ path: resolved, score: Number.MAX_SAFE_INTEGER, fileName, dirname, matchIndices: [] }]
+  }
+
   return files
     .map(path => {
       const match = scoreQuickOpenPath(fileQuery, path)
@@ -62,7 +80,16 @@ function buildSearchResults(fileQuery: string, files: readonly string[]): QuickO
     .slice(0, 50)
 }
 
-export function EditorQuickOpen({ open, onOpenChange, repoCwd, recentPaths = [], onOpenFile }: EditorQuickOpenProps) {
+function buildCommandResults(query: string, t: (key: string) => string): QuickOpenCommand[] {
+  const needle = query.trim().toLowerCase()
+  if (!needle) return EDITOR_COMMANDS
+  return EDITOR_COMMANDS.filter(cmd => {
+    const haystack = `${t(cmd.label)} ${cmd.keywords}`.toLowerCase()
+    return haystack.includes(needle)
+  })
+}
+
+export function EditorQuickOpen({ open, onOpenChange, repoCwd, recentPaths = [], onOpenFile, onRunCommand }: EditorQuickOpenProps) {
   const { t } = useTranslation()
   const [query, setQuery] = useState('')
   const [files, setFiles] = useState<string[]>(() => {
@@ -77,6 +104,9 @@ export function EditorQuickOpen({ open, onOpenChange, repoCwd, recentPaths = [],
   const selectGuardRef = useRef(false)
 
   openRef.current = open
+
+  const isCommandMode = query.trimStart().startsWith('>')
+  const commandQuery = isCommandMode ? query.trimStart().slice(1).trim() : ''
 
   useEffect(() => {
     if (!open || !repoCwd) return
@@ -120,12 +150,22 @@ export function EditorQuickOpen({ open, onOpenChange, repoCwd, recentPaths = [],
   const parsedQuery = useMemo(() => parseQuickOpenQuery(query), [query])
 
   const results = useMemo(() => {
+    if (isCommandMode) return []
     if (!parsedQuery.fileQuery) return buildRecentResults(recentPaths, files, indexReady)
     if (!indexReady) return []
-    return buildSearchResults(parsedQuery.fileQuery, files)
-  }, [files, indexReady, parsedQuery.fileQuery, recentPaths])
+    return buildSearchResults(parsedQuery.fileQuery, files, repoCwd)
+  }, [files, indexReady, isCommandMode, parsedQuery.fileQuery, recentPaths, repoCwd])
 
-  const groupHeading = parsedQuery.fileQuery ? t('editor.quickOpenFileResults') : t('editor.quickOpenRecentlyOpened')
+  const commandResults = useMemo(() => {
+    if (!isCommandMode) return []
+    return buildCommandResults(commandQuery, t)
+  }, [commandQuery, isCommandMode, t])
+
+  const groupHeading = isCommandMode
+    ? t('editor.quickOpenCommands')
+    : parsedQuery.fileQuery
+      ? t('editor.quickOpenFileResults')
+      : t('editor.quickOpenRecentlyOpened')
 
   const handleSelect = useCallback(
     (path: string) => {
@@ -139,7 +179,6 @@ export function EditorQuickOpen({ open, onOpenChange, repoCwd, recentPaths = [],
 
       handleOpenChange(false)
 
-      // Close first, then open the file on the next turn so Enter/click does not fall through the dialog.
       queueMicrotask(() => {
         onOpenFile(path, { pin: true, line, column })
         selectGuardRef.current = false
@@ -151,7 +190,31 @@ export function EditorQuickOpen({ open, onOpenChange, repoCwd, recentPaths = [],
     [handleOpenChange, onOpenFile, parsedQuery.column, parsedQuery.line]
   )
 
-  const showListLoader = loading && results.length === 0
+  const handleSelectCommand = useCallback(
+    (commandId: string) => {
+      if (selectGuardRef.current || closingRef.current) return
+      selectGuardRef.current = true
+      closingRef.current = true
+      handleOpenChange(false)
+      queueMicrotask(() => {
+        onRunCommand?.(commandId)
+        selectGuardRef.current = false
+        queueMicrotask(() => {
+          closingRef.current = false
+        })
+      })
+    },
+    [handleOpenChange, onRunCommand]
+  )
+
+  const locationSuffix =
+    parsedQuery.line != null
+      ? parsedQuery.column != null
+        ? `:${parsedQuery.line}:${parsedQuery.column}`
+        : `:${parsedQuery.line}`
+      : undefined
+
+  const showListLoader = !isCommandMode && loading && results.length === 0
 
   return (
     <CommandDialog
@@ -180,21 +243,35 @@ export function EditorQuickOpen({ open, onOpenChange, repoCwd, recentPaths = [],
           </div>
         ) : (
           <>
-            <CommandEmpty className="py-6 text-[13px] text-[var(--hb-quick-open-path)]">{t('editor.quickOpenEmpty')}</CommandEmpty>
+            <CommandEmpty className="py-6 text-[13px] text-[var(--hb-quick-open-path)]">
+              {isCommandMode ? t('editor.quickOpenCommandEmpty') : t('editor.quickOpenEmpty')}
+            </CommandEmpty>
             <CommandGroup
               heading={groupHeading}
               className="hb-quick-open-group p-0 [&_[cmdk-group-heading]]:px-2 [&_[cmdk-group-heading]]:py-1 [&_[cmdk-group-heading]]:text-right [&_[cmdk-group-heading]]:text-[11px] [&_[cmdk-group-heading]]:font-normal [&_[cmdk-group-heading]]:text-[var(--hb-quick-open-group-label)]"
             >
-              {results.map(item => (
-                <QuickOpenFileRow
-                  key={item.path}
-                  path={item.path}
-                  fileName={item.fileName}
-                  dirname={item.dirname}
-                  matchIndices={item.matchIndices}
-                  onSelect={() => handleSelect(item.path)}
-                />
-              ))}
+              {isCommandMode
+                ? commandResults.map(cmd => (
+                    <CommandItem
+                      key={cmd.id}
+                      value={cmd.id}
+                      onSelect={() => handleSelectCommand(cmd.id)}
+                      className="px-3 py-1.5 text-[13px] text-[var(--hb-quick-open-filename)]"
+                    >
+                      {t(cmd.label)}
+                    </CommandItem>
+                  ))
+                : results.map(item => (
+                    <QuickOpenFileRow
+                      key={item.path}
+                      path={item.path}
+                      fileName={item.fileName}
+                      dirname={item.dirname}
+                      matchIndices={item.matchIndices}
+                      locationSuffix={locationSuffix}
+                      onSelect={() => handleSelect(item.path)}
+                    />
+                  ))}
             </CommandGroup>
           </>
         )}

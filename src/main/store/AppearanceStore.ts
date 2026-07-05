@@ -54,7 +54,7 @@ const appearanceStore = new Store<AppearanceSchema>({
     themeMode: 'system',
     fontSize: 'medium',
     fontFamily: 'sans',
-    buttonVariant: 'default',
+    buttonVariant: 'secondary',
     language: 'en',
     panelHeight: 150,
   },

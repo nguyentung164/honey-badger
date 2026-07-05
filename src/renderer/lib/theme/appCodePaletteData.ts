@@ -4,13 +4,17 @@
  * (Nord, Dracula, Solarized, GitHub, Monokai, Material, Gruvbox, Catppuccin,
  * Tokyo Night, Rose Pine).
  */
-import type { AppCodePaletteMode, AppThemeId, EditorSyntaxColors, TerminalAnsiColors } from '@/lib/theme/appCodePaletteTypes'
+import type { AppCodePaletteMode, AppThemeId, EditorSelectionColors, EditorSyntaxColors, TerminalAnsiColors } from '@/lib/theme/appCodePaletteTypes'
 
 function editor(p: EditorSyntaxColors): EditorSyntaxColors {
   return p
 }
 
 function terminal(p: TerminalAnsiColors): TerminalAnsiColors {
+  return p
+}
+
+function selection(p: EditorSelectionColors): EditorSelectionColors {
   return p
 }
 
@@ -970,5 +974,57 @@ export const APP_CODE_PALETTE_REGISTRY: Record<AppThemeId, AppCodePaletteMode> =
       }),
       diff: diff('#286983', '#b4637a'),
     },
+  },
+}
+
+/** Per-theme editor/terminal selection colors (from matching VS Code theme guides). */
+export const APP_SELECTION_REGISTRY: Record<AppThemeId, Record<'dark' | 'light', EditorSelectionColors>> = {
+  'theme-default': {
+    dark: selection({ background: '#264f78', inactiveBackground: '#3a3d41', foreground: '#ffffff' }),
+    light: selection({ background: '#add6ff', inactiveBackground: '#e5ebf1', foreground: '#000000' }),
+  },
+  'theme-nord': {
+    dark: selection({ background: '#434c5e', inactiveBackground: '#3b4252', foreground: '#eceff4' }),
+    light: selection({ background: '#d8dee9', inactiveBackground: '#e5e9f0', foreground: '#2e3440' }),
+  },
+  'theme-dracula': {
+    dark: selection({ background: '#44475a', inactiveBackground: '#383a59', foreground: '#f8f8f2' }),
+    light: selection({ background: '#d6d6e8', inactiveBackground: '#c8c8d8', foreground: '#282a36' }),
+  },
+  'theme-solarized': {
+    dark: selection({ background: '#073642', inactiveBackground: '#002b36', foreground: '#839496' }),
+    light: selection({ background: '#eee8d5', inactiveBackground: '#fdf6e3', foreground: '#586e75' }),
+  },
+  'theme-github': {
+    dark: selection({ background: '#264f78', inactiveBackground: '#1f2d3d', foreground: '#e6edf3' }),
+    light: selection({ background: '#b6e3ff', inactiveBackground: '#ddf4ff', foreground: '#24292f' }),
+  },
+  'theme-daylight': {
+    dark: selection({ background: '#4a5240', inactiveBackground: '#3a4235', foreground: '#dcd7c9' }),
+    light: selection({ background: '#d4c4a8', inactiveBackground: '#e8dfd0', foreground: '#3d3428' }),
+  },
+  'theme-monokai': {
+    dark: selection({ background: '#49483e', inactiveBackground: '#3e3d32', foreground: '#f8f8f2' }),
+    light: selection({ background: '#c8c8b8', inactiveBackground: '#e0e0d5', foreground: '#272822' }),
+  },
+  'theme-material': {
+    dark: selection({ background: '#314a63', inactiveBackground: '#292d3e', foreground: '#a6accd' }),
+    light: selection({ background: '#c5cae9', inactiveBackground: '#e8eaf6', foreground: '#263238' }),
+  },
+  'theme-gruvbox': {
+    dark: selection({ background: '#504945', inactiveBackground: '#3c3836', foreground: '#ebdbb2' }),
+    light: selection({ background: '#d5c4a1', inactiveBackground: '#ebdbb2', foreground: '#3c3836' }),
+  },
+  'theme-catppuccin': {
+    dark: selection({ background: '#585b70', inactiveBackground: '#45475a', foreground: '#cdd6f4' }),
+    light: selection({ background: '#acb0be', inactiveBackground: '#ccd0da', foreground: '#4c4f69' }),
+  },
+  'theme-tokyo-night': {
+    dark: selection({ background: '#33467c', inactiveBackground: '#292e42', foreground: '#c0caf5' }),
+    light: selection({ background: '#c4d4ef', inactiveBackground: '#e1e8f5', foreground: '#343b59' }),
+  },
+  'theme-rose-pine': {
+    dark: selection({ background: '#403d52', inactiveBackground: '#2a2837', foreground: '#e0def4' }),
+    light: selection({ background: '#cecacd', inactiveBackground: '#e4e0e8', foreground: '#575279' }),
   },
 }

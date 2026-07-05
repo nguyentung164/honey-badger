@@ -5,6 +5,7 @@ import Store from 'electron-store'
 import { createWindow } from 'lib/electron-app/factories/windows/create'
 import { stopFileWatcher } from 'main/utils/fileWatcher'
 import { getWindowBackgroundColor } from 'main/utils/windowBackground'
+import { IPC } from 'main/constants'
 import { ENVIRONMENT } from 'shared/constants'
 import { displayName } from '~/package.json'
 
@@ -53,6 +54,14 @@ export async function MainWindow() {
       window.webContents.openDevTools({ mode: 'detach' })
     }
   })
+
+  const notifyRendererFocus = () => {
+    if (!window.isDestroyed() && !window.webContents.isDestroyed()) {
+      window.webContents.send(IPC.SYSTEM.APP_WINDOW_FOCUS)
+    }
+  }
+  window.on('focus', notifyRendererFocus)
+  window.on('show', notifyRendererFocus)
 
   window.on('close', () => {
     stopFileWatcher()

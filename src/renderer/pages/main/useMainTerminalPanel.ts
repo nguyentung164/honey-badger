@@ -125,6 +125,13 @@ export function useMainTerminalPanel() {
     }
   }, [])
 
+  const syncTerminalPanelExpanded = useCallback(
+    (expanded: boolean) => {
+      applyTerminalLayout(expanded, terminalPanelSize)
+    },
+    [applyTerminalLayout, terminalPanelSize]
+  )
+
   return {
     terminalOpen,
     terminalPanelSize,
@@ -132,6 +139,7 @@ export function useMainTerminalPanel() {
     toggleTerminal,
     openTerminal,
     closeTerminal,
+    syncTerminalPanelExpanded,
     handleTerminalLayoutChanged,
     mainShellContentPanelId: MAIN_SHELL_CONTENT_PANEL_ID,
     integratedTerminalPanelId: INTEGRATED_TERMINAL_PANEL_ID,

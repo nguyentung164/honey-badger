@@ -42,6 +42,7 @@ import { GlowLoader } from '@/components/ui-elements/GlowLoader'
 import toast from '@/components/ui-elements/Toast'
 import { triggerCommitWorkflowAfterCommit } from '@/lib/commitWorkflow/commitWorkflowUtils'
 import { gitStagingRepoRootKey, readGitStagingLayoutDirection } from '@/lib/diffViewer/openDiffViewer'
+import { MAIN_SHELL_OPEN_EDITOR_EVENT } from '@/lib/openEditor'
 import { buildShowLogOpenPayload, MAIN_SHELL_OPEN_SHOW_LOG_EVENT, type ShowLogOpenPayload } from '@/lib/openShowLog'
 import { cn } from '@/lib/utils'
 import { validateCommitMessage } from '@/lib/validateCommitMessage'
@@ -365,6 +366,7 @@ export function MainPage() {
       const vcs = cfg.versionControlSystem
       const paths = effectivePathsRef.current
       const multi = vcs === 'git' && !!cfg.multiRepoEnabled && paths.length >= 1
+      const reloadOpts = detail?.source === 'watcher' ? { silent: true as const } : undefined
       if (vcs === 'git') {
         if (multi && paths.length > 0) {
           let targetPath: string | undefined
@@ -375,23 +377,23 @@ export function MainPage() {
             targetPath = resolveRepoRootForPath(paths, detail.changedPath)
           }
           if (targetPath) {
-            gitMultiTableRefs.current[targetPath]?.reloadData?.()
+            gitMultiTableRefs.current[targetPath]?.reloadData?.(reloadOpts)
             return
           }
           if (detail?.source === 'staging') {
             const idx = Number(multiRepoActiveTabRef.current)
             const activePath = paths[idx] ?? paths[0]
-            gitMultiTableRefs.current[activePath]?.reloadData?.()
+            gitMultiTableRefs.current[activePath]?.reloadData?.(reloadOpts)
             return
           }
           paths.forEach(path => {
-            gitMultiTableRefs.current[path]?.reloadData?.()
+            gitMultiTableRefs.current[path]?.reloadData?.(reloadOpts)
           })
         } else if (gitDualTableRef.current) {
-          gitDualTableRef.current.reloadData()
+          void gitDualTableRef.current.reloadData(reloadOpts)
         }
       } else if (vcs === 'svn' && tableRef.current) {
-        tableRef.current.reloadData()
+        void tableRef.current.reloadData(detail?.source === 'watcher')
       }
     }
     window.api.on(IPC.FILES_CHANGED, handleFilesChanged)
@@ -837,6 +839,15 @@ export function MainPage() {
     window.addEventListener(MAIN_SHELL_OPEN_SHOW_LOG_EVENT, handler)
     return () => window.removeEventListener(MAIN_SHELL_OPEN_SHOW_LOG_EVENT, handler)
   }, [persistShellView])
+
+  useEffect(() => {
+    const handler = () => {
+      if (!enableShellSwitcher) return
+      persistShellView('editor')
+    }
+    window.addEventListener(MAIN_SHELL_OPEN_EDITOR_EVENT, handler)
+    return () => window.removeEventListener(MAIN_SHELL_OPEN_EDITOR_EVENT, handler)
+  }, [enableShellSwitcher, persistShellView])
 
   // Show Log: giữ context khi đổi tab; seed mặc định khi vào tab lần đầu
   useEffect(() => {
@@ -1589,11 +1600,19 @@ export function MainPage() {
     toggleTerminal,
     openTerminal,
     closeTerminal,
+    syncTerminalPanelExpanded,
     handleTerminalLayoutChanged,
     mainShellContentPanelId,
     integratedTerminalPanelId,
     maxTerminalPanelSize,
   } = useMainTerminalPanel()
+
+  /** Panel layout visible only on Editor; `terminalOpen` keeps sessions alive across tab switches. */
+  const terminalPanelExpanded = terminalOpen && (!enableShellSwitcher || shellView === 'editor')
+
+  useEffect(() => {
+    syncTerminalPanelExpanded(terminalPanelExpanded)
+  }, [terminalPanelExpanded, syncTerminalPanelExpanded])
 
   useEffect(() => {
     if (terminalOpen) setTerminalEverOpened(true)
@@ -1863,13 +1882,13 @@ export function MainPage() {
             direction="vertical"
             className="min-h-0 flex-1"
             defaultLayout={{
-              [mainShellContentPanelId]: terminalOpen ? 100 - terminalPanelSize : 100,
-              [integratedTerminalPanelId]: terminalOpen ? terminalPanelSize : 0,
+              [mainShellContentPanelId]: terminalPanelExpanded ? 100 - terminalPanelSize : 100,
+              [integratedTerminalPanelId]: terminalPanelExpanded ? terminalPanelSize : 0,
             }}
             onLayoutChanged={handleTerminalLayoutChanged}
             resizeTargetMinimumSize={{ coarse: 37, fine: 27 }}
           >
-            <ResizablePanel id={mainShellContentPanelId} minSize={terminalOpen ? 100 - maxTerminalPanelSize : 25} className="min-h-0 overflow-hidden">
+            <ResizablePanel id={mainShellContentPanelId} minSize={terminalPanelExpanded ? 100 - maxTerminalPanelSize : 25} className="min-h-0 overflow-hidden">
               {/* Content */}
               <div
                 className={cn(
@@ -2018,16 +2037,16 @@ export function MainPage() {
                 )}
               </div>
             </ResizablePanel>
-            <ResizableHandle className={terminalOpen ? undefined : 'pointer-events-none opacity-0'} />
+            <ResizableHandle className={terminalPanelExpanded ? undefined : 'pointer-events-none opacity-0'} />
             <ResizablePanel
               id={integratedTerminalPanelId}
               minSize={0}
               maxSize={`${maxTerminalPanelSize}%`}
-              defaultSize={terminalOpen ? `${terminalPanelSize}%` : '0%'}
+              defaultSize={terminalPanelExpanded ? `${terminalPanelSize}%` : '0%'}
               className="min-h-0 overflow-hidden"
             >
               {shouldMountTerminal ? (
-                <IntegratedTerminalPanel repoCwd={terminalCwd} panelVisible={terminalOpen} onClose={closeTerminal} />
+                <IntegratedTerminalPanel repoCwd={terminalCwd} panelVisible={terminalPanelExpanded} onClose={closeTerminal} />
               ) : null}
             </ResizablePanel>
           </ResizablePanelGroup>

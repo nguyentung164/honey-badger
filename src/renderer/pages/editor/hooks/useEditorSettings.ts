@@ -13,6 +13,7 @@ export type EditorLineNumbers = 'on' | 'off' | 'relative'
 export type EditorAutoSave = 'off' | 'afterDelay'
 export type EditorRenderWhitespace = 'none' | 'selection' | 'all'
 export type EditorCursorStyle = 'line' | 'block' | 'underline'
+export type EditorPreviewSampleLanguage = 'typescript' | 'markdown' | 'html'
 
 export type EditorSettings = {
   fontSize: number
@@ -25,6 +26,8 @@ export type EditorSettings = {
   minimap: boolean
   lineNumbers: EditorLineNumbers
   formatOnSave: boolean
+  trimTrailingWhitespaceOnSave: boolean
+  insertFinalNewlineOnSave: boolean
   formatOnPaste: boolean
   autoSave: EditorAutoSave
   autoSaveDelayMs: number
@@ -41,9 +44,22 @@ export type EditorSettings = {
   inlayHints: boolean
   /** Reopen editor tabs from the last session when opening a repo (VS Code window.restoreWindows). */
   restoreEditorTabs: boolean
+  /** Settings dialog preview sample language. */
+  previewSampleLanguage: EditorPreviewSampleLanguage
+  linkedEditing: boolean
+  dragAndDrop: boolean
+  showUnused: boolean
+  renderControlCharacters: boolean
+  detectIndentation: boolean
+  /** Vertical ruler columns (VS Code editor.rulers). */
+  rulers: number[]
+  links: boolean
 }
 
 const STORAGE_KEY = 'editor-settings-v1'
+
+/** Stable empty array — avoids useShallow re-render loops when rulers are unset. */
+const EMPTY_RULERS: number[] = []
 
 export const EDITOR_SETTINGS_DEFAULTS: EditorSettings = {
   fontSize: 14,
@@ -56,6 +72,8 @@ export const EDITOR_SETTINGS_DEFAULTS: EditorSettings = {
   minimap: true,
   lineNumbers: 'on',
   formatOnSave: false,
+  trimTrailingWhitespaceOnSave: true,
+  insertFinalNewlineOnSave: false,
   formatOnPaste: true,
   autoSave: 'off',
   autoSaveDelayMs: 1000,
@@ -71,9 +89,50 @@ export const EDITOR_SETTINGS_DEFAULTS: EditorSettings = {
   codeLens: true,
   inlayHints: true,
   restoreEditorTabs: true,
+  previewSampleLanguage: 'typescript',
+  linkedEditing: false,
+  dragAndDrop: true,
+  showUnused: true,
+  renderControlCharacters: false,
+  detectIndentation: true,
+  rulers: EMPTY_RULERS,
+  links: true,
 }
 
 export const EDITOR_TAB_SIZE_OPTIONS = [2, 4, 8] as const
+
+/** Display rulers setting as comma-separated columns (empty when unset). */
+export function formatRulersInput(rulers: number[] | undefined): string {
+  if (!rulers?.length) return ''
+  return rulers.join(', ')
+}
+
+/** Parse user input into sorted unique positive column numbers. */
+export function parseRulersInput(input: string): number[] {
+  if (!input.trim()) return EMPTY_RULERS
+  const values = input.split(/[,;\s]+/).map(part => Number.parseInt(part.trim(), 10))
+  return normalizeRulers(values)
+}
+
+function normalizeRulers(rulers: number[] | undefined): number[] {
+  if (!Array.isArray(rulers) || rulers.length === 0) return EMPTY_RULERS
+  const unique = new Set<number>()
+  for (const value of rulers) {
+    if (typeof value !== 'number' || !Number.isFinite(value)) continue
+    const rounded = Math.round(value)
+    if (rounded > 0) unique.add(rounded)
+  }
+  if (unique.size === 0) return EMPTY_RULERS
+  return [...unique].sort((a, b) => a - b)
+}
+
+const PREVIEW_SAMPLE_LANGUAGES = new Set<EditorPreviewSampleLanguage>(['typescript', 'markdown', 'html'])
+
+function normalizePreviewSampleLanguage(value: unknown): EditorPreviewSampleLanguage {
+  return typeof value === 'string' && PREVIEW_SAMPLE_LANGUAGES.has(value as EditorPreviewSampleLanguage)
+    ? (value as EditorPreviewSampleLanguage)
+    : EDITOR_SETTINGS_DEFAULTS.previewSampleLanguage
+}
 
 function clampSettings(settings: EditorSettings): EditorSettings {
   return {
@@ -83,6 +142,8 @@ function clampSettings(settings: EditorSettings): EditorSettings {
       EDITOR_AUTO_SAVE_DELAY_MAX,
       Math.max(EDITOR_AUTO_SAVE_DELAY_MIN, settings.autoSaveDelayMs)
     ),
+    previewSampleLanguage: normalizePreviewSampleLanguage(settings.previewSampleLanguage),
+    rulers: normalizeRulers(settings.rulers),
   }
 }
 
@@ -111,7 +172,9 @@ type EditorSettingsState = EditorSettings & {
 }
 
 export function pickEditorSettings(state: EditorSettingsState): EditorSettings {
-  return clampSettings({
+  // Project store fields only — clamping runs on read/patch/write, not on every selector call.
+  // Re-normalizing rulers here created a new [] each render and looped useShallow subscribers.
+  return {
     fontSize: state.fontSize,
     fontFamilyId: state.fontFamilyId,
     fontWeight: state.fontWeight,
@@ -122,6 +185,8 @@ export function pickEditorSettings(state: EditorSettingsState): EditorSettings {
     minimap: state.minimap,
     lineNumbers: state.lineNumbers,
     formatOnSave: state.formatOnSave,
+    trimTrailingWhitespaceOnSave: state.trimTrailingWhitespaceOnSave,
+    insertFinalNewlineOnSave: state.insertFinalNewlineOnSave,
     formatOnPaste: state.formatOnPaste,
     autoSave: state.autoSave,
     autoSaveDelayMs: state.autoSaveDelayMs,
@@ -137,7 +202,15 @@ export function pickEditorSettings(state: EditorSettingsState): EditorSettings {
     codeLens: state.codeLens,
     inlayHints: state.inlayHints,
     restoreEditorTabs: state.restoreEditorTabs,
-  })
+    previewSampleLanguage: state.previewSampleLanguage,
+    linkedEditing: state.linkedEditing,
+    dragAndDrop: state.dragAndDrop,
+    showUnused: state.showUnused,
+    renderControlCharacters: state.renderControlCharacters,
+    detectIndentation: state.detectIndentation,
+    rulers: state.rulers,
+    links: state.links,
+  }
 }
 
 export const useEditorSettings = create<EditorSettingsState>((set, get) => ({
@@ -148,8 +221,9 @@ export const useEditorSettings = create<EditorSettingsState>((set, get) => ({
     set(next)
   },
   resetSettings: () => {
-    writeSettings(EDITOR_SETTINGS_DEFAULTS)
-    set(EDITOR_SETTINGS_DEFAULTS)
+    const next = clampSettings(EDITOR_SETTINGS_DEFAULTS)
+    writeSettings(next)
+    set(next)
   },
 }))
 
@@ -158,5 +232,5 @@ export function useEditorSettingsValues(): EditorSettings {
 }
 
 export function useEditorMonacoSettings(): EditorSettings {
-  return useEditorSettingsValues()
+  return useEditorSettings(useShallow(state => pickEditorSettings(state)))
 }

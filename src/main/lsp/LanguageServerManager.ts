@@ -74,6 +74,13 @@ async function resolveJavaCommand(rootPath: string): Promise<{ command: string; 
 
 const INIT_REQUEST_TIMEOUT_MS = 120_000
 
+const startInflight = new Map<ServerKey, Promise<{ success: boolean; error?: string }>>()
+
+function resolveWorkspaceTsserverPath(rootPath: string): string | undefined {
+  const tsserver = path.join(rootPath, 'node_modules', 'typescript', 'lib', 'tsserver.js')
+  return fs.existsSync(tsserver) ? tsserver : undefined
+}
+
 function disposeManagedServer(key: ServerKey, managed: ManagedServer): void {
   try {
     managed.connection.dispose()
@@ -95,6 +102,7 @@ function disposeManagedServer(key: ServerKey, managed: ManagedServer): void {
 
 async function initializeServer(managed: ManagedServer, sender: WebContents): Promise<void> {
   const rootUri = workspaceRootUri(managed.rootPath)
+  const tsserverPath = managed.serverId === 'typescript' ? resolveWorkspaceTsserverPath(managed.rootPath) : undefined
   const initParams = {
     processId: process.pid,
     clientInfo: { name: 'honey-badger', version: app.getVersion() },
@@ -139,6 +147,7 @@ async function initializeServer(managed: ManagedServer, sender: WebContents): Pr
     initializationOptions:
       managed.serverId === 'typescript'
         ? {
+          ...(tsserverPath ? { tsserver: { path: tsserverPath } } : {}),
           preferences: {
             importModuleSpecifierPreference: 'relative',
             includeInlayParameterNameHints: 'all',
@@ -165,6 +174,11 @@ async function initializeServer(managed: ManagedServer, sender: WebContents): Pr
   managed.connection.sendNotification('initialized', {})
   managed.initialized = true
   managed.state = 'ready'
+  if (managed.serverId === 'typescript') {
+    l.info(`[lsp:typescript] ready — workspace ${rootUri}${tsserverPath ? `, tsserver ${tsserverPath}` : ''}`)
+  } else {
+    l.info(`[lsp:${managed.serverId}] ready — workspace ${rootUri}`)
+  }
   emitState(sender, managed.serverId, managed.rootPath, 'ready')
 }
 
@@ -180,6 +194,15 @@ function attachConnection(managed: ManagedServer, sender: WebContents) {
   })
 
   managed.connection.onError(err => {
+    const message = err instanceof Error ? err.message : String(err)
+    if (message.includes('EPIPE') || message.includes('ECONNRESET')) {
+      if (!managed.initialized) {
+        managed.state = 'error'
+        emitState(sender, managed.serverId, managed.rootPath, 'error', 'Language server connection closed')
+        disposeManagedServer(key, managed)
+      }
+      return
+    }
     l.error(`[lsp:${managed.serverId}] connection error`, err)
   })
 
@@ -193,13 +216,6 @@ async function spawnServer(serverId: LspServerId, rootPath: string): Promise<Man
     throw new Error(serverId === 'java' ? 'JDT Language Server not installed or JDK 17+ not found' : 'Language server not found')
   }
 
-  if (serverId === 'typescript') {
-    const tsserver = path.join(rootPath, 'node_modules', 'typescript', 'lib', 'tsserver.js')
-    if (fs.existsSync(tsserver)) {
-      spawnSpec.args.push('--tsserver-path', tsserver)
-    }
-  }
-
   const child = spawn(spawnSpec.command, spawnSpec.args, {
     cwd: rootPath,
     stdio: 'pipe',
@@ -207,6 +223,8 @@ async function spawnServer(serverId: LspServerId, rootPath: string): Promise<Man
     shell: false,
     env: buildLanguageServerSpawnEnv(spawnSpec.command),
   })
+
+  l.info(`[lsp:${serverId}] spawning`, spawnSpec.command, spawnSpec.args.join(' '))
 
   const connection = createMessageConnection(new StreamMessageReader(child.stdout), new StreamMessageWriter(child.stdin))
   const managed: ManagedServer = {
@@ -230,6 +248,10 @@ async function spawnServer(serverId: LspServerId, rootPath: string): Promise<Man
     l.warn(`[lsp:${serverId}] exited`, code)
     managed.state = 'stopped'
     managed.initialized = false
+    const sender = senderByKey.get(serverKey(serverId, rootPath))
+    if (sender && code !== 0 && code != null) {
+      emitState(sender, serverId, rootPath, 'error', `Language server exited (${code})`)
+    }
   })
 
   const sender = senderByKey.get(serverKey(serverId, rootPath))
@@ -246,6 +268,30 @@ export async function startLanguageServer(sender: WebContents, serverId: LspServ
   const key = serverKey(serverId, normalizedRoot)
   senderByKey.set(key, sender)
 
+  const existing = servers.get(key)
+  if (existing?.initialized) {
+    emitState(sender, serverId, normalizedRoot, 'ready')
+    return { success: true }
+  }
+
+  const inflight = startInflight.get(key)
+  if (inflight) return inflight
+
+  const promise = startLanguageServerInner(sender, serverId, normalizedRoot, key)
+  startInflight.set(key, promise)
+  try {
+    return await promise
+  } finally {
+    startInflight.delete(key)
+  }
+}
+
+async function startLanguageServerInner(
+  sender: WebContents,
+  serverId: LspServerId,
+  normalizedRoot: string,
+  key: ServerKey
+): Promise<{ success: boolean; error?: string }> {
   const existing = servers.get(key)
   if (existing?.initialized) {
     emitState(sender, serverId, normalizedRoot, 'ready')
@@ -269,17 +315,39 @@ export async function startLanguageServer(sender: WebContents, serverId: LspServ
   }
 
   emitState(sender, serverId, normalizedRoot, 'starting')
+  l.info(`[lsp:${serverId}] starting workspace ${workspaceRootUri(normalizedRoot)}`)
   try {
     const managed = await spawnServer(serverId, normalizedRoot)
     servers.set(key, managed)
 
-    managed.initPromise = initializeServer(managed, sender).catch(err => {
-      const message = err instanceof Error ? err.message : String(err)
-      managed.state = 'error'
-      emitState(sender, serverId, normalizedRoot, 'error', message)
+    if (managed.process.exitCode != null) {
+      const error = `Language server exited (${managed.process.exitCode})`
+      emitState(sender, serverId, normalizedRoot, 'error', error)
       disposeManagedServer(key, managed)
-      throw err
+      return { success: false, error }
+    }
+
+    let rejectEarlyExit: ((err: Error) => void) | undefined
+    const earlyExit = new Promise<never>((_, reject) => {
+      rejectEarlyExit = reject
     })
+    const onEarlyExit = (code: number | null) => {
+      rejectEarlyExit?.(new Error(`Language server exited (${code ?? 'unknown'})`))
+    }
+    managed.process.once('exit', onEarlyExit)
+
+    managed.initPromise = Promise.race([initializeServer(managed, sender), earlyExit])
+      .then(() => undefined)
+      .catch(err => {
+        const message = err instanceof Error ? err.message : String(err)
+        managed.state = 'error'
+        emitState(sender, serverId, normalizedRoot, 'error', message)
+        disposeManagedServer(key, managed)
+        throw err
+      })
+      .finally(() => {
+        managed.process.removeListener('exit', onEarlyExit)
+      })
 
     try {
       await managed.initPromise
@@ -289,7 +357,9 @@ export async function startLanguageServer(sender: WebContents, serverId: LspServ
 
     return { success: true }
   } catch (err) {
-    return { success: false, error: err instanceof Error ? err.message : String(err) }
+    const message = err instanceof Error ? err.message : String(err)
+    emitState(sender, serverId, normalizedRoot, 'error', message)
+    return { success: false, error: message }
   }
 }
 
@@ -304,7 +374,7 @@ export function stopLanguageServer(serverId: LspServerId, rootPath: string): voi
 export function sendLanguageServerMessage(serverId: LspServerId, rootPath: string, message: string): void {
   const key = serverKey(serverId, path.resolve(rootPath))
   const managed = servers.get(key)
-  if (!managed) return
+  if (!managed?.initialized) return
   try {
     const parsed = JSON.parse(message) as { method?: string; params?: unknown; id?: number }
     if (parsed.method?.startsWith('$/')) return

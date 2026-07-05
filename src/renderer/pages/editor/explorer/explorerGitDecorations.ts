@@ -12,26 +12,26 @@ export type GitStatusPayload = {
   conflicted?: string[]
 }
 
-/** VS Code gitDecoration.*ResourceForeground — explorer label colors. */
+/** VS Code gitDecoration.*ResourceForeground — theme via --hb-git-* in globals.css */
 export const EXPLORER_GIT_LABEL_CLASS: Record<GitFileStatusCode, string> = {
-  modified: 'text-[#e2c08d]',
-  added: 'text-[#73c991]',
-  untracked: 'text-[#73c991]',
-  staged: 'text-[#73c991]',
-  deleted: 'text-[#f14c4c] line-through',
-  renamed: 'text-[#73c991]',
-  conflicted: 'text-[#e51400]',
+  modified: 'text-[var(--hb-git-modified)]',
+  added: 'text-[var(--hb-git-added)]',
+  untracked: 'text-[var(--hb-git-untracked)]',
+  staged: 'text-[var(--hb-git-staged)]',
+  deleted: 'text-[var(--hb-git-deleted)] line-through',
+  renamed: 'text-[var(--hb-git-renamed)]',
+  conflicted: 'text-[var(--hb-git-conflicted)]',
 }
 
 /** VS Code folder trailing dot — same palette as status. */
 export const EXPLORER_GIT_DOT_CLASS: Record<GitFileStatusCode, string> = {
-  modified: 'bg-[#e2c08d]',
-  added: 'bg-[#73c991]',
-  untracked: 'bg-[#73c991]',
-  staged: 'bg-[#73c991]',
-  deleted: 'bg-[#f14c4c]',
-  renamed: 'bg-[#73c991]',
-  conflicted: 'bg-[#e51400]',
+  modified: 'bg-[var(--hb-git-modified)]',
+  added: 'bg-[var(--hb-git-added)]',
+  untracked: 'bg-[var(--hb-git-untracked)]',
+  staged: 'bg-[var(--hb-git-staged)]',
+  deleted: 'bg-[var(--hb-git-deleted)]',
+  renamed: 'bg-[var(--hb-git-renamed)]',
+  conflicted: 'bg-[var(--hb-git-conflicted)]',
 }
 
 const STATUS_RANK: Record<GitFileStatusCode, number> = {
@@ -103,6 +103,17 @@ function isUnderFolder(filePath: string, folderPath: string): boolean {
   return filePath === folderPath || filePath.startsWith(`${folderPath}/`)
 }
 
+/** Folder labels — no strikethrough (VS Code only strikes deleted files, not parents). */
+export const EXPLORER_GIT_FOLDER_LABEL_CLASS: Record<GitFileStatusCode, string> = {
+  modified: 'text-[var(--hb-git-modified)]',
+  added: 'text-[var(--hb-git-added)]',
+  untracked: 'text-[var(--hb-git-untracked)]',
+  staged: 'text-[var(--hb-git-staged)]',
+  deleted: 'text-[var(--hb-git-deleted)]',
+  renamed: 'text-[var(--hb-git-renamed)]',
+  conflicted: 'text-[var(--hb-git-conflicted)]',
+}
+
 export function resolveFolderGitStatus(
   folderPath: string,
   fileStatuses: Map<string, GitFileStatusCode>
@@ -110,10 +121,8 @@ export function resolveFolderGitStatus(
   let best: GitFileStatusCode | null = null
   for (const [filePath, status] of fileStatuses) {
     if (!isUnderFolder(filePath, folderPath)) continue
-    if (filePath === folderPath) {
-      best = pickHigherStatus(best, status)
-      continue
-    }
+    // VS Code: Resource.resourceDecoration sets propagate=false for DELETED/INDEX_DELETED.
+    if (filePath !== folderPath && status === 'deleted') continue
     best = pickHigherStatus(best, status)
   }
   return best

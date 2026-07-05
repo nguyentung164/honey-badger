@@ -54,6 +54,7 @@ export const IPC = {
   },
   SETTING: {
     APPEARANCE: {
+      GET: 'setting:appearance:get',
       SET: 'setting:appearance:set',
     },
     CONFIGURATION: {
@@ -238,6 +239,7 @@ export const IPC = {
     GET_NOTIFICATION_SOUND_URL: 'system:get-notification-sound-url',
     GET_DEFAULT_NOTIFICATION_SOUND_URL: 'system:get-default-notification-sound-url',
     GET_PATH_ENTRY_KIND: 'system:get-path-entry-kind',
+    RESOLVE_NODE_MODULE: 'system:resolve-node-module',
     DETECT_FILE_KIND: 'system:detect-file-kind',
     READ_FILE_DATA_URL: 'system:read-file-data-url',
     LIST_DIR: 'system:list-dir',
@@ -253,6 +255,9 @@ export const IPC = {
     WATCH_WORKSPACE: 'system:watch-workspace',
     UNWATCH_WORKSPACE: 'system:unwatch-workspace',
     WORKSPACE_FILE_CHANGED: 'system:workspace-file-changed',
+    APP_WINDOW_FOCUS: 'system:app-window-focus',
+    SET_EDITOR_OPEN_FILES: 'system:set-editor-open-files',
+    EDITOR_OPEN_FILE_CHANGED: 'system:editor-open-file-changed',
   },
   LSP: {
     START: 'lsp:start',

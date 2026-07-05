@@ -9,7 +9,7 @@ type TrackedServerState = {
   error?: string
 }
 
-const READY_CLEAR_MS = 3_000
+const READY_CLEAR_MS = 8_000
 const STARTING_TIMEOUT_MS = 25_000
 
 /**
@@ -125,6 +125,9 @@ export function useEditorLspStatusBar(repoCwd: string, activeLanguageId?: string
 
       if (event.state === 'ready') {
         setLspStatus(t('editor.lsp.ready'))
+        if (import.meta.env.DEV) {
+          console.info(`[lsp] status: IntelliSense ready (${event.serverId})`)
+        }
         scheduleReadyClear()
         return
       }

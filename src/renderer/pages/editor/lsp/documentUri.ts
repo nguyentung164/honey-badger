@@ -1,4 +1,5 @@
 export {
+  canonicalizeFileUri,
   documentUriForPath,
   fileUriToPath,
   isLargeFileForLsp,

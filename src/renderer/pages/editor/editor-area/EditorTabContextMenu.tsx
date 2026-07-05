@@ -17,6 +17,7 @@ export type EditorTabMenuActions = {
   onRevealInFileExplorer: () => void
   onRevealInExplorerView: () => void
   onPin: () => void
+  onRevert: () => void
 }
 
 type EditorTabContextMenuProps = {
@@ -89,6 +90,10 @@ export const EditorTabContextMenu = memo(function EditorTabContextMenu({
         </ContextMenuItem>
 
         <ContextMenuSeparator />
+
+        <ContextMenuItem disabled={tab.isCompare} onSelect={actions.onRevert}>
+          {t('editor.revertFile')}
+        </ContextMenuItem>
 
         <ContextMenuItem disabled={tab.isPinned} onSelect={actions.onPin}>
           {t('editor.tabMenu.pin')}

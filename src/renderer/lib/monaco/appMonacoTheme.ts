@@ -42,7 +42,6 @@ function readAppMonacoBaseColors(themeId: AppThemeId, appIsDark: boolean): Recor
   const fg = readVar('--foreground', fallbackFg)
   const muted = readVar('--muted-foreground', appIsDark ? '#6c7086' : '#6e7781')
   const primary = readVar('--primary', palette.editor.keyword)
-  const accent = readVar('--accent', appIsDark ? '#264f78' : '#add6ff')
   const border = readVar('--border', appIsDark ? '#3f3f46' : '#e4e4e7')
   const card = readVar('--card', bg)
   const popover = readVar('--popover', card)
@@ -53,11 +52,20 @@ function readAppMonacoBaseColors(themeId: AppThemeId, appIsDark: boolean): Recor
     'editorLineNumber.foreground': muted,
     'editorLineNumber.activeForeground': fg,
     'editorCursor.foreground': primary,
-    'editor.selectionBackground': resolveCssColorToHexWithAlpha(accent, appIsDark ? '#264f78' : '#add6ff', 0x99),
-    'editor.inactiveSelectionBackground': resolveCssColorToHexWithAlpha(accent, appIsDark ? '#264f78' : '#add6ff', 0x44),
+    'editor.selectionBackground': palette.selection.background,
+    'editor.inactiveSelectionBackground': palette.selection.inactiveBackground,
     'editorWidget.background': popover,
     'editorWidget.border': border,
     'editorGutter.background': bg,
+    'editorGutter.addedBackground': '#487e02',
+    'editorGutter.modifiedBackground': '#1b81a8',
+    'editorGutter.deletedBackground': '#ad0707',
+    'editorOverviewRuler.addedForeground': '#487e02b3',
+    'editorOverviewRuler.modifiedForeground': '#1b81a8b3',
+    'editorOverviewRuler.deletedForeground': '#ad0707b3',
+    'minimapGutter.addedBackground': '#487e02b3',
+    'minimapGutter.modifiedBackground': '#1b81a8b3',
+    'minimapGutter.deletedBackground': '#ad0707b3',
     'minimap.background': bg,
     'scrollbarSlider.background': resolveCssColorToHexWithAlpha(muted, appIsDark ? '#6c7086' : '#9aa2b1', 0x55),
     'scrollbarSlider.hoverBackground': resolveCssColorToHexWithAlpha(muted, appIsDark ? '#6c7086' : '#9aa2b1', 0x88),

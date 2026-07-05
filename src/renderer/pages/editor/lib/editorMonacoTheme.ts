@@ -2,7 +2,7 @@ import type * as Monaco from 'monaco-editor'
 import type { CSSProperties } from 'react'
 import { onAppMonacoBeforeMount, readAppMonacoPreviewColors, resolveAppMonacoThemeId } from '@/lib/monaco/appMonacoTheme'
 import { resolveFontWeightPreviewStyle, terminalLigatureCss } from '@/lib/terminal/terminalPrefs'
-import type { EditorSettings } from '@/pages/editor/hooks/useEditorSettings'
+import type { EditorPreviewSampleLanguage, EditorSettings } from '@/pages/editor/hooks/useEditorSettings'
 
 export const EDITOR_FONT_SIZE_MIN = 10
 export const EDITOR_FONT_SIZE_MAX = 24
@@ -57,24 +57,60 @@ export const EDITOR_THEME_PREVIEW: Record<'light' | 'dark', EditorThemePreviewCo
   },
 }
 
-const PREVIEW_SAMPLE_TAIL = `const ligatures = '=> -> ...'
-const longLine = 'This line is intentionally long so word wrap and the minimap are easier to see when those settings are enabled in the preview.'
+const PREVIEW_SAMPLE_TAIL_TS = `const appId = \`com.example.my-app\`.toLowerCase()
+const ligatures = '=> -> ...'
+const unusedPreview = 42
+const tabDemo = 'a	b'
+const trailingSpaces = 'end'   
+const longLine = 'This line is intentionally long so word wrap and the minimap are easier to see when those settings are enabled in the preview. See https://example.com/docs'
 // end preview`
 
+const PREVIEW_SAMPLE_MARKDOWN = `# Preview heading
+
+Paragraph with **bold**, _italic_, and a [documentation link](https://example.com).
+
+- Bullet one
+- Bullet two
+
+\`\`\`ts
+export const sample = true
+\`\`\`
+`
+
+const PREVIEW_SAMPLE_HTML = `<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <title>Linked editing preview</title>
+  </head>
+  <body>
+    <div class="container">
+      <p>Edit one tag — the pair updates together.</p>
+    </div>
+  </body>
+</html>
+`
+
 /** Preview document text that reflects tab size and spaces-vs-tabs preference. */
-export function buildEditorPreviewSample(tabSize: number, insertSpaces: boolean): string {
+export function buildEditorPreviewSample(
+  tabSize: number,
+  insertSpaces: boolean,
+  language: EditorPreviewSampleLanguage = 'typescript'
+): string {
+  if (language === 'markdown') return PREVIEW_SAMPLE_MARKDOWN
+  if (language === 'html') return PREVIEW_SAMPLE_HTML
+
   const indent = insertSpaces ? ' '.repeat(tabSize) : '\t'
   const bodyIndent = insertSpaces ? ' '.repeat(tabSize * 2) : `${indent}${indent}`
   const indentLabel = insertSpaces ? `'spaces × ${tabSize}'` : `'tab × ${tabSize}'`
 
-  return `// Brackets · minimap · sticky scroll · whitespace
-export function parseConfig(input: string): { ok: true; value: string } | { ok: false } {
+  return `// Brackets · minimap · sticky scroll · whitespace · inlay hints · CodeLens
+export function parseConfig(input: string) {
 ${indent}const tokens = input.trim().split(/\\s+/)
 ${indent}if (tokens.length < 2) {
 ${bodyIndent}return { ok: false }
 ${indent}}
 
-${indent}const pairs: Array<[string, string]> = []
+${indent}const pairs = []
 ${indent}for (let i = 0; i < tokens.length; i += 2) {
 ${bodyIndent}pairs.push([tokens[i], tokens[i + 1] ?? ''])
 ${indent}}
@@ -86,7 +122,13 @@ function indentSample() {
 ${indent}return ${indentLabel}
 }
 
-${PREVIEW_SAMPLE_TAIL}`
+${PREVIEW_SAMPLE_TAIL_TS}`
+}
+
+export function resolveEditorPreviewMonacoLanguage(language: EditorPreviewSampleLanguage): string {
+  if (language === 'markdown') return 'markdown'
+  if (language === 'html') return 'html'
+  return 'typescript'
 }
 
 /** Static sample for tests / fallbacks — uses 2-space indentation. */
@@ -110,7 +152,7 @@ export function resolveEditorThemePreviewColors(appIsDark: boolean): EditorTheme
 
 /** CSS variables + inline styles applied on `.hb-monaco-editor-root` for font family/weight/ligatures. */
 export function resolveEditorMonacoFontStyle(
-  settings: Pick<EditorSettings, 'fontFamilyId' | 'fontWeight' | 'enableLigatures'>
+  settings: Pick<EditorSettings, 'fontFamilyId' | 'fontWeight' | 'enableLigatures' | 'fontSize'>
 ): CSSProperties {
   const weightStyle = resolveFontWeightPreviewStyle(settings.fontFamilyId, settings.fontWeight)
   const ligatures = terminalLigatureCss(settings.enableLigatures)
@@ -119,6 +161,7 @@ export function resolveEditorMonacoFontStyle(
     ...ligatures,
     ['--hb-editor-font-family' as string]: weightStyle.fontFamily,
     ['--hb-editor-font-weight' as string]: String(weightStyle.fontWeight),
+    ['--hb-editor-font-size' as string]: `${settings.fontSize}px`,
     ['--hb-editor-font-variation-settings' as string]: weightStyle.fontVariationSettings,
     ['--hb-editor-font-feature-settings' as string]: ligatures.fontFeatureSettings,
   }

@@ -6,13 +6,14 @@ import {
   relativePathFromDocumentUri,
   resolveTypeScriptModulePath,
 } from '@/pages/editor/lib/resolveTypeScriptModule'
+import { getModelText } from '@/pages/editor/lib/editorModelRegistry'
 
 const IMPORT_LINK_LANGS = new Set(['typescript', 'typescriptreact', 'javascript', 'javascriptreact'])
 const IMPORT_LINK_DECORATION = 'hb-import-link-hover'
 
 type ImportTarget =
   | { kind: 'module'; range: Monaco.IRange; specifier: string }
-  | { kind: 'binding'; range: Monaco.IRange; symbol: string }
+  | { kind: 'binding'; range: Monaco.IRange; symbol: string; exportedSymbol: string }
 
 let navigationRepoCwd = ''
 let openerRegistered = false
@@ -41,6 +42,18 @@ function isModifierHeld(event: { ctrlKey: boolean; metaKey: boolean }): boolean 
   return event.ctrlKey || event.metaKey
 }
 
+/** Monaco ICodeEditor has no public isDisposed(); guard after async navigation. */
+function isCodeEditorUsable(editor: Monaco.editor.IStandaloneCodeEditor, expectedModelUri?: string): boolean {
+  try {
+    const current = editor.getModel()
+    if (!current) return false
+    if (expectedModelUri && current.uri.toString() !== expectedModelUri) return false
+    return true
+  } catch {
+    return false
+  }
+}
+
 function openWorkspaceLocation(uri: string, line?: number, column?: number): boolean {
   const repoCwd = navigationRepoCwd || useEditorWorkspace.getState().repoCwd
   if (!repoCwd) return false
@@ -67,30 +80,32 @@ function moduleSpecifierRanges(line: string): Array<{ start: number; end: number
     const quote = match[1]
     const specifier = match[2]
     const token = `${quote}${specifier}${quote}`
-    const tokenStart = match.index + match[0].indexOf(token) + 1
-    ranges.push({ start: tokenStart, end: tokenStart + specifier.length - 1, specifier })
+    const quoteColumn = match.index + match[0].indexOf(token) + 1
+    const start = quoteColumn + 1
+    ranges.push({ start, end: start + specifier.length - 1, specifier })
   }
   return ranges
 }
 
-function namedImportBindingRanges(line: string): Array<{ start: number; end: number; symbol: string }> {
-  const ranges: Array<{ start: number; end: number; symbol: string }> = []
+function namedImportBindingRanges(line: string): Array<{ start: number; end: number; symbol: string; exportedSymbol: string }> {
+  const ranges: Array<{ start: number; end: number; symbol: string; exportedSymbol: string }> = []
   const braceStart = line.indexOf('{')
   const fromIndex = line.indexOf(' from ')
   if (braceStart < 0 || fromIndex < 0 || braceStart > fromIndex) return ranges
 
   const clause = line.slice(braceStart + 1, line.indexOf('}', braceStart))
-  const bindingRe = /\b([A-Za-z_$][\w$]*)\b(?:\s+as\s+\b([A-Za-z_$][\w$]*)\b)?/g
+  const bindingRe = /\b(type\s+)?([A-Za-z_$][\w$]*)\b(?:\s+as\s+\b([A-Za-z_$][\w$]*)\b)?/g
   for (let match = bindingRe.exec(clause); match; match = bindingRe.exec(clause)) {
-    const local = match[2] ?? match[1]
-    const localIndexInClause = match[2] ? match.index + match[0].lastIndexOf(local) : match.index
+    const exportedSymbol = match[2]
+    const local = match[3] ?? match[2]
+    const localIndexInClause = match[3] ? match.index + match[0].lastIndexOf(local) : match.index + (match[1] ? match[1].length : 0)
     const start = braceStart + 1 + localIndexInClause
-    ranges.push({ start: start + 1, end: start + local.length, symbol: local })
+    ranges.push({ start: start + 1, end: start + local.length, symbol: local, exportedSymbol })
   }
   return ranges
 }
 
-function defaultImportBindingRange(line: string): { start: number; end: number; symbol: string } | null {
+function defaultImportBindingRange(line: string): { start: number; end: number; symbol: string; exportedSymbol: string } | null {
   const trimmed = line.trim()
   if (!trimmed.startsWith('import ') || trimmed.includes('{')) return null
   const match = trimmed.match(/^import\s+(?:type\s+)?([A-Za-z_$][\w$]*)\s+from\s+/)
@@ -98,7 +113,7 @@ function defaultImportBindingRange(line: string): { start: number; end: number; 
   const symbol = match[1]
   const start = line.indexOf(symbol)
   if (start < 0) return null
-  return { start: start + 1, end: start + symbol.length, symbol }
+  return { start: start + 1, end: start + symbol.length, symbol, exportedSymbol: symbol }
 }
 
 function findImportTargetAt(
@@ -133,6 +148,7 @@ function findImportTargetAt(
           kind: 'binding',
           range: toRange(monaco, lineNumber, range.start, range.end),
           symbol: range.symbol,
+          exportedSymbol: range.exportedSymbol,
         }
       }
     }
@@ -143,11 +159,51 @@ function findImportTargetAt(
         kind: 'binding',
         range: toRange(monaco, lineNumber, defaultBinding.start, defaultBinding.end),
         symbol: defaultBinding.symbol,
+        exportedSymbol: defaultBinding.exportedSymbol,
       }
     }
   }
 
   return null
+}
+
+function isFallbackResolvableSpecifier(specifier: string): boolean {
+  return specifier.startsWith('.') || specifier.startsWith('@/') || specifier.startsWith('~/')
+}
+
+function rowDeclaresSymbol(row: string, symbol: string): boolean {
+  const trimmed = row.trim()
+  return (
+    trimmed.startsWith(`function ${symbol}`) ||
+    trimmed.startsWith(`async function ${symbol}`) ||
+    trimmed.startsWith(`const ${symbol}`) ||
+    trimmed.startsWith(`class ${symbol}`) ||
+    trimmed.startsWith(`enum ${symbol}`) ||
+    trimmed.startsWith(`type ${symbol}`) ||
+    trimmed.startsWith(`interface ${symbol}`) ||
+    trimmed.includes(`export function ${symbol}`) ||
+    trimmed.includes(`export async function ${symbol}`) ||
+    trimmed.includes(`export const ${symbol}`) ||
+    trimmed.includes(`export class ${symbol}`) ||
+    trimmed.includes(`export enum ${symbol}`) ||
+    trimmed.includes(`export type ${symbol}`) ||
+    trimmed.includes(`export interface ${symbol}`) ||
+    (trimmed.includes('export {') && trimmed.includes(symbol))
+  )
+}
+
+async function fallbackModuleLocation(
+  model: Monaco.editor.ITextModel,
+  repoCwd: string,
+  specifier: string
+): Promise<{ uri: string; line: number; column: number } | null> {
+  const fromRelativePath = relativePathFromDocumentUri(model.uri.toString(), repoCwd)
+  if (!fromRelativePath) return null
+
+  const resolved = await resolveTypeScriptModulePath(specifier, fromRelativePath, repoCwd)
+  if (!resolved) return null
+
+  return { uri: documentUriForPath(repoCwd, resolved), line: 1, column: 1 }
 }
 
 async function fallbackImportSymbolLocation(
@@ -167,23 +223,16 @@ async function fallbackImportSymbolLocation(
   if (!resolved) return null
 
   try {
-    const content = await window.api.system.read_file(resolved, { cwd: repoCwd })
+    const content =
+      getModelText(repoCwd, resolved) ?? (await window.api.system.read_file(resolved, { cwd: repoCwd }))
     const lines = content.split('\n')
 
     for (let i = 0; i < lines.length; i++) {
       const row = lines[i]
-      const matchesSymbol =
-        row.includes(`export function ${symbol}`) ||
-        row.includes(`export async function ${symbol}`) ||
-        row.includes(`export const ${symbol}`) ||
-        row.includes(`export class ${symbol}`) ||
-        row.includes(`export enum ${symbol}`) ||
-        row.includes(`export type ${symbol}`) ||
-        (row.includes('export {') && row.includes(symbol)) ||
-        row.includes('export default function') ||
-        row.includes(`export default class ${symbol}`)
-      if (!matchesSymbol) continue
-      const col = Math.max(1, row.indexOf(symbol) + 1)
+      if (!rowDeclaresSymbol(row, symbol)) continue
+      const fnIndex = row.indexOf(`function ${symbol}`)
+      const colIndex = fnIndex >= 0 ? fnIndex + 'function '.length : row.indexOf(symbol)
+      const col = Math.max(1, colIndex + 1)
       return {
         uri: documentUriForPath(repoCwd, resolved),
         line: i + 1,
@@ -197,6 +246,46 @@ async function fallbackImportSymbolLocation(
   return { uri: documentUriForPath(repoCwd, resolved), line: 1, column: 1 }
 }
 
+function moduleSpecifierFromLine(model: Monaco.editor.ITextModel, lineNumber: number): string | null {
+  const line = model.getLineContent(lineNumber)
+  const specMatch = line.match(/\bfrom\s+(['"])([^'"]+)\1/) ?? line.match(/\bimport\s+(['"])([^'"]+)\1/)
+  return specMatch?.[2] ?? null
+}
+
+async function tryNodeModuleNavigation(
+  model: Monaco.editor.ITextModel,
+  repoCwd: string,
+  specifier: string
+): Promise<boolean> {
+  if (isFallbackResolvableSpecifier(specifier)) return false
+
+  const fromRelativePath = relativePathFromDocumentUri(model.uri.toString(), repoCwd)
+  if (!fromRelativePath) return false
+
+  const resolved = await window.api.system.resolve_node_module({
+    specifier,
+    cwd: repoCwd,
+    fromRelativePath,
+  })
+  if (!resolved) return false
+
+  return openWorkspaceLocation(documentUriForPath(repoCwd, resolved), 1, 1)
+}
+
+async function tryWorkspaceImportNavigation(
+  importTarget: ImportTarget,
+  model: Monaco.editor.ITextModel,
+  position: Monaco.Position,
+  repoCwd: string
+): Promise<boolean> {
+  if (importTarget.kind === 'module') {
+    const loc = await fallbackModuleLocation(model, repoCwd, importTarget.specifier)
+    return loc ? openWorkspaceLocation(loc.uri, loc.line, loc.column) : false
+  }
+  const loc = await fallbackImportSymbolLocation(model, position, repoCwd, importTarget.exportedSymbol)
+  return loc ? openWorkspaceLocation(loc.uri, loc.line, loc.column) : false
+}
+
 async function openDefinitionAt(
   editor: Monaco.editor.IStandaloneCodeEditor,
   monaco: typeof Monaco,
@@ -204,26 +293,56 @@ async function openDefinitionAt(
 ) {
   const model = editor.getModel()
   if (!model) return
+  const modelUri = model.uri.toString()
 
   const repoCwd = navigationRepoCwd || useEditorWorkspace.getState().repoCwd
+  const importTarget = findImportTargetAt(monaco, model, position)
+  const moduleSpecifier = importTarget
+    ? importTarget.kind === 'module'
+      ? importTarget.specifier
+      : moduleSpecifierFromLine(model, position.lineNumber)
+    : moduleSpecifierFromLine(model, position.lineNumber)
+
+  // Instant path: workspace imports (./ @/ ~/) — no tsserver wait.
+  if (importTarget && repoCwd) {
+    if (moduleSpecifier && isFallbackResolvableSpecifier(moduleSpecifier)) {
+      if (await tryWorkspaceImportNavigation(importTarget, model, position, repoCwd)) {
+        return
+      }
+    }
+    // node_modules package string (e.g. 'clsx', 'tailwind-merge') — Node resolve, no LSP wait.
+    if (importTarget.kind === 'module' && moduleSpecifier) {
+      if (await tryNodeModuleNavigation(model, repoCwd, moduleSpecifier)) {
+        return
+      }
+    }
+  }
+
+  if (!isCodeEditorUsable(editor, modelUri)) return
+
+  // VS Code path: tsserver for symbols in external packages and re-exports.
   const locations = await editorLanguageService.lookupDefinition(model, position)
+
+  if (!isCodeEditorUsable(editor, modelUri)) return
 
   const target = locations?.[0]
   if (target && openWorkspaceLocation(target.uri.toString(), target.range.startLineNumber, target.range.startColumn)) {
     return
   }
 
-  const importTarget = findImportTargetAt(monaco, model, position)
-  const symbol = importTarget?.kind === 'binding' ? importTarget.symbol : null
-
-  if (symbol && repoCwd) {
-    const fallback = await fallbackImportSymbolLocation(model, position, repoCwd, symbol)
-    if (fallback && openWorkspaceLocation(fallback.uri, fallback.line, fallback.column)) {
+  // LSP missed — open package entry (binding click on clsx, twMerge, etc.)
+  if (moduleSpecifier && !isFallbackResolvableSpecifier(moduleSpecifier)) {
+    if (await tryNodeModuleNavigation(model, repoCwd, moduleSpecifier)) {
       return
     }
   }
 
-  await editor.getAction('editor.action.revealDefinition')?.run()
+  if (!isCodeEditorUsable(editor, modelUri)) return
+  try {
+    await editor.getAction('editor.action.revealDefinition')?.run()
+  } catch {
+    /* tab switched / editor disposed during async LSP */
+  }
 }
 
 function registerEditorOpener(monaco: typeof Monaco) {
@@ -314,14 +433,6 @@ function registerImportNavigationHandlers(
     e.event.preventDefault()
     e.event.stopPropagation()
     clearDecoration()
-
-    if (target.kind === 'module') {
-      void resolveTypeScriptModulePath(target.specifier, fromRelativePath, repoCwd).then(resolved => {
-        if (!resolved) return
-        openWorkspaceLocation(documentUriForPath(repoCwd, resolved))
-      })
-      return
-    }
 
     void openDefinitionAt(editor, monaco, position)
   })

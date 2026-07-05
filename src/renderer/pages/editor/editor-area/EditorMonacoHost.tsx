@@ -1,13 +1,18 @@
 'use client'
 
 import type * as Monaco from 'monaco-editor'
-import { useCallback, useEffect, useImperativeHandle, useRef, forwardRef } from 'react'
+import { useCallback, useEffect, useImperativeHandle, useMemo, useRef, forwardRef } from 'react'
 import { cn } from '@/lib/utils'
 import { isLargeFileByMetrics } from 'shared/fileUri'
 import { useGlobalAppMonacoThemeSync, onAppMonacoBeforeMount } from '@/hooks/useAppMonacoTheme'
 import { resolveEditorMonacoFontStyle } from '@/pages/editor/lib/editorMonacoTheme'
 import { useEditorMonacoSettings } from '@/pages/editor/hooks/useEditorSettings'
 import { buildMonacoEditorOptions } from '@/pages/editor/lib/buildMonacoEditorOptions'
+import {
+  applyEditorMonacoSettings,
+  editorSettingsFingerprint,
+  refreshEditorMonacoAfterSettings,
+} from '@/pages/editor/lib/applyEditorMonacoSettings'
 import {
   attachModelToEditor,
   bindEditorModelRegistry,
@@ -22,6 +27,7 @@ export type EditorMonacoHostProps = {
   relativePath: string | null
   contentLoaded: boolean
   loadGeneration: number
+  revealAt?: { line: number; column: number }
   onChange?: (alternativeVersionId: number, changes: Monaco.editor.IModelContentChange[]) => void
   onCursorChange?: (position: { line: number; column: number }) => void
   onMount?: (editor: Monaco.editor.IStandaloneCodeEditor, monaco: typeof Monaco) => void
@@ -30,7 +36,7 @@ export type EditorMonacoHostProps = {
 
 /** VS Code: one ICodeEditor widget; swap ITextModel by URI — no React remount per tab. */
 export const EditorMonacoHost = forwardRef<CodeEditorHandle, EditorMonacoHostProps>(function EditorMonacoHost(
-  { repoCwd, tabId, relativePath, contentLoaded, loadGeneration, onChange, onCursorChange, onMount, className },
+  { repoCwd, tabId, relativePath, contentLoaded, loadGeneration, revealAt, onChange, onCursorChange, onMount, className },
   ref
 ) {
   const containerRef = useRef<HTMLDivElement>(null)
@@ -40,16 +46,17 @@ export const EditorMonacoHost = forwardRef<CodeEditorHandle, EditorMonacoHostPro
   const onChangeRef = useRef(onChange)
   const onCursorChangeRef = useRef(onCursorChange)
   const onMountRef = useRef(onMount)
+  const revealAtRef = useRef(revealAt)
   onChangeRef.current = onChange
   onCursorChangeRef.current = onCursorChange
   onMountRef.current = onMount
+  revealAtRef.current = revealAt
 
   const editorSettings = useEditorMonacoSettings()
+  const settingsKey = useMemo(() => editorSettingsFingerprint(editorSettings), [editorSettings])
   const editorTheme = useGlobalAppMonacoThemeSync({ includeDiff: true, includeEditorRules: true })
-  const fontStyle = resolveEditorMonacoFontStyle(editorSettings)
-  const fontStyleKey = `${editorSettings.fontFamilyId}:${editorSettings.fontSize}:${editorSettings.fontWeight}:${editorSettings.enableLigatures}`
+  const fontStyle = useMemo(() => resolveEditorMonacoFontStyle(editorSettings), [editorSettings])
 
-  const editorOptionsRef = useRef<Monaco.editor.IStandaloneEditorConstructionOptions | null>(null)
   const layoutTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   const scheduleEditorLayout = useCallback(() => {
@@ -78,14 +85,22 @@ export const EditorMonacoHost = forwardRef<CodeEditorHandle, EditorMonacoHostPro
         Boolean(model) &&
         isLargeFileByMetrics(model!.getValueLength(), model!.getLineCount())
 
-      const options = buildMonacoEditorOptions(editorSettings, isHeavy, false)
-      editorOptionsRef.current = options
+      let editor: Monaco.editor.IStandaloneCodeEditor
+      try {
+        editor = monaco.editor.create(container, {
+          ...buildMonacoEditorOptions(editorSettings, isHeavy, false),
+          theme: editorTheme,
+          model,
+        })
+      } catch {
+        return
+      }
 
-      const editor = monaco.editor.create(container, {
-        ...options,
-        theme: editorTheme,
-        model,
-      })
+      if (disposed || !containerRef.current) {
+        editor.dispose()
+        return
+      }
+
       editorRef.current = editor
 
       editor.onDidChangeModelContent(e => {
@@ -98,16 +113,36 @@ export const EditorMonacoHost = forwardRef<CodeEditorHandle, EditorMonacoHostPro
       })
 
       onMountRef.current?.(editor, monaco)
+
+      if (disposed || !containerRef.current) return
+
+      if (tabId && relativePath && contentLoaded) {
+        prevTabIdRef.current = tabId
+        attachModelToEditor(editor, monaco, repoCwd, relativePath, tabId, revealAtRef.current)
+      }
+
+      refreshEditorMonacoAfterSettings(editor)
     })
 
     return () => {
       disposed = true
       if (layoutTimerRef.current) clearTimeout(layoutTimerRef.current)
+      monacoRef.current = null
       const ed = editorRef.current
       if (ed) {
         const tid = prevTabIdRef.current
-        if (tid) saveViewStateForTab(tid, ed.saveViewState())
-        ed.dispose()
+        if (tid) {
+          try {
+            saveViewStateForTab(tid, ed.saveViewState())
+          } catch {
+            /* editor disposing */
+          }
+        }
+        try {
+          ed.dispose()
+        } catch {
+          /* already disposed */
+        }
         editorRef.current = null
       }
     }
@@ -122,30 +157,11 @@ export const EditorMonacoHost = forwardRef<CodeEditorHandle, EditorMonacoHostPro
   }, [editorTheme])
 
   useEffect(() => {
-    const monaco = monacoRef.current
     const editor = editorRef.current
-    if (!monaco || !editor) return
-
-    const model = editor.getModel()
-    const isHeavy =
-      Boolean(model) &&
-      isLargeFileByMetrics(model!.getValueLength(), model!.getLineCount())
-    const options = buildMonacoEditorOptions(editorSettings, isHeavy, false)
-    editorOptionsRef.current = options
-    editor.updateOptions(options)
-    editor.getModel()?.updateOptions({
-      tabSize: editorSettings.tabSize,
-      insertSpaces: editorSettings.insertSpaces,
-    })
-  }, [editorSettings])
-
-  useEffect(() => {
-    const monaco = monacoRef.current
-    if (!monaco) return
-    void import('monaco-editor').then(m => {
-      if (monacoRef.current === monaco) m.editor.remeasureFonts()
-    })
-  }, [fontStyleKey])
+    if (!editor) return
+    applyEditorMonacoSettings(editor, editorSettings, false)
+    refreshEditorMonacoAfterSettings(editor)
+  }, [editorSettings, settingsKey])
 
   useEffect(() => {
     const monaco = monacoRef.current
@@ -153,14 +169,19 @@ export const EditorMonacoHost = forwardRef<CodeEditorHandle, EditorMonacoHostPro
     if (!monaco || !editor || !tabId || !relativePath || !contentLoaded) return
 
     const prevTabId = prevTabIdRef.current
-    if (prevTabId && prevTabId !== tabId) {
+    const tabChanged = prevTabId !== tabId
+    if (prevTabId && tabChanged) {
       saveViewStateForTab(prevTabId, editor.saveViewState())
     }
     prevTabIdRef.current = tabId
 
-    attachModelToEditor(editor, monaco, repoCwd, relativePath, tabId)
-    scheduleEditorLayout()
-  }, [tabId, relativePath, contentLoaded, loadGeneration, repoCwd, scheduleEditorLayout])
+    if (revealAt || tabChanged) {
+      applyEditorMonacoSettings(editor, editorSettings, false)
+      attachModelToEditor(editor, monaco, repoCwd, relativePath, tabId, revealAt)
+      scheduleEditorLayout()
+      refreshEditorMonacoAfterSettings(editor)
+    }
+  }, [tabId, relativePath, contentLoaded, revealAt, repoCwd, editorSettings, settingsKey, scheduleEditorLayout])
 
   useEffect(() => {
     const container = containerRef.current

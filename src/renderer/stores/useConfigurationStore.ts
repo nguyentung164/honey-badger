@@ -121,6 +121,10 @@ export const useConfigurationStore = create<ConfigurationStore>((set, get) => ({
   },
   saveConfigurationConfig: async (options?: { omitIntegrationFieldsForDisk?: boolean }) => {
     const state = get()
+    if (!state.isConfigLoaded) {
+      l.warn('saveConfigurationConfig skipped — config chưa load từ disk (tránh ghi đè bằng mặc định)')
+      return
+    }
     const str = (v: unknown) => (v == null || v === undefined ? '' : String(v))
     const configToSave = {
       openaiApiKey: str(state.openaiApiKey),

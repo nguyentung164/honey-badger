@@ -2,14 +2,20 @@ import type * as Monaco from 'monaco-editor'
 import type { EditorSettings } from '@/pages/editor/hooks/useEditorSettings'
 import { buildMonacoEditorOptions } from '@/pages/editor/lib/buildMonacoEditorOptions'
 
-export const EDITOR_SETTINGS_PREVIEW_HEIGHT = '14rem'
+export const EDITOR_SETTINGS_PREVIEW_HEIGHT = 'min(100%, 20rem)'
+
+function resolveEditorSettingsPreviewReadOnly(settings: EditorSettings): boolean {
+  return !(settings.previewSampleLanguage === 'html' && settings.linkedEditing)
+}
 
 /** Monaco options for the settings dialog preview — minimal overrides vs the real editor. */
 export function buildEditorSettingsPreviewOptions(
   settings: EditorSettings
 ): Monaco.editor.IStandaloneEditorConstructionOptions {
   return {
-    ...buildMonacoEditorOptions(settings, false, true),
+    ...buildMonacoEditorOptions(settings, false, resolveEditorSettingsPreviewReadOnly(settings)),
+    // Preview lives in a dialog — must resize when the panel becomes visible.
+    automaticLayout: true,
     scrollbar: {
       vertical: 'auto',
       horizontal: 'hidden',
@@ -18,12 +24,12 @@ export function buildEditorSettingsPreviewOptions(
       horizontalScrollbarSize: 0,
       useShadows: false,
     },
-    overviewRulerLanes: 0,
-    hideCursorInOverviewRuler: true,
+    overviewRulerLanes: 3,
+    hideCursorInOverviewRuler: false,
     overviewRulerBorder: false,
     contextmenu: false,
     glyphMargin: false,
-    lineDecorationsWidth: 8,
+    lineDecorationsWidth: 10,
     fixedOverflowWidgets: true,
   }
 }

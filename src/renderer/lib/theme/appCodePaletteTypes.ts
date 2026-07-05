@@ -46,10 +46,20 @@ export type DiffEditorColors = {
   removedLineBackground: string
 }
 
+/** Editor + terminal text selection (VS Code `editor.selection*` equivalents). */
+export type EditorSelectionColors = {
+  background: string
+  inactiveBackground: string
+  foreground: string
+}
+
 export type AppCodePalette = {
   editor: EditorSyntaxColors
   terminal: TerminalAnsiColors
   diff: DiffEditorColors
+  selection: EditorSelectionColors
 }
 
-export type AppCodePaletteMode = Record<'light' | 'dark', AppCodePalette>
+export type AppCodePaletteCore = Omit<AppCodePalette, 'selection'>
+
+export type AppCodePaletteMode = Record<'light' | 'dark', AppCodePaletteCore>

@@ -2,8 +2,10 @@ import type * as Monaco from 'monaco-editor'
 import type { LspServerId } from 'shared/lsp/types'
 import { getLspLanguageId, languageIdForLsp } from '@/lib/monacoLanguage'
 import { editorCommandBridge } from '@/pages/editor/lib/editorCommandBridge'
-import { createBackgroundFlusher, scheduleBackgroundWork } from '@/pages/editor/lib/scheduleBackgroundWork'
-import { documentUriForPath, uriRootsMatch, workspaceRootUri } from '@/pages/editor/lsp/documentUri'
+import { getModelText } from '@/pages/editor/lib/editorModelRegistry'
+import { onTextModelReady, textSyncFingerprint } from '@/pages/editor/lib/editorModelLifecycle'
+import { createBackgroundFlusher } from '@/pages/editor/lib/scheduleBackgroundWork'
+import { documentUriForPath, canonicalizeFileUri, uriRootsMatch, workspaceRootUri } from '@/pages/editor/lsp/documentUri'
 import { countNewlines, isLargeFileByMetrics } from 'shared/fileUri'
 import {
   type LspRange,
@@ -15,6 +17,7 @@ import {
   monacoRangeToLsp,
 } from '@/pages/editor/lsp/lspMonacoConvert'
 import { applyWorkspaceEditAsync, lspWorkspaceEditToMonaco, type WorkspaceEditPayload, workspaceEditFromCodeAction } from '@/pages/editor/lsp/lspWorkspaceEdit'
+import { relativePathFromDocumentUri } from '@/pages/editor/lib/resolveTypeScriptModule'
 
 type ManagedDocument = {
   uri: string
@@ -22,6 +25,35 @@ type ManagedDocument = {
   version: number
   serverId: LspServerId
   lspEnabled: boolean
+  openedOnServer: boolean
+  syncedFingerprint: string
+}
+
+function normalizeRelativePath(relativePath: string): string {
+  return relativePath.replace(/\\/g, '/')
+}
+
+type LspDefinitionLocation = {
+  uri?: string
+  targetUri?: string
+  range?: LspRange
+  targetRange?: LspRange
+  targetSelectionRange?: LspRange
+}
+
+function mapLspDefinitionToMonaco(monaco: typeof Monaco, loc: LspDefinitionLocation): Monaco.languages.Location | null {
+  const uri = loc.uri ?? loc.targetUri
+  const range = loc.range ?? loc.targetSelectionRange ?? loc.targetRange
+  if (!uri || !range) return null
+  return {
+    uri: monaco.Uri.parse(uri),
+    range: {
+      startLineNumber: range.start.line + 1,
+      startColumn: range.start.character + 1,
+      endLineNumber: range.end.line + 1,
+      endColumn: range.end.character + 1,
+    },
+  }
 }
 
 type PendingRequest = {
@@ -36,6 +68,12 @@ export const LSP_EXECUTE_COMMAND_ID = 'honeybadger.lsp.executeCommand'
 export const CODE_LENS_COMMAND_ID = LSP_EXECUTE_COMMAND_ID
 
 export type OrganizeImportsResult = 'success' | 'not_supported' | 'not_ready' | 'no_action' | 'failed'
+export type FormatDocumentResult = OrganizeImportsResult
+
+type LspTextEdit = {
+  range: LspRange
+  newText: string
+}
 
 type LspCompletionResolveData = {
   uri: string
@@ -87,12 +125,12 @@ export class EditorLanguageService {
   private disposables: Monaco.IDisposable[] = []
   private monaco: typeof Monaco | null = null
   private serverReady: Record<LspServerId, boolean> = { typescript: false, java: false }
+  private ensureServersPromise: Promise<boolean> | null = null
   private nextId = 1
   private pending = new Map<number, PendingRequest>()
 
   private unsubMessage: (() => void) | null = null
   private unsubState: (() => void) | null = null
-  private serversStartScheduled = false
   private wired = false
   private pendingDiagnostics = new Map<string, Monaco.editor.IMarkerData[]>()
   private diagnosticsRaf: number | null = null
@@ -106,8 +144,56 @@ export class EditorLanguageService {
   >()
   private codeLensData = new Map<string, LspCodeLens>()
   private nextLensId = 0
+  private openTextDocumentInflight = new Map<string, Promise<void>>()
+  private openTextDocumentGeneration = new Map<string, number>()
+
+  /** LSP document version — single source: Monaco `ITextModel.getVersionId()`. */
+  getModelVersion(relativePath: string): number {
+    if (!this.repoCwd) return 1
+    const uri = documentUriForPath(this.repoCwd, relativePath)
+    const model = this.getModelForUri(uri)
+    return model?.getVersionId() ?? 1
+  }
+
+  /**
+   * VS Code: `didClose` on tsserver when no editor tab references the file.
+   */
+  syncOpenTabs(repoCwd: string, openTextRelativePaths: readonly string[]): void {
+    if (!repoCwd) return
+    if (this.repoCwd && this.repoCwd !== repoCwd) return
+    if (!this.repoCwd) {
+      this.repoCwd = repoCwd
+      this.rootUri = workspaceRootUri(repoCwd)
+    }
+
+    const open = new Set(openTextRelativePaths.map(normalizeRelativePath))
+    for (const uri of [...this.documents.keys()]) {
+      const rel = relativePathFromDocumentUri(uri, repoCwd)
+      if (!rel) continue
+      if (!open.has(normalizeRelativePath(rel))) {
+        this.closeDocument(rel)
+      }
+    }
+  }
+
+  closeAllDocuments(): void {
+    for (const uri of [...this.documents.keys()]) {
+      if (!this.repoCwd) {
+        this.documents.delete(uri)
+        continue
+      }
+      const rel = relativePathFromDocumentUri(uri, this.repoCwd)
+      if (rel) this.closeDocument(rel)
+      else this.documents.delete(uri)
+    }
+    this.pendingIncremental.clear()
+  }
 
   bind(repoCwd: string, monaco: typeof Monaco) {
+    if (this.repoCwd && repoCwd && this.repoCwd !== repoCwd) {
+      this.closeAllDocuments()
+    }
+
     if (this.repoCwd === repoCwd && this.monaco === monaco && this.wired) {
       return
     }
@@ -119,15 +205,18 @@ export class EditorLanguageService {
     this.clearPending()
     this.unsubMessage?.()
     this.unsubState?.()
-    this.serversStartScheduled = false
     this.wired = false
 
     if (!repoCwd) return
 
-    const wire = () => {
-      if (this.monaco !== monaco || this.repoCwd !== repoCwd) return
+    this.wireLsp(monaco)
+  }
 
-      this.unsubMessage = window.api.lsp.onMessage(event => {
+  /** Attach LSP IPC handlers and Monaco providers (navigation may call this eagerly). */
+  private wireLsp(monaco: typeof Monaco): void {
+    if (this.wired || this.monaco !== monaco || !this.repoCwd) return
+
+    this.unsubMessage = window.api.lsp.onMessage(event => {
         if (!uriRootsMatch(event.rootUri, this.rootUri)) return
         try {
           const msg = JSON.parse(event.message) as {
@@ -149,8 +238,8 @@ export class EditorLanguageService {
           }
 
           if (msg.method === 'textDocument/publishDiagnostics' && msg.params?.uri && this.monaco) {
-            const model = this.monaco.editor.getModel(this.monaco.Uri.parse(msg.params.uri))
-            if (!model) return
+            const canonical = canonicalizeFileUri(msg.params.uri as string)
+            if (!this.getModelForUri(canonical)) return
             const raw = (msg.params.diagnostics ?? []) as Array<{
               message: string
               severity?: number
@@ -164,7 +253,7 @@ export class EditorLanguageService {
               endLineNumber: d.range.end.line + 1,
               endColumn: d.range.end.character + 1,
             }))
-            this.queueDiagnostics(msg.params.uri, diagnostics)
+            this.queueDiagnostics(canonical, diagnostics)
           }
         } catch {
           /* ignore */
@@ -173,34 +262,45 @@ export class EditorLanguageService {
 
       this.unsubState = window.api.lsp.onState(event => {
         if (!uriRootsMatch(event.rootUri, this.rootUri)) return
-        if (event.state === 'ready') this.serverReady[event.serverId] = true
-        if (event.state === 'stopped' || event.state === 'error') this.serverReady[event.serverId] = false
+        if (event.state === 'ready') {
+          this.serverReady[event.serverId] = true
+          if (import.meta.env.DEV) {
+            console.info(`[lsp] ${event.serverId} ready (${event.rootUri})`)
+          }
+        }
+        if (event.state === 'stopped' || event.state === 'error') {
+          this.serverReady[event.serverId] = false
+          if (import.meta.env.DEV && event.state === 'error') {
+            console.warn(`[lsp] ${event.serverId} error:`, event.error ?? 'unknown')
+          }
+        }
       })
 
       this.registerProviders(monaco)
       this.wired = true
-    }
-
-    if (typeof requestIdleCallback === 'function') {
-      requestIdleCallback(wire, { timeout: 2500 })
-    } else {
-      setTimeout(wire, 100)
-    }
   }
 
   private queueDiagnostics(uri: string, diagnostics: Monaco.editor.IMarkerData[]) {
-    this.pendingDiagnostics.set(uri, diagnostics)
+    const canonical = canonicalizeFileUri(uri)
+    this.pendingDiagnostics.set(canonical, diagnostics)
     if (this.diagnosticsRaf != null) return
     this.diagnosticsRaf = requestAnimationFrame(() => {
       this.diagnosticsRaf = null
       const monaco = this.monaco
       if (!monaco) return
-      for (const [uri, markers] of this.pendingDiagnostics) {
-        const model = monaco.editor.getModel(monaco.Uri.parse(uri))
+      for (const [diagUri, markers] of this.pendingDiagnostics) {
+        const model = this.getModelForUri(diagUri)
         if (model) monaco.editor.setModelMarkers(model, 'lsp', markers)
       }
       this.pendingDiagnostics.clear()
     })
+  }
+
+  private getModelForUri(uri: string): Monaco.editor.ITextModel | null {
+    const monaco = this.monaco
+    if (!monaco) return null
+    const canonical = canonicalizeFileUri(uri)
+    return monaco.editor.getModel(monaco.Uri.parse(canonical))
   }
 
   private ensureServerFor(serverId: LspServerId) {
@@ -208,20 +308,7 @@ export class EditorLanguageService {
       void this.ensureJavaServer()
       return
     }
-    this.scheduleEnsureServers()
-  }
-
-  private scheduleEnsureServers() {
-    if (this.serversStartScheduled || !this.rootUri) return
-    this.serversStartScheduled = true
-    const run = () => {
-      void this.ensureServers()
-    }
-    if (typeof requestIdleCallback === 'function') {
-      requestIdleCallback(run, { timeout: 4000 })
-    } else {
-      setTimeout(run, 2000)
-    }
+    void this.ensureServers()
   }
 
   private async startLspServer(serverId: LspServerId): Promise<boolean> {
@@ -234,8 +321,13 @@ export class EditorLanguageService {
     }
   }
 
-  private async ensureServers() {
-    await this.startLspServer('typescript')
+  private async ensureServers(): Promise<boolean> {
+    if (this.serverReady.typescript) return true
+    if (this.ensureServersPromise) return this.ensureServersPromise
+    this.ensureServersPromise = this.startLspServer('typescript').finally(() => {
+      this.ensureServersPromise = null
+    })
+    return this.ensureServersPromise
   }
 
   async ensureJavaServer() {
@@ -485,17 +577,9 @@ export class EditorLanguageService {
 
     this.disposables.push(
       monaco.languages.registerDocumentFormattingEditProvider(LSP_LANGS, {
-        provideDocumentFormattingEdits: async model => {
-          if (!this.isLspEnabledForModel(model)) return []
-          const result = (await this.request(model.uri.toString(), 'textDocument/formatting', {
-            textDocument: { uri: model.uri.toString() },
-            options: { tabSize: 2, insertSpaces: true },
-          })) as Array<{ range: { start: { line: number; character: number }; end: { line: number; character: number } }; newText: string }> | null
-          if (!result) return []
-          return result.map(edit => ({
-            range: new monaco.Range(edit.range.start.line + 1, edit.range.start.character + 1, edit.range.end.line + 1, edit.range.end.character + 1),
-            text: edit.newText,
-          }))
+        provideDocumentFormattingEdits: async (model, options) => {
+          const edits = await this.provideDocumentFormattingEdits(model, options)
+          return edits
         },
       })
     )
@@ -585,31 +669,245 @@ export class EditorLanguageService {
     return false
   }
 
-  private openDocumentSync(relativePath: string, languageId: string, text: string) {
-    const serverId = languageIdForLsp(languageId)
-    if (!serverId || !this.repoCwd) return
-    const uri = documentUriForPath(this.repoCwd, relativePath)
-    const lspLanguageId = getLspLanguageId(relativePath)
-    const lspEnabled = !isLargeFileByMetrics(text.length, countNewlines(text))
+  private pushDocument(
+    uri: string,
+    lspLanguageId: string,
+    version: number,
+    serverId: LspServerId,
+    lspEnabled: boolean
+  ): ManagedDocument {
     const existing = this.documents.get(uri)
-    const version = existing?.version ?? 1
-    this.documents.set(uri, { uri, languageId: lspLanguageId, version, serverId, lspEnabled })
-    if (!lspEnabled) return
-    this.ensureServerFor(serverId)
-    if (!existing) {
-      this.notify(serverId, 'textDocument/didOpen', {
-        textDocument: { uri, languageId: lspLanguageId, version, text },
-      })
+    const doc: ManagedDocument = {
+      uri,
+      languageId: lspLanguageId,
+      version,
+      serverId,
+      lspEnabled,
+      openedOnServer: existing?.openedOnServer ?? false,
+      syncedFingerprint: existing?.syncedFingerprint ?? '',
     }
+    this.documents.set(uri, doc)
+    return doc
+  }
+
+  private notifyDocumentOpen(serverId: LspServerId, uri: string, lspLanguageId: string, version: number, text: string): void {
+    const canonical = canonicalizeFileUri(uri)
+    const doc = this.documents.get(canonical)
+    if (!doc?.lspEnabled) return
+
+    const fingerprint = textSyncFingerprint(text)
+
+    if (doc.openedOnServer) {
+      if (text.length === 0 || doc.syncedFingerprint === fingerprint) return
+      const rel = relativePathFromDocumentUri(canonical, this.repoCwd)
+      const modelVersion = rel ? this.getModelVersion(rel) : doc.version + 1
+      const newVersion = Math.max(modelVersion, doc.version + 1)
+      this.notify(serverId, 'textDocument/didChange', {
+        textDocument: { uri: canonical, version: newVersion },
+        contentChanges: [{ text }],
+      })
+      doc.version = newVersion
+      doc.syncedFingerprint = fingerprint
+      this.documents.set(canonical, doc)
+      return
+    }
+
+    this.notify(serverId, 'textDocument/didOpen', {
+      textDocument: { uri: canonical, languageId: lspLanguageId, version, text },
+    })
+    doc.openedOnServer = true
+    doc.syncedFingerprint = fingerprint
+    this.documents.set(canonical, doc)
+  }
+
+  /**
+   * VS Code `lazilyActivateClient` → `TypeScriptServiceClientHost` (process start only).
+   * Fires when a TS/JS document is opened — before Monaco mounts / buffer sync.
+   * VS Code does **not** start tsserver on bare workspace open (no TS file).
+   */
+  prepareServer(repoCwd: string, relativePath: string): void {
+    if (!repoCwd) return
+    const lspLanguageId = getLspLanguageId(relativePath)
+    if (!languageIdForLsp(lspLanguageId)) return
+
+    if (this.repoCwd !== repoCwd) {
+      this.closeAllDocuments()
+      this.repoCwd = repoCwd
+      this.rootUri = workspaceRootUri(repoCwd)
+    }
+    if (this.serverReady.typescript || this.ensureServersPromise) return
+    void this.ensureServers()
+  }
+
+  /**
+   * VS Code `BufferSyncSupport.openTextDocument` — sync when ITextModel is ready.
+   * Called from `onTextModelReady` (attachModelToEditor / disk reload), not React effects.
+   */
+  openTextDocument(repoCwd: string, relativePath: string, content: string, languageId: string): void {
+    const lspLanguageId = getLspLanguageId(relativePath)
+    if (!languageIdForLsp(lspLanguageId)) return
+
+    const key = `${repoCwd}::${relativePath.replace(/\\/g, '/')}`
+    const inflight = this.openTextDocumentInflight.get(key)
+    if (inflight) {
+      void inflight
+      return
+    }
+
+    const task = this.openTextDocumentAsync(repoCwd, relativePath, content, languageId).finally(() => {
+      if (this.openTextDocumentInflight.get(key) === task) {
+        this.openTextDocumentInflight.delete(key)
+      }
+    })
+    this.openTextDocumentInflight.set(key, task)
+  }
+
+  private openDocKey(repoCwd: string, relativePath: string): string {
+    return `${repoCwd}::${relativePath.replace(/\\/g, '/')}`
+  }
+
+  private bumpOpenGeneration(repoCwd: string, relativePath: string): number {
+    const key = this.openDocKey(repoCwd, relativePath)
+    const next = (this.openTextDocumentGeneration.get(key) ?? 0) + 1
+    this.openTextDocumentGeneration.set(key, next)
+    return next
+  }
+
+  private isOpenGenerationCurrent(repoCwd: string, relativePath: string, generation: number): boolean {
+    return this.openTextDocumentGeneration.get(this.openDocKey(repoCwd, relativePath)) === generation
+  }
+
+  private async openTextDocumentAsync(
+    repoCwd: string,
+    relativePath: string,
+    content: string,
+    languageId: string
+  ): Promise<void> {
+    const serverId = languageIdForLsp(languageId)
+    if (!serverId || content.length === 0) return
+
+    const generation = this.bumpOpenGeneration(repoCwd, relativePath)
+
+    if (this.repoCwd !== repoCwd) {
+      this.closeAllDocuments()
+      this.repoCwd = repoCwd
+      this.rootUri = workspaceRootUri(repoCwd)
+    }
+    if (this.monaco) this.wireLsp(this.monaco)
+
+    const uri = documentUriForPath(repoCwd, relativePath)
+    const fingerprint = textSyncFingerprint(content)
+    const existing = this.documents.get(uri)
+    if (existing?.openedOnServer && existing.syncedFingerprint === fingerprint) {
+      return
+    }
+
+    const lspLanguageId = getLspLanguageId(relativePath)
+    const lspEnabled = !isLargeFileByMetrics(content.length, countNewlines(content))
+    const version = this.getModelVersion(relativePath)
+
+    this.pushDocument(uri, lspLanguageId, version, serverId, lspEnabled)
+    if (!lspEnabled) return
+
+    this.ensureServerFor(serverId)
+    if (serverId === 'typescript') {
+      const started = await this.ensureServers()
+      if (!started) {
+        if (import.meta.env.DEV) {
+          console.warn(`[lsp] failed to start typescript server for ${relativePath}`)
+        }
+        return
+      }
+    }
+
+    if (!this.isOpenGenerationCurrent(repoCwd, relativePath, generation)) return
+
+    const ready = await this.waitForServerReady(serverId, 15_000)
+    if (!ready) {
+      if (import.meta.env.DEV) {
+        console.warn(`[lsp] openTextDocument timed out for ${relativePath}`)
+      }
+      return
+    }
+
+    if (!this.isOpenGenerationCurrent(repoCwd, relativePath, generation)) return
+
+    this.notifyDocumentOpen(serverId, uri, lspLanguageId, version, content)
+    if (import.meta.env.DEV) {
+      console.info(`[lsp] document synced: ${relativePath}`)
+    }
+  }
+
+  /** Disk reload for a file already synced to tsserver (background tabs skip didOpen). */
+  reloadDocumentFromDisk(repoCwd: string, relativePath: string, languageId: string, content: string): void {
+    const lspLanguageId = getLspLanguageId(relativePath)
+    if (!languageIdForLsp(lspLanguageId) || content.length === 0) return
+    if (this.repoCwd && this.repoCwd !== repoCwd) return
+    if (!this.repoCwd) {
+      this.repoCwd = repoCwd
+      this.rootUri = workspaceRootUri(repoCwd)
+    }
+    const uri = documentUriForPath(repoCwd, relativePath)
+    const doc = this.documents.get(uri)
+    if (!doc?.openedOnServer) return
+    this.changeDocument(relativePath, languageId, content)
+  }
+
+  /** @deprecated Prefer openTextDocument — kept for incremental sync fallbacks. */
+  warmUpDocument(relativePath: string, languageId: string, text: string): void {
+    if (!this.repoCwd) return
+    const content = text.length > 0 ? text : (getModelText(this.repoCwd, relativePath) ?? '')
+    if (content.length === 0) return
+    this.openTextDocument(this.repoCwd, relativePath, content, languageId)
+  }
+
+  private openDocumentSync(relativePath: string, languageId: string, text: string) {
+    if (!this.repoCwd) return
+    const content = text.length > 0 ? text : (getModelText(this.repoCwd, relativePath) ?? '')
+    if (content.length === 0) return
+    this.openTextDocument(this.repoCwd, relativePath, content, languageId)
   }
 
   private async ensureDocumentReady(relativePath: string, languageId: string): Promise<boolean> {
     if (!this.repoCwd || !languageIdForLsp(languageId)) return false
-    const text = editorCommandBridge.get()?.getValue() ?? ''
+    const text = getModelText(this.repoCwd, relativePath) ?? editorCommandBridge.get()?.getValue() ?? ''
     this.openDocumentSync(relativePath, languageId, text)
     const doc = this.documents.get(documentUriForPath(this.repoCwd, relativePath))
     if (!doc?.lspEnabled) return false
     return this.waitForServerReady(doc.serverId)
+  }
+
+  /**
+   * VS Code `toOpenTsFilePath`: sync file to tsserver before navigation.
+   * Only used for node_modules / external packages — workspace imports use the fast path.
+   */
+  async ensureNavigationReady(model: Monaco.editor.ITextModel, maxWaitMs = 1_500): Promise<boolean> {
+    if (!this.repoCwd || !this.monaco) return false
+    this.wireLsp(this.monaco)
+
+    const languageId = model.getLanguageId()
+    const serverId = languageIdForLsp(languageId)
+    if (!serverId) return false
+
+    const relativePath = relativePathFromDocumentUri(model.uri.toString(), this.repoCwd)
+    if (!relativePath) return false
+
+    const uri = documentUriForPath(this.repoCwd, relativePath)
+    const lspLanguageId = getLspLanguageId(relativePath)
+    const text = model.getValue()
+    const lspEnabled = !isLargeFileByMetrics(text.length, countNewlines(text))
+    const version = this.getModelVersion(relativePath)
+
+    this.pushDocument(uri, lspLanguageId, version, serverId, lspEnabled)
+    if (!lspEnabled) return false
+
+    this.ensureServerFor(serverId)
+    const ready = await this.waitForServerReady(serverId, maxWaitMs)
+    if (!ready) return false
+
+    this.notifyDocumentOpen(serverId, uri, lspLanguageId, version, text)
+
+    return true
   }
 
   async organizeImports(relativePath: string, languageId: string): Promise<OrganizeImportsResult> {
@@ -651,6 +949,97 @@ export class EditorLanguageService {
       return ok ? 'success' : 'failed'
     }
     return 'failed'
+  }
+
+  async formatDocument(
+    relativePath: string,
+    languageId: string,
+    formatOptions?: { tabSize?: number; insertSpaces?: boolean }
+  ): Promise<FormatDocumentResult> {
+    if (!this.monaco || !this.repoCwd || !languageIdForLsp(languageId)) {
+      return 'not_supported'
+    }
+
+    const ready = await this.ensureDocumentReady(relativePath, languageId)
+    if (!ready) return 'not_ready'
+
+    const uri = documentUriForPath(this.repoCwd, relativePath)
+    const model = this.monaco.editor.getModel(this.monaco.Uri.parse(uri))
+    if (!model) return 'failed'
+
+    const edits = await this.requestDocumentFormattingEdits(uri, {
+      tabSize: formatOptions?.tabSize ?? 2,
+      insertSpaces: formatOptions?.insertSpaces ?? true,
+    })
+    if (edits === null) return 'failed'
+    if (edits.length === 0) return 'no_action'
+
+    return this.applyTextEdits(model, edits) ? 'success' : 'failed'
+  }
+
+  private async provideDocumentFormattingEdits(
+    model: Monaco.editor.ITextModel,
+    options: Monaco.languages.FormattingOptions
+  ): Promise<Monaco.languages.TextEdit[]> {
+    if (!this.monaco || !this.repoCwd) return []
+
+    const relativePath = relativePathFromDocumentUri(canonicalizeFileUri(model.uri.toString()), this.repoCwd)
+    if (!relativePath || !languageIdForLsp(model.getLanguageId())) return []
+
+    const ready = await this.ensureDocumentReady(relativePath, model.getLanguageId())
+    if (!ready) return []
+
+    const uri = documentUriForPath(this.repoCwd, relativePath)
+    const edits = await this.requestDocumentFormattingEdits(uri, options)
+    if (!edits?.length) return []
+
+    const monaco = this.monaco
+    return edits.map(edit => ({
+      range: new monaco.Range(
+        edit.range.start.line + 1,
+        edit.range.start.character + 1,
+        edit.range.end.line + 1,
+        edit.range.end.character + 1
+      ),
+      text: edit.newText,
+    }))
+  }
+
+  private async requestDocumentFormattingEdits(
+    uri: string,
+    options: { tabSize: number; insertSpaces: boolean }
+  ): Promise<LspTextEdit[] | null> {
+    const canonical = canonicalizeFileUri(uri)
+    const result = (await this.request(canonical, 'textDocument/formatting', {
+      textDocument: { uri: canonical },
+      options: { tabSize: options.tabSize, insertSpaces: options.insertSpaces },
+    })) as LspTextEdit[] | null
+    return result
+  }
+
+  private applyTextEdits(model: Monaco.editor.ITextModel, edits: LspTextEdit[]): boolean {
+    if (!this.monaco || edits.length === 0) return false
+
+    const monaco = this.monaco
+    const sorted = [...edits].sort((a, b) => {
+      if (a.range.start.line !== b.range.start.line) return b.range.start.line - a.range.start.line
+      return b.range.start.character - a.range.start.character
+    })
+
+    model.pushEditOperations(
+      [],
+      sorted.map(edit => ({
+        range: new monaco.Range(
+          edit.range.start.line + 1,
+          edit.range.start.character + 1,
+          edit.range.end.line + 1,
+          edit.range.end.character + 1
+        ),
+        text: edit.newText,
+      })),
+      () => null
+    )
+    return true
   }
 
   private async handleLspCommand(editor: Monaco.editor.ICodeEditor, payload: { lensId?: string; serverCommand?: LspCodeLens['command'] } | undefined): Promise<void> {
@@ -705,14 +1094,12 @@ export class EditorLanguageService {
   async lookupDefinition(model: Monaco.editor.ITextModel, position: Monaco.IPosition): Promise<Monaco.languages.Location[] | null> {
     if (!this.monaco) return null
 
+    const ready = await this.ensureNavigationReady(model)
+    if (!ready) return null
+
     const uri = model.uri.toString()
     const doc = this.documents.get(uri)
-    if (!doc?.lspEnabled) return null
-
-    if (!this.serverReady[doc.serverId]) {
-      await this.waitForServerReady(doc.serverId)
-    }
-    if (!this.serverReady[doc.serverId]) return null
+    if (!doc?.lspEnabled || !this.serverReady[doc.serverId]) return null
 
     const result = await this.request(uri, 'textDocument/definition', {
       textDocument: { uri },
@@ -724,15 +1111,9 @@ export class EditorLanguageService {
     if (!monaco) return null
 
     const locations = Array.isArray(result) ? result : [result]
-    return locations.map((loc: { uri: string; range: { start: { line: number; character: number }; end: { line: number; character: number } } }) => ({
-      uri: monaco.Uri.parse(loc.uri),
-      range: {
-        startLineNumber: loc.range.start.line + 1,
-        startColumn: loc.range.start.character + 1,
-        endLineNumber: loc.range.end.line + 1,
-        endColumn: loc.range.end.character + 1,
-      },
-    }))
+    return locations
+      .map((loc: LspDefinitionLocation) => mapLspDefinitionToMonaco(monaco, loc))
+      .filter((loc): loc is Monaco.languages.Location => loc != null)
   }
 
   registerLspEditorActions(editor: Monaco.editor.IStandaloneCodeEditor) {
@@ -755,12 +1136,14 @@ export class EditorLanguageService {
   }
 
   private isLspEnabledForModel(model: Monaco.editor.ITextModel): boolean {
-    const doc = this.documents.get(model.uri.toString())
+    const uri = canonicalizeFileUri(model.uri.toString())
+    const doc = this.documents.get(uri)
     return Boolean(doc?.lspEnabled && this.serverReady[doc.serverId])
   }
 
   private async request(uri: string, method: string, params: unknown): Promise<unknown> {
-    const doc = this.documents.get(uri)
+    const canonical = canonicalizeFileUri(uri)
+    const doc = this.documents.get(canonical) ?? this.documents.get(uri)
     if (!doc?.lspEnabled || !this.serverReady[doc.serverId]) return null
     const id = this.nextId++
     return new Promise(resolve => {
@@ -778,39 +1161,24 @@ export class EditorLanguageService {
   }
 
   openDocument(relativePath: string, languageId: string, text: string) {
-    const serverId = languageIdForLsp(languageId)
-    if (!serverId || !this.repoCwd) return
-    const uri = documentUriForPath(this.repoCwd, relativePath)
-    const lspEnabled = !isLargeFileByMetrics(text.length, countNewlines(text))
-    this.documents.set(uri, { uri, languageId, version: 1, serverId, lspEnabled })
-    if (!lspEnabled) return
-
-    scheduleBackgroundWork(
-      () => {
-        this.ensureServerFor(serverId)
-        this.notify(serverId, 'textDocument/didOpen', {
-          textDocument: { uri, languageId, version: 1, text },
-        })
-      },
-      { timeout: 3000 }
-    )
+    this.warmUpDocument(relativePath, languageId, text)
   }
 
   changeDocumentIncremental(
     relativePath: string,
     languageId: string,
-    monacoChanges: Monaco.editor.IModelContentChange[],
-    version: number
+    monacoChanges: Monaco.editor.IModelContentChange[]
   ) {
     const serverId = languageIdForLsp(languageId)
     if (!serverId || !this.repoCwd || monacoChanges.length === 0) return
     const uri = documentUriForPath(this.repoCwd, relativePath)
     const doc = this.documents.get(uri)
     if (!doc) {
-      const text = editorCommandBridge.get()?.getValue() ?? ''
-      this.openDocument(relativePath, languageId, text)
+      const text = getModelText(this.repoCwd, relativePath) ?? editorCommandBridge.get()?.getValue() ?? ''
+      this.openTextDocument(this.repoCwd, relativePath, text, languageId)
       return
     }
+    const version = this.getModelVersion(relativePath)
     doc.version = version
     if (!doc.lspEnabled) return
 
@@ -831,22 +1199,24 @@ export class EditorLanguageService {
   }
 
   /** Full-document sync (disk reload). */
-  changeDocument(relativePath: string, languageId: string, text: string, version: number) {
+  changeDocument(relativePath: string, languageId: string, text: string) {
     const serverId = languageIdForLsp(languageId)
     if (!serverId || !this.repoCwd) return
     const uri = documentUriForPath(this.repoCwd, relativePath)
     const lspEnabled = !isLargeFileByMetrics(text.length, countNewlines(text))
     const doc = this.documents.get(uri)
     if (!doc) {
-      this.openDocument(relativePath, languageId, text)
+      this.openTextDocument(this.repoCwd, relativePath, text, languageId)
       return
     }
+    const version = this.getModelVersion(relativePath)
     doc.version = version
     doc.lspEnabled = lspEnabled
     if (!lspEnabled) return
     this.ensureServerFor(serverId)
+    const canonical = canonicalizeFileUri(uri)
     this.notify(serverId, 'textDocument/didChange', {
-      textDocument: { uri, version },
+      textDocument: { uri: canonical, version },
       contentChanges: [{ text }],
     })
   }
@@ -869,14 +1239,19 @@ export class EditorLanguageService {
 
   closeDocument(relativePath: string) {
     if (!this.repoCwd) return
+    this.bumpOpenGeneration(this.repoCwd, relativePath)
     const uri = documentUriForPath(this.repoCwd, relativePath)
-    const doc = this.documents.get(uri)
+    const canonical = canonicalizeFileUri(uri)
+    const doc = this.documents.get(canonical) ?? this.documents.get(uri)
     if (!doc) return
     if (doc.lspEnabled) {
-      this.notify(doc.serverId, 'textDocument/didClose', { textDocument: { uri } })
+      this.notify(doc.serverId, 'textDocument/didClose', { textDocument: { uri: canonical } })
     }
+    this.documents.delete(canonical)
     this.documents.delete(uri)
-    const model = this.monaco?.editor.getModel(this.monaco.Uri.parse(uri))
+    this.pendingIncremental.delete(canonical)
+    this.pendingIncremental.delete(uri)
+    const model = this.getModelForUri(canonical)
     if (model && this.monaco) this.monaco.editor.setModelMarkers(model, 'lsp', [])
   }
 
@@ -913,9 +1288,22 @@ export class EditorLanguageService {
     this.pendingDiagnostics.clear()
     this.unsubMessage?.()
     this.unsubState?.()
-    this.documents.clear()
+    this.closeAllDocuments()
     this.wired = false
   }
 }
 
 export const editorLanguageService = new EditorLanguageService()
+
+onTextModelReady(event => {
+  if (event.reason === 'disk-reload') {
+    editorLanguageService.reloadDocumentFromDisk(
+      event.repoCwd,
+      event.relativePath,
+      event.languageId,
+      event.content
+    )
+    return
+  }
+  editorLanguageService.openTextDocument(event.repoCwd, event.relativePath, event.content, event.languageId)
+})
