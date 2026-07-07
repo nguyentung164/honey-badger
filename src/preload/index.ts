@@ -462,6 +462,7 @@ declare global {
       terminal: {
         create: (opts?: import('shared/terminal/types').TerminalCreateOptions) => Promise<import('shared/terminal/types').TerminalCreateResult>
         destroy: (id: string) => Promise<{ success: boolean; error?: string }>
+        detach: (id: string) => Promise<{ success: boolean; error?: string }>
         listShells: () => Promise<import('shared/terminal/shells').TerminalShellProfileInfo[]>
         getUserHome: () => Promise<string>
         write: (payload: import('shared/terminal/types').TerminalWritePayload) => void
@@ -1799,6 +1800,7 @@ contextBridge.exposeInMainWorld('api', {
   terminal: {
     create: (opts?: import('shared/terminal/types').TerminalCreateOptions) => ipcRenderer.invoke(IPC.TERMINAL.CREATE, opts),
     destroy: (id: string) => ipcRenderer.invoke(IPC.TERMINAL.DESTROY, id),
+    detach: (id: string) => ipcRenderer.invoke(IPC.TERMINAL.DETACH, id),
     listShells: () => ipcRenderer.invoke(IPC.TERMINAL.LIST_SHELLS),
     getUserHome: () => ipcRenderer.invoke(IPC.TERMINAL.GET_USER_HOME),
     write: (payload: import('shared/terminal/types').TerminalWritePayload) => ipcRenderer.send(IPC.TERMINAL.WRITE, payload),

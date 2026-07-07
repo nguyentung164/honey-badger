@@ -43,6 +43,7 @@ import {
   resolveNextActiveTabAfterClose,
   seedEditorTabActivation,
 } from '@/pages/editor/lib/editorTabActivation'
+import { markPathSaving, unmarkPathSaving } from '@/pages/editor/lib/editorSavingPaths'
 
 const BINARY_EXTENSIONS = new Set([
   'png', 'jpg', 'jpeg', 'gif', 'webp', 'ico', 'bmp', 'svg', 'zip', 'gz', '7z', 'rar',
@@ -70,6 +71,7 @@ type EditorWorkspaceState = {
   reloadTabFromDisk: (relativePath: string, preloadedContent?: string) => Promise<void>
   syncTabFromDiskQuiet: (relativePath: string, preloadedContent?: string) => Promise<void>
   reloadTabFromDiskIfChanged: (relativePath: string) => Promise<void>
+  reconcileDirtyTabIfDiskMatchesBuffer: (tabId: string, relativePath: string) => Promise<boolean>
   revertActiveTabFromDisk: () => Promise<void>
   markTabOutOfSyncWithDisk: (relativePath: string) => void
   prefetchTabContent: (tabId: string) => Promise<boolean>
@@ -742,22 +744,28 @@ export const useEditorWorkspace = create<EditorWorkspaceState>((set, get) => ({
       }
     }
 
-    const result = await window.api.system.write_file(tab.relativePath, content, { cwd: repoCwd })
-    if (!result.success) {
-      toast.error(result.error ?? i18n.t('editor.saveFailed'))
-      return false
-    }
+    const normalized = tab.relativePath.replace(/\\/g, '/')
+    markPathSaving(normalized)
+    try {
+      const result = await window.api.system.write_file(tab.relativePath, content, { cwd: repoCwd })
+      if (!result.success) {
+        toast.error(result.error ?? i18n.t('editor.saveFailed'))
+        return false
+      }
 
-    const versionId = getModelAlternativeVersionId(repoCwd, tab.relativePath)
-    const meta = await detectTextFileMeta(tab.relativePath, repoCwd)
-    commitModelBaseline(repoCwd, tab.relativePath, content, versionId ?? undefined, meta.mtimeMs)
-    set(state => ({
-      tabs: state.tabs.map(t =>
-        t.id === tabId ? { ...t, isDirty: false, ...pinTabFields() } : t
-      ),
-      tabsMetaRevision: bumpMeta(state.tabsMetaRevision),
-    }))
-    return true
+      const versionId = getModelAlternativeVersionId(repoCwd, tab.relativePath)
+      const meta = await detectTextFileMeta(tab.relativePath, repoCwd)
+      commitModelBaseline(repoCwd, tab.relativePath, content, versionId ?? undefined, meta.mtimeMs)
+      set(state => ({
+        tabs: state.tabs.map(t =>
+          t.id === tabId ? { ...t, isDirty: false, ...pinTabFields() } : t
+        ),
+        tabsMetaRevision: bumpMeta(state.tabsMetaRevision),
+      }))
+      return true
+    } finally {
+      unmarkPathSaving(normalized)
+    }
   },
 
   saveActiveTab: async () => {
@@ -854,6 +862,26 @@ export const useEditorWorkspace = create<EditorWorkspaceState>((set, get) => ({
     } finally {
       reloadIfChangedInflight.delete(normalized)
     }
+  },
+
+  reconcileDirtyTabIfDiskMatchesBuffer: async (tabId, relativePath) => {
+    const normalized = relativePath.replace(/\\/g, '/')
+    const { repoCwd } = get()
+    if (!repoCwd) return false
+
+    const { checkDiskContentAgainstBuffer } = await import('@/pages/editor/lib/editorExternalFileSync')
+    const { changed } = await checkDiskContentAgainstBuffer(repoCwd, normalized)
+    if (changed) return false
+
+    const content = getModelText(repoCwd, normalized) ?? getModelBaseline(repoCwd, normalized)
+    const versionId = getModelAlternativeVersionId(repoCwd, normalized)
+    const meta = await detectTextFileMeta(normalized, repoCwd)
+    commitModelBaseline(repoCwd, normalized, content, versionId ?? undefined, meta.mtimeMs)
+    set(state => ({
+      tabs: state.tabs.map(t => (t.id === tabId ? { ...t, isDirty: false } : t)),
+      tabsMetaRevision: bumpMeta(state.tabsMetaRevision),
+    }))
+    return true
   },
 
   revertActiveTabFromDisk: async () => {

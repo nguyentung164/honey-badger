@@ -43,11 +43,11 @@ export async function loadEditorGitHeadContent(
   repoCwd: string,
   relativePath: string,
   gitStatus: GitFileStatusCode | null
-): Promise<string> {
+): Promise<string | null> {
   const pathForGit = normalizeEditorGitRepoPath(relativePath)
   const result = await window.api.git.cat(pathForGit, gitCatStatus(gitStatus), 'HEAD', { cwd: repoCwd })
   if (result?.status === 'success' && typeof result.data === 'string') return result.data
-  return ''
+  return null
 }
 
 const SHARED_DIFF_LAYOUT = { width: 800, height: 600 } as const

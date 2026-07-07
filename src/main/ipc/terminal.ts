@@ -2,7 +2,7 @@ import os from 'node:os'
 import { ipcMain } from 'electron'
 import l from 'electron-log'
 import { IPC } from 'main/constants'
-import { createTerminal, destroyTerminal, resizeTerminal, writeTerminal } from 'main/terminal/manager'
+import { createTerminal, destroyTerminal, detachTerminal, resizeTerminal, writeTerminal } from 'main/terminal/manager'
 import { getAvailableShellProfiles } from 'main/terminal/shells'
 import type { TerminalCreateOptions, TerminalResizePayload, TerminalWritePayload } from 'shared/terminal/types'
 
@@ -27,12 +27,20 @@ export function registerTerminalIpcHandlers(): void {
 
   ipcMain.handle(IPC.TERMINAL.GET_USER_HOME, () => os.homedir())
 
-  ipcMain.handle(IPC.TERMINAL.DESTROY, (event, id?: string) => {
+  ipcMain.handle(IPC.TERMINAL.DESTROY, async (event, id?: string) => {
     if (!id || typeof id !== 'string') {
       return { success: false, error: 'Invalid terminal id' }
     }
-    const destroyed = destroyTerminal(event.sender, id)
+    const destroyed = await destroyTerminal(event.sender, id)
     return destroyed ? { success: true } : { success: false, error: 'Terminal not found' }
+  })
+
+  ipcMain.handle(IPC.TERMINAL.DETACH, (event, id?: string) => {
+    if (!id || typeof id !== 'string') {
+      return { success: false, error: 'Invalid terminal id' }
+    }
+    const detached = detachTerminal(event.sender, id)
+    return detached ? { success: true } : { success: false, error: 'Terminal not found' }
   })
 
   ipcMain.on(IPC.TERMINAL.WRITE, (event, payload: unknown) => {

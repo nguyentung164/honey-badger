@@ -25,6 +25,7 @@ export default defineConfig({
       rollupOptions: {
         input: {
           index: resolve('src/main/index.ts'),
+          ptyHost: resolve('src/main/terminal/ptyHost/ptyHostMain.ts'),
         },
 
         output: {

@@ -1,8 +1,11 @@
 'use client'
 
-import { ExternalLink, Loader2, X } from 'lucide-react'
+import { Loader2, X } from 'lucide-react'
 import { memo, useCallback, useEffect, useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
+import { CommitWorkflowHistoryRunDialog } from '@/components/commit-workflow/CommitWorkflowHistoryRunDialog'
+import { CommitWorkflowRunChoicesSummary } from '@/components/commit-workflow/CommitWorkflowRunChoicesSummary'
+import { CommitWorkflowStepDetailDialog } from '@/components/commit-workflow/CommitWorkflowStepDetailDialog'
 import { Button } from '@/components/ui/button'
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { Progress } from '@/components/ui/progress'
@@ -11,14 +14,12 @@ import { cn } from '@/lib/utils'
 import {
   countCompletedSteps,
   formatStepElapsed,
-  formatStepStatusLabel,
   formatRunStatusLabel,
+  formatStepStatusLabel,
   runRecordFromStream,
   useCommitWorkflowStore,
 } from '@/lib/commitWorkflow/commitWorkflowUtils'
 import type { CommitWorkflowRunRecord, CommitWorkflowStepStatusEntry } from 'shared/commitWorkflow/types'
-import { CommitWorkflowRunChoicesSummary } from './CommitWorkflowRunChoicesSummary'
-import { CommitWorkflowStepDetail } from './CommitWorkflowStepDetail'
 
 function StatusBadge({ status, t }: { status: CommitWorkflowStepStatusEntry['status']; t: ReturnType<typeof useTranslation>['t'] }) {
   const color =
@@ -36,8 +37,12 @@ const CommitWorkflowDetailDialogBody = memo(function CommitWorkflowDetailDialogB
   const { t } = useTranslation()
   const stream = useCommitWorkflowStore(s => s.stream)
   const [history, setHistory] = useState<CommitWorkflowRunRecord[]>([])
-  const [selectedStep, setSelectedStep] = useState<{ runId: string; stepKey: string } | null>(null)
-  const [historyRunId, setHistoryRunId] = useState<string | null>(null)
+  const [currentStepKey, setCurrentStepKey] = useState<string | null>(null)
+  const [currentStepDetailOpen, setCurrentStepDetailOpen] = useState(false)
+  const [historyRun, setHistoryRun] = useState<CommitWorkflowRunRecord | null>(null)
+  const [historyRunDialogOpen, setHistoryRunDialogOpen] = useState(false)
+  const [historyStepKey, setHistoryStepKey] = useState<string | null>(null)
+  const [historyStepDetailOpen, setHistoryStepDetailOpen] = useState(false)
 
   const loadHistory = useCallback(() => {
     void window.api.commitWorkflow.listRuns({ repoPath, limit: 10 }).then(res => {
@@ -49,14 +54,11 @@ const CommitWorkflowDetailDialogBody = memo(function CommitWorkflowDetailDialogB
     loadHistory()
   }, [loadHistory, stream?.runId])
 
-  const detailRun = useMemo((): CommitWorkflowRunRecord | null => {
-    if (!selectedStep) return null
-    const fromHistory = history.find(r => r.id === selectedStep.runId)
-    if (stream && selectedStep.runId === stream.runId) {
-      return runRecordFromStream(stream, fromHistory ?? null)
-    }
-    return fromHistory ?? null
-  }, [selectedStep, stream, history])
+  const currentDetailRun = useMemo((): CommitWorkflowRunRecord | null => {
+    if (!stream || !currentStepKey) return null
+    const fromHistory = history.find(r => r.id === stream.runId)
+    return runRecordFromStream(stream, fromHistory ?? null)
+  }, [currentStepKey, stream, history])
 
   const steps = stream ? Object.entries(stream.stepStatus).sort((a, b) => a[0].localeCompare(b[0])) : []
   const summary = countCompletedSteps(stream?.stepStatus ?? {})
@@ -78,8 +80,14 @@ const CommitWorkflowDetailDialogBody = memo(function CommitWorkflowDetailDialogB
   }
 
   const openHistoryRun = (run: CommitWorkflowRunRecord) => {
-    setHistoryRunId(run.id)
-    setSelectedStep({ runId: run.id, stepKey: run.steps[0]?.stepKey ?? '' })
+    setHistoryRun(run)
+    setHistoryStepKey(run.steps[0]?.stepKey ?? null)
+    setHistoryRunDialogOpen(true)
+  }
+
+  const openCurrentStep = (stepKey: string) => {
+    setCurrentStepKey(stepKey)
+    setCurrentStepDetailOpen(true)
   }
 
   return (
@@ -117,12 +125,15 @@ const CommitWorkflowDetailDialogBody = memo(function CommitWorkflowDetailDialogB
                     <th className="py-2 pr-2">{t('commitWorkflow.colStep')}</th>
                     <th className="py-2 pr-2">{t('commitWorkflow.colStatus')}</th>
                     <th className="py-2 pr-2">{t('commitWorkflow.colElapsed')}</th>
-                    <th className="py-2 w-8" />
                   </tr>
                 </thead>
                 <tbody>
                   {steps.map(([key, step]) => (
-                    <tr key={key} className="border-b border-border/50">
+                    <tr
+                      key={key}
+                      className="cursor-pointer border-b border-border/50 hover:bg-muted/40"
+                      onClick={() => openCurrentStep(key)}
+                    >
                       <td className="py-2 pr-2">{step.label}</td>
                       <td className="py-2 pr-2">
                         <span className="inline-flex items-center gap-1">
@@ -133,23 +144,10 @@ const CommitWorkflowDetailDialogBody = memo(function CommitWorkflowDetailDialogB
                       <td className="py-2 pr-2 tabular-nums text-xs text-muted-foreground">
                         {formatStepElapsed(step.startedAt, step.finishedAt)}
                       </td>
-                      <td className="py-2">
-                        <Button type="button" variant="ghost" size="icon" className="h-7 w-7" onClick={() => setSelectedStep({ runId: stream.runId, stepKey: key })}>
-                          <ExternalLink className="h-3.5 w-3.5" />
-                        </Button>
-                      </td>
                     </tr>
                   ))}
                 </tbody>
               </table>
-              {selectedStep && detailRun && selectedStep.runId === stream.runId ? (
-                <CommitWorkflowStepDetail
-                  run={detailRun}
-                  stepKey={selectedStep.stepKey}
-                  onOpenAutomation={openAutomationRun}
-                  onClose={() => setSelectedStep(null)}
-                />
-              ) : null}
             </>
           )}
         </TabsContent>
@@ -162,10 +160,7 @@ const CommitWorkflowDetailDialogBody = memo(function CommitWorkflowDetailDialogB
                 <li key={run.id}>
                   <button
                     type="button"
-                    className={cn(
-                      'w-full rounded-md border p-2 text-left text-xs hover:bg-muted/40',
-                      historyRunId === run.id && 'border-primary'
-                    )}
+                    className="w-full rounded-md border p-2 text-left text-xs hover:bg-muted/40"
                     onClick={() => openHistoryRun(run)}
                   >
                     <div className="flex justify-between gap-2">
@@ -186,21 +181,37 @@ const CommitWorkflowDetailDialogBody = memo(function CommitWorkflowDetailDialogB
               ))}
             </ul>
           )}
-          {historyRunId && detailRun && selectedStep?.runId === historyRunId ? (
-            <div className="mt-3">
-              <CommitWorkflowStepDetail
-                run={detailRun}
-                stepKey={selectedStep.stepKey}
-                onOpenAutomation={openAutomationRun}
-                onClose={() => {
-                  setSelectedStep(null)
-                  setHistoryRunId(null)
-                }}
-              />
-            </div>
-          ) : null}
         </TabsContent>
       </Tabs>
+
+      <CommitWorkflowStepDetailDialog
+        open={currentStepDetailOpen}
+        onOpenChange={setCurrentStepDetailOpen}
+        run={currentDetailRun}
+        stepKey={currentStepKey}
+        onOpenAutomation={openAutomationRun}
+      />
+
+      <CommitWorkflowHistoryRunDialog
+        open={historyRunDialogOpen}
+        onOpenChange={open => {
+          setHistoryRunDialogOpen(open)
+          if (!open) {
+            setHistoryRun(null)
+            setHistoryStepKey(null)
+            setHistoryStepDetailOpen(false)
+          }
+        }}
+        run={historyRun}
+        selectedStepKey={historyStepKey}
+        onSelectStep={stepKey => {
+          setHistoryStepKey(stepKey)
+          setHistoryStepDetailOpen(true)
+        }}
+        onOpenAutomation={openAutomationRun}
+        stepDetailOpen={historyStepDetailOpen}
+        onStepDetailOpenChange={setHistoryStepDetailOpen}
+      />
     </>
   )
 })

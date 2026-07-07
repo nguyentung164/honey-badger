@@ -1,19 +1,19 @@
 'use client'
 
 import { Bug, CheckCircle, GitPullRequest, SendHorizontal, SlidersHorizontal } from 'lucide-react'
-import { memo, type MutableRefObject, type RefObject } from 'react'
-import { useTranslation } from 'react-i18next'
 import { IPC } from 'main/constants'
+import type { ButtonVariant } from 'main/store/AppearanceStore'
+import { type MutableRefObject, memo, type RefObject } from 'react'
+import { useTranslation } from 'react-i18next'
 import { CommitWorkflowStatusBar } from '@/components/commit-workflow/CommitWorkflowStatusBar'
-import { GlowLoader } from '@/components/ui-elements/GlowLoader'
-import toast from '@/components/ui-elements/Toast'
 import { Button } from '@/components/ui/button'
 import { Checkbox } from '@/components/ui/checkbox'
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
 import { Separator } from '@/components/ui/separator'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
+import { GlowLoader } from '@/components/ui-elements/GlowLoader'
+import toast from '@/components/ui-elements/Toast'
 import { cn } from '@/lib/utils'
-import type { ButtonVariant } from 'main/store/AppearanceStore'
 
 export type CommitFooterActionsProps = {
   compact?: boolean
@@ -168,12 +168,7 @@ export const CommitFooterActions = memo(function CommitFooterActions({
       <TooltipContent>{t('SpotBugs')}</TooltipContent>
     </Tooltip>
   ) : (
-    <Button
-      id="spotbugs-button"
-      className={cn('relative text-yellow-600 dark:text-yellow-400', isAnyLoading && 'cursor-progress')}
-      variant={variant}
-      onClick={handleSpotbugs}
-    >
+    <Button id="spotbugs-button" className={cn('relative text-yellow-600 dark:text-yellow-400', isAnyLoading && 'cursor-progress')} variant={variant} onClick={handleSpotbugs}>
       <Bug className={iconClass} /> {t('SpotBugs')}
     </Button>
   )
@@ -183,13 +178,7 @@ export const CommitFooterActions = memo(function CommitFooterActions({
       <Tooltip>
         <TooltipTrigger asChild>
           <PopoverTrigger asChild>
-            <Button
-              type="button"
-              variant={variant}
-              size="icon"
-              className={cn(iconBtnClass, 'relative border-r border-border text-foreground')}
-              aria-label={t('git.commitOptions')}
-            >
+            <Button type="button" variant={variant} size="icon" className={cn(iconBtnClass, 'relative border-r border-border text-foreground')} aria-label={t('git.commitOptions')}>
               <SlidersHorizontal className={iconClass} />
               {autoPush ? (
                 <span
@@ -297,14 +286,7 @@ export const CommitFooterActions = memo(function CommitFooterActions({
       <TooltipContent side="top">{t('git.quickCreatePr.tooltip')}</TooltipContent>
     </Tooltip>
   ) : (
-    <Button
-      type="button"
-      id="quick-create-pr-button"
-      variant={variant}
-      className={cn('shrink-0 gap-1.5', quickPrColorClass)}
-      disabled={isAnyLoading}
-      onClick={handleQuickPr}
-    >
+    <Button type="button" id="quick-create-pr-button" variant={variant} className={cn('shrink-0 gap-1.5', quickPrColorClass)} disabled={isAnyLoading} onClick={handleQuickPr}>
       <GitPullRequest className={iconClass} /> {t('git.quickCreatePr.button')}
     </Button>
   )
@@ -348,17 +330,17 @@ export const CommitFooterActions = memo(function CommitFooterActions({
 
       {versionControlSystem === 'git' ? (
         <>
+          {quickPrButton}
           <div className="inline-flex overflow-hidden rounded-md [&_button:first-child]:rounded-l-md [&_button:last-child]:rounded-r-md [&_button]:rounded-none">
             {commitOptionsButton}
             {commitButton}
           </div>
-          {quickPrButton}
         </>
       ) : (
         svnCommitButton
       )}
 
-      <CommitWorkflowStatusBar repoPath={quickPrCwd} className="flex shrink-0 items-center" />
+      <CommitWorkflowStatusBar repoPath={quickPrCwd} compact={compact} className="flex shrink-0 items-center" />
     </div>
   )
 })

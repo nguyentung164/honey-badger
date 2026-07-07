@@ -1,21 +1,24 @@
 'use client'
 
 import { useTranslation } from 'react-i18next'
-import { Button } from '@/components/ui/button'
-import type { CommitWorkflowRunRecord } from 'shared/commitWorkflow/types'
-import { CommitWorkflowRunChoicesSummary } from './CommitWorkflowRunChoicesSummary'
+import { CommitWorkflowRunChoicesSummary } from '@/components/commit-workflow/CommitWorkflowRunChoicesSummary'
 import { formatStepStatusLabel } from '@/lib/commitWorkflow/commitWorkflowUtils'
+import type { CommitWorkflowRunRecord } from 'shared/commitWorkflow/types'
+import { Button } from '@/components/ui/button'
+import { cn } from '@/lib/utils'
 
 export function CommitWorkflowStepDetail({
   run,
   stepKey,
   onOpenAutomation,
   onClose,
+  embedded = false,
 }: {
   run: CommitWorkflowRunRecord
   stepKey: string
   onOpenAutomation: (testRunId: string) => void
-  onClose: () => void
+  onClose?: () => void
+  embedded?: boolean
 }) {
   const { t } = useTranslation()
   const step = run.steps.find(s => s.stepKey === stepKey)
@@ -23,13 +26,17 @@ export function CommitWorkflowStepDetail({
   const summary = step.summary as Record<string, unknown> | null
 
   return (
-    <div className="rounded-lg border bg-muted/30 p-3 text-sm">
-      <div className="mb-2 flex items-center justify-between">
-        <span className="font-medium">{step.stepKind}</span>
-        <Button type="button" variant="ghost" size="sm" onClick={onClose}>
-          {t('common.close')}
-        </Button>
-      </div>
+    <div className={cn('text-sm', !embedded && 'rounded-lg border bg-muted/30 p-3')}>
+      {!embedded ? (
+        <div className="mb-2 flex items-center justify-between">
+          <span className="font-medium">{step.stepKind}</span>
+          {onClose ? (
+            <Button type="button" variant="ghost" size="sm" onClick={onClose}>
+              {t('common.close')}
+            </Button>
+          ) : null}
+        </div>
+      ) : null}
       <p className="text-xs text-muted-foreground">{formatStepStatusLabel(step.status, t)}</p>
       <CommitWorkflowRunChoicesSummary runChoices={run.contextSnapshot.runChoices} className="mt-2 rounded-md border bg-background/50 p-2" />
       {step.stepKind === 'coding-rules' && summary ? (

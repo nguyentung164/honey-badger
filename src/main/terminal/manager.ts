@@ -1,153 +1,91 @@
 import { randomUUID } from 'node:crypto'
-import fs from 'node:fs'
-import os from 'node:os'
-import path from 'node:path'
 import { app, type WebContents } from 'electron'
 import l from 'electron-log'
-import * as pty from 'node-pty'
-import type { IPty } from 'node-pty'
 import { IPC } from 'main/constants'
 import type { TerminalCreateOptions, TerminalCreateResult } from 'shared/terminal/types'
-import { defaultShellProfileId, resolveShellForProfile } from './shells'
-import { resolveShellArgs } from './shellInit'
+import { getPtyHostClient, warmPtyHost } from './ptyHost/ptyHostClient'
 
-type TerminalSession = {
-  pty: IPty
-  owner: WebContents
-}
+const ownerCleanup = new Map<number, () => void>()
 
-const sessions = new Map<string, TerminalSession>()
+function ensureOwnerBridge(owner: WebContents): void {
+  const ownerId = owner.id
+  if (ownerCleanup.has(ownerId)) return
 
-function buildTerminalEnv(): Record<string, string> {
-  const env = { ...process.env } as Record<string, string>
-  delete env.NO_COLOR
-  delete env.CI
-  if (env.TERM === 'dumb') delete env.TERM
-
-  return {
-    ...env,
-    TERM: 'xterm-256color',
-    COLORTERM: 'truecolor',
-    FORCE_COLOR: '1',
-    CLICOLOR: '1',
-    CLICOLOR_FORCE: '1',
-    HOME: process.env.HOME || os.homedir(),
-  }
-}
-
-function resolveCwd(cwd?: string): string {
-  const trimmed = cwd?.trim()
-  if (trimmed) {
-    const resolved = path.resolve(trimmed)
-    if (fs.existsSync(resolved) && fs.statSync(resolved).isDirectory()) {
-      return resolved
+  const client = getPtyHostClient()
+  const unregister = client.registerOwner(
+    ownerId,
+    payload => {
+      if (owner.isDestroyed()) return
+      try {
+        owner.send(IPC.TERMINAL.STREAM_DATA, payload)
+      } catch (err) {
+        l.warn(`[terminal] Failed to stream data for ${payload.id}:`, err)
+      }
+    },
+    payload => {
+      if (owner.isDestroyed()) return
+      try {
+        owner.send(IPC.TERMINAL.STREAM_EXIT, payload)
+      } catch (err) {
+        l.warn(`[terminal] Failed to stream exit for ${payload.id}:`, err)
+      }
     }
-    throw new Error(`Working directory not found: ${resolved}`)
-  }
-  return process.cwd()
+  )
+
+  ownerCleanup.set(ownerId, unregister)
 }
 
-function killSession(id: string): void {
-  const session = sessions.get(id)
-  if (!session) return
-  try {
-    session.pty.kill()
-  } catch (err) {
-    l.warn(`[terminal] Failed to kill session ${id}:`, err)
-  }
-  sessions.delete(id)
-}
-
-function killSessionsForOwner(owner: WebContents): void {
-  for (const [id, session] of sessions) {
-    if (session.owner === owner) {
-      killSession(id)
-    }
-  }
-}
-
-function killAllSessions(): void {
-  for (const id of [...sessions.keys()]) {
-    killSession(id)
-  }
+function cleanupOwner(ownerId: number): void {
+  ownerCleanup.get(ownerId)?.()
+  ownerCleanup.delete(ownerId)
+  void getPtyHostClient().detachOwner(ownerId)
 }
 
 export function initTerminalManager(): void {
-  app.on('web-contents-created', (_event, contents) => {
+  app.on('web-contents-created', (_event, contents: WebContents) => {
     contents.on('destroyed', () => {
-      killSessionsForOwner(contents)
+      cleanupOwner(contents.id)
     })
   })
 
   app.on('before-quit', () => {
-    killAllSessions()
+    void getPtyHostClient().shutdown()
   })
+
+  void warmPtyHost()
 }
 
-export function createTerminal(owner: WebContents, opts: TerminalCreateOptions = {}): TerminalCreateResult {
-  try {
-    const cwd = resolveCwd(opts.cwd)
-    const shellProfileId = opts.shellProfileId ?? defaultShellProfileId()
-    const shell = resolveShellForProfile(shellProfileId)
-    const shellArgs = resolveShellArgs(shellProfileId)
-    const cols = Math.max(2, opts.cols ?? 80)
-    const rows = Math.max(1, opts.rows ?? 24)
-    const id = randomUUID()
-
-    const terminal = pty.spawn(shell, shellArgs, {
-      name: 'xterm-256color',
-      cwd,
-      cols,
-      rows,
-      env: buildTerminalEnv(),
-    })
-
-    terminal.onData(data => {
-      if (owner.isDestroyed()) return
-      try {
-        owner.send(IPC.TERMINAL.STREAM_DATA, { id, data })
-      } catch (err) {
-        l.warn(`[terminal] Failed to stream data for ${id}:`, err)
-      }
-    })
-
-    terminal.onExit(({ exitCode, signal }) => {
-      sessions.delete(id)
-      if (owner.isDestroyed()) return
-      try {
-        owner.send(IPC.TERMINAL.STREAM_EXIT, { id, exitCode, signal: signal ?? undefined })
-      } catch (err) {
-        l.warn(`[terminal] Failed to stream exit for ${id}:`, err)
-      }
-    })
-
-    sessions.set(id, { pty: terminal, owner })
-    l.info(`[terminal] Created session ${id} (${shell}) in ${cwd}`)
-    return { success: true, id }
-  } catch (err) {
-    const message = err instanceof Error ? err.message : String(err)
-    l.error('[terminal] Create failed:', err)
-    return { success: false, error: message }
+export async function createTerminal(owner: WebContents, opts: TerminalCreateOptions = {}): Promise<TerminalCreateResult> {
+  ensureOwnerBridge(owner)
+  const id = opts.id ?? randomUUID()
+  const shouldPersist = opts.shouldPersist ?? false
+  const client = getPtyHostClient()
+  const result = await client.createTerminal(owner.id, {
+    ...opts,
+    id,
+    shouldPersist,
+  })
+  if (result.success) {
+    l.info(`[terminal] ${result.attached ? 'Attached' : 'Created'} session ${result.id}`)
   }
+  return result
 }
 
 export function writeTerminal(owner: WebContents, id: string, data: string): boolean {
-  const session = sessions.get(id)
-  if (!session || session.owner !== owner) return false
-  session.pty.write(data)
+  getPtyHostClient().writeTerminal(owner.id, id, data)
   return true
 }
 
 export function resizeTerminal(owner: WebContents, id: string, cols: number, rows: number): boolean {
-  const session = sessions.get(id)
-  if (!session || session.owner !== owner) return false
-  session.pty.resize(Math.max(2, cols), Math.max(1, rows))
+  getPtyHostClient().resizeTerminal(owner.id, id, cols, rows)
   return true
 }
 
-export function destroyTerminal(owner: WebContents, id: string): boolean {
-  const session = sessions.get(id)
-  if (!session || session.owner !== owner) return false
-  killSession(id)
+export function detachTerminal(owner: WebContents, id: string): boolean {
+  getPtyHostClient().detachTerminal(owner.id, id)
   return true
+}
+
+export async function destroyTerminal(owner: WebContents, id: string): Promise<boolean> {
+  return getPtyHostClient().destroyTerminal(owner.id, id)
 }

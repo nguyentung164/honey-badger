@@ -699,7 +699,7 @@ export const GitStagingTable = forwardRef(({ onLoadingChange, cwd, label, commit
           changesTable.toggleAllPageRowsSelected(false)
           setChangesRowSelection({})
           // Reload data to update both lists
-          await reloadData()
+          await reloadData({ silent: true })
           logger.info('Git add completed and data reloaded')
         } else {
           toast.error(result.message || t('toast.gitAddError'))
@@ -722,7 +722,7 @@ export const GitStagingTable = forwardRef(({ onLoadingChange, cwd, label, commit
           logger.success(t('toast.gitUnstageSuccess'))
           setStagedRowSelection({})
           setStagedAnchorRowIndex(null)
-          await reloadData()
+          await reloadData({ silent: true })
           logger.info('Git unstage completed and data reloaded')
         } else {
           toast.error(result.message || t('toast.gitUnstageError'))
@@ -760,7 +760,7 @@ export const GitStagingTable = forwardRef(({ onLoadingChange, cwd, label, commit
         logger.success(t('toast.revertSuccess'))
         setChangesRowSelection(prev => removePathsFromRowSelection(prev, discardedPaths))
         setChangesAnchorRowIndex(null)
-        await reloadData()
+        await reloadData({ silent: true })
       } else {
         toast.error(result.message || t('toast.revertError'))
       }
@@ -1392,11 +1392,9 @@ export const GitStagingTable = forwardRef(({ onLoadingChange, cwd, label, commit
             <div className="min-h-0 flex-1 overflow-hidden">
               <Suspense
                 fallback={
-                  isTableLoading ? null : (
-                    <div className="flex h-full items-center justify-center">
-                      <GlowLoader className="h-10 w-10" />
-                    </div>
-                  )
+                  <div className="flex h-full items-center justify-center">
+                    <GlowLoader className="h-10 w-10" />
+                  </div>
                 }
               >
                 <CodeDiffViewer

@@ -254,6 +254,9 @@
   },
   "editor": {
     "explorer": "エクスプローラー",
+    "openEditors": "開いているエディター",
+    "workspace": "ワークスペース",
+    "closeAllEditors": "すべて閉じる",
     "search": "検索",
     "noWorkspace": "設定でソースフォルダーを開いてエディターを使用してください。",
     "explorerEmpty": "このフォルダーにファイルがありません。",
@@ -845,7 +848,7 @@
       "keepSessions": "パネルを閉じてもセッションを保持",
       "keepSessionsHint": "パネル非表示中もプロセスは実行を続けます。",
       "confirmOnKill": "終了前に確認",
-      "confirmOnKillHint": "タブを閉じる／再起動する前に確認します。",
+      "confirmOnKillHint": "コマンド実行中にタブを閉じる／再起動する前に確認します。",
       "tabTitle": "タブタイトル",
       "tabTitleOptions": {
         "shell": "シェル名",
@@ -2313,6 +2316,7 @@
       "colHash": "ハッシュ",
       "colMessage": "メッセージ",
       "colAuthor": "Author",
+      "colDate": "日付",
       "sameBranch": "異なるブランチを選択してください。",
       "action": "{{branch}} にチェリーピック",
       "selectBranches": "ターゲットとソースのブランチを選択してください。",
@@ -2329,7 +2333,12 @@
       "statusError": "リポジトリの状態を取得できませんでした",
       "checkoutError": "ターゲットブランチにチェックアウトできませんでした",
       "stateBlocked": "進行中のマージ / リベース / チェリーピックを完了または中止してから実行してください。",
-      "conflictPanelTitle": "コンフリクトを解してからチェリーピックを続行"
+      "conflictPanelTitle": "コンフリクトを解してからチェリーピックを続行",
+      "openConflictDiff": "差分ビューアを開く",
+      "conflictDiffOpenHint": "差分ビューアでコンフリクトを解決してください。中止するには下の「中止」を使います。",
+      "closeConfirmTitle": "チェリーピックダイアログを閉じますか？",
+      "closeConfirmDescription": "チェリーピックが進行中、または未解決のコンフリクトがあります。閉じてもリポジトリの状態はそのまま残ります。",
+      "closeConfirmAction": "閉じる"
     },
     "reset": {
       "title": "このコミットにリセット",
@@ -5687,9 +5696,9 @@
     "runChoices": {
       "title": "コミット前の選択",
       "enabled": "有効",
-      "skipped": "開発者がスキップ"
+      "skipped": "開発者がスキップ",
+      "allSkippedByUser": "全ステップOFF"
     },
-    "allSkippedByUser": "全ステップOFF",
     "automationProjectLabel": "Automation プロジェクト",
     "selectAutomationProject": "Automation プロジェクトを選択…",
     "automationProjectHint": "旧設定 — project はこのフローのタスク project から取得します。",

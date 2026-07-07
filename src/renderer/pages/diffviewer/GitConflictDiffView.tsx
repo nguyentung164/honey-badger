@@ -42,6 +42,8 @@ export type GitConflictDiffViewProps = {
   embedded?: boolean
   embeddedPayload?: DiffViewerLoadPayload | null
   embeddedToolbarHost?: HTMLElement | null
+  onContinueSuccess?: () => void
+  onAbortSuccess?: () => void
 }
 
 function formatLoadError(error: unknown): string {
@@ -50,11 +52,12 @@ function formatLoadError(error: unknown): string {
 }
 
 export const GitConflictDiffView = forwardRef<CodeDiffViewerHandle, GitConflictDiffViewProps>(function GitConflictDiffView(
-  { embedded = false, embeddedPayload = null, embeddedToolbarHost = null },
+  { embedded = false, embeddedPayload = null, embeddedToolbarHost = null, onContinueSuccess, onAbortSuccess },
   ref
 ) {
   const { t } = useTranslation()
-  const sourceFolder = useConfigurationStore(s => s.sourceFolder)
+  const globalSourceFolder = useConfigurationStore(s => s.sourceFolder)
+  const configSourceFolder = embedded ? undefined : globalSourceFolder
   const [cwd, setCwd] = useState<string | undefined>()
   const [fileContent, setFileContent] = useState<string | null>(null)
   const [loadError, setLoadError] = useState<string | null>(null)
@@ -72,7 +75,10 @@ export const GitConflictDiffView = forwardRef<CodeDiffViewerHandle, GitConflictD
   const { autoAdvance, toggleAutoAdvance } = useDiffViewerAutoAdvance()
   const { panelGroupRef, initialLayout, handleLayoutChanged } = useDiffViewerTreePanelWidth()
 
-  const repoCwd = useMemo(() => resolveDiffViewerRepoCwd(loadContextRef.current?.cwd ?? cwd, cwd, sourceFolder), [cwd, sourceFolder])
+  const repoCwd = useMemo(
+    () => resolveDiffViewerRepoCwd(loadContextRef.current?.cwd ?? cwd, cwd, configSourceFolder),
+    [cwd, configSourceFolder]
+  )
 
   const {
     conflictType,
@@ -84,6 +90,16 @@ export const GitConflictDiffView = forwardRef<CodeDiffViewerHandle, GitConflictD
     handleContinue,
     notifyConflictResolved,
   } = useGitConflictSession(repoCwd)
+
+  const wrappedHandleAbort = useCallback(async () => {
+    const ok = await handleAbort()
+    if (ok) onAbortSuccess?.()
+  }, [handleAbort, onAbortSuccess])
+
+  const wrappedHandleContinue = useCallback(async () => {
+    const ok = await handleContinue()
+    if (ok) onContinueSuccess?.()
+  }, [handleContinue, onContinueSuccess])
 
   const afterFileResolved = useCallback(async () => {
     notifyConflictResolved()
@@ -129,7 +145,7 @@ export const GitConflictDiffView = forwardRef<CodeDiffViewerHandle, GitConflictD
       const enriched = enrichDiffViewerPayload(data)
       const path = enriched.filePath ? normalizeGitPath(enriched.filePath) : ''
       const normalizedFiles = enriched.files?.map(f => ({ ...f, filePath: normalizeGitPath(f.filePath) }))
-      const resolvedCwd = resolveDiffViewerRepoCwd(enriched.cwd, undefined, sourceFolder)
+      const resolvedCwd = resolveDiffViewerRepoCwd(enriched.cwd, undefined, configSourceFolder)
       setCwd(resolvedCwd)
       const fileCount = normalizedFiles?.length ?? 0
       sessionBaselineRef.current = Math.max(sessionBaselineRef.current, fileCount)
@@ -137,7 +153,7 @@ export const GitConflictDiffView = forwardRef<CodeDiffViewerHandle, GitConflictD
       setIsEditorDirty(false)
       loadContextRef.current = { ...enriched, filePath: path, files: normalizedFiles, cwd: resolvedCwd }
     },
-    [initFiles, sourceFolder]
+    [configSourceFolder, initFiles]
   )
 
   const loadActiveFile = useCallback(
@@ -329,9 +345,9 @@ export const GitConflictDiffView = forwardRef<CodeDiffViewerHandle, GitConflictD
           isRefreshing={isTreeRefreshing}
           autoAdvance={autoAdvance}
           onToggleAutoAdvance={toggleAutoAdvance}
-          onAbort={() => void handleAbort()}
+          onAbort={() => void wrappedHandleAbort()}
           isAborting={isAborting}
-          onContinue={() => void handleContinue()}
+          onContinue={() => void wrappedHandleContinue()}
           isContinuing={isContinuing}
           showContinue={showContinue}
           readyToContinue={readyToContinue}
@@ -340,7 +356,7 @@ export const GitConflictDiffView = forwardRef<CodeDiffViewerHandle, GitConflictD
           {readyToContinue ? (
             <div className="flex flex-col items-center gap-3">
               <p>{t('git.conflict.readyToCommit')}</p>
-              <button type="button" className="text-primary underline" onClick={() => void handleContinue()}>
+              <button type="button" className="text-primary underline" onClick={() => void wrappedHandleContinue()}>
                 {t('git.conflict.continue')}
               </button>
             </div>
@@ -375,9 +391,9 @@ export const GitConflictDiffView = forwardRef<CodeDiffViewerHandle, GitConflictD
         onResolveTheirs={() => void handleResolve('theirs')}
         onResolveBoth={() => void handleResolve('both')}
         isResolving={Boolean(resolvingFile)}
-        onAbort={() => void handleAbort()}
+        onAbort={() => void wrappedHandleAbort()}
         isAborting={isAborting}
-        onContinue={() => void handleContinue()}
+        onContinue={() => void wrappedHandleContinue()}
         isContinuing={isContinuing}
         showContinue={showContinue}
         readyToContinue={readyToContinue}

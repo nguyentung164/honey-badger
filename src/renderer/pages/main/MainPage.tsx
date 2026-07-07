@@ -55,6 +55,7 @@ import { useEditorSessionLifecycle } from '@/pages/editor/hooks/useEditorSession
 import { DevPipelinesToolbarPortalContext } from '@/pages/main/DevPipelinesToolbarPortalContext'
 import { GitStagingTable } from '@/pages/main/GitStagingTable'
 import { IntegratedTerminalPanel } from '@/pages/main/IntegratedTerminalPanel'
+import { isTerminalToggleShortcut, shouldBlockTerminalToggleShortcut } from '@/lib/terminal/terminalToggleShortcut'
 import { useTerminalPrefs } from '@/hooks/useTerminalPrefs'
 import { PrManagerToolbarPortalContext } from '@/pages/main/PrManagerToolbarPortalContext'
 import { QuickCreatePrDialog } from '@/pages/main/QuickCreatePrDialog'
@@ -366,7 +367,8 @@ export function MainPage() {
       const vcs = cfg.versionControlSystem
       const paths = effectivePathsRef.current
       const multi = vcs === 'git' && !!cfg.multiRepoEnabled && paths.length >= 1
-      const reloadOpts = detail?.source === 'watcher' ? { silent: true as const } : undefined
+      const reloadOpts =
+        detail?.source === 'watcher' || detail?.source === 'staging' ? { silent: true as const } : undefined
       if (vcs === 'git') {
         if (multi && paths.length > 0) {
           let targetPath: string | undefined
@@ -1811,14 +1813,11 @@ export function MainPage() {
         return
       }
 
-      if (event.ctrlKey && event.key === '`') {
-        const target = event.target
-        if (target instanceof HTMLElement) {
-          const tag = target.tagName
-          if (tag === 'INPUT' || tag === 'TEXTAREA' || target.isContentEditable) return
-          if (target.closest('.monaco-editor')) return
-        }
+      if (isTerminalToggleShortcut(event)) {
+        if (enableShellSwitcher && shellView !== 'editor') return
+        if (shouldBlockTerminalToggleShortcut(event)) return
         event.preventDefault()
+        event.stopPropagation()
         handleTerminalToggle()
       }
     }
@@ -1826,7 +1825,7 @@ export function MainPage() {
     return () => {
       window.removeEventListener('keydown', handleKeyDown, true)
     }
-  }, [handleTerminalToggle])
+  }, [enableShellSwitcher, handleTerminalToggle, shellView])
 
   const activeRepoLabel = isMultiRepo && effectiveLabels.length > 0 ? (effectiveLabels[Number(multiRepoActiveTab)] ?? effectiveLabels[0]) : undefined
 
@@ -1908,7 +1907,6 @@ export function MainPage() {
                       <EditorPage
                         repoCwd={quickPrCwd}
                         onRegisterLayoutLeave={registerEditorLayoutLeave}
-                        onTerminalToggle={handleTerminalToggle}
                         onOpenInTerminal={handleOpenInTerminal}
                         terminalOpen={terminalOpen}
                       />

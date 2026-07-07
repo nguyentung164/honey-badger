@@ -254,6 +254,9 @@
   },
   "editor": {
     "explorer": "Explorer",
+    "openEditors": "OPEN EDITORS",
+    "workspace": "WORKSPACE",
+    "closeAllEditors": "Close All",
     "search": "Search",
     "noWorkspace": "Open a source folder in Settings to use the editor.",
     "explorerEmpty": "No files in this folder.",
@@ -845,7 +848,7 @@
       "keepSessions": "Keep sessions when panel closed",
       "keepSessionsHint": "Processes keep running while the panel is hidden.",
       "confirmOnKill": "Confirm before kill",
-      "confirmOnKillHint": "Ask before closing a tab or restarting a terminal.",
+      "confirmOnKillHint": "Ask before closing a tab or restarting while a command is still running.",
       "tabTitle": "Tab title",
       "tabTitleOptions": {
         "shell": "Shell name",
@@ -2314,6 +2317,7 @@
       "colHash": "Hash",
       "colMessage": "Message",
       "colAuthor": "Author",
+      "colDate": "Date",
       "sameBranch": "Choose two different branches.",
       "action": "Cherry-pick into {{branch}}",
       "selectBranches": "Select target and source branches.",
@@ -2330,7 +2334,12 @@
       "statusError": "Could not read repository status",
       "checkoutError": "Could not check out the target branch",
       "stateBlocked": "Finish or abort merge, rebase, or cherry-pick in progress before starting.",
-      "conflictPanelTitle": "Resolve conflicts, then continue cherry-pick"
+      "conflictPanelTitle": "Resolve conflicts, then continue cherry-pick",
+      "openConflictDiff": "Open diff viewer",
+      "conflictDiffOpenHint": "Resolve conflicts in the diff viewer above. Use Abort below to cancel the cherry-pick.",
+      "closeConfirmTitle": "Close cherry-pick dialog?",
+      "closeConfirmDescription": "Cherry-pick is still in progress or has unresolved conflicts. Closing leaves the repository in that state.",
+      "closeConfirmAction": "Close anyway"
     },
     "reset": {
       "title": "Reset to this commit",
@@ -5715,9 +5724,9 @@
     "runChoices": {
       "title": "Pre-commit choices",
       "enabled": "Enabled",
-      "skipped": "Skipped by developer"
+      "skipped": "Skipped by developer",
+      "allSkippedByUser": "All steps off"
     },
-    "allSkippedByUser": "All steps off",
     "automationProjectLabel": "Automation project",
     "selectAutomationProject": "Select automation project…",
     "automationProjectHint": "Legacy setting — project is taken from this flow's task project.",

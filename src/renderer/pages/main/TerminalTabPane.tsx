@@ -11,12 +11,15 @@ import { TerminalContextMenu, type TerminalContextMenuState } from '@/pages/main
 import type { TerminalShellProfileId } from 'shared/terminal/shells'
 
 type TerminalTabPaneProps = {
+  terminalId: string
   visible: boolean
   focused: boolean
   panelVisible: boolean
   cwd?: string
   shellProfileId: TerminalShellProfileId
   prefs: TerminalPrefs
+  shouldPersist?: boolean
+  tryAttach?: boolean
   restartNonce?: number
   clearNonce?: number
   interruptNonce?: number
@@ -25,12 +28,15 @@ type TerminalTabPaneProps = {
 }
 
 export function TerminalTabPane({
+  terminalId,
   visible,
   focused,
   panelVisible,
   cwd,
   shellProfileId,
   prefs,
+  shouldPersist = false,
+  tryAttach = false,
   restartNonce = 0,
   clearNonce = 0,
   interruptNonce = 0,
@@ -50,6 +56,9 @@ export function TerminalTabPane({
       visible,
       focused: focused && visible,
       panelVisible,
+      terminalId,
+      shouldPersist,
+      tryAttach,
       cwd,
       shellProfileId,
       prefs,

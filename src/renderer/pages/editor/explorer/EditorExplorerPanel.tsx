@@ -7,13 +7,28 @@ import type { GitFileStatusCode } from '@/components/git/GitFileStatusBadge'
 import { Button } from '@/components/ui/button'
 import { DiffViewerFileTreeVirtualList } from '@/pages/diffviewer/DiffViewerFileTreeVirtualList'
 import { EditorExplorerContextMenu } from '@/pages/editor/explorer/EditorExplorerContextMenu'
+import { EditorExplorerSectionHeader } from '@/pages/editor/explorer/EditorExplorerSectionHeader'
+import { EditorOpenEditorRow } from '@/pages/editor/explorer/EditorOpenEditorRow'
 import { ExplorerPhantomRow, ExplorerRow, type ExplorerRowHandlers } from '@/pages/editor/explorer/EditorExplorerRow'
 import { ExplorerDeleteConfirmDialog } from '@/pages/editor/explorer/ExplorerDeleteConfirmDialog'
 import { getExplorerClipboard, parentRelativeDir, subscribeExplorerClipboard } from '@/pages/editor/explorer/explorerClipboard'
-import { buildExplorerDisplayRows, type ExplorerDisplayRow, type ExplorerInlineEdit, getExplorerDisplayRowKey } from '@/pages/editor/explorer/explorerDisplayRows'
+import { buildExplorerDisplayRows, type ExplorerInlineEdit } from '@/pages/editor/explorer/explorerDisplayRows'
 import { pruneDeletedSelectionPaths, rangeSelectPaths, remapSelectionPaths, resolveContextMenuPaths, toggleSelectionPath } from '@/pages/editor/explorer/explorerSelection'
 import { EXPLORER_TREE_ROW_HEIGHT } from '@/pages/editor/explorer/explorerTreeConstants'
+import {
+  buildExplorerPanelRows,
+  EXPLORER_SECTION_HEADER_HEIGHT,
+  getExplorerPanelRowKey,
+  type ExplorerPanelRow,
+} from '@/pages/editor/explorer/explorerSectionRows'
 import { useExplorerFileOperations } from '@/pages/editor/explorer/useExplorerFileOperations'
+import type { EditorTabMenuActions } from '@/pages/editor/editor-area/EditorTabContextMenu'
+import type { EditorTabSummary } from '@/pages/editor/hooks/useEditorTabSelectors'
+import {
+  readExplorerExpandedSections,
+  writeExplorerExpandedSections,
+  type EditorExplorerSectionId,
+} from '@/pages/editor/hooks/useEditorExplorerSectionPrefs'
 import { useEditorSettings } from '@/pages/editor/hooks/useEditorSettings'
 import { useEditorWorkspace } from '@/pages/editor/hooks/useEditorWorkspace'
 import { useExplorerAutoReveal } from '@/pages/editor/hooks/useExplorerAutoReveal'
@@ -21,11 +36,41 @@ import { useProjectFileTree } from '@/pages/editor/hooks/useProjectFileTree'
 import { normalizeRepoRelativePath } from '@/pages/editor/lib/fileTreePaths'
 import type { FileTreeRow } from '@/pages/editor/lib/flattenFileTree'
 
+type PanelFocus =
+  | { kind: 'open-editor'; tabId: string }
+  | { kind: 'tree'; path: string }
+
+type NavigablePanelRow = Exclude<ExplorerPanelRow, { kind: 'section-header' }>
+
+function panelFocusFromTreePath(path: string): PanelFocus {
+  return { kind: 'tree', path }
+}
+
+function panelFocusFromOpenEditor(tabId: string): PanelFocus {
+  return { kind: 'open-editor', tabId }
+}
+
+function panelFocusMatchesRow(focus: PanelFocus | null, row: NavigablePanelRow): boolean {
+  if (!focus) return false
+  if (focus.kind === 'open-editor' && row.kind === 'open-editor') return focus.tabId === row.tab.id
+  if (focus.kind === 'tree' && row.kind === 'tree' && row.displayRow.kind === 'tree') {
+    return focus.path === row.displayRow.row.node.relativePath
+  }
+  return false
+}
+
 type EditorExplorerPanelProps = {
   repoCwd: string
   activeTabId?: string | null
   activeRelativePath?: string
   revealRequest?: { path: string; seq: number } | null
+  tabs?: readonly EditorTabSummary[]
+  onSelectTab?: (tabId: string) => void
+  onCloseTab?: (tabId: string) => void
+  onCloseAllTabs?: () => void
+  onPinTab?: (tabId: string) => void
+  getTabGitStatus?: (relativePath: string) => GitFileStatusCode | null
+  getTabMenuActions?: (tab: EditorTabSummary, tabIndex: number) => EditorTabMenuActions
   onOpenFile: (relativePath: string, opts?: { preview?: boolean; pin?: boolean }) => void
   onOpenCompare?: (leftPath: string, rightPath: string) => void
   getGitStatus: (relativePath: string, isDir: boolean) => GitFileStatusCode | null
@@ -51,7 +96,24 @@ function pathsToDeleteTargets(rows: readonly FileTreeRow[], paths: ReadonlySet<s
   })
 }
 
-export function EditorExplorerPanel({ repoCwd, activeTabId, activeRelativePath, revealRequest, onOpenFile, onOpenCompare, getGitStatus, refreshGitDecorations, onOpenInTerminal }: EditorExplorerPanelProps) {
+export function EditorExplorerPanel({
+  repoCwd,
+  activeTabId,
+  activeRelativePath,
+  revealRequest,
+  tabs = [],
+  onSelectTab,
+  onCloseTab,
+  onCloseAllTabs,
+  onPinTab,
+  getTabGitStatus,
+  getTabMenuActions,
+  onOpenFile,
+  onOpenCompare,
+  getGitStatus,
+  refreshGitDecorations,
+  onOpenInTerminal,
+}: EditorExplorerPanelProps) {
   const { t } = useTranslation()
   const explorerAutoReveal = useEditorSettings(s => s.explorerAutoReveal)
   const containerRef = useRef<HTMLDivElement>(null)
@@ -67,6 +129,18 @@ export function EditorExplorerPanel({ repoCwd, activeTabId, activeRelativePath, 
   const [inlineEdit, setInlineEdit] = useState<ExplorerInlineEdit | null>(null)
   const [deleteTargets, setDeleteTargets] = useState<Array<{ relativePath: string; isDir: boolean; name: string }> | null>(null)
   const [clipboardVersion, setClipboardVersion] = useState(0)
+  const [expandedSections, setExpandedSections] = useState<Set<EditorExplorerSectionId>>(() => readExplorerExpandedSections())
+  const [panelFocus, setPanelFocus] = useState<PanelFocus | null>(null)
+
+  const toggleSection = useCallback((sectionId: EditorExplorerSectionId) => {
+    setExpandedSections(prev => {
+      const next = new Set(prev)
+      if (next.has(sectionId)) next.delete(sectionId)
+      else next.add(sectionId)
+      writeExplorerExpandedSections(next)
+      return next
+    })
+  }, [])
 
   const renameExplorerPath = useEditorWorkspace(s => s.renameExplorerPath)
   const closeTabsForExplorerDelete = useEditorWorkspace(s => s.closeTabsForExplorerDelete)
@@ -77,10 +151,18 @@ export function EditorExplorerPanel({ repoCwd, activeTabId, activeRelativePath, 
     setSelectedPaths(new Set([normalized]))
     setAnchorPath(normalized)
     setFocusPath(normalized)
+    setPanelFocus(panelFocusFromTreePath(normalized))
   }, [activeRelativePath, activeTabId, explorerAutoReveal])
 
   useEffect(() => {
     if (!revealRequest) return
+    setExpandedSections(prev => {
+      if (prev.has('workspace')) return prev
+      const next = new Set(prev)
+      next.add('workspace')
+      writeExplorerExpandedSections(next)
+      return next
+    })
     const normalized = normalizeRepoRelativePath(revealRequest.path)
     if (!normalized) {
       setSelectedPaths(new Set())
@@ -91,6 +173,7 @@ export function EditorExplorerPanel({ repoCwd, activeTabId, activeRelativePath, 
     setSelectedPaths(new Set([normalized]))
     setAnchorPath(normalized)
     setFocusPath(normalized)
+    setPanelFocus(panelFocusFromTreePath(normalized))
   }, [revealRequest])
 
   const handleRefresh = useCallback(() => {
@@ -193,14 +276,24 @@ export function EditorExplorerPanel({ repoCwd, activeTabId, activeRelativePath, 
 
   const displayRows = useMemo(() => buildExplorerDisplayRows(rows, inlineEdit), [inlineEdit, rows])
 
+  const panelRows = useMemo(
+    () => buildExplorerPanelRows(tabs, displayRows, expandedSections),
+    [tabs, displayRows, expandedSections]
+  )
+
+  const navigablePanelRows = useMemo(
+    () => panelRows.filter((row): row is NavigablePanelRow => row.kind !== 'section-header'),
+    [panelRows]
+  )
+
   const mappedRevealScroll = useMemo(() => {
     if (!revealScroll) return null
-    const displayIndex = displayRows.findIndex(
-      dr => dr.kind === 'tree' && dr.row.node.relativePath === revealScroll.path
+    const panelIndex = panelRows.findIndex(
+      row => row.kind === 'tree' && row.displayRow.kind === 'tree' && row.displayRow.row.node.relativePath === revealScroll.path
     )
-    if (displayIndex < 0) return null
-    return { index: displayIndex, sequence: revealScroll.sequence }
-  }, [displayRows, revealScroll])
+    if (panelIndex < 0) return null
+    return { index: panelIndex, sequence: revealScroll.sequence }
+  }, [panelRows, revealScroll])
 
   const handleExplorerSelect = useCallback(
     (path: string, event: React.MouseEvent) => {
@@ -218,6 +311,7 @@ export function EditorExplorerPanel({ repoCwd, activeTabId, activeRelativePath, 
 
       if (!shift) setAnchorPath(path)
       setFocusPath(path)
+      setPanelFocus(panelFocusFromTreePath(path))
       containerRef.current?.focus({ preventScroll: true })
     },
     [rows]
@@ -262,8 +356,40 @@ export function EditorExplorerPanel({ repoCwd, activeTabId, activeRelativePath, 
     setInlineEdit(null)
   }, [])
 
-  const renderDisplayRow = useCallback(
-    (displayRow: ExplorerDisplayRow) => {
+  const renderPanelRow = useCallback(
+    (panelRow: ExplorerPanelRow) => {
+      if (panelRow.kind === 'section-header') {
+        return (
+          <EditorExplorerSectionHeader
+            sectionId={panelRow.id}
+            expanded={expandedSections.has(panelRow.id)}
+            count={panelRow.id === 'open-editors' ? tabs.length : undefined}
+            onToggle={toggleSection}
+            onCloseAll={panelRow.id === 'open-editors' ? onCloseAllTabs : undefined}
+          />
+        )
+      }
+
+      if (panelRow.kind === 'open-editor') {
+        const { tab, tabIndex } = panelRow
+        return (
+          <EditorOpenEditorRow
+            tab={tab}
+            tabIndex={tabIndex}
+            tabCount={tabs.length}
+            active={tab.id === activeTabId}
+            focused={panelFocus?.kind === 'open-editor' && panelFocus.tabId === tab.id}
+            gitStatus={tab.isCompare ? null : (getTabGitStatus?.(tab.relativePath) ?? null)}
+            tabMenuActions={getTabMenuActions?.(tab, tabIndex) ?? null}
+            onSelectTab={id => onSelectTab?.(id)}
+            onCloseTab={id => onCloseTab?.(id)}
+            onPinTab={onPinTab}
+            onFocusRow={() => setPanelFocus(panelFocusFromOpenEditor(tab.id))}
+          />
+        )
+      }
+
+      const displayRow = panelRow.displayRow
       if (displayRow.kind === 'phantom') {
         if (!inlineEdit || inlineEdit.mode !== 'create' || inlineEdit.sessionId !== displayRow.sessionId) return null
         return (
@@ -308,7 +434,29 @@ export function EditorExplorerPanel({ repoCwd, activeTabId, activeRelativePath, 
         </EditorExplorerContextMenu>
       )
     },
-    [cancelInlineEdit, commitInlineEdit, cutPaths, expandedPaths, fileOps, getGitStatus, inlineEdit, loadingPaths, rows, selectedPaths]
+    [
+      activeTabId,
+      cancelInlineEdit,
+      commitInlineEdit,
+      cutPaths,
+      expandedPaths,
+      expandedSections,
+      fileOps,
+      getGitStatus,
+      getTabGitStatus,
+      getTabMenuActions,
+      inlineEdit,
+      loadingPaths,
+      onCloseAllTabs,
+      onCloseTab,
+      onPinTab,
+      onSelectTab,
+      panelFocus,
+      rows,
+      selectedPaths,
+      tabs.length,
+      toggleSection,
+    ]
   )
 
   const rootName = repoCwd
@@ -318,15 +466,29 @@ export function EditorExplorerPanel({ repoCwd, activeTabId, activeRelativePath, 
       .pop() ?? repoCwd)
     : t('editor.noWorkspace')
 
-  const moveFocus = useCallback(
+  const movePanelFocus = useCallback(
     (delta: number, extend: boolean) => {
       if (inlineEdit) return
-      if (rows.length === 0) return
+      if (navigablePanelRows.length === 0) return
 
-      const currentIndex = focusPath ? rows.findIndex(r => r.node.relativePath === focusPath) : -1
-      const nextIndex = Math.max(0, Math.min(rows.length - 1, (currentIndex < 0 ? 0 : currentIndex) + delta))
-      const nextPath = rows[nextIndex].node.relativePath
+      const currentIndex = panelFocus
+        ? navigablePanelRows.findIndex(row => panelFocusMatchesRow(panelFocus, row))
+        : -1
+      const nextIndex = Math.max(0, Math.min(navigablePanelRows.length - 1, (currentIndex < 0 ? 0 : currentIndex) + delta))
+      const nextRow = navigablePanelRows[nextIndex]
 
+      if (nextRow.kind === 'open-editor') {
+        setPanelFocus(panelFocusFromOpenEditor(nextRow.tab.id))
+        if (!extend) {
+          setSelectedPaths(new Set())
+          setAnchorPath(null)
+          setFocusPath(null)
+        }
+        return
+      }
+
+      if (nextRow.kind !== 'tree' || nextRow.displayRow.kind !== 'tree') return
+      const nextPath = nextRow.displayRow.row.node.relativePath
       if (extend) {
         const anchor = anchorPath ?? focusPath ?? nextPath
         setSelectedPaths(rangeSelectPaths(rows, anchor, nextPath))
@@ -336,25 +498,36 @@ export function EditorExplorerPanel({ repoCwd, activeTabId, activeRelativePath, 
         setAnchorPath(nextPath)
       }
       setFocusPath(nextPath)
+      setPanelFocus(panelFocusFromTreePath(nextPath))
     },
-    [anchorPath, focusPath, inlineEdit, rows]
+    [anchorPath, focusPath, inlineEdit, navigablePanelRows, panelFocus, rows]
   )
+
+  const resolveFocusedTreeRow = useCallback((): FileTreeRow | null => {
+    if (panelFocus?.kind === 'tree') {
+      return rows.find(r => r.node.relativePath === panelFocus.path) ?? null
+    }
+    if (focusPath) return rows.find(r => r.node.relativePath === focusPath) ?? null
+    return null
+  }, [focusPath, panelFocus, rows])
 
   const handleKeyDown = useCallback(
     (e: KeyboardEvent) => {
       if (inlineEdit) return
       if (!isExplorerFocused(containerRef.current)) return
 
-      const focusRow = focusPath ? rows.find(r => r.node.relativePath === focusPath) : null
+      const focusRow = resolveFocusedTreeRow()
       const isMod = e.ctrlKey || e.metaKey
       const selectionCount = selectedPaths.size
+      const openEditorFocused = panelFocus?.kind === 'open-editor'
 
-      if (isMod && e.key.toLowerCase() === 'a') {
+      if (isMod && e.key.toLowerCase() === 'a' && !openEditorFocused) {
         e.preventDefault()
         setSelectedPaths(new Set(rows.map(r => r.node.relativePath)))
         if (rows.length > 0) {
           setAnchorPath(rows[0].node.relativePath)
           setFocusPath(rows[rows.length - 1].node.relativePath)
+          setPanelFocus(panelFocusFromTreePath(rows[rows.length - 1].node.relativePath))
         }
         return
       }
@@ -370,58 +543,71 @@ export function EditorExplorerPanel({ repoCwd, activeTabId, activeRelativePath, 
         return
       }
 
-      if (selectionCount > 0 && isMod && e.key.toLowerCase() === 'x') {
+      if (!openEditorFocused && selectionCount > 0 && isMod && e.key.toLowerCase() === 'x') {
         e.preventDefault()
         fileOpsRef.current.cut([...selectedPaths])
         return
       }
-      if (selectionCount > 0 && isMod && e.key.toLowerCase() === 'c') {
+      if (!openEditorFocused && selectionCount > 0 && isMod && e.key.toLowerCase() === 'c') {
         e.preventDefault()
         fileOpsRef.current.copy([...selectedPaths])
         return
       }
-      if (focusRow && isMod && e.key.toLowerCase() === 'v') {
+      if (!openEditorFocused && focusRow && isMod && e.key.toLowerCase() === 'v') {
         e.preventDefault()
         const pasteDir = focusRow.node.kind === 'directory' ? focusRow.node.relativePath : parentRelativeDir(focusRow.node.relativePath)
         void fileOpsRef.current.pasteInto(pasteDir)
         return
       }
 
-      if (!focusRow && e.key !== 'ArrowDown') return
+      if (!panelFocus && e.key !== 'ArrowDown') return
 
       switch (e.key) {
         case 'ArrowDown':
           e.preventDefault()
-          moveFocus(1, e.shiftKey)
+          movePanelFocus(1, e.shiftKey)
           break
         case 'ArrowUp':
           e.preventDefault()
-          moveFocus(-1, e.shiftKey)
+          movePanelFocus(-1, e.shiftKey)
           break
         case 'ArrowRight':
+          if (openEditorFocused) break
           if (focusRow?.node.kind === 'directory' && !expandedPaths.has(focusRow.node.relativePath)) {
             e.preventDefault()
             toggleExpandUser(focusRow.node.relativePath)
           }
           break
         case 'ArrowLeft':
+          if (openEditorFocused) break
           if (focusRow?.node.kind === 'directory' && expandedPaths.has(focusRow.node.relativePath)) {
             e.preventDefault()
             toggleExpandUser(focusRow.node.relativePath)
           }
           break
         case 'Enter':
-          if (!focusRow) return
           e.preventDefault()
+          if (openEditorFocused && panelFocus?.kind === 'open-editor') {
+            onSelectTab?.(panelFocus.tabId)
+            break
+          }
+          if (!focusRow) break
           if (focusRow.node.kind === 'directory') toggleExpandUser(focusRow.node.relativePath)
           else onOpenFile(focusRow.node.relativePath, { preview: true })
           break
         case 'F2':
-          if (selectionCount !== 1 || !focusRow) return
+          if (openEditorFocused || selectionCount !== 1 || !focusRow) return
           e.preventDefault()
           fileOpsRef.current.startRename(focusRow.node.relativePath)
           break
         case 'Delete':
+          if (openEditorFocused) {
+            if (panelFocus?.kind === 'open-editor') {
+              e.preventDefault()
+              onCloseTab?.(panelFocus.tabId)
+            }
+            return
+          }
           if (selectionCount === 0) return
           e.preventDefault()
           fileOpsRef.current.requestDelete(pathsToDeleteTargets(rows, selectedPaths))
@@ -430,7 +616,19 @@ export function EditorExplorerPanel({ repoCwd, activeTabId, activeRelativePath, 
           break
       }
     },
-    [expandedPaths, focusPath, inlineEdit, moveFocus, onOpenFile, rows, selectedPaths, toggleExpandUser]
+    [
+      expandedPaths,
+      inlineEdit,
+      movePanelFocus,
+      onCloseTab,
+      onOpenFile,
+      onSelectTab,
+      panelFocus,
+      resolveFocusedTreeRow,
+      rows,
+      selectedPaths,
+      toggleExpandUser,
+    ]
   )
 
   useEffect(() => {
@@ -448,15 +646,17 @@ export function EditorExplorerPanel({ repoCwd, activeTabId, activeRelativePath, 
           <RefreshCw className="h-4 w-4" />
         </Button>
       </div>
-      <DiffViewerFileTreeVirtualList<ExplorerDisplayRow>
-        rows={displayRows}
-        getRowKey={getExplorerDisplayRowKey}
-        estimateRowHeight={() => EXPLORER_TREE_ROW_HEIGHT}
+      <DiffViewerFileTreeVirtualList<ExplorerPanelRow>
+        rows={panelRows}
+        getRowKey={getExplorerPanelRowKey}
+        estimateRowHeight={row =>
+          row.kind === 'section-header' ? EXPLORER_SECTION_HEADER_HEIGHT : EXPLORER_TREE_ROW_HEIGHT
+        }
         revealScroll={mappedRevealScroll}
         overscan={10}
         className="px-0 py-1"
         emptyState={<p className="px-2 py-4 text-[12px] text-muted-foreground">{t('editor.explorerEmpty')}</p>}
-        renderRow={renderDisplayRow}
+        renderRow={renderPanelRow}
       />
       <ExplorerDeleteConfirmDialog
         targets={deleteTargets}

@@ -10,6 +10,10 @@ const openFilesBySender = new Map<number, Set<string>>()
 let dedicatedWatcher: FSWatcher | null = null
 let watchedPathSignature = ''
 
+/** Paths to ignore editor-open-file watch briefly after app self-write (ms). */
+const suppressWatchUntil = new Map<string, number>()
+const SELF_WRITE_SUPPRESS_MS = 250
+
 function normalizeAbs(filePath: string): string {
   return path.resolve(filePath).replace(/\\/g, '/').toLowerCase()
 }
@@ -81,10 +85,22 @@ export function clearEditorOpenFiles(sender: WebContents): void {
   syncDedicatedOpenFileWatcher()
 }
 
+export function suppressEditorOpenFileWatch(absolutePath: string, durationMs = SELF_WRITE_SUPPRESS_MS): void {
+  const resolved = normalizeAbs(absolutePath)
+  if (!resolved) return
+  suppressWatchUntil.set(resolved, Date.now() + durationMs)
+}
+
 /** Immediate notify when a watched open file changes on disk (bypasses staging debounce). */
 export function emitEditorOpenFileChangedIfWatched(absolutePath: string): void {
   const resolved = normalizeAbs(absolutePath)
   if (!resolved) return
+
+  const suppressUntil = suppressWatchUntil.get(resolved)
+  if (suppressUntil != null) {
+    if (Date.now() < suppressUntil) return
+    suppressWatchUntil.delete(resolved)
+  }
 
   for (const win of BrowserWindow.getAllWindows()) {
     const wc = win.webContents

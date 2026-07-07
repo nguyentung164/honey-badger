@@ -28,7 +28,7 @@ export type EditorGitScmContext = {
 }
 
 function shouldTrackGitChanges(status: GitFileStatusCode | null): boolean {
-  return status != null && status !== 'conflicted'
+  return status !== 'conflicted'
 }
 
 function fileLabel(relativePath: string): string {
@@ -203,13 +203,23 @@ export function registerEditorGitScm(
     const nextHeadCacheKey = editorGitHeadCacheKey(ctx.repoCwd, ctx.relativePath, ctx.gitStatus)
     if (nextHeadCacheKey !== headCacheKey) {
       try {
-        headSnapshot = await loadEditorGitHeadContent(ctx.repoCwd, ctx.relativePath, ctx.gitStatus)
+        const loaded = await loadEditorGitHeadContent(ctx.repoCwd, ctx.relativePath, ctx.gitStatus)
+        if (generation !== refreshGeneration) return
+        if (loaded === null) {
+          if (ctx.gitStatus === 'untracked' || ctx.gitStatus === 'added') {
+            headSnapshot = ''
+          } else {
+            applyDecorations([])
+            return
+          }
+        } else {
+          headSnapshot = loaded
+        }
       } catch {
         if (generation !== refreshGeneration) return
         applyDecorations([])
         return
       }
-      if (generation !== refreshGeneration) return
       headCacheKey = nextHeadCacheKey
       lastDecoratedVersionId = -1
     }

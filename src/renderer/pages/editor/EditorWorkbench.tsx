@@ -48,11 +48,10 @@ const LazySearchPanel = lazy(() => import('@/pages/editor/search/EditorSearchPan
 type EditorWorkbenchProps = {
   repoCwd?: string
   onRegisterLayoutLeave?: (handler: (action: () => void) => void) => void
-  onTerminalToggle?: () => void
   onOpenInTerminal?: (absoluteCwd: string) => void
 }
 
-export function EditorWorkbench({ repoCwd = '', onRegisterLayoutLeave, onTerminalToggle, onOpenInTerminal }: EditorWorkbenchProps) {
+export function EditorWorkbench({ repoCwd = '', onRegisterLayoutLeave, onOpenInTerminal }: EditorWorkbenchProps) {
   const { t } = useTranslation()
   const [sidebarView, setSidebarView] = useState<EditorSidebarView>(() => readEditorSidebarView())
   const [closeConfirm, setCloseConfirm] = useState<{
@@ -127,7 +126,52 @@ export function EditorWorkbench({ repoCwd = '', onRegisterLayoutLeave, onTermina
     return paths
   }, [tabSummaries])
 
-  const getTabGitStatus = useCallback((relativePath: string) => getGitStatus(relativePath, false), [getGitStatus])
+  const dirtyTabPaths = useMemo(() => {
+    const paths = new Set<string>()
+    for (const tab of tabSummaries) {
+      if (!tab.isCompare && tab.isDirty) {
+        paths.add(tab.relativePath.replace(/\\/g, '/'))
+      }
+    }
+    return paths
+  }, [tabSummaries])
+
+  const getTabGitStatus = useCallback(
+    (relativePath: string) => {
+      const normalized = relativePath.replace(/\\/g, '/')
+      const status = getGitStatus(normalized, false)
+      if (status) return status
+      if (dirtyTabPaths.has(normalized)) return 'modified'
+      return null
+    },
+    [dirtyTabPaths, getGitStatus]
+  )
+
+  const getExplorerGitStatus = useCallback(
+    (relativePath: string, isDir: boolean) => {
+      if (!isDir) return getTabGitStatus(relativePath)
+      return getGitStatus(relativePath, isDir)
+    },
+    [getTabGitStatus, getGitStatus]
+  )
+
+  const openEditorsTabs = useMemo(() => {
+    const order = getEditorTabActivationOrder()
+    const tabById = new Map(tabSummaries.map(t => [t.id, t]))
+    const sorted: typeof tabSummaries = []
+    const seen = new Set<string>()
+    for (const id of order) {
+      const tab = tabById.get(id)
+      if (tab) {
+        sorted.push(tab)
+        seen.add(tab.id)
+      }
+    }
+    for (const tab of tabSummaries) {
+      if (!seen.has(tab.id)) sorted.push(tab)
+    }
+    return sorted
+  }, [tabSummaries])
 
   useEffect(() => {
     scheduleBackgroundWork(
@@ -347,11 +391,6 @@ export function EditorWorkbench({ repoCwd = '', onRegisterLayoutLeave, onTermina
         if (activeTabId) requestCloseTab(activeTabId)
         return
       }
-      if (mod && e.key === '`') {
-        e.preventDefault()
-        onTerminalToggle?.()
-        return
-      }
       if (mod && e.shiftKey && e.key === 'F' && !inMonaco) {
         e.preventDefault()
         setSidebarView('search')
@@ -386,7 +425,7 @@ export function EditorWorkbench({ repoCwd = '', onRegisterLayoutLeave, onTermina
     }
     window.addEventListener('keydown', onKeyDown)
     return () => window.removeEventListener('keydown', onKeyDown)
-  }, [onTerminalToggle, quickOpen, requestCloseTab, saveActiveTab])
+  }, [quickOpen, requestCloseTab, saveActiveTab])
 
   useEffect(() => {
     const register = onRegisterLayoutLeave
@@ -451,9 +490,16 @@ export function EditorWorkbench({ repoCwd = '', onRegisterLayoutLeave, onTermina
                     activeTabId={activeTabId}
                     activeRelativePath={activeTabStatus.relativePath}
                     revealRequest={explorerRevealRequest}
+                    tabs={openEditorsTabs}
+                    onSelectTab={setActiveTab}
+                    onCloseTab={requestCloseTab}
+                    onCloseAllTabs={() => requestCloseTabs(useEditorWorkspace.getState().tabs.map(t => t.id))}
+                    onPinTab={pinTab}
+                    getTabGitStatus={getTabGitStatus}
+                    getTabMenuActions={getTabMenuActions}
                     onOpenFile={(path, opts) => void openFile(path, opts)}
                     onOpenCompare={(left, right) => void openCompare(left, right)}
-                    getGitStatus={getGitStatus}
+                    getGitStatus={getExplorerGitStatus}
                     refreshGitDecorations={refreshGitDecorations}
                     onOpenInTerminal={onOpenInTerminal}
                   />

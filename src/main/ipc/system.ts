@@ -13,7 +13,7 @@ import { applySearchReplace } from 'shared/editor/searchReplace'
 import type { ReplaceInFilesResult, SearchInFilesOptions } from 'shared/editor/types'
 import { DIFF_VIEWER_DATA_URL_MAX_BYTES, DIFF_VIEWER_IMAGE_EXTENSIONS, IPC } from 'main/constants'
 import { unwatchWorkspace, watchWorkspace } from 'main/workspace/workspaceWatcher'
-import { setEditorOpenFiles } from 'main/workspace/editorOpenFileWatch'
+import { setEditorOpenFiles, suppressEditorOpenFileWatch } from 'main/workspace/editorOpenFileWatch'
 import { catBuffer } from 'main/svn/cat'
 import { isGitPathMissingAtRevisionError } from 'main/git/utils'
 import { getAutomationRoot } from '../automation/workspace'
@@ -588,6 +588,7 @@ export function registerSystemIpcHandlers() {
         l.info(`Directory created: ${dir}`)
       }
       await writeFile(absolutePath, content, 'utf-8')
+      suppressEditorOpenFileWatch(absolutePath)
       l.info(`File written successfully to ${absolutePath}`)
       return { success: true }
     } catch (err: any) {

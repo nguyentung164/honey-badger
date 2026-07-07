@@ -282,7 +282,7 @@ export function CommitQualityDialog() {
 
   return (
     <Dialog open={open} onOpenChange={setQualityDialogOpen}>
-      <DialogContent className="flex max-h-[min(92vh,900px)] max-w-6xl! flex-col gap-0 p-0">
+      <DialogContent className="flex max-h-[min(92vh,900px)] w-[min(96vw,1400px)] max-w-none flex-col gap-0 p-0">
         <DialogHeader className="border-b px-6 py-4">
           <DialogTitle>{t('commitWorkflow.openQualityDashboard')}</DialogTitle>
         </DialogHeader>

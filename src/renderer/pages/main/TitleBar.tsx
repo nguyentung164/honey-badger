@@ -28,6 +28,7 @@ import {
   History,
   KeyRound,
   LineChart,
+  ListOrdered,
   Loader2,
   LogOut,
   Minus,
@@ -65,6 +66,7 @@ import { AiUsageStatsDialog } from '@/components/dialogs/app/AiUsageStatsDialog'
 import { SettingsDialog } from '@/components/dialogs/app/SettingsDialog'
 import { UpdateDialog } from '@/components/dialogs/app/UpdateDialog'
 import { GitBranchManageDialog } from '@/components/dialogs/git/GitBranchManageDialog'
+import { GitCherryPickBranchesDialog } from '@/components/dialogs/git/GitCherryPickBranchesDialog'
 import { GitRemoteBranchDialog } from '@/components/dialogs/git/GitRemoteBranchDialog'
 import { GitStashDialog } from '@/components/dialogs/git/GitStashDialog'
 import { type GitFile, GitSwitchBranchDialog } from '@/components/dialogs/git/GitSwitchBranchDialog'
@@ -314,6 +316,7 @@ export const TitleBar = ({
   const [showPullFromDialog, setShowPullFromDialog] = useState(false)
   const [showPushToDialog, setShowPushToDialog] = useState(false)
   const [showForcePushConfirmDialog, setShowForcePushConfirmDialog] = useState(false)
+  const [cherryPickOpen, setCherryPickOpen] = useState(false)
   const [pendingBranchSwitch, setPendingBranchSwitch] = useState<string>('')
   const [uncommittedFiles, setUncommittedFiles] = useState<GitFile[]>([])
   const [stashCount, setStashCount] = useState(0)
@@ -2252,6 +2255,15 @@ export const TitleBar = ({
         }}
         cwd={gitContextPath ?? undefined}
       />
+      <GitCherryPickBranchesDialog
+        open={cherryPickOpen}
+        onOpenChange={setCherryPickOpen}
+        selectedSourceFolder={gitContextPathTrimmed || null}
+        onComplete={() => {
+          window.dispatchEvent(new CustomEvent('git-branch-changed'))
+          refreshGitStatus()
+        }}
+      />
       <AlertDialog open={showLogoutConfirmDialog} onOpenChange={setShowLogoutConfirmDialog}>
         <AlertDialogContent>
           <AlertDialogHeader>
@@ -2374,6 +2386,23 @@ export const TitleBar = ({
                 devPipelinesDetached={devPipelinesDetached}
                 showLogDetached={showLogDetached}
               />
+            )}
+            {enableShellSwitcher && shellView === 'vcs' && versionControlSystem === 'git' && (
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button
+                    id="titlebar-git-cherry-pick-branches-button"
+                    type="button"
+                    variant="link"
+                    size="sm"
+                    onClick={() => setCherryPickOpen(true)}
+                    className="shadow-none focus-visible:ring-0 focus-visible:ring-offset-0 transition-colors rounded-sm h-[25px] w-[25px] text-emerald-600 dark:text-emerald-400 hover:bg-emerald-50 dark:hover:bg-emerald-900/30 hover:text-emerald-700 dark:hover:text-emerald-300"
+                  >
+                    <ListOrdered strokeWidth={1.25} absoluteStrokeWidth size={15} className="h-4 w-4" />
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent side="bottom">{t('git.cherryPickBranches.tooltip')}</TooltipContent>
+              </Tooltip>
             )}
             {enableShellSwitcher && automationDetached && onAutomationDock && (
               <Tooltip>

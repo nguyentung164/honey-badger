@@ -52,7 +52,7 @@ Honey-badger là **công cụ VCS + team workflow** có editor nhúng (Monaco), 
 | 7 | Editor groups — split ngang/dọc | ❌ | Một vùng editor duy nhất |
 | 8 | Floating editor windows | 🟡 | Detach window cho Tasks/PR/Automation…, không phải editor tab |
 | 9 | Tab preview + pin | ✅ | `useEditorWorkspace.ts` |
-| 10 | Open Editors list | ❌ | |
+| 10 | Open Editors list | ✅ | `EditorExplorerPanel` — collapsible section above workspace tree |
 | 11 | Profiles / Settings sync | ❌ | |
 | 12 | Workspace Trust | ❌ | |
 | 13 | Multi-root workspace | 🟡 | Multi-repo Git commit; explorer **một** `repoCwd` |

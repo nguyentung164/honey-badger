@@ -254,6 +254,9 @@
   },
   "editor": {
     "explorer": "Trình khám phá",
+    "openEditors": "Trình soạn thảo đang mở",
+    "workspace": "Không gian làm việc",
+    "closeAllEditors": "Đóng tất cả",
     "search": "Tìm kiếm",
     "noWorkspace": "Mở thư mục nguồn trong Cài đặt để dùng trình soạn thảo.",
     "explorerEmpty": "Không có tệp trong thư mục này.",
@@ -844,7 +847,7 @@
       "keepSessions": "Giữ session khi đóng panel",
       "keepSessionsHint": "Tiến trình vẫn chạy khi panel bị ẩn.",
       "confirmOnKill": "Xác nhận trước khi kill",
-      "confirmOnKillHint": "Hỏi trước khi đóng tab hoặc restart terminal.",
+      "confirmOnKillHint": "Hỏi trước khi đóng tab hoặc restart khi lệnh vẫn đang chạy.",
       "tabTitle": "Tên tab",
       "tabTitleOptions": {
         "shell": "Tên shell",
@@ -2305,6 +2308,7 @@
       "colHash": "Hash",
       "colMessage": "Message",
       "colAuthor": "Tác giả",
+      "colDate": "Ngày",
       "sameBranch": "Chọn hai nhánh khác nhau.",
       "action": "Cherry-pick vào {{branch}}",
       "selectBranches": "Chọn nhánh đích và nhánh nguồn.",
@@ -2321,7 +2325,12 @@
       "statusError": "Không đọc được trạng thái repo",
       "checkoutError": "Không checkout được nhánh đích",
       "stateBlocked": "Hoàn tất hoặc hủy merge/rebase/cherry-pick đang dở trước.",
-      "conflictPanelTitle": "Giải quyết xung đột, rồi tiếp tục cherry-pick"
+      "conflictPanelTitle": "Giải quyết xung đột, rồi tiếp tục cherry-pick",
+      "openConflictDiff": "Mở diff viewer",
+      "conflictDiffOpenHint": "Giải quyết xung đột trong diff viewer. Dùng Hủy bên dưới để hủy cherry-pick.",
+      "closeConfirmTitle": "Đóng dialog cherry-pick?",
+      "closeConfirmDescription": "Cherry-pick đang chạy hoặc còn xung đột chưa xử lý. Đóng dialog không tự hủy thao tác trên repo.",
+      "closeConfirmAction": "Vẫn đóng"
     },
     "reset": {
       "title": "Reset về commit này",
@@ -5706,9 +5715,9 @@
     "runChoices": {
       "title": "Lựa chọn trước commit",
       "enabled": "Bật",
-      "skipped": "Dev đã tắt"
+      "skipped": "Dev đã tắt",
+      "allSkippedByUser": "Dev tắt hết"
     },
-    "allSkippedByUser": "Dev tắt hết",
     "automationProjectLabel": "Dự án automation",
     "selectAutomationProject": "Chọn dự án automation…",
     "automationProjectHint": "Cài đặt cũ — project lấy từ project task trên flow.",

@@ -19,8 +19,10 @@ import {
 } from '@/lib/terminal/terminalPrefs'
 import { buildXtermThemeForPrefs } from '@/lib/terminal/xtermTheme'
 import {
+  INITIAL_SHELL_INTEGRATION_STATE,
   reduceShellIntegrationState,
-  stripShellIntegrationSequences,
+  shellIntegrationInputEvents,
+  ShellIntegrationStreamParser,
   type ShellIntegrationEvent,
   type TerminalShellIntegrationState,
 } from '@/lib/terminal/terminalShellIntegration'
@@ -37,6 +39,10 @@ type UseIntegratedTerminalOptions = {
   visible: boolean
   focused: boolean
   panelVisible: boolean
+  /** Stable tab id used for Pty Host persistence / re-attach. */
+  terminalId: string
+  shouldPersist?: boolean
+  tryAttach?: boolean
   cwd?: string
   shellProfileId: TerminalShellProfileId
   prefs: TerminalPrefs
@@ -68,6 +74,9 @@ export function useIntegratedTerminal({
   visible,
   focused,
   panelVisible,
+  terminalId,
+  shouldPersist = false,
+  tryAttach = false,
   cwd,
   shellProfileId,
   prefs,
@@ -92,7 +101,8 @@ export function useIntegratedTerminal({
   const onContextMenuRef = useRef(onContextMenu)
   const confirmMultiLinePasteRef = useRef(confirmMultiLinePaste)
   const onShellIntegrationChangeRef = useRef(onShellIntegrationChange)
-  const integrationStateRef = useRef<TerminalShellIntegrationState>({ commandRunning: false })
+  const integrationStateRef = useRef<TerminalShellIntegrationState>(INITIAL_SHELL_INTEGRATION_STATE)
+  const integrationParserRef = useRef(new ShellIntegrationStreamParser())
   const webglAddonRef = useRef<WebglAddon | null>(null)
   const panelVisibleRef = useRef(panelVisible)
   const focusedRef = useRef(focused)
@@ -209,6 +219,9 @@ export function useIntegratedTerminal({
     scheduleFit()
   }, [scheduleFit, syncWebglRenderer])
 
+  const shouldPersistRef = useRef(shouldPersist)
+  shouldPersistRef.current = shouldPersist
+
   const destroySession = useCallback(async () => {
     onDataDisposableRef.current?.dispose()
     onDataDisposableRef.current = null
@@ -225,7 +238,11 @@ export function useIntegratedTerminal({
     terminalIdRef.current = null
     if (id) {
       try {
-        await window.api.terminal.destroy(id)
+        if (shouldPersistRef.current) {
+          await window.api.terminal.detach(id)
+        } else {
+          await window.api.terminal.destroy(id)
+        }
       } catch {
         // ignore cleanup errors
       }
@@ -260,6 +277,16 @@ export function useIntegratedTerminal({
     integrationStateRef.current = reduceShellIntegrationState(integrationStateRef.current, event)
     onShellIntegrationChangeRef.current?.(integrationStateRef.current)
   }, [])
+
+  const applyShellIntegrationInput = useCallback(
+    (data: string) => {
+      if (!prefsRef.current.enableShellIntegration) return
+      for (const event of shellIntegrationInputEvents(data, integrationStateRef.current.commandRunning)) {
+        emitIntegration(event)
+      }
+    },
+    [emitIntegration]
+  )
 
   const attachInputHandlers = useCallback((term: Terminal, container: HTMLElement) => {
     detachShortcutsRef.current?.()
@@ -316,6 +343,10 @@ export function useIntegratedTerminal({
       setStatus('loading')
       setErrorMessage(null)
 
+      integrationParserRef.current.reset()
+      integrationStateRef.current = INITIAL_SHELL_INTEGRATION_STATE
+      onShellIntegrationChangeRef.current?.(INITIAL_SHELL_INTEGRATION_STATE)
+
       await destroySession()
       disposeTerminal()
 
@@ -361,15 +392,19 @@ export function useIntegratedTerminal({
       }
 
       const result = await window.api.terminal.create({
+        id: terminalId,
         cwd,
         cols: term.cols,
         rows: term.rows,
         shellProfileId,
+        shouldPersist,
+        attach: tryAttach,
       })
 
       if (disposed || token !== restartTokenRef.current) {
         if (result.success) {
-          await window.api.terminal.destroy(result.id)
+          if (shouldPersist) await window.api.terminal.detach(result.id)
+          else await window.api.terminal.destroy(result.id)
         }
         term.dispose()
         return
@@ -387,10 +422,12 @@ export function useIntegratedTerminal({
 
       terminalIdRef.current = result.id
 
+      if (result.replay) {
+        term.write(result.replay)
+      }
+
       onDataDisposableRef.current = term.onData(data => {
-        if (prefsRef.current.enableShellIntegration && (data.includes('\r') || data === '\n')) {
-          emitIntegration({ type: 'commandStart' })
-        }
+        applyShellIntegrationInput(data)
         writeToPty(data)
       })
 
@@ -411,7 +448,7 @@ export function useIntegratedTerminal({
 
       let output = data
       if (prefsRef.current.enableShellIntegration) {
-        const parsed = stripShellIntegrationSequences(data)
+        const parsed = integrationParserRef.current.feed(data)
         for (const event of parsed.events) emitIntegration(event)
         output = parsed.output
       }
@@ -477,12 +514,16 @@ export function useIntegratedTerminal({
     cwd,
     shellProfileId,
     sessionKey,
+    terminalId,
+    shouldPersist,
+    tryAttach,
     destroySession,
     disposeTerminal,
     onSpawnError,
     scheduleFit,
     attachInputHandlers,
     writeToPty,
+    applyShellIntegrationInput,
     emitIntegration,
     isActiveTerminalSurface,
     syncWebglRenderer,
@@ -593,8 +634,9 @@ export function useIntegratedTerminal({
   }, [panelVisible, status, scheduleFit])
 
   const sendInterrupt = useCallback(() => {
+    applyShellIntegrationInput('\x03')
     writeToPty('\x03')
-  }, [writeToPty])
+  }, [applyShellIntegrationInput, writeToPty])
 
   const killAndRestart = useCallback(() => {
     restart()

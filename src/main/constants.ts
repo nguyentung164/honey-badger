@@ -269,6 +269,7 @@ export const IPC = {
   TERMINAL: {
     CREATE: 'terminal:create',
     DESTROY: 'terminal:destroy',
+    DETACH: 'terminal:detach',
     WRITE: 'terminal:write',
     RESIZE: 'terminal:resize',
     LIST_SHELLS: 'terminal:list-shells',

@@ -162,9 +162,9 @@ export function IntegratedTerminalPanel({ repoCwd, panelVisible, onClose }: Inte
   )
 
   const requestKillConfirm = useCallback(
-    (title: string, description: string, onConfirm: () => void) => {
-      if (!prefs.confirmOnKill) {
-        onConfirm()
+    (commandRunning: boolean, title: string, description: string, onConfirm: () => void) => {
+      if (!prefs.confirmOnKill || !commandRunning) {
+        queueMicrotask(onConfirm)
         return
       }
       setKillDialog({ title, description, onConfirm })
@@ -210,35 +210,39 @@ export function IntegratedTerminalPanel({ repoCwd, panelVisible, onClose }: Inte
 
   const closeTabNow = useCallback(
     (tabId: string) => {
-      setTabs(prev => {
-        if (prev.length <= 1) {
-          onClose()
-          return prev
-        }
-        const index = prev.findIndex(tab => tab.id === tabId)
-        const next = prev.filter(tab => tab.id !== tabId)
-        const fallback = next[Math.max(0, index - 1)]
-        if (activeTabId === tabId && fallback) setActiveTabId(fallback.id)
-        return next
-      })
+      void window.api.terminal.destroy(tabId)
+
+      if (tabs.length <= 1) {
+        queueMicrotask(() => onClose())
+        return
+      }
+
+      const index = tabs.findIndex(tab => tab.id === tabId)
+      const next = tabs.filter(tab => tab.id !== tabId)
+      const fallback = next[Math.max(0, index - 1)]
+      setTabs(next)
+      if (activeTabId === tabId && fallback) {
+        setActiveTabId(fallback.id)
+      }
       setRestartKeys(prev => {
-        const next = { ...prev }
-        delete next[tabId]
-        return next
+        const updated = { ...prev }
+        delete updated[tabId]
+        return updated
       })
       setClearKeys(prev => {
-        const next = { ...prev }
-        delete next[tabId]
-        return next
+        const updated = { ...prev }
+        delete updated[tabId]
+        return updated
       })
     },
-    [activeTabId, onClose]
+    [tabs, activeTabId, onClose]
   )
 
   const closeTab = useCallback(
     (tabId: string) => {
       const tab = tabs.find(item => item.id === tabId)
       requestKillConfirm(
+        Boolean(tab?.commandRunning),
         t('terminal.confirmKill.closeTitle'),
         t('terminal.confirmKill.closeDescription', { name: tab ? tabLabel(tab) : '' }),
         () => closeTabNow(tabId)
@@ -257,6 +261,7 @@ export function IntegratedTerminalPanel({ repoCwd, panelVisible, onClose }: Inte
   const restartActiveTab = useCallback(() => {
     if (!activeTab) return
     requestKillConfirm(
+      Boolean(activeTab?.commandRunning),
       t('terminal.confirmKill.restartTitle'),
       t('terminal.confirmKill.restartDescription', { name: tabLabel(activeTab) }),
       restartActiveTabNow
@@ -371,12 +376,15 @@ export function IntegratedTerminalPanel({ repoCwd, panelVisible, onClose }: Inte
         {tabs.map(tab => (
           <TerminalTabPane
             key={`${tab.id}:${tab.shellProfileId}:${restartKeys[tab.id] ?? 0}`}
+            terminalId={tab.id}
             visible={tab.id === activeTabId}
             focused={tab.id === activeTabId && panelVisible}
             panelVisible={panelVisible}
             cwd={tab.cwd}
             shellProfileId={tab.shellProfileId}
             prefs={prefs}
+            shouldPersist={prefs.keepSessionsWhenPanelClosed}
+            tryAttach={prefs.reviveTabsOnLaunch && (restartKeys[tab.id] ?? 0) === 0}
             restartNonce={restartKeys[tab.id] ?? 0}
             clearNonce={clearKeys[tab.id] ?? 0}
             confirmMultiLinePaste={confirmMultiLinePaste}

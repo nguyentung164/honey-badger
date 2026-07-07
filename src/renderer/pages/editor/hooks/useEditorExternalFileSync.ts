@@ -12,6 +12,7 @@ import {
   resolveExternalChangeForOpenTab,
   shouldIgnoreWorkspaceWatchEvent,
 } from '@/pages/editor/lib/editorExternalFileSync'
+import { isPathSaving } from '@/pages/editor/lib/editorSavingPaths'
 import { useEditorWorkspace } from '@/pages/editor/hooks/useEditorWorkspace'
 
 type FileChangeConfirm = { relativePath: string; fileName: string }
@@ -40,6 +41,7 @@ export function useEditorExternalFileSync({
 }: UseEditorExternalFileSyncOptions) {
   const syncTabFromDiskQuiet = useEditorWorkspace(s => s.syncTabFromDiskQuiet)
   const reloadTabFromDiskIfChanged = useEditorWorkspace(s => s.reloadTabFromDiskIfChanged)
+  const reconcileDirtyTabIfDiskMatchesBuffer = useEditorWorkspace(s => s.reconcileDirtyTabIfDiskMatchesBuffer)
 
   const confirmRef = useRef(onRequestReloadConfirm)
   const closeTabRef = useRef(onCloseTab)
@@ -120,7 +122,13 @@ export function useEditorExternalFileSync({
 
       if (tab.isDirty) {
         clearSyncTimer()
-        confirmRef.current({ relativePath: normalized, fileName })
+        if (isPathSaving(normalized)) return
+        void reconcileDirtyTabIfDiskMatchesBuffer(tab.id, normalized).then(reconciled => {
+          if (reconciled) return
+          const current = findTab(normalized)
+          if (!current?.isDirty) return
+          confirmRef.current({ relativePath: normalized, fileName })
+        })
         return
       }
 
@@ -164,7 +172,7 @@ export function useEditorExternalFileSync({
     return () => {
       unsubFast()
     }
-  }, [repoCwd, syncTabFromDiskQuiet])
+  }, [repoCwd, syncTabFromDiskQuiet, reconcileDirtyTabIfDiskMatchesBuffer])
 
   useEffect(() => {
     if (!repoCwd) return

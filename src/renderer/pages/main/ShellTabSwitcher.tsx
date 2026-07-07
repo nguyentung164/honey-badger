@@ -42,11 +42,11 @@ export function ShellTabSwitcher({
     const all: ShellTabDef[] = [
       { value: 'editor', icon: FileCode2, labelKey: 'mainShell.editor' },
       { value: 'vcs', icon: Folder, labelKey: 'mainShell.sourceControl' },
+      { value: 'showLog', icon: History, labelKey: 'mainShell.showLog', defaultLabel: 'Show Log' },
       { value: 'tasks', icon: CheckSquare, labelKey: 'mainShell.tasks' },
       { value: 'prManager', icon: GitPullRequest, labelKey: 'mainShell.prManager' },
       { value: 'automation', icon: Bot, labelKey: 'mainShell.automation' },
       { value: 'devPipelines', icon: Rocket, labelKey: 'mainShell.devPipelines', defaultLabel: 'Dev Pipelines' },
-      { value: 'showLog', icon: History, labelKey: 'mainShell.showLog', defaultLabel: 'Show Log' },
     ]
 
     return all.filter(tab => {
