@@ -52,6 +52,7 @@ import {
   readDiffEditorPaneText,
   removeEmptyLinesFromDiffEditor,
   resetDiffEditorCursors,
+  collapseAllDiffUnchangedRegions,
   resolveDiffViewerRevealPath,
   stabilizeDiffEditorAfterEdit,
   swapDiffEditorModels,
@@ -66,7 +67,7 @@ import { useDiffViewerBlame } from './useDiffViewerBlame'
 import { useDiffViewerDirty } from './useDiffViewerDirty'
 import { useDiffViewerFileNav } from './useDiffViewerFileNav'
 import { useDiffViewerMinimapHighlights } from './useDiffViewerMinimapHighlights'
-import { applyDiffViewerEditorOptions, buildDiffEditorOptions, useDiffViewerOptions } from './useDiffViewerOptions'
+import { applyDiffViewerEditorOptions, buildDiffEditorOptions, isDiffCollapseActive, useDiffViewerOptions } from './useDiffViewerOptions'
 import { useDiffViewerPaneLabels } from './useDiffViewerPaneLabels'
 import {
   DIFF_VIEWER_EDITOR_PANEL_ID,
@@ -94,6 +95,8 @@ export type CodeDiffViewerProps = {
   embeddedStagingFooter?: ReactNode
   /** Reload git staging file list from parent (embedded MainPage diff layout). */
   embeddedOnReloadFileList?: () => void | Promise<void>
+  /** Open local hide patterns dialog (embedded MainPage diff layout). */
+  embeddedOnOpenLocalIgnorePatterns?: () => void
 }
 
 const EXT_TO_LANG: Record<string, string> = {
@@ -225,7 +228,7 @@ function formatLoadError(error: unknown): string {
 }
 
 export const CodeDiffViewer = forwardRef<CodeDiffViewerHandle, CodeDiffViewerProps>(function CodeDiffViewer(
-  { embedded = false, embeddedRepoCwd, embeddedPayload = null, embeddedToolbarHost = null, embeddedStagingFooter = null, embeddedOnReloadFileList },
+  { embedded = false, embeddedRepoCwd, embeddedPayload = null, embeddedToolbarHost = null, embeddedStagingFooter = null, embeddedOnReloadFileList, embeddedOnOpenLocalIgnorePatterns },
   ref
 ) {
   const monaco = useMonaco()
@@ -345,11 +348,21 @@ export const CodeDiffViewer = forwardRef<CodeDiffViewerHandle, CodeDiffViewerPro
 
   const editorOptions = useMemo(() => buildDiffEditorOptions(editorViewOptions, { readOnly: !editable }), [editorViewOptions, editable])
 
+  /** Remount diff editor per loaded file when collapse is on — updateOptions alone is ignored after content changes (monaco-react #548). */
+  const diffEditorRemountKey = useMemo(
+    () => (isDiffCollapseActive(editorViewOptions) ? `collapse-${contentEpoch}` : 'diff-editor'),
+    [editorViewOptions, contentEpoch]
+  )
+
   const { isDirty, setBaseline, notifyContentChange, beginProgrammaticUpdate, endProgrammaticUpdate } = useDiffViewerDirty(editable)
   notifyContentChangeRef.current = notifyContentChange
 
   const stagingHintRef = useRef(stagingHintForRefresh)
   stagingHintRef.current = stagingHintForRefresh
+  const editorViewOptionsRef = useRef(editorViewOptions)
+  editorViewOptionsRef.current = editorViewOptions
+  const editableRef = useRef(editable)
+  editableRef.current = editable
 
   useEffect(() => {
     originalEditableRef.current = editorViewOptions.originalEditable
@@ -413,7 +426,7 @@ export const CodeDiffViewer = forwardRef<CodeDiffViewerHandle, CodeDiffViewerPro
     if (fileKind !== 'text') return
 
     const focusKey = `${contentEpoch}:${editorMountEpoch}`
-    if (autoFocusFirstChangeKeyRef.current === focusKey) return
+    const skipAutoFocus = autoFocusFirstChangeKeyRef.current === focusKey
 
     const diffEditor = editorRef.current
     if (!diffEditor) return
@@ -421,16 +434,52 @@ export const CodeDiffViewer = forwardRef<CodeDiffViewerHandle, CodeDiffViewerPro
     const generation = loadGenerationRef.current
     let cancelled = false
 
+    const runAfterLayout = (fn: () => void) => {
+      requestAnimationFrame(() => {
+        if (cancelled || generation !== loadGenerationRef.current) return
+        requestAnimationFrame(() => {
+          if (cancelled || generation !== loadGenerationRef.current) return
+          try {
+            fn()
+          } catch {
+            // Monaco may throw while hide-unchanged view zones are mounting.
+          }
+        })
+      })
+    }
+
+    const viewOpts = editorViewOptionsRef.current
+    const collapseActive = viewOpts.collapseUnchangedRegions || viewOpts.diffOnly
+
     void (async () => {
       await waitForDiffCompute(diffEditor)
       if (cancelled || generation !== loadGenerationRef.current) return
 
-      const changes = diffEditor.getLineChanges() ?? []
-      autoFocusFirstChangeKeyRef.current = focusKey
-      if (changes.length === 0) return
+      if (!skipAutoFocus && !collapseActive) {
+        const changes = diffEditor.getLineChanges() ?? []
+        autoFocusFirstChangeKeyRef.current = focusKey
+        if (changes.length > 0) {
+          try {
+            goToFirstChange(diffEditor, { focus: false })
+          } catch {
+            // model mid-update
+          }
+        }
+      }
 
-      goToFirstChange(diffEditor, { focus: false })
-      refreshDiffState()
+      runAfterLayout(() => {
+        diffEditor.layout()
+
+        if (!skipAutoFocus && collapseActive) {
+          const changes = diffEditor.getLineChanges() ?? []
+          autoFocusFirstChangeKeyRef.current = focusKey
+          if (changes.length > 0) {
+            goToFirstChange(diffEditor, { focus: false })
+          }
+        }
+
+        refreshDiffState()
+      })
     })()
 
     return () => {
@@ -1465,7 +1514,11 @@ export const CodeDiffViewer = forwardRef<CodeDiffViewerHandle, CodeDiffViewerPro
     })
 
     requestAnimationFrame(() => {
-      void refreshDiffStateAfterCompute()
+      void refreshDiffStateAfterCompute().then(() => {
+        if (isDiffCollapseActive(editorViewOptionsRef.current)) {
+          collapseAllDiffUnchangedRegions(editor)
+        }
+      })
     })
   }
 
@@ -1622,10 +1675,21 @@ export const CodeDiffViewer = forwardRef<CodeDiffViewerHandle, CodeDiffViewerPro
     const diffEditor = editorRef.current
     if (!diffEditor) return
     applyDiffViewerEditorOptions(diffEditor, editorViewOptions, { readOnly: !editable })
-    requestAnimationFrame(() => {
-      diffEditor.layout()
-      refreshDiffState()
-    })
+    void (async () => {
+      if (!isDiffCollapseActive(editorViewOptions)) {
+        requestAnimationFrame(() => {
+          diffEditor.layout()
+          refreshDiffState()
+        })
+        return
+      }
+      await waitForDiffCompute(diffEditor)
+      collapseAllDiffUnchangedRegions(diffEditor)
+      requestAnimationFrame(() => {
+        diffEditor.layout()
+        refreshDiffState()
+      })
+    })()
   }, [editorViewOptions, editable, refreshDiffState])
 
   useEffect(() => {
@@ -1709,6 +1773,7 @@ export const CodeDiffViewer = forwardRef<CodeDiffViewerHandle, CodeDiffViewerPro
     return (
       <div className="relative flex-1 overflow-hidden">
         <DiffEditor
+          key={diffEditorRemountKey}
           height="100%"
           language={language}
           original={originalCode}
@@ -1805,6 +1870,8 @@ export const CodeDiffViewer = forwardRef<CodeDiffViewerHandle, CodeDiffViewerPro
                 onSelectFile={requestNavigateToFile}
                 onBulkAction={(action, indices) => void handleTreeBulkAction(action, indices)}
                 onRefresh={handleTreeRefresh}
+                showLocalIgnorePatterns={Boolean(embedded && embeddedOnOpenLocalIgnorePatterns)}
+                onOpenLocalIgnorePatterns={embeddedOnOpenLocalIgnorePatterns}
               />
             </div>
           </ResizablePanel>

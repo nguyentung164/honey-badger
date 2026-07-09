@@ -2326,8 +2326,10 @@
       "checkoutError": "Không checkout được nhánh đích",
       "stateBlocked": "Hoàn tất hoặc hủy merge/rebase/cherry-pick đang dở trước.",
       "conflictPanelTitle": "Giải quyết xung đột, rồi tiếp tục cherry-pick",
+      "conflictPanelResolvedTitle": "Đã giải quyết xong xung đột — tiếp tục cherry-pick khi sẵn sàng",
       "openConflictDiff": "Mở diff viewer",
       "conflictDiffOpenHint": "Giải quyết xung đột trong diff viewer. Dùng Hủy bên dưới để hủy cherry-pick.",
+      "conflictDiffResolvedHint": "Xung đột đã được giải quyết. Đóng diff viewer hoặc tiếp tục cherry-pick từ đây.",
       "closeConfirmTitle": "Đóng dialog cherry-pick?",
       "closeConfirmDescription": "Cherry-pick đang chạy hoặc còn xung đột chưa xử lý. Đóng dialog không tự hủy thao tác trên repo.",
       "closeConfirmAction": "Vẫn đóng"

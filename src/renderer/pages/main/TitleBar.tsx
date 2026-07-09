@@ -2387,23 +2387,6 @@ export const TitleBar = ({
                 showLogDetached={showLogDetached}
               />
             )}
-            {enableShellSwitcher && shellView === 'vcs' && versionControlSystem === 'git' && (
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <Button
-                    id="titlebar-git-cherry-pick-branches-button"
-                    type="button"
-                    variant="link"
-                    size="sm"
-                    onClick={() => setCherryPickOpen(true)}
-                    className="shadow-none focus-visible:ring-0 focus-visible:ring-offset-0 transition-colors rounded-sm h-[25px] w-[25px] text-emerald-600 dark:text-emerald-400 hover:bg-emerald-50 dark:hover:bg-emerald-900/30 hover:text-emerald-700 dark:hover:text-emerald-300"
-                  >
-                    <ListOrdered strokeWidth={1.25} absoluteStrokeWidth size={15} className="h-4 w-4" />
-                  </Button>
-                </TooltipTrigger>
-                <TooltipContent side="bottom">{t('git.cherryPickBranches.tooltip')}</TooltipContent>
-              </Tooltip>
-            )}
             {enableShellSwitcher && automationDetached && onAutomationDock && (
               <Tooltip>
                 <TooltipTrigger asChild>
@@ -3008,6 +2991,24 @@ export const TitleBar = ({
                     </Button>
                   </TooltipTrigger>
                   <TooltipContent>{activeRepoLabel ? t('git.branchManage.titleForRepo', { repo: activeRepoLabel }) : t('git.branchManage.title')}</TooltipContent>
+                </Tooltip>
+              )}
+
+              {showGitRepoChrome && currentBranch && (
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <Button
+                      id="titlebar-git-cherry-pick-branches-button"
+                      type="button"
+                      variant="link"
+                      size="sm"
+                      onClick={() => setCherryPickOpen(true)}
+                      className="shadow-none focus-visible:ring-0 focus-visible:ring-offset-0 transition-colors rounded-sm h-[25px] w-[25px] text-emerald-600 dark:text-emerald-400 hover:bg-emerald-50 dark:hover:bg-emerald-900/30 hover:text-emerald-700 dark:hover:text-emerald-300"
+                    >
+                      <ListOrdered strokeWidth={1.25} absoluteStrokeWidth size={15} className="h-4 w-4" />
+                    </Button>
+                  </TooltipTrigger>
+                  <TooltipContent side="bottom">{t('git.cherryPickBranches.tooltip')}</TooltipContent>
                 </Tooltip>
               )}
 

@@ -132,12 +132,39 @@ function buildExperimentalOptions(viewOptions: DiffViewerViewOptions) {
   }
 }
 
+export function isDiffCollapseActive(viewOptions: DiffViewerViewOptions): boolean {
+  return viewOptions.collapseUnchangedRegions || viewOptions.diffOnly
+}
+
+/** Force Monaco to rebuild collapsed / diff-only regions after model content changes. */
+export function reapplyDiffViewerCollapseOptions(
+  diffEditor: MonacoEditor.IStandaloneDiffEditor,
+  viewOptions: DiffViewerViewOptions,
+  overrides?: { readOnly?: boolean }
+) {
+  if (!isDiffCollapseActive(viewOptions)) {
+    applyDiffViewerEditorOptions(diffEditor, viewOptions, overrides)
+    return
+  }
+
+  diffEditor.updateOptions({
+    hideUnchangedRegions: { enabled: false },
+    experimental: {
+      useTrueInlineView: false,
+      showMoves: viewOptions.showMoves,
+      showEmptyDecorations: viewOptions.showEmptyDecorations,
+    },
+  })
+  applyDiffViewerEditorOptions(diffEditor, viewOptions, overrides)
+}
+
 export function buildDiffEditorDisplayOptions(viewOptions: DiffViewerViewOptions) {
   const experimental = buildExperimentalOptions(viewOptions)
 
   if (viewOptions.diffOnly) {
     return {
       renderSideBySide: false as const,
+      useInlineViewWhenSpaceIsLimited: false,
       hideUnchangedRegions: {
         enabled: true,
         contextLineCount: 0,
@@ -155,6 +182,7 @@ export function buildDiffEditorDisplayOptions(viewOptions: DiffViewerViewOptions
 
   return {
     renderSideBySide: viewOptions.renderSideBySide,
+    useInlineViewWhenSpaceIsLimited: false,
     hideUnchangedRegions: viewOptions.collapseUnchangedRegions
       ? {
           enabled: true,
@@ -234,6 +262,7 @@ export function applyDiffViewerEditorOptions(
 
   diffEditor.updateOptions({
     renderSideBySide: displayOptions.renderSideBySide,
+    useInlineViewWhenSpaceIsLimited: displayOptions.useInlineViewWhenSpaceIsLimited,
     hideUnchangedRegions: displayOptions.hideUnchangedRegions,
     experimental: displayOptions.experimental,
     compactMode: displayOptions.compactMode,

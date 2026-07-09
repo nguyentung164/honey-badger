@@ -47,7 +47,14 @@ export const EditorExplorerContextMenu = memo(function EditorExplorerContextMenu
       }}
     >
       <ContextMenuTrigger asChild>{children}</ContextMenuTrigger>
-      <ContextMenuContent className={editorContextMenuContentClass}>
+      <ContextMenuContent
+        className={editorContextMenuContentClass}
+        onCloseAutoFocus={e => {
+          if (actions.consumeSuppressMenuFocusRestore()) {
+            e.preventDefault()
+          }
+        }}
+      >
         {!isMulti && isDir ? (
           <>
             <ContextMenuItem onSelect={() => void actions.startCreateFile(parentDir)}>{t('editor.explorerMenu.newFile')}</ContextMenuItem>

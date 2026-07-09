@@ -48,6 +48,8 @@ interface DiffViewerFileTreePanelProps {
   onSelectFile: (index: number) => void
   onBulkAction: (action: DiffViewerFileTreeBulkAction, indices: number[]) => void
   onRefresh?: () => void | Promise<void>
+  showLocalIgnorePatterns?: boolean
+  onOpenLocalIgnorePatterns?: () => void
 }
 
 
@@ -438,6 +440,8 @@ export function DiffViewerFileTreePanel({
   onSelectFile,
   onBulkAction,
   onRefresh,
+  showLocalIgnorePatterns = false,
+  onOpenLocalIgnorePatterns,
 }: DiffViewerFileTreePanelProps) {
   const { t } = useTranslation()
   const { viewMode, sortBy, groupByFolder, statusFilter, stagingChangesPanelSize, toggleViewMode, setSortBy, toggleGroupByFolder, setStatusFilter } =
@@ -944,6 +948,8 @@ export function DiffViewerFileTreePanel({
         onStageAll={handleStageAll}
         onUnstageAll={handleUnstageAll}
         onDiscardAll={handleDiscardAll}
+        showLocalIgnorePatterns={showLocalIgnorePatterns}
+        onOpenLocalIgnorePatterns={onOpenLocalIgnorePatterns}
       />
       <div className="flex min-h-0 flex-1 flex-col overflow-hidden">{renderTreeSections()}</div>
     </div>

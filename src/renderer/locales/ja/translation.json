@@ -2334,8 +2334,10 @@
       "checkoutError": "ターゲットブランチにチェックアウトできませんでした",
       "stateBlocked": "進行中のマージ / リベース / チェリーピックを完了または中止してから実行してください。",
       "conflictPanelTitle": "コンフリクトを解してからチェリーピックを続行",
+      "conflictPanelResolvedTitle": "コンフリクトは解決済み — 準備ができたらチェリーピックを続行",
       "openConflictDiff": "差分ビューアを開く",
       "conflictDiffOpenHint": "差分ビューアでコンフリクトを解決してください。中止するには下の「中止」を使います。",
+      "conflictDiffResolvedHint": "コンフリクトは解決済みです。差分ビューアを閉じるか、ここからチェリーピックを続行してください。",
       "closeConfirmTitle": "チェリーピックダイアログを閉じますか？",
       "closeConfirmDescription": "チェリーピックが進行中、または未解決のコンフリクトがあります。閉じてもリポジトリの状態はそのまま残ります。",
       "closeConfirmAction": "閉じる"

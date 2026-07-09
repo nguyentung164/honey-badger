@@ -16,12 +16,32 @@ type ExplorerRowInlineEditProps = {
 export function ExplorerRowInlineEdit({ value, className, selectAll = false, onChange, onCommit, onCancel }: ExplorerRowInlineEditProps) {
   const inputRef = useRef<HTMLInputElement>(null)
   const committedRef = useRef(false)
+  const allowBlurCommitRef = useRef(false)
 
   useEffect(() => {
+    committedRef.current = false
+    allowBlurCommitRef.current = false
     const input = inputRef.current
     if (!input) return
-    input.focus()
-    if (selectAll) input.select()
+
+    let blurReadyTimer: number | undefined
+
+    const focusInput = () => {
+      input.focus({ preventScroll: true })
+      if (selectAll) input.select()
+      blurReadyTimer = window.setTimeout(() => {
+        allowBlurCommitRef.current = true
+      }, 150)
+    }
+
+    const frame = requestAnimationFrame(() => {
+      requestAnimationFrame(focusInput)
+    })
+
+    return () => {
+      cancelAnimationFrame(frame)
+      if (blurReadyTimer !== undefined) window.clearTimeout(blurReadyTimer)
+    }
   }, [selectAll])
 
   const commit = () => {
@@ -41,7 +61,10 @@ export function ExplorerRowInlineEdit({ value, className, selectAll = false, onC
       )}
       style={{ height: EXPLORER_TREE_ROW_HEIGHT - 4 }}
       onChange={e => onChange(e.target.value)}
-      onBlur={() => commit()}
+      onBlur={() => {
+        if (!allowBlurCommitRef.current) return
+        commit()
+      }}
       onKeyDown={e => {
         e.stopPropagation()
         if (e.key === 'Enter') {

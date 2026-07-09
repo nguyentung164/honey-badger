@@ -8,6 +8,7 @@ import {
   FolderInput,
   FolderTree,
   List,
+  ListFilter,
   Plus,
   RefreshCw,
   RotateCcw,
@@ -119,6 +120,8 @@ interface DiffViewerFileTreeToolbarProps {
   onStageAll: () => void
   onUnstageAll: () => void
   onDiscardAll: () => void
+  showLocalIgnorePatterns?: boolean
+  onOpenLocalIgnorePatterns?: () => void
 }
 
 export function DiffViewerFileTreeToolbar({
@@ -144,11 +147,14 @@ export function DiffViewerFileTreeToolbar({
   onStageAll,
   onUnstageAll,
   onDiscardAll,
+  showLocalIgnorePatterns = false,
+  onOpenLocalIgnorePatterns,
 }: DiffViewerFileTreeToolbarProps) {
   const { t } = useTranslation()
 
   return (
-    <div className="flex min-w-0 flex-wrap items-center gap-0.5 bg-muted/30 px-1.5 py-1" style={noDragStyle}>
+    <div className="flex min-w-0 items-center gap-0.5 bg-muted/30 px-1.5 py-1" style={noDragStyle}>
+      <div className="flex min-w-0 flex-1 flex-wrap items-center gap-0.5">
       <ToolbarIconButton
         label={t('dialog.diffViewer.treeRefresh')}
         disabled={disabled || isRefreshing}
@@ -297,6 +303,16 @@ export function DiffViewerFileTreeToolbar({
             <RotateCcw className="h-3.5 w-3.5" />
           </ToolbarIconButton>
         </>
+      ) : null}
+      </div>
+      {showLocalIgnorePatterns && onOpenLocalIgnorePatterns ? (
+        <ToolbarIconButton
+          label={t('git.localIgnoreListTitle')}
+          disabled={disabled}
+          onClick={onOpenLocalIgnorePatterns}
+        >
+          <ListFilter className="h-3.5 w-3.5" />
+        </ToolbarIconButton>
       ) : null}
     </div>
   )

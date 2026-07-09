@@ -1,7 +1,8 @@
 import * as monaco from 'monaco-editor'
 import type { editor as MonacoEditor, IRange } from 'monaco-editor'
 import { resolveMonacoLanguageId } from '@/lib/monacoLanguage'
-import type { ChangePosition, CharDiffStats, DiffStats } from './diffViewerTypes'
+import type { ChangePosition, CharDiffStats, DiffStats, DiffViewerViewOptions } from './diffViewerTypes'
+import { applyDiffViewerEditorOptions, isDiffCollapseActive, reapplyDiffViewerCollapseOptions } from './useDiffViewerOptions'
 
 const DIFF_COMPUTE_TIMEOUT_MS = 10_000
 
@@ -107,6 +108,39 @@ export async function waitForDiffCompute(diffEditor: MonacoEditor.IStandaloneDif
     return
   }
   await waitForDiffComputeViaEvent(diffEditor)
+}
+
+/** Monaco runtime API — not always present on IStandaloneDiffEditor typings. */
+export function collapseAllDiffUnchangedRegions(diffEditor: MonacoEditor.IStandaloneDiffEditor): void {
+  const collapse = (diffEditor as MonacoEditor.IStandaloneDiffEditor & { collapseAllUnchangedRegions?: () => void })
+    .collapseAllUnchangedRegions
+  if (!collapse) return
+  try {
+    collapse.call(diffEditor)
+  } catch {
+    // hide-unchanged view zones may still be mounting
+  }
+}
+
+/** Re-apply collapse / diff-only after file content changes and @monaco-editor/react prop sync. */
+export async function refreshDiffCollapseAfterContentChange(
+  diffEditor: MonacoEditor.IStandaloneDiffEditor,
+  viewOptions: DiffViewerViewOptions,
+  overrides?: { readOnly?: boolean }
+): Promise<void> {
+  await waitForDiffCompute(diffEditor)
+  // Child DiffEditor effects sync original/modified props after parent setState.
+  await new Promise<void>(resolve => setTimeout(resolve, 0))
+  await waitForDiffCompute(diffEditor)
+
+  if (!isDiffCollapseActive(viewOptions)) {
+    applyDiffViewerEditorOptions(diffEditor, viewOptions, overrides)
+    return
+  }
+
+  reapplyDiffViewerCollapseOptions(diffEditor, viewOptions, overrides)
+  await waitForDiffCompute(diffEditor)
+  collapseAllDiffUnchangedRegions(diffEditor)
 }
 
 function waitForDiffComputeViaEvent(diffEditor: MonacoEditor.IStandaloneDiffEditor): Promise<void> {
@@ -436,18 +470,22 @@ export function goToFirstChange(diffEditor: MonacoEditor.IStandaloneDiffEditor, 
   const changes = diffEditor.getLineChanges() ?? []
   if (changes.length === 0) return
 
-  const first = changes[0]
-  diffEditor.revealFirstDiff()
+  try {
+    const first = changes[0]
+    diffEditor.revealFirstDiff()
 
-  const preferModified = first.modifiedStartLineNumber > 0
-  const line = preferModified
-    ? first.modifiedStartLineNumber
-    : Math.max(1, first.originalStartLineNumber)
-  const editor = preferModified ? diffEditor.getModifiedEditor() : diffEditor.getOriginalEditor()
-  editor.setPosition({ lineNumber: line, column: 1 })
-  editor.revealLineInCenter(line)
-  if (options?.focus !== false) {
-    editor.focus()
+    const preferModified = first.modifiedStartLineNumber > 0
+    const line = preferModified
+      ? first.modifiedStartLineNumber
+      : Math.max(1, first.originalStartLineNumber)
+    const editor = preferModified ? diffEditor.getModifiedEditor() : diffEditor.getOriginalEditor()
+    editor.setPosition({ lineNumber: line, column: 1 })
+    editor.revealLineInCenter(line)
+    if (options?.focus !== false) {
+      editor.focus()
+    }
+  } catch {
+    // hideUnchangedRegions view zones may not be ready yet after option/content updates.
   }
 }
 

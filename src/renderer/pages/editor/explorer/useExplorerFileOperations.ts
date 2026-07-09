@@ -44,6 +44,29 @@ export function useExplorerFileOperations({
 }: UseExplorerFileOperationsOptions) {
   const { t } = useTranslation()
   const undoStackRef = useRef(new ExplorerUndoStack())
+  const suppressMenuFocusRestoreRef = useRef(false)
+  const suppressMenuFocusRestoreTimerRef = useRef<number | undefined>(undefined)
+
+  const armInlineEditFocus = useCallback(() => {
+    suppressMenuFocusRestoreRef.current = true
+    if (suppressMenuFocusRestoreTimerRef.current !== undefined) {
+      window.clearTimeout(suppressMenuFocusRestoreTimerRef.current)
+    }
+    suppressMenuFocusRestoreTimerRef.current = window.setTimeout(() => {
+      suppressMenuFocusRestoreRef.current = false
+      suppressMenuFocusRestoreTimerRef.current = undefined
+    }, 500)
+  }, [])
+
+  const consumeSuppressMenuFocusRestore = useCallback(() => {
+    if (!suppressMenuFocusRestoreRef.current) return false
+    suppressMenuFocusRestoreRef.current = false
+    if (suppressMenuFocusRestoreTimerRef.current !== undefined) {
+      window.clearTimeout(suppressMenuFocusRestoreTimerRef.current)
+      suppressMenuFocusRestoreTimerRef.current = undefined
+    }
+    return true
+  }, [])
 
   const opCallbacksRef = useRef<ExplorerOpCallbacks>({
     repoCwd,
@@ -148,14 +171,16 @@ export function useExplorerFileOperations({
 
   const startRename = useCallback(
     (relativePath: string) => {
+      armInlineEditFocus()
       const currentName = relativePath.split('/').pop() ?? relativePath
       setInlineEdit({ mode: 'rename', targetPath: relativePath, value: currentName })
     },
-    [setInlineEdit]
+    [armInlineEditFocus, setInlineEdit]
   )
 
   const startCreateFile = useCallback(
     async (parentDir: string) => {
+      armInlineEditFocus()
       await ensureParentExpanded(parentDir)
       setInlineEdit({
         mode: 'create',
@@ -165,11 +190,12 @@ export function useExplorerFileOperations({
         value: '',
       })
     },
-    [ensureParentExpanded, setInlineEdit]
+    [armInlineEditFocus, ensureParentExpanded, setInlineEdit]
   )
 
   const startCreateFolder = useCallback(
     async (parentDir: string) => {
+      armInlineEditFocus()
       await ensureParentExpanded(parentDir)
       setInlineEdit({
         mode: 'create',
@@ -179,7 +205,7 @@ export function useExplorerFileOperations({
         value: '',
       })
     },
-    [ensureParentExpanded, setInlineEdit]
+    [armInlineEditFocus, ensureParentExpanded, setInlineEdit]
   )
 
   const executeDeleteMany = useCallback(
@@ -364,6 +390,7 @@ export function useExplorerFileOperations({
     redo,
     canUndo,
     canRedo,
+    consumeSuppressMenuFocusRestore,
   }
 }
 

@@ -1,6 +1,6 @@
 'use client'
 
-import { Check, Download, GitBranch, ListOrdered, Loader2, Pencil, RefreshCw, Upload, XCircle } from 'lucide-react'
+import { Download, GitBranch, ListOrdered, Loader2, Pencil, RefreshCw, Upload, XCircle } from 'lucide-react'
 import { type MouseEvent, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { formatDateTime } from 'shared/utils'
@@ -107,11 +107,9 @@ async function getHeadHash(cwd: string): Promise<string> {
   return rows[0]?.hash ?? ''
 }
 
-function buildBranchOptions(branches: { local?: { all?: string[] }; remote?: { all?: string[] } } | null): { value: string; label: string }[] {
+function buildRemoteBranchOptions(branches: { remote?: { all?: string[] } } | null): { value: string; label: string }[] {
   if (!branches) return []
-  const local = (branches.local?.all || []).map(b => ({ value: b, label: `${b} (local)` }))
-  const remote = (branches.remote?.all || []).filter(b => !b.endsWith('/HEAD')).map(b => ({ value: b, label: `${b} (remote)` }))
-  return [...local, ...remote]
+  return (branches.remote?.all || []).filter(b => !b.endsWith('/HEAD')).map(b => ({ value: b, label: `${b} (remote)` }))
 }
 
 function buildLocalBranchOptions(branches: { local?: { all?: string[] } } | null): { value: string; label: string }[] {
@@ -170,6 +168,7 @@ export function GitCherryPickBranchesDialog({ open, onOpenChange, onComplete, se
   const [closeConfirmOpen, setCloseConfirmOpen] = useState(false)
   const [running, setRunning] = useState(false)
   const [showConflictPanel, setShowConflictPanel] = useState(false)
+  const [conflictFilesRemain, setConflictFilesRemain] = useState(true)
   const [conflictDiffOpen, setConflictDiffOpen] = useState(false)
   const [createNewBranch, setCreateNewBranch] = useState(false)
   const [newBranchName, setNewBranchName] = useState('')
@@ -184,7 +183,7 @@ export function GitCherryPickBranchesDialog({ open, onOpenChange, onComplete, se
   const firstHighlightRightIndex = useMemo(() => rightLog.findIndex(r => highlightRight.has(r.hash)), [rightLog, highlightRight])
 
   const targetBranchOptions = useMemo(() => buildLocalBranchOptions(branches), [branches])
-  const sourceBranchOptions = useMemo(() => buildBranchOptions(branches), [branches])
+  const sourceBranchOptions = useMemo(() => buildRemoteBranchOptions(branches), [branches])
 
   const loadBranches = useCallback(async () => {
     if (!sourceFolder) return
@@ -195,7 +194,7 @@ export function GitCherryPickBranchesDialog({ open, onOpenChange, onComplete, se
         setBranches(brRes.data)
         const cur = brRes.data.current || (stRes.status === 'success' && stRes.data?.current ? stRes.data.current : '') || ''
         const targetOpts = buildLocalBranchOptions(brRes.data)
-        const sourceOpts = buildBranchOptions(brRes.data)
+        const sourceOpts = buildRemoteBranchOptions(brRes.data)
         if (clearBranchSelectionOnNextLoadRef.current) {
           clearBranchSelectionOnNextLoadRef.current = false
           setTargetBranch(null)
@@ -722,6 +721,18 @@ export function GitCherryPickBranchesDialog({ open, onOpenChange, onComplete, se
     })
   }, [])
 
+  const handleCopyHash = useCallback(
+    (e: MouseEvent<HTMLElement>, hash: string) => {
+      e.preventDefault()
+      e.stopPropagation()
+      void navigator.clipboard.writeText(hash).then(
+        () => toast.success(t('toast.copied')),
+        () => toast.error(t('toast.copyFailed'))
+      )
+    },
+    [t]
+  )
+
   const sortSelectedForPick = useCallback(
     (selected: Set<string>): string[] => {
       const indexMap = new Map(rightLog.map((row, i) => [row.hash, i]))
@@ -754,6 +765,7 @@ export function GitCherryPickBranchesDialog({ open, onOpenChange, onComplete, se
         } else if (result.status === 'conflict') {
           toast.warning(t('git.cherryPick.conflicts'))
           setShowConflictPanel(true)
+          setConflictFilesRemain(true)
           setConflictDiffOpen(true)
           setRunning(false)
           return false
@@ -801,6 +813,39 @@ export function GitCherryPickBranchesDialog({ open, onOpenChange, onComplete, se
   const handleConflictAbort = useCallback(() => {
     resetCherryPickSession()
   }, [resetCherryPickSession])
+
+  const syncConflictPanelStatus = useCallback(async () => {
+    if (!sourceFolder) return
+    try {
+      const cs = await window.api.git.get_conflict_status(sourceFolder)
+      if (cs.status === 'success' && cs.data) {
+        setConflictFilesRemain(cs.data.conflictedFiles.length > 0)
+      }
+    } catch (e) {
+      logger.error(e)
+    }
+  }, [sourceFolder])
+
+  const handleConflictDiffOpenChange = useCallback(
+    (next: boolean) => {
+      setConflictDiffOpen(next)
+      if (!next && showConflictPanel) {
+        void syncConflictPanelStatus()
+      }
+    },
+    [showConflictPanel, syncConflictPanelStatus]
+  )
+
+  useEffect(() => {
+    if (!showConflictPanel || !sourceFolder) return
+    const sync = () => void syncConflictPanelStatus()
+    window.addEventListener('git-branch-changed', sync)
+    window.api.on('git-conflict-resolved', sync)
+    return () => {
+      window.removeEventListener('git-branch-changed', sync)
+      window.api.removeListener('git-conflict-resolved', sync)
+    }
+  }, [showConflictPanel, sourceFolder, syncConflictPanelStatus])
 
   const handleAbortCherryPick = useCallback(async () => {
     if (!sourceFolder) return
@@ -1106,9 +1151,13 @@ export function GitCherryPickBranchesDialog({ open, onOpenChange, onComplete, se
             <div className="flex min-h-0 flex-1 flex-col gap-3 overflow-hidden">
               {renderRepoPicker()}
               {showConflictPanel && sourceFolder ? (
-                <div className="shrink-0 space-y-2 rounded-md border border-destructive/30 bg-destructive/5 p-2">
+                <div
+                  className={cn('shrink-0 space-y-2 rounded-md border p-2', conflictFilesRemain ? 'border-destructive/30 bg-destructive/5' : 'border-green-500/30 bg-green-500/5')}
+                >
                   <div className="flex flex-wrap items-center justify-between gap-2">
-                    <p className="text-sm font-medium text-destructive">{t('git.cherryPickBranches.conflictPanelTitle')}</p>
+                    <p className={cn('text-sm font-medium', conflictFilesRemain ? 'text-destructive' : 'text-green-700 dark:text-green-400')}>
+                      {conflictFilesRemain ? t('git.cherryPickBranches.conflictPanelTitle') : t('git.cherryPickBranches.conflictPanelResolvedTitle')}
+                    </p>
                     <div className="flex flex-wrap items-center gap-1.5">
                       {!conflictDiffOpen ? (
                         <Button type="button" size="sm" variant="outline" onClick={() => setConflictDiffOpen(true)}>
@@ -1123,9 +1172,17 @@ export function GitCherryPickBranchesDialog({ open, onOpenChange, onComplete, se
                     </div>
                   </div>
                   {conflictDiffOpen ? (
-                    <p className="text-xs text-muted-foreground">{t('git.cherryPickBranches.conflictDiffOpenHint')}</p>
+                    <p className={cn('text-sm', conflictFilesRemain ? 'text-muted-foreground' : 'text-green-700/90 dark:text-green-400/90')}>
+                      {conflictFilesRemain ? t('git.cherryPickBranches.conflictDiffOpenHint') : t('git.cherryPickBranches.conflictDiffResolvedHint')}
+                    </p>
                   ) : (
-                    <GitConflictPanel sourceFolder={sourceFolder} onResolved={handleConflictResolved} onAbort={handleConflictAbort} compact />
+                    <GitConflictPanel
+                      sourceFolder={sourceFolder}
+                      onResolved={handleConflictResolved}
+                      onAbort={handleConflictAbort}
+                      onStatusChanged={() => void syncConflictPanelStatus()}
+                      compact
+                    />
                   )}
                 </div>
               ) : null}
@@ -1276,7 +1333,7 @@ export function GitCherryPickBranchesDialog({ open, onOpenChange, onComplete, se
 
               <ResizablePanelGroup orientation="horizontal" className="min-h-0 flex-1 basis-0 overflow-hidden rounded-md border">
                 <ResizablePanel defaultSize={50} minSize={25} className="flex min-h-0 min-w-0 flex-col overflow-hidden">
-                  <div className="shrink-0 border-b bg-muted/40 px-2 py-1.5 text-xs font-medium">{t('git.cherryPickBranches.panelTarget')}</div>
+                  <div className="shrink-0 border-b bg-muted/40 px-2 py-1.5 font-medium">{t('git.cherryPickBranches.panelTarget')}</div>
                   <div ref={leftScrollRef} onScroll={handleLeftScroll} className="min-h-0 flex-1 overflow-y-auto overflow-x-hidden overscroll-y-contain">
                     {logLoadingLeft ? (
                       <div className="flex justify-center py-8">
@@ -1287,27 +1344,25 @@ export function GitCherryPickBranchesDialog({ open, onOpenChange, onComplete, se
                         <Table>
                           <TableHeader sticky>
                             <TableRow>
-                              <TableHead className="w-[52px] font-mono text-[10px]">{t('git.cherryPickBranches.colHash')}</TableHead>
+                              <TableHead className="w-[58px]">{t('git.cherryPickBranches.colHash')}</TableHead>
                               <TableHead>{t('git.cherryPickBranches.colMessage')}</TableHead>
                               <TableHead className="w-[100px]">{t('git.cherryPickBranches.colAuthor')}</TableHead>
-                              <TableHead className="w-[128px]">{t('git.cherryPickBranches.colDate')}</TableHead>
+                              <TableHead className="w-[132px]">{t('git.cherryPickBranches.colDate')}</TableHead>
                             </TableRow>
                           </TableHeader>
                           <TableBody>
                             {leftLog.map((row, idx) => {
                               const isHi = highlightLeft.has(row.hash)
                               return (
-                                <TableRow
-                                  key={row.hash}
-                                  data-cherry-pick-left-row={idx}
-                                  className={cn(isHi && 'bg-emerald-500/15 text-emerald-800 dark:text-emerald-200 ring-1 ring-inset ring-emerald-500/25')}
-                                >
-                                  <TableCell className="font-mono text-[10px] text-inherit">{row.hash.slice(0, 6)}</TableCell>
+                                <TableRow key={row.hash} data-cherry-pick-left-row={idx} className={cn(isHi && 'bg-emerald-500/15 text-emerald-800 dark:text-emerald-200')}>
+                                  <TableCell className="cursor-pointer hover:underline" title={row.hash} onClick={e => handleCopyHash(e, row.hash)}>
+                                    {row.hash.slice(0, 6)}
+                                  </TableCell>
                                   <TableCell className="max-w-[200px] truncate text-inherit" title={row.subject}>
                                     {row.subject}
                                   </TableCell>
-                                  <TableCell className="text-xs truncate text-inherit">{row.author}</TableCell>
-                                  <TableCell className="text-[10px] whitespace-nowrap text-inherit opacity-90">{formatLogDate(row.date, i18n.language)}</TableCell>
+                                  <TableCell className="truncate text-inherit">{row.author}</TableCell>
+                                  <TableCell className="whitespace-nowrap text-inherit opacity-90">{formatLogDate(row.date, i18n.language)}</TableCell>
                                 </TableRow>
                               )
                             })}
@@ -1324,7 +1379,7 @@ export function GitCherryPickBranchesDialog({ open, onOpenChange, onComplete, se
                 </ResizablePanel>
                 <ResizableHandle withHandle={false} />
                 <ResizablePanel defaultSize={50} minSize={25} className="flex min-h-0 min-w-0 flex-col overflow-hidden">
-                  <div className="shrink-0 border-b bg-muted/40 px-2 py-1.5 text-xs font-medium">{t('git.cherryPickBranches.panelSource')}</div>
+                  <div className="shrink-0 border-b bg-muted/40 px-2 py-1.5 font-medium">{t('git.cherryPickBranches.panelSource')}</div>
                   <div ref={rightScrollRef} onScroll={handleRightScroll} className="min-h-0 flex-1 overflow-y-auto overflow-x-hidden overscroll-y-contain">
                     {logLoadingRight ? (
                       <div className="flex justify-center py-8">
@@ -1337,10 +1392,10 @@ export function GitCherryPickBranchesDialog({ open, onOpenChange, onComplete, se
                         <Table>
                           <TableHeader sticky>
                             <TableRow>
-                              <TableHead className="w-[52px] font-mono text-[10px]">{t('git.cherryPickBranches.colHash')}</TableHead>
+                              <TableHead className="w-[58px]">{t('git.cherryPickBranches.colHash')}</TableHead>
                               <TableHead>{t('git.cherryPickBranches.colMessage')}</TableHead>
                               <TableHead className="w-[100px]">{t('git.cherryPickBranches.colAuthor')}</TableHead>
-                              <TableHead className="w-[128px]">{t('git.cherryPickBranches.colDate')}</TableHead>
+                              <TableHead className="w-[132px]">{t('git.cherryPickBranches.colDate')}</TableHead>
                             </TableRow>
                           </TableHeader>
                           <TableBody className="[&>tr[data-selected=true]]:!bg-primary/15 [&>tr[data-selected=true]]:hover:!bg-primary/10">
@@ -1355,21 +1410,18 @@ export function GitCherryPickBranchesDialog({ open, onOpenChange, onComplete, se
                                   className={cn(
                                     'cursor-pointer',
                                     sel && !pickedHi && '!bg-primary/10 hover:!bg-primary/15',
-                                    pickedHi && 'bg-emerald-500/15 text-emerald-800 dark:text-emerald-200 ring-1 ring-inset ring-emerald-500/25'
+                                    pickedHi && 'bg-emerald-500/15 text-emerald-800 dark:text-emerald-200'
                                   )}
                                   onClick={e => toggleSelectRight(e, row.hash)}
                                 >
-                                  <TableCell className="font-mono text-[10px] text-inherit">
-                                    <span className="inline-flex items-center gap-1">
-                                      {pickedHi ? <Check className="h-3 w-3 shrink-0 text-emerald-600 dark:text-emerald-400" aria-hidden /> : null}
-                                      {row.hash.slice(0, 6)}
-                                    </span>
+                                  <TableCell className="cursor-pointer hover:underline" title={row.hash} onClick={e => handleCopyHash(e, row.hash)}>
+                                    {row.hash.slice(0, 6)}
                                   </TableCell>
                                   <TableCell className="max-w-[200px] truncate text-inherit" title={row.subject}>
                                     {row.subject}
                                   </TableCell>
-                                  <TableCell className="text-xs truncate text-inherit">{row.author}</TableCell>
-                                  <TableCell className="text-[10px] whitespace-nowrap text-inherit opacity-90">{formatLogDate(row.date, i18n.language)}</TableCell>
+                                  <TableCell className="truncate text-inherit">{row.author}</TableCell>
+                                  <TableCell className="whitespace-nowrap text-inherit opacity-90">{formatLogDate(row.date, i18n.language)}</TableCell>
                                 </TableRow>
                               )
                             })}
@@ -1415,7 +1467,7 @@ export function GitCherryPickBranchesDialog({ open, onOpenChange, onComplete, se
                   {sortSelectedForPick(selectedRight).map(h => {
                     const row = rightLog.find(r => r.hash === h)
                     return (
-                      <li key={h} className="font-mono text-xs">
+                      <li key={h} className="">
                         {h.slice(0, 7)} — {row?.subject ?? ''}
                       </li>
                     )
@@ -1449,7 +1501,7 @@ export function GitCherryPickBranchesDialog({ open, onOpenChange, onComplete, se
 
       <GitConflictDiffDialog
         open={conflictDiffOpen}
-        onOpenChange={setConflictDiffOpen}
+        onOpenChange={handleConflictDiffOpenChange}
         cwd={sourceFolder}
         onResolved={() => void handleConflictResolved()}
         onAbort={handleConflictAbort}

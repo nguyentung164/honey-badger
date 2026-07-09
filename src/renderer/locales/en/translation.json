@@ -2335,8 +2335,10 @@
       "checkoutError": "Could not check out the target branch",
       "stateBlocked": "Finish or abort merge, rebase, or cherry-pick in progress before starting.",
       "conflictPanelTitle": "Resolve conflicts, then continue cherry-pick",
+      "conflictPanelResolvedTitle": "All conflicts resolved — continue cherry-pick when ready",
       "openConflictDiff": "Open diff viewer",
       "conflictDiffOpenHint": "Resolve conflicts in the diff viewer above. Use Abort below to cancel the cherry-pick.",
+      "conflictDiffResolvedHint": "Conflicts are resolved. Close the diff viewer or continue cherry-pick from here.",
       "closeConfirmTitle": "Close cherry-pick dialog?",
       "closeConfirmDescription": "Cherry-pick is still in progress or has unresolved conflicts. Closing leaves the repository in that state.",
       "closeConfirmAction": "Close anyway"
