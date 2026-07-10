@@ -51,8 +51,8 @@ export function EditorTabPane({ activeTabId, repoCwd, getGitStatus, onSyncDirty,
   const tabStructureKey = useEditorWorkspace(s =>
     s.tabs
       .filter(t => t.kind === 'text')
-      .map(t => t.relativePath)
-      .join('\0')
+      .map(t => `${t.repoRoot}\0${t.relativePath}`)
+      .join('\n')
   )
   const consumeTabReveal = useEditorWorkspace(s => s.consumeTabReveal)
   const onSyncDirtyRef = useRef(onSyncDirty)
@@ -61,11 +61,20 @@ export function EditorTabPane({ activeTabId, repoCwd, getGitStatus, onSyncDirty,
   const pendingDirtyRef = useRef<{ tabId: string; alternativeVersionId: number } | null>(null)
 
   useEffect(() => {
-    if (!repoCwd) return
     const { tabs } = useEditorWorkspace.getState()
-    const openTextPaths = tabs.filter(t => t.kind === 'text').map(t => t.relativePath)
-    syncOpenTabKeys(repoCwd, openTextPaths)
-    editorLanguageService.syncOpenTabs(repoCwd, openTextPaths)
+    const byRoot = new Map<string, string[]>()
+    for (const openTab of tabs) {
+      if (openTab.kind !== 'text') continue
+      const root = openTab.repoRoot?.trim() || repoCwd
+      if (!root) continue
+      const list = byRoot.get(root) ?? []
+      list.push(openTab.relativePath)
+      byRoot.set(root, list)
+    }
+    for (const [root, paths] of byRoot) {
+      syncOpenTabKeys(root, paths)
+      editorLanguageService.syncOpenTabs(root, paths)
+    }
   }, [repoCwd, tabStructureKey])
 
   useEffect(() => {
@@ -117,21 +126,31 @@ export function EditorTabPane({ activeTabId, repoCwd, getGitStatus, onSyncDirty,
     return registerBridge()
   }, [tab?.id, tab?.kind, tab?.contentLoaded, registerBridge])
 
-  const tabMetaRef = useRef<{ id: string; relativePath: string; languageId: string; kind: EditorTabKind }>({
+  const tabMetaRef = useRef<{ id: string; relativePath: string; repoRoot: string; languageId: string; kind: EditorTabKind }>({
     id: '',
     relativePath: '',
+    repoRoot: '',
     languageId: 'plaintext',
     kind: 'text',
   })
-  if (tab) tabMetaRef.current = { id: tab.id, relativePath: tab.relativePath, languageId: tab.languageId, kind: tab.kind }
+  if (tab) {
+    tabMetaRef.current = {
+      id: tab.id,
+      relativePath: tab.relativePath,
+      repoRoot: tab.repoRoot || repoCwd,
+      languageId: tab.languageId,
+      kind: tab.kind,
+    }
+  }
   const getGitStatusRef = useRef(getGitStatus)
   getGitStatusRef.current = getGitStatus
 
+  const tabRoot = tab?.repoRoot?.trim() || repoCwd
   const lspTab =
     tab && tab.kind === 'text'
       ? { relativePath: tab.relativePath, languageId: tab.languageId, contentLoaded: tab.contentLoaded }
       : null
-  const { onEditorMount, onLspContentChange, onLspModelChange } = useLazyEditorLsp(repoCwd, lspTab)
+  const { onEditorMount, onLspContentChange, onLspModelChange } = useLazyEditorLsp(tabRoot, lspTab)
 
   const handleEditorMount = useCallback(
     (editor: Monaco.editor.IStandaloneCodeEditor, monaco: typeof Monaco) => {
@@ -141,7 +160,7 @@ export function EditorTabPane({ activeTabId, repoCwd, getGitStatus, onSyncDirty,
       gitScmDisposableRef.current = registerEditorGitScm(editor, monaco, () => {
         const meta = tabMetaRef.current
         return {
-          repoCwd,
+          repoCwd: meta.repoRoot || repoCwd,
           relativePath: meta.relativePath,
           gitStatus: getGitStatusRef.current?.(meta.relativePath) ?? null,
           languageId: meta.languageId,
@@ -209,8 +228,10 @@ export function EditorTabPane({ activeTabId, repoCwd, getGitStatus, onSyncDirty,
 
   if (!tab) return <EditorEmptyState />
 
+  const activeTabRoot = tab.repoRoot?.trim() || repoCwd
+
   if (tab.kind === 'compare') {
-    return <EditorComparePane tab={tab} repoCwd={repoCwd} />
+    return <EditorComparePane tab={tab} repoCwd={activeTabRoot} />
   }
 
   if (tab.kind !== 'text') {
@@ -239,7 +260,7 @@ export function EditorTabPane({ activeTabId, repoCwd, getGitStatus, onSyncDirty,
       >
         <LazyEditorMonacoHost
           ref={editorRef}
-          repoCwd={repoCwd}
+          repoCwd={activeTabRoot}
           tabId={tab.id}
           relativePath={tab.relativePath}
           contentLoaded={tab.contentLoaded}

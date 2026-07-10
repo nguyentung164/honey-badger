@@ -16,22 +16,20 @@ type UseEditorShellOpenRequestOptions = {
 export function useEditorShellOpenRequest({ repoCwd, openFile }: UseEditorShellOpenRequestOptions) {
   const processOpen = useCallback(
     (detail: EditorOpenPayload) => {
-      if (!repoCwd) return
       const targetCwd = detail.cwd?.trim() || repoCwd
-      if (normalizeEditorRepoKey(targetCwd) !== normalizeEditorRepoKey(repoCwd)) return
+      if (!targetCwd) return
       clearPendingEditorOpen()
       void openFile(detail.filePath.replace(/\\/g, '/'), {
         pin: true,
         line: detail.line,
         column: detail.column,
+        repoRoot: targetCwd,
       })
     },
     [openFile, repoCwd]
   )
 
   useEffect(() => {
-    if (!repoCwd) return
-
     const onEvent = (event: Event) => {
       const detail = (event as CustomEvent<EditorOpenPayload>).detail
       if (detail) processOpen(detail)
@@ -43,5 +41,5 @@ export function useEditorShellOpenRequest({ repoCwd, openFile }: UseEditorShellO
     if (pending) processOpen(pending)
 
     return () => window.removeEventListener(MAIN_SHELL_OPEN_EDITOR_EVENT, onEvent)
-  }, [processOpen, repoCwd])
+  }, [processOpen])
 }

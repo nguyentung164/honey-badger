@@ -1,21 +1,14 @@
 'use client'
 
-import type { LucideIcon } from 'lucide-react'
-import { Bot, CheckSquare, FileCode2, Folder, GitPullRequest, History, Rocket } from 'lucide-react'
 import { useMemo } from 'react'
 import { useTranslation } from 'react-i18next'
 import type { MainShellView } from 'shared/mainShellView'
 import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import { cn } from '@/lib/utils'
+import { SHELL_TAB_DEFS } from '@/lib/shellTabDefs'
+import { useAppearanceStoreSelect } from '@/stores/useAppearanceStore'
 import { SHELL_TAB_ICON_CLASS, SHELL_TAB_LABEL_CLASS, shellTabItemClass } from '@/pages/main/shellTabStyles'
-
-type ShellTabDef = {
-  value: MainShellView
-  icon: LucideIcon
-  labelKey: string
-  defaultLabel?: string
-}
 
 type ShellTabSwitcherProps = {
   shellView: MainShellView
@@ -37,19 +30,11 @@ export function ShellTabSwitcher({
   showLogDetached = false,
 }: ShellTabSwitcherProps) {
   const { t } = useTranslation()
+  const hiddenShellTabs = useAppearanceStoreSelect(s => s.hiddenShellTabs)
 
   const tabs = useMemo(() => {
-    const all: ShellTabDef[] = [
-      { value: 'editor', icon: FileCode2, labelKey: 'mainShell.editor' },
-      { value: 'vcs', icon: Folder, labelKey: 'mainShell.sourceControl' },
-      { value: 'showLog', icon: History, labelKey: 'mainShell.showLog', defaultLabel: 'Show Log' },
-      { value: 'tasks', icon: CheckSquare, labelKey: 'mainShell.tasks' },
-      { value: 'prManager', icon: GitPullRequest, labelKey: 'mainShell.prManager' },
-      { value: 'automation', icon: Bot, labelKey: 'mainShell.automation' },
-      { value: 'devPipelines', icon: Rocket, labelKey: 'mainShell.devPipelines', defaultLabel: 'Dev Pipelines' },
-    ]
-
-    return all.filter(tab => {
+    return SHELL_TAB_DEFS.filter(tab => {
+      if (hiddenShellTabs.includes(tab.value)) return false
       if (tab.value === 'tasks') return !tasksDetached
       if (tab.value === 'prManager') return !prManagerDetached
       if (tab.value === 'automation') return !automationDetached
@@ -57,7 +42,7 @@ export function ShellTabSwitcher({
       if (tab.value === 'showLog') return !showLogDetached
       return true
     })
-  }, [automationDetached, devPipelinesDetached, prManagerDetached, showLogDetached, tasksDetached])
+  }, [automationDetached, devPipelinesDetached, hiddenShellTabs, prManagerDetached, showLogDetached, tasksDetached])
 
   return (
     <ToggleGroup

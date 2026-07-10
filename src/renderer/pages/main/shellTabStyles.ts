@@ -56,3 +56,8 @@ export function shellTabItemClass(view: MainShellView): string {
 export function shellTabDockButtonClass(view: MainShellView): string {
   return cn('h-[25px] w-[25px] shrink-0 rounded-sm hover:bg-muted', SHELL_TAB_DOCK_COLORS[view])
 }
+
+/** Màu accent (chỉ text) của tab, dùng cho các UI khác ngoài title bar (VD: setting ẩn/hiện tab). */
+export function shellTabAccentTextClass(view: MainShellView): string {
+  return SHELL_TAB_DOCK_COLORS[view]
+}

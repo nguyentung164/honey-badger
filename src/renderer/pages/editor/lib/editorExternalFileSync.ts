@@ -58,6 +58,26 @@ export function resolveExternalChangeForOpenTab(
   return null
 }
 
+/** Open tab resource identity — VS Code matches watcher events by URI (folder + path), not by name. */
+export type OpenTabResource = { tabId: string; repoRoot: string; relativePath: string }
+
+/**
+ * Multi-root correct resolution: match a watcher's absolute path against each open tab's own
+ * `repoRoot`, instead of joining every tab's relative path against a single focused repo cwd.
+ */
+export function resolveOpenTabForAbsolutePath(
+  absolutePath: string,
+  openTabs: readonly OpenTabResource[]
+): OpenTabResource | null {
+  const normalizedChanged = absolutePath.replace(/\\/g, '/').toLowerCase()
+  for (const tab of openTabs) {
+    if (!tab.repoRoot) continue
+    const abs = joinRepoPath(tab.repoRoot, tab.relativePath).replace(/\\/g, '/').toLowerCase()
+    if (abs === normalizedChanged) return tab
+  }
+  return null
+}
+
 export async function readNormalizedDiskText(relativePath: string, repoCwd: string): Promise<string | null> {
   try {
     const content = await window.api.system.read_file(relativePath, { cwd: repoCwd })

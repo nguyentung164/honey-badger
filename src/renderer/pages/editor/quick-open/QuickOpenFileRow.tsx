@@ -11,6 +11,8 @@ export type QuickOpenFileRowProps = {
   path: string
   fileName: string
   dirname: string
+  /** Workspace folder name — shown as a badge when Quick Open searches multiple roots. */
+  folderLabel?: string
   matchIndices: readonly number[]
   locationSuffix?: string
   onSelect: () => void
@@ -20,6 +22,7 @@ export const QuickOpenFileRow = memo(function QuickOpenFileRow({
   path,
   fileName,
   dirname,
+  folderLabel,
   matchIndices,
   locationSuffix,
   onSelect,
@@ -50,6 +53,11 @@ export const QuickOpenFileRow = memo(function QuickOpenFileRow({
         ) : null}
         {locationSuffix ? (
           <span className="shrink-0 text-[13px] leading-[22px] text-[var(--hb-quick-open-path)]">{locationSuffix}</span>
+        ) : null}
+        {folderLabel ? (
+          <span className="ml-auto shrink-0 truncate rounded-full bg-muted px-1.5 text-[11px] leading-[18px] text-muted-foreground">
+            {folderLabel}
+          </span>
         ) : null}
       </span>
     </CommandItem>

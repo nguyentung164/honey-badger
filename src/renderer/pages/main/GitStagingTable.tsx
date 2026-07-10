@@ -1406,6 +1406,8 @@ export const GitStagingTable = forwardRef(({ onLoadingChange, cwd, label, commit
                   embeddedStagingFooter={commitMessagePanel}
                   embeddedOnReloadFileList={reloadData}
                   embeddedOnOpenLocalIgnorePatterns={() => setChangesIgnoreListOpen(true)}
+                  embeddedOnAddToLocalIgnore={addChangesIgnorePatternsForPaths}
+                  embeddedOnAddFolderToLocalIgnore={addChangesIgnoreFolderForPaths}
                 />
               </Suspense>
             </div>

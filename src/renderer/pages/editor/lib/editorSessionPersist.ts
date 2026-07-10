@@ -3,8 +3,13 @@ import { createBackgroundFlusher, scheduleBackgroundWork } from '@/pages/editor/
 
 export const EDITOR_OPEN_TABS_KEY_PREFIX = 'editor-open-tabs:'
 export const EDITOR_SESSION_KEY_PREFIX = 'editor-session:'
+export const EDITOR_MULTI_ROOT_SESSION_KEY_PREFIX = 'editor-multi-root-session:'
 
 type PersistedSession = { paths: string[]; activePath: string | null }
+
+export type PersistedMultiRootTab = { repoRoot: string; relativePath: string }
+
+type PersistedMultiRootSession = { tabs: PersistedMultiRootTab[]; activeTabId: string | null }
 
 /** Normalize repo path for stable localStorage keys across slash styles. */
 export function normalizeEditorRepoKey(cwd: string): string {
@@ -101,4 +106,66 @@ export function schedulePersistedSession(cwd: string, tabs: EditorTab[], activeP
 export function flushPersistedSession(cwd: string, tabs: EditorTab[], activePath: string | null) {
   sessionFlusher.cancel()
   writePersistedSessionSync(cwd, tabs, activePath)
+}
+
+function multiRootSessionKey(sessionKey: string): string {
+  return `${EDITOR_MULTI_ROOT_SESSION_KEY_PREFIX}${sessionKey.trim()}`
+}
+
+function writePersistedMultiRootSessionSync(sessionKey: string, tabs: EditorTab[], activeTabId: string | null) {
+  if (!sessionKey.trim()) return
+  const entries: PersistedMultiRootTab[] = tabs
+    .filter(t => t.kind === 'text')
+    .map(t => ({ repoRoot: t.repoRoot, relativePath: t.relativePath }))
+  try {
+    localStorage.setItem(multiRootSessionKey(sessionKey), JSON.stringify({ tabs: entries, activeTabId }))
+  } catch {
+    /* ignore */
+  }
+}
+
+const multiRootSessionFlusher = createBackgroundFlusher<{ sessionKey: string; tabs: EditorTab[]; activeTabId: string | null }>(
+  payload => {
+    scheduleBackgroundWork(() => writePersistedMultiRootSessionSync(payload.sessionKey, payload.tabs, payload.activeTabId), {
+      timeout: 3000,
+    })
+  },
+  300
+)
+
+export function readPersistedMultiRootSession(
+  sessionKey: string,
+  folderRoots: readonly string[],
+  restoreTabs = true
+): PersistedMultiRootSession {
+  if (!restoreTabs || !sessionKey.trim() || folderRoots.length === 0) {
+    return { tabs: [], activeTabId: null }
+  }
+  const allowed = new Set(folderRoots.map(normalizeEditorRepoKey))
+  try {
+    const raw = localStorage.getItem(multiRootSessionKey(sessionKey))
+    if (!raw) return { tabs: [], activeTabId: null }
+    const parsed = JSON.parse(raw) as Partial<PersistedMultiRootSession>
+    if (!Array.isArray(parsed.tabs)) return { tabs: [], activeTabId: null }
+    const tabs = parsed.tabs.filter(
+      (entry): entry is PersistedMultiRootTab =>
+        typeof entry?.repoRoot === 'string' &&
+        typeof entry?.relativePath === 'string' &&
+        allowed.has(normalizeEditorRepoKey(entry.repoRoot))
+    )
+    const activeTabId = typeof parsed.activeTabId === 'string' ? parsed.activeTabId : null
+    return { tabs, activeTabId }
+  } catch {
+    return { tabs: [], activeTabId: null }
+  }
+}
+
+export function schedulePersistedMultiRootSession(sessionKey: string, tabs: EditorTab[], activeTabId: string | null) {
+  if (!sessionKey.trim()) return
+  multiRootSessionFlusher.push({ sessionKey, tabs, activeTabId })
+}
+
+export function flushPersistedMultiRootSession(sessionKey: string, tabs: EditorTab[], activeTabId: string | null) {
+  multiRootSessionFlusher.cancel()
+  writePersistedMultiRootSessionSync(sessionKey, tabs, activeTabId)
 }

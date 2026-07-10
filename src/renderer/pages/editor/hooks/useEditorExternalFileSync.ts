@@ -7,20 +7,19 @@ import { joinRepoPath } from 'shared/fileUri'
 import { isCompareModelPath } from '@/pages/editor/lib/editorCompareModels'
 import { patchQuickOpenFileIndex } from '@/pages/editor/lib/quickOpenFileIndex'
 import {
-  editorPathsEqual,
-  normalizeEditorRelativePath,
-  resolveExternalChangeForOpenTab,
+  type OpenTabResource,
+  resolveOpenTabForAbsolutePath,
   shouldIgnoreWorkspaceWatchEvent,
 } from '@/pages/editor/lib/editorExternalFileSync'
 import { isPathSaving } from '@/pages/editor/lib/editorSavingPaths'
 import { useEditorWorkspace } from '@/pages/editor/hooks/useEditorWorkspace'
 
-type FileChangeConfirm = { relativePath: string; fileName: string }
+type FileChangeConfirm = { tabId: string; relativePath: string; repoRoot: string; fileName: string }
 
 type UseEditorExternalFileSyncOptions = {
-  repoCwd: string
+  /** Open text tabs across every workspace folder — resource identity for watcher matching. */
+  openTabs: readonly OpenTabResource[]
   activeTabId: string | null
-  openTabPaths: readonly string[]
   onRequestReloadConfirm: (payload: FileChangeConfirm) => void
   onCloseTab: (tabId: string) => void
 }
@@ -28,14 +27,19 @@ type UseEditorExternalFileSyncOptions = {
 const SYNC_DEBOUNCE_MS = 150
 const ACTIVE_TAB_RECHECK_DEBOUNCE_MS = 100
 
+function tabKey(tab: OpenTabResource): string {
+  return `${tab.repoRoot}\0${tab.relativePath}`
+}
+
 /**
  * VS Code: file watcher → update ITextModel in place (quiet disk sync).
+ * Multi-root: events are matched to a tab by resource identity (repoRoot + path), so a change
+ * in one workspace folder never reloads/prompts for a same-named file open from another folder.
  * Git staging refresh uses FILES_CHANGED separately (silent, no overlay).
  */
 export function useEditorExternalFileSync({
-  repoCwd,
+  openTabs,
   activeTabId,
-  openTabPaths,
   onRequestReloadConfirm,
   onCloseTab,
 }: UseEditorExternalFileSyncOptions) {
@@ -45,14 +49,12 @@ export function useEditorExternalFileSync({
 
   const confirmRef = useRef(onRequestReloadConfirm)
   const closeTabRef = useRef(onCloseTab)
-  const repoCwdRef = useRef(repoCwd)
-  const openTabPathsRef = useRef(openTabPaths)
+  const openTabsRef = useRef(openTabs)
   const syncTimersRef = useRef<Map<string, number>>(new Map())
   const inflightRef = useRef<Set<string>>(new Set())
   confirmRef.current = onRequestReloadConfirm
   closeTabRef.current = onCloseTab
-  repoCwdRef.current = repoCwd
-  openTabPathsRef.current = openTabPaths
+  openTabsRef.current = openTabs
 
   useEffect(() => {
     return () => {
@@ -64,85 +66,76 @@ export function useEditorExternalFileSync({
   }, [])
 
   useEffect(() => {
-    if (!repoCwd) return
-
-    const runQuietSync = (normalized: string) => {
-      if (inflightRef.current.has(normalized)) return
-      inflightRef.current.add(normalized)
-      void syncTabFromDiskQuiet(normalized).finally(() => {
-        inflightRef.current.delete(normalized)
+    const runQuietSync = (tab: OpenTabResource) => {
+      const key = tabKey(tab)
+      if (inflightRef.current.has(key)) return
+      inflightRef.current.add(key)
+      void syncTabFromDiskQuiet(tab.relativePath, undefined, tab.repoRoot).finally(() => {
+        inflightRef.current.delete(key)
       })
     }
 
-    const scheduleQuietSync = (normalized: string) => {
+    const scheduleQuietSync = (tab: OpenTabResource) => {
       const timers = syncTimersRef.current
-      const prev = timers.get(normalized)
+      const key = tabKey(tab)
+      const prev = timers.get(key)
       if (prev) window.clearTimeout(prev)
       timers.set(
-        normalized,
+        key,
         window.setTimeout(() => {
-          timers.delete(normalized)
-          runQuietSync(normalized)
+          timers.delete(key)
+          runQuietSync(tab)
         }, SYNC_DEBOUNCE_MS)
       )
     }
 
-    const findTab = (relativePath: string) => {
-      const { tabs } = useEditorWorkspace.getState()
-      return tabs.find(t => t.kind === 'text' && editorPathsEqual(t.relativePath, relativePath))
-    }
+    const handleExternalChange = (absolutePath: string, event: 'add' | 'change' | 'unlink') => {
+      if (shouldIgnoreWorkspaceWatchEvent(absolutePath)) return
 
-    const handleExternalChange = (relativePath: string, event: 'add' | 'change' | 'unlink') => {
-      if (shouldIgnoreWorkspaceWatchEvent(relativePath)) return
-
-      const normalized = normalizeEditorRelativePath(relativePath)
-      patchQuickOpenFileIndex(repoCwdRef.current, normalized, event)
-
-      const tab = findTab(normalized)
+      const tab = resolveOpenTabForAbsolutePath(absolutePath, openTabsRef.current)
       if (!tab) return
-      const fileName = normalized.split('/').pop() ?? normalized
+
+      const fileName = tab.relativePath.split('/').pop() ?? tab.relativePath
+      const key = tabKey(tab)
 
       const clearSyncTimer = () => {
-        const pending = syncTimersRef.current.get(normalized)
+        const pending = syncTimersRef.current.get(key)
         if (pending) {
           window.clearTimeout(pending)
-          syncTimersRef.current.delete(normalized)
+          syncTimersRef.current.delete(key)
         }
       }
 
+      patchQuickOpenFileIndex(tab.repoRoot, tab.relativePath, event)
+
+      const current = () => useEditorWorkspace.getState().tabs.find(t => t.id === tab.tabId)
+
       if (event === 'unlink') {
         clearSyncTimer()
-        if (tab.isDirty) {
-          confirmRef.current({ relativePath: normalized, fileName })
+        if (current()?.isDirty) {
+          confirmRef.current({ tabId: tab.tabId, relativePath: tab.relativePath, repoRoot: tab.repoRoot, fileName })
         } else {
-          closeTabRef.current(tab.id)
+          closeTabRef.current(tab.tabId)
         }
         return
       }
 
-      if (tab.isDirty) {
+      if (current()?.isDirty) {
         clearSyncTimer()
-        if (isPathSaving(normalized)) return
-        void reconcileDirtyTabIfDiskMatchesBuffer(tab.id, normalized).then(reconciled => {
+        if (isPathSaving(tab.relativePath)) return
+        void reconcileDirtyTabIfDiskMatchesBuffer(tab.tabId, tab.relativePath).then(reconciled => {
           if (reconciled) return
-          const current = findTab(normalized)
-          if (!current?.isDirty) return
-          confirmRef.current({ relativePath: normalized, fileName })
+          if (!current()?.isDirty) return
+          confirmRef.current({ tabId: tab.tabId, relativePath: tab.relativePath, repoRoot: tab.repoRoot, fileName })
         })
         return
       }
 
-      scheduleQuietSync(normalized)
+      scheduleQuietSync(tab)
     }
 
     const onFastOpenFileChanged = (event: { absolutePath: string }) => {
-      const relative = resolveExternalChangeForOpenTab(
-        repoCwdRef.current,
-        event.absolutePath,
-        openTabPathsRef.current
-      )
-      if (!relative) return
-      handleExternalChange(relative, 'change')
+      handleExternalChange(event.absolutePath, 'change')
     }
 
     const unsubFast =
@@ -154,13 +147,7 @@ export function useEditorExternalFileSync({
     if (!hasFastLane) {
       const onGlobalFilesChanged = (_event: unknown, detail?: FilesChangedPayload) => {
         if (detail?.source !== 'watcher' || !detail.changedPath) return
-        const relative = resolveExternalChangeForOpenTab(
-          repoCwdRef.current,
-          detail.changedPath,
-          openTabPathsRef.current
-        )
-        if (!relative) return
-        handleExternalChange(relative, 'change')
+        handleExternalChange(detail.changedPath, 'change')
       }
       window.api.on(IPC.FILES_CHANGED, onGlobalFilesChanged)
       return () => {
@@ -172,14 +159,12 @@ export function useEditorExternalFileSync({
     return () => {
       unsubFast()
     }
-  }, [repoCwd, syncTabFromDiskQuiet, reconcileDirtyTabIfDiskMatchesBuffer])
+  }, [syncTabFromDiskQuiet, reconcileDirtyTabIfDiskMatchesBuffer])
 
   useEffect(() => {
-    if (!repoCwd) return
-
-    const absolutePaths = openTabPaths
-      .filter(p => !isCompareModelPath(p) && !p.includes('(disk)') && !p.includes('(editor)'))
-      .map(p => joinRepoPath(repoCwd, p))
+    const absolutePaths = openTabs
+      .filter(t => t.repoRoot && !isCompareModelPath(t.relativePath) && !t.relativePath.includes('(disk)') && !t.relativePath.includes('(editor)'))
+      .map(t => joinRepoPath(t.repoRoot, t.relativePath))
     const syncTimer = window.setTimeout(() => {
       void window.api.system.set_editor_open_files({ paths: absolutePaths })
     }, 0)
@@ -188,10 +173,10 @@ export function useEditorExternalFileSync({
       window.clearTimeout(syncTimer)
       void window.api.system.set_editor_open_files({ paths: [] })
     }
-  }, [repoCwd, openTabPaths])
+  }, [openTabs])
 
   useEffect(() => {
-    if (!repoCwd || !activeTabId) return
+    if (!activeTabId) return
 
     let recheckTimer: number | null = null
 
@@ -201,7 +186,7 @@ export function useEditorExternalFileSync({
         recheckTimer = null
         const tab = useEditorWorkspace.getState().tabs.find(t => t.id === activeTabId)
         if (tab?.kind === 'text' && tab.contentLoaded && !tab.isDirty) {
-          void reloadTabFromDiskIfChanged(tab.relativePath)
+          void reloadTabFromDiskIfChanged(tab.relativePath, tab.repoRoot)
         }
       }, ACTIVE_TAB_RECHECK_DEBOUNCE_MS)
     }
@@ -222,5 +207,5 @@ export function useEditorExternalFileSync({
       document.removeEventListener('visibilitychange', onVisibility)
       if (recheckTimer) window.clearTimeout(recheckTimer)
     }
-  }, [repoCwd, activeTabId, reloadTabFromDiskIfChanged])
+  }, [activeTabId, reloadTabFromDiskIfChanged])
 }

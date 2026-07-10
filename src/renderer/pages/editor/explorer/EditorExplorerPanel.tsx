@@ -129,7 +129,7 @@ export function EditorExplorerPanel({
   const [inlineEdit, setInlineEdit] = useState<ExplorerInlineEdit | null>(null)
   const [deleteTargets, setDeleteTargets] = useState<Array<{ relativePath: string; isDir: boolean; name: string }> | null>(null)
   const [clipboardVersion, setClipboardVersion] = useState(0)
-  const [expandedSections, setExpandedSections] = useState<Set<EditorExplorerSectionId>>(() => readExplorerExpandedSections())
+  const [expandedSections, setExpandedSections] = useState<Set<EditorExplorerSectionId>>(() => readExplorerExpandedSections(0))
   const [panelFocus, setPanelFocus] = useState<PanelFocus | null>(null)
 
   const toggleSection = useCallback((sectionId: EditorExplorerSectionId) => {
@@ -277,7 +277,7 @@ export function EditorExplorerPanel({
   const displayRows = useMemo(() => buildExplorerDisplayRows(rows, inlineEdit), [inlineEdit, rows])
 
   const panelRows = useMemo(
-    () => buildExplorerPanelRows(tabs, displayRows, expandedSections),
+    () => buildExplorerPanelRows(tabs, expandedSections, { mode: 'single', treeDisplayRows: displayRows }),
     [tabs, displayRows, expandedSections]
   )
 

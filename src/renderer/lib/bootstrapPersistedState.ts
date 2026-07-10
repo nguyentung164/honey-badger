@@ -6,6 +6,7 @@ import type {
   Theme,
   ThemeMode,
 } from 'main/store/AppearanceStore'
+import type { MainShellView } from 'shared/mainShellView'
 import { applyAppearanceToDocument } from '@/lib/syncUiSettings'
 import { useAppearanceStoreSelect } from '@/stores/useAppearanceStore'
 import { useConfigurationStore } from '@/stores/useConfigurationStore'
@@ -18,6 +19,7 @@ type AppearanceSnapshot = {
   buttonVariant?: string
   language?: string
   panelHeight?: number
+  hiddenShellTabs?: MainShellView[]
 }
 
 function isUiSettingsEmpty(): boolean {
@@ -76,6 +78,9 @@ export async function bootstrapPersistedState(): Promise<void> {
             appearance.language ??
             current.language) as Language,
           panelHeight: typeof appearance.panelHeight === 'number' ? appearance.panelHeight : current.panelHeight,
+          hiddenShellTabs: ((shouldPreferMain ? appearance.hiddenShellTabs : current.hiddenShellTabs) ??
+            appearance.hiddenShellTabs ??
+            current.hiddenShellTabs) as MainShellView[],
         }
 
         useAppearanceStoreSelect.setState(next)

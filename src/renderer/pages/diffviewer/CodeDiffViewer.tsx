@@ -10,8 +10,9 @@ import { filesChangedTargetsRepo } from 'shared/filesChanged'
 import { ResizableHandle, ResizablePanel, ResizablePanelGroup } from '@/components/ui/resizable'
 import toast from '@/components/ui-elements/Toast'
 import { useAppMonacoThemeId, useSyncAppMonacoTheme } from '@/hooks/useAppMonacoTheme'
-import { buildEmbeddedGitConflictPayloadSyncKey, buildEmbeddedGitStagingPayloadSyncKey } from '@/lib/diffViewer/openDiffViewer'
+import { buildEmbeddedGitConflictPayloadSyncKey, buildEmbeddedGitStagingPayloadSyncKey, gitStagingRepoRootKey } from '@/lib/diffViewer/openDiffViewer'
 import { requestOpenEditor } from '@/lib/openEditor'
+import { requestOpenShowLog } from '@/lib/openShowLog'
 import logger from '@/services/logger'
 import { useAppearanceStore } from '@/stores/useAppearanceStore'
 import { useConfigurationStore } from '@/stores/useConfigurationStore'
@@ -97,6 +98,9 @@ export type CodeDiffViewerProps = {
   embeddedOnReloadFileList?: () => void | Promise<void>
   /** Open local hide patterns dialog (embedded MainPage diff layout). */
   embeddedOnOpenLocalIgnorePatterns?: () => void
+  /** Hide selected paths from Changes list (embedded MainPage diff layout). */
+  embeddedOnAddToLocalIgnore?: (filePaths: string[]) => void
+  embeddedOnAddFolderToLocalIgnore?: (filePaths: string[], entryKinds: Array<'file' | 'directory' | 'missing'>) => void
 }
 
 const EXT_TO_LANG: Record<string, string> = {
@@ -228,7 +232,7 @@ function formatLoadError(error: unknown): string {
 }
 
 export const CodeDiffViewer = forwardRef<CodeDiffViewerHandle, CodeDiffViewerProps>(function CodeDiffViewer(
-  { embedded = false, embeddedRepoCwd, embeddedPayload = null, embeddedToolbarHost = null, embeddedStagingFooter = null, embeddedOnReloadFileList, embeddedOnOpenLocalIgnorePatterns },
+  { embedded = false, embeddedRepoCwd, embeddedPayload = null, embeddedToolbarHost = null, embeddedStagingFooter = null, embeddedOnReloadFileList, embeddedOnOpenLocalIgnorePatterns, embeddedOnAddToLocalIgnore, embeddedOnAddFolderToLocalIgnore },
   ref
 ) {
   const monaco = useMonaco()
@@ -1217,8 +1221,9 @@ export const CodeDiffViewer = forwardRef<CodeDiffViewerHandle, CodeDiffViewerPro
       const actedFilePath = normalizeGitPath(files[uniqueIndices[0]]?.filePath ?? files[activeIndex]?.filePath ?? filePath ?? selectedPaths[0] ?? '')
 
       if (action === 'reveal') {
+        const revealCwd = getRepoCwd()
         for (const path of selectedPaths) {
-          window.api.system.reveal_in_file_explorer(resolveDiffViewerRevealPath(path, cwd))
+          window.api.system.reveal_in_file_explorer(resolveDiffViewerRevealPath(path, revealCwd))
         }
         return
       }
@@ -1227,6 +1232,53 @@ export const CodeDiffViewer = forwardRef<CodeDiffViewerHandle, CodeDiffViewerPro
         const path = selectedPaths[0]
         if (!path) return
         requestOpenEditor({ filePath: path, cwd: getRepoCwd() })
+        return
+      }
+
+      if (action === 'showLog') {
+        const path = selectedPaths[0]
+        if (!path) return
+        requestOpenShowLog({ path, isGit: true })
+        return
+      }
+
+      if (action === 'gitBlame') {
+        const path = selectedPaths[0]
+        if (!path) return
+        window.api.electron.send(IPC.WINDOW.SHOW_GIT_BLAME, { path })
+        return
+      }
+
+      if (action === 'copyPath') {
+        try {
+          await navigator.clipboard.writeText(selectedPaths.join('\n'))
+          toast.success(t('toast.copied'))
+        } catch {
+          toast.error('Failed to copy')
+        }
+        return
+      }
+
+      if (action === 'copyFileName') {
+        const names = selectedPaths.map(p => p.replace(/^.*[/\\]/, ''))
+        try {
+          await navigator.clipboard.writeText(names.join('\n'))
+          toast.success(t('toast.copied'))
+        } catch {
+          toast.error('Failed to copy')
+        }
+        return
+      }
+
+      if (action === 'copyFullPath') {
+        const root = (getRepoCwd() ?? '').replace(/\\/g, '/').replace(/\/$/, '')
+        const fullPaths = selectedPaths.map(p => (root ? `${root}/${p.replace(/\\/g, '/')}`.replace(/\/+/g, '/') : p))
+        try {
+          await navigator.clipboard.writeText(fullPaths.join('\n'))
+          toast.success(t('toast.copied'))
+        } catch {
+          toast.error('Failed to copy')
+        }
         return
       }
 
@@ -1872,6 +1924,10 @@ export const CodeDiffViewer = forwardRef<CodeDiffViewerHandle, CodeDiffViewerPro
                 onRefresh={handleTreeRefresh}
                 showLocalIgnorePatterns={Boolean(embedded && embeddedOnOpenLocalIgnorePatterns)}
                 onOpenLocalIgnorePatterns={embeddedOnOpenLocalIgnorePatterns}
+                repoCwd={getRepoCwd()}
+                repoRootKey={embedded ? gitStagingRepoRootKey(getRepoCwd()) : undefined}
+                onAddToLocalIgnore={embedded ? embeddedOnAddToLocalIgnore : undefined}
+                onAddFolderToLocalIgnore={embedded ? embeddedOnAddFolderToLocalIgnore : undefined}
               />
             </div>
           </ResizablePanel>

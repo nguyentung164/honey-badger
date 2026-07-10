@@ -256,6 +256,7 @@
     "explorer": "Explorer",
     "openEditors": "OPEN EDITORS",
     "workspace": "WORKSPACE",
+    "workspaceFolders": "{{count}} folders",
     "closeAllEditors": "Close All",
     "search": "Search",
     "noWorkspace": "Open a source folder in Settings to use the editor.",
@@ -2485,6 +2486,11 @@
     "fontFamily": "Font Family",
     "developerMode": "Developer Mode",
     "developerModeDescription": "Enable F12 to open DevTools on all windows",
+    "shellTabs": {
+      "title": "Title Bar Tabs",
+      "description": "Choose which tabs appear on the title bar.",
+      "lastVisibleHint": "Keep at least one tab visible"
+    },
     "tab": {
       "appearance": "Appearance",
       "configuration": "Configuration",

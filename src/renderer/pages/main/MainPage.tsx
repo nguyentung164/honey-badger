@@ -70,10 +70,14 @@ import { useAppearanceStoreSelect, useButtonVariant } from '@/stores/useAppearan
 import { getConfigDataRelevantSnapshot, useConfigurationStore } from '@/stores/useConfigurationStore'
 import { useHistoryStore } from '@/stores/useHistoryStore'
 import { useMultiRepoEffectiveStore } from '@/stores/useMultiRepoEffectiveStore'
+import { buildEditorWorkspaceFolders, resolveEditorRepoCwd } from '@/lib/multiRepoUtils'
 import { useSelectedProjectStore } from '@/stores/useSelectedProjectStore'
 import { useTaskAuthStore } from '@/stores/useTaskAuthStore'
 
 const MAIN_PANEL_SIZES_KEY = 'main-panel-sizes-config'
+
+/** Thứ tự ưu tiên khi tab đang active bị ẩn (setting Appearance) và cần fallback sang tab khác. */
+const SHELL_TAB_ORDER: MainShellView[] = ['vcs', 'editor', 'tasks', 'prManager', 'automation', 'devPipelines', 'showLog']
 
 const MAIN_GIT_COMMIT_OPTIONS_KEY = 'main-git-commit-options'
 
@@ -126,6 +130,7 @@ interface MainPanelSizes {
 
 export function MainPage() {
   const language = useAppearanceStoreSelect(s => s.language)
+  const hiddenShellTabs = useAppearanceStoreSelect(s => s.hiddenShellTabs)
   const { t } = useTranslation()
   const variant = useButtonVariant()
   const { addHistory } = useHistoryStore()
@@ -850,6 +855,32 @@ export function MainPage() {
     window.addEventListener(MAIN_SHELL_OPEN_EDITOR_EVENT, handler)
     return () => window.removeEventListener(MAIN_SHELL_OPEN_EDITOR_EVENT, handler)
   }, [enableShellSwitcher, persistShellView])
+
+  // Tab đang active bị ẩn qua setting (Appearance) → chuyển sang tab còn hiển thị gần nhất.
+  useEffect(() => {
+    if (!enableShellSwitcher || !hiddenShellTabs.includes(shellView)) return
+    const detachedByView: Record<MainShellView, boolean> = {
+      editor: false,
+      vcs: false,
+      tasks: tasksDetached,
+      prManager: prManagerDetached,
+      automation: automationDetached,
+      devPipelines: devPipelinesDetached,
+      showLog: showLogDetached,
+    }
+    const fallback = SHELL_TAB_ORDER.find(view => !hiddenShellTabs.includes(view) && !detachedByView[view])
+    if (fallback) persistShellView(fallback)
+  }, [
+    enableShellSwitcher,
+    hiddenShellTabs,
+    shellView,
+    persistShellView,
+    tasksDetached,
+    prManagerDetached,
+    automationDetached,
+    devPipelinesDetached,
+    showLogDetached,
+  ])
 
   // Show Log: giữ context khi đổi tab; seed mặc định khi vào tab lần đầu
   useEffect(() => {
@@ -1590,8 +1621,23 @@ export function MainPage() {
   }, [versionControlSystem, t, commitConventionEnabled, commitConventionMode, showPreCommitDialog, isMultiRepo, effectivePaths, effectiveLabels])
 
   const activeRepoPath = isMultiRepo && effectivePaths.length > 0 ? (effectivePaths[Number(multiRepoActiveTab)] ?? effectivePaths[0]) : undefined
-  const quickPrCwd = (isMultiRepo && activeRepoPath ? activeRepoPath : sourceFolder) || undefined
-  const terminalCwd = quickPrCwd?.trim() || undefined
+  const isMultiRepoWorkspace = versionControlSystem === 'git' && !!multiRepoEnabled && enableShellSwitcher
+  const editorRepoCwd = resolveEditorRepoCwd({
+    versionControlSystem,
+    multiRepoEnabled: !!multiRepoEnabled,
+    isLoggedIn: enableShellSwitcher,
+    sourceFolder: sourceFolder ?? '',
+    activeRepoPath,
+  })
+  const editorWorkspaceFolders = isMultiRepo ? buildEditorWorkspaceFolders(effectivePaths, effectiveLabels) : undefined
+  const editorEmptyMessage = useMemo(() => {
+    if (!isMultiRepoWorkspace) return undefined
+    if (!token) return t('settings.versioncontrol.multiRepoPleaseLogin')
+    if (!selectedProjectId?.trim()) return t('settings.versioncontrol.multiRepoSelectProjectPrompt')
+    if (effectivePaths.length === 0) return t('settings.versioncontrol.multiRepoNoGitFoldersInProject')
+    return undefined
+  }, [effectivePaths.length, isMultiRepoWorkspace, selectedProjectId, t, token])
+  const terminalCwd = editorRepoCwd?.trim() || undefined
   const { prefs: terminalPrefs } = useTerminalPrefs()
   const [terminalEverOpened, setTerminalEverOpened] = useState(false)
 
@@ -1650,6 +1696,10 @@ export function MainPage() {
     [canUseTerminal, openTerminal, t]
   )
 
+  const handleEditorFocusedFolderChange = useCallback((index: string) => {
+    setMultiRepoActiveTab(index)
+  }, [])
+
   const renderCommitGenerateButton = useCallback(
     (compact: boolean) => (
       <CommitGenerateButton
@@ -1686,7 +1736,7 @@ export function MainPage() {
         userId={user?.id}
         activeRepoPath={activeRepoPath}
         sourceFolder={sourceFolder}
-        quickPrCwd={quickPrCwd}
+        quickPrCwd={editorRepoCwd}
         hasCheckSpotbugsRef={hasCheckSpotbugsRef}
         onCheck={checkViolations}
         onCommit={commitCode}
@@ -1707,7 +1757,7 @@ export function MainPage() {
       user?.id,
       activeRepoPath,
       sourceFolder,
-      quickPrCwd,
+      editorRepoCwd,
       checkViolations,
       commitCode,
     ]
@@ -1905,7 +1955,12 @@ export function MainPage() {
                       }
                     >
                       <EditorPage
-                        repoCwd={quickPrCwd}
+                        repoCwd={editorRepoCwd}
+                        workspaceFolders={editorWorkspaceFolders}
+                        workspaceSessionKey={selectedProjectId ?? undefined}
+                        activeFolderIndex={multiRepoActiveTab}
+                        onFocusedFolderChange={handleEditorFocusedFolderChange}
+                        workspaceEmptyMessage={editorEmptyMessage}
                         onRegisterLayoutLeave={registerEditorLayoutLeave}
                         onOpenInTerminal={handleOpenInTerminal}
                         terminalOpen={terminalOpen}
@@ -2121,7 +2176,7 @@ export function MainPage() {
           </AlertDialog>
         )}
 
-        <QuickCreatePrDialog open={quickPrDialogOpen} onOpenChange={setQuickPrDialogOpen} cwd={quickPrCwd} projectId={selectedProjectId} userId={user?.id ?? null} />
+        <QuickCreatePrDialog open={quickPrDialogOpen} onOpenChange={setQuickPrDialogOpen} cwd={editorRepoCwd} projectId={selectedProjectId} userId={user?.id ?? null} />
 
         <CommitWorkflowPreCommitDialog
           open={preCommitOpen}

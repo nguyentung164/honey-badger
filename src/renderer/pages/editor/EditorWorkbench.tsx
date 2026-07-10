@@ -41,17 +41,36 @@ import { useEditorShellOpenRequest } from '@/pages/editor/hooks/useEditorShellOp
 import { useEditorTabCloseQueue } from '@/pages/editor/lib/useEditorTabCloseQueue'
 import { joinRepoPath } from '@/pages/editor/lsp/documentUri'
 import type { FormatDocumentResult, OrganizeImportsResult } from '@/pages/editor/lsp/EditorLanguageService'
+import type { EditorWorkspaceFolder } from '@/lib/multiRepoUtils'
+import { normalizeEditorRepoKey } from '@/pages/editor/lib/editorSessionPersist'
 
 const LazyExplorerPanel = lazy(() => import('@/pages/editor/explorer/EditorExplorerPanel').then(m => ({ default: m.EditorExplorerPanel })))
+const LazyMultiRootExplorerPanel = lazy(() =>
+  import('@/pages/editor/explorer/EditorMultiRootExplorerPanel').then(m => ({ default: m.EditorMultiRootExplorerPanel }))
+)
 const LazySearchPanel = lazy(() => import('@/pages/editor/search/EditorSearchPanel').then(m => ({ default: m.EditorSearchPanel })))
 
 type EditorWorkbenchProps = {
   repoCwd?: string
+  workspaceFolders?: EditorWorkspaceFolder[]
+  workspaceSessionKey?: string
+  activeFolderIndex?: string
+  onFocusedFolderChange?: (index: string) => void
+  workspaceEmptyMessage?: string
   onRegisterLayoutLeave?: (handler: (action: () => void) => void) => void
   onOpenInTerminal?: (absoluteCwd: string) => void
 }
 
-export function EditorWorkbench({ repoCwd = '', onRegisterLayoutLeave, onOpenInTerminal }: EditorWorkbenchProps) {
+export function EditorWorkbench({
+  repoCwd = '',
+  workspaceFolders,
+  workspaceSessionKey,
+  activeFolderIndex = '0',
+  onFocusedFolderChange,
+  workspaceEmptyMessage,
+  onRegisterLayoutLeave,
+  onOpenInTerminal,
+}: EditorWorkbenchProps) {
   const { t } = useTranslation()
   const [sidebarView, setSidebarView] = useState<EditorSidebarView>(() => readEditorSidebarView())
   const [closeConfirm, setCloseConfirm] = useState<{
@@ -60,7 +79,7 @@ export function EditorWorkbench({ repoCwd = '', onRegisterLayoutLeave, onOpenInT
     onProceed?: () => void
     queueMode?: boolean
   } | null>(null)
-  const [fileChangeConfirm, setFileChangeConfirm] = useState<{ relativePath: string; fileName: string } | null>(null)
+  const [fileChangeConfirm, setFileChangeConfirm] = useState<{ tabId: string; relativePath: string; repoRoot: string; fileName: string } | null>(null)
   const [dirtyWritePrompt, setDirtyWritePrompt] = useState<DirtyWritePromptPayload | null>(null)
   const [largeFileConfirm, setLargeFileConfirm] = useState<{
     relativePath: string
@@ -79,16 +98,19 @@ export function EditorWorkbench({ repoCwd = '', onRegisterLayoutLeave, onOpenInT
   const insertSpaces = useEditorSettings(s => s.insertSpaces)
   const tabSize = useEditorSettings(s => s.tabSize)
   const breadcrumbs = useEditorSettings(s => s.breadcrumbs)
+  const useMultiRootExplorer = Boolean(workspaceFolders && workspaceFolders.length > 1)
+  const focusedRepoCwd = useEditorWorkspace(s => s.repoCwd)
+  const effectiveRepoCwd = focusedRepoCwd || repoCwd
 
   const workspaceLabel = useMemo(
     () =>
-      repoCwd
-        ? (repoCwd
+      effectiveRepoCwd
+        ? (effectiveRepoCwd
           .replace(/[/\\]+$/, '')
           .split(/[/\\]/)
-          .pop() ?? repoCwd)
+          .pop() ?? effectiveRepoCwd)
         : '',
-    [repoCwd]
+    [effectiveRepoCwd]
   )
 
   const tabSummaries = useEditorTabSummaries()
@@ -97,33 +119,42 @@ export function EditorWorkbench({ repoCwd = '', onRegisterLayoutLeave, onOpenInT
     // eslint-disable-next-line react-hooks/exhaustive-deps -- stable by path set, not tab metadata revision
     [tabSummaries.map(t => (t.isCompare ? '' : t.relativePath)).join('\0')]
   )
-  const { getGitStatus, refreshGitDecorations } = useEditorGitDecorations(repoCwd, {
+  /** Resource identity (repoRoot + path) for every open text tab — VS Code matches watcher/search by URI, not name. */
+  const openTabResources = useMemo(
+    () =>
+      tabSummaries
+        .filter(t => !t.isCompare)
+        .map(t => ({ tabId: t.id, repoRoot: t.repoRoot, relativePath: t.relativePath })),
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- stable by (repoRoot, path) set, not tab metadata revision
+    [tabSummaries.map(t => (t.isCompare ? '' : `${t.id}\0${t.repoRoot}\0${t.relativePath}`)).join('\n')]
+  )
+  const { getGitStatus, refreshGitDecorations } = useEditorGitDecorations(effectiveRepoCwd, {
     openTabPaths,
     explorerActive: sidebarView === 'explorer',
   })
-  const recentQuickOpenPaths = useMemo(() => {
+  const recentQuickOpenEntries = useMemo(() => {
     const tabs = useEditorWorkspace.getState().tabs.filter(t => t.kind !== 'compare')
     const order = getEditorTabActivationOrder()
-    const pathById = new Map(tabs.map(t => [t.id, t.relativePath]))
+    const tabById = new Map(tabs.map(t => [t.id, t]))
     const seen = new Set<string>()
-    const paths: string[] = []
+    const entries: { relativePath: string; repoRoot: string }[] = []
 
     for (const id of order) {
-      const path = pathById.get(id)
-      if (path && !seen.has(path)) {
-        seen.add(path)
-        paths.push(path)
+      const tab = tabById.get(id)
+      if (tab && !seen.has(tab.id)) {
+        seen.add(tab.id)
+        entries.push({ relativePath: tab.relativePath, repoRoot: tab.repoRoot })
       }
     }
 
     for (const tab of tabs) {
-      if (!seen.has(tab.relativePath)) {
-        seen.add(tab.relativePath)
-        paths.push(tab.relativePath)
+      if (!seen.has(tab.id)) {
+        seen.add(tab.id)
+        entries.push({ relativePath: tab.relativePath, repoRoot: tab.repoRoot })
       }
     }
 
-    return paths
+    return entries
   }, [tabSummaries])
 
   const dirtyTabPaths = useMemo(() => {
@@ -185,8 +216,9 @@ export function EditorWorkbench({ repoCwd = '', onRegisterLayoutLeave, onOpenInT
   const { panelGroupRef, initialLayout, onLayoutChanged } = useEditorSidebarWidth()
   const activeTabId = useEditorWorkspace(s => s.activeTabId)
   const activeTabStatus = useActiveTabStatus(activeTabId)
-  const lspStatus = useEditorLspStatusBar(repoCwd, activeTabStatus.languageId)
-  useEditorLspPrepare(repoCwd)
+  const lspStatus = useEditorLspStatusBar(effectiveRepoCwd, activeTabStatus.languageId)
+  useEditorLspPrepare(effectiveRepoCwd)
+  const initMultiRootWorkspace = useEditorWorkspace(s => s.initMultiRootWorkspace)
   const setRepoCwd = useEditorWorkspace(s => s.setRepoCwd)
   const openFile = useEditorWorkspace(s => s.openFile)
   const openCompare = useEditorWorkspace(s => s.openCompare)
@@ -203,11 +235,27 @@ export function EditorWorkbench({ repoCwd = '', onRegisterLayoutLeave, onOpenInT
   const pinTab = useEditorWorkspace(s => s.pinTab)
 
   useEffect(() => {
+    if (useMultiRootExplorer && workspaceSessionKey && workspaceFolders?.length) {
+      initMultiRootWorkspace(
+        workspaceSessionKey,
+        workspaceFolders.map(folder => folder.path)
+      )
+      return
+    }
     if (!repoCwd) return
     startTransition(() => setRepoCwd(repoCwd))
-  }, [repoCwd, setRepoCwd])
+  }, [useMultiRootExplorer, workspaceSessionKey, workspaceFolders, repoCwd, initMultiRootWorkspace, setRepoCwd])
 
-  useEditorShellOpenRequest({ repoCwd, openFile })
+  useEffect(() => {
+    if (!useMultiRootExplorer || !onFocusedFolderChange || !workspaceFolders?.length) return
+    const tab = useEditorWorkspace.getState().tabs.find(t => t.id === activeTabId)
+    if (!tab?.repoRoot) return
+    const tabRoot = normalizeEditorRepoKey(tab.repoRoot)
+    const idx = workspaceFolders.findIndex(folder => normalizeEditorRepoKey(folder.path) === tabRoot)
+    if (idx >= 0) onFocusedFolderChange(String(idx))
+  }, [activeTabId, onFocusedFolderChange, tabSummaries, useMultiRootExplorer, workspaceFolders])
+
+  useEditorShellOpenRequest({ repoCwd: effectiveRepoCwd, openFile })
 
   useEffect(() => {
     const onDirtyWriteRequest = (event: Event) => {
@@ -220,19 +268,21 @@ export function EditorWorkbench({ repoCwd = '', onRegisterLayoutLeave, onOpenInT
   }, [])
 
   useEffect(() => {
-    if (!repoCwd) return
+    if (!effectiveRepoCwd) return
     const onBranchChanged = () => {
-      const { tabs } = useEditorWorkspace.getState()
+      const { tabs, repoCwd: storeCwd } = useEditorWorkspace.getState()
       for (const tab of tabs) {
         if (tab.kind === 'text' && !tab.isDirty && tab.contentLoaded) {
-          void reloadTabFromDiskIfChanged(tab.relativePath)
+          if (!useMultiRootExplorer || normalizeEditorRepoKey(tab.repoRoot) === normalizeEditorRepoKey(storeCwd)) {
+            void reloadTabFromDiskIfChanged(tab.relativePath)
+          }
         }
       }
       void refreshGitDecorations()
     }
     window.addEventListener('git-branch-changed', onBranchChanged)
     return () => window.removeEventListener('git-branch-changed', onBranchChanged)
-  }, [repoCwd, refreshGitDecorations, reloadTabFromDiskIfChanged])
+  }, [effectiveRepoCwd, refreshGitDecorations, reloadTabFromDiskIfChanged, useMultiRootExplorer])
 
   useEffect(() => {
     const onLargeFileBlocked = (event: Event) => {
@@ -250,9 +300,8 @@ export function EditorWorkbench({ repoCwd = '', onRegisterLayoutLeave, onOpenInT
   }, [])
 
   useEditorExternalFileSync({
-    repoCwd,
+    openTabs: openTabResources,
     activeTabId,
-    openTabPaths,
     onRequestReloadConfirm: payload => setFileChangeConfirm(payload),
     onCloseTab: tabId => closeTab(tabId),
   })
@@ -282,10 +331,10 @@ export function EditorWorkbench({ repoCwd = '', onRegisterLayoutLeave, onOpenInT
   }, [])
 
   useEffect(() => {
-    if (!repoCwd || !activeTabId) return
-    scheduleEditorTabPrefetch(repoCwd, activeTabId)
+    if (!effectiveRepoCwd || !activeTabId) return
+    scheduleEditorTabPrefetch(effectiveRepoCwd, activeTabId)
     return () => cancelEditorTabPrefetch()
-  }, [repoCwd, activeTabId])
+  }, [effectiveRepoCwd, activeTabId])
 
   const getTabMenuActions = useCallback(
     (row: (typeof tabSummaries)[number], tabIndex: number): EditorTabMenuActions => {
@@ -297,10 +346,10 @@ export function EditorWorkbench({ repoCwd = '', onRegisterLayoutLeave, onOpenInT
         onCloseToRight: () => requestCloseTabs(tabIds.slice(tabIndex + 1)),
         onCloseSaved: () => requestCloseTabs(snapshot.filter(tab => !tab.isDirty).map(tab => tab.id)),
         onCloseAll: () => requestCloseTabs(tabIds),
-        onCopyPath: () => void copyTabPathToClipboard(joinRepoPath(repoCwd, row.relativePath)),
+        onCopyPath: () => void copyTabPathToClipboard(joinRepoPath(row.repoRoot || effectiveRepoCwd, row.relativePath)),
         onCopyRelativePath: () => void copyTabPathToClipboard(row.relativePath),
         onRevealInFileExplorer: () => {
-          void window.api.system.reveal_in_file_explorer(joinRepoPath(repoCwd, row.relativePath))
+          void window.api.system.reveal_in_file_explorer(joinRepoPath(row.repoRoot || effectiveRepoCwd, row.relativePath))
         },
         onRevealInExplorerView: () => {
           setActiveTab(row.id)
@@ -313,7 +362,7 @@ export function EditorWorkbench({ repoCwd = '', onRegisterLayoutLeave, onOpenInT
         },
       }
     },
-    [copyTabPathToClipboard, pinTab, repoCwd, requestCloseTab, requestCloseTabs, revealPathInExplorer, revertActiveTabFromDisk, setActiveTab]
+    [copyTabPathToClipboard, effectiveRepoCwd, pinTab, requestCloseTab, requestCloseTabs, revealPathInExplorer, revertActiveTabFromDisk, setActiveTab]
   )
 
   useEffect(() => {
@@ -371,9 +420,13 @@ export function EditorWorkbench({ repoCwd = '', onRegisterLayoutLeave, onOpenInT
   )
 
   useEffect(() => {
-    if (!repoCwd) return
-    prewarmQuickOpenFileIndex(repoCwd)
-  }, [repoCwd])
+    if (useMultiRootExplorer && workspaceFolders?.length) {
+      for (const folder of workspaceFolders) prewarmQuickOpenFileIndex(folder.path)
+      return
+    }
+    if (!effectiveRepoCwd) return
+    prewarmQuickOpenFileIndex(effectiveRepoCwd)
+  }, [effectiveRepoCwd, useMultiRootExplorer, workspaceFolders])
 
   useEffect(() => {
     const onKeyDown = (e: KeyboardEvent) => {
@@ -460,8 +513,12 @@ export function EditorWorkbench({ repoCwd = '', onRegisterLayoutLeave, onOpenInT
     })
   }, [])
 
-  if (!repoCwd) {
-    return <div className="flex h-full items-center justify-center text-sm text-muted-foreground">{t('editor.noWorkspace')}</div>
+  if (!effectiveRepoCwd && !(useMultiRootExplorer && workspaceFolders && workspaceFolders.length > 0)) {
+    return (
+      <div className="flex h-full items-center justify-center p-4 text-center text-sm text-muted-foreground">
+        {workspaceEmptyMessage ?? t('editor.noWorkspace')}
+      </div>
+    )
   }
 
   return (
@@ -485,31 +542,53 @@ export function EditorWorkbench({ repoCwd = '', onRegisterLayoutLeave, onOpenInT
                 }
               >
                 {sidebarView === 'explorer' ? (
-                  <LazyExplorerPanel
-                    repoCwd={repoCwd}
-                    activeTabId={activeTabId}
-                    activeRelativePath={activeTabStatus.relativePath}
-                    revealRequest={explorerRevealRequest}
-                    tabs={openEditorsTabs}
-                    onSelectTab={setActiveTab}
-                    onCloseTab={requestCloseTab}
-                    onCloseAllTabs={() => requestCloseTabs(useEditorWorkspace.getState().tabs.map(t => t.id))}
-                    onPinTab={pinTab}
-                    getTabGitStatus={getTabGitStatus}
-                    getTabMenuActions={getTabMenuActions}
-                    onOpenFile={(path, opts) => void openFile(path, opts)}
-                    onOpenCompare={(left, right) => void openCompare(left, right)}
-                    getGitStatus={getExplorerGitStatus}
-                    refreshGitDecorations={refreshGitDecorations}
-                    onOpenInTerminal={onOpenInTerminal}
-                  />
+                  useMultiRootExplorer && workspaceFolders ? (
+                    <LazyMultiRootExplorerPanel
+                      workspaceFolders={workspaceFolders}
+                      activeFolderIndex={activeFolderIndex}
+                      repoCwd={effectiveRepoCwd}
+                      activeTabId={activeTabId}
+                      tabs={openEditorsTabs}
+                      onSelectTab={setActiveTab}
+                      onCloseTab={requestCloseTab}
+                      onCloseAllTabs={() => requestCloseTabs(useEditorWorkspace.getState().tabs.map(t => t.id))}
+                      onPinTab={pinTab}
+                      getTabGitStatus={getTabGitStatus}
+                      getTabMenuActions={getTabMenuActions}
+                      onOpenFile={(path, opts) => void openFile(path, opts)}
+                      getGitStatus={getExplorerGitStatus}
+                      refreshGitDecorations={refreshGitDecorations}
+                    />
+                  ) : (
+                    <LazyExplorerPanel
+                      repoCwd={effectiveRepoCwd}
+                      activeTabId={activeTabId}
+                      activeRelativePath={activeTabStatus.relativePath}
+                      revealRequest={explorerRevealRequest}
+                      tabs={openEditorsTabs}
+                      onSelectTab={setActiveTab}
+                      onCloseTab={requestCloseTab}
+                      onCloseAllTabs={() => requestCloseTabs(useEditorWorkspace.getState().tabs.map(t => t.id))}
+                      onPinTab={pinTab}
+                      getTabGitStatus={getTabGitStatus}
+                      getTabMenuActions={getTabMenuActions}
+                      onOpenFile={(path, opts) => void openFile(path, opts)}
+                      onOpenCompare={(left, right) => void openCompare(left, right)}
+                      getGitStatus={getExplorerGitStatus}
+                      refreshGitDecorations={refreshGitDecorations}
+                      onOpenInTerminal={onOpenInTerminal}
+                    />
+                  )
                 ) : (
                   <LazySearchPanel
-                    repoCwd={repoCwd}
-                    openTabPaths={openTabPaths}
-                    onOpenMatch={match => void openFile(match.relativePath, { line: match.line, column: match.column, pin: true })}
-                    onFilesReplaced={paths => {
-                      for (const relativePath of paths) void reloadTabFromDisk(relativePath)
+                    repoCwd={effectiveRepoCwd}
+                    workspaceFolders={useMultiRootExplorer ? workspaceFolders : undefined}
+                    openTabs={openTabResources}
+                    onOpenMatch={match =>
+                      void openFile(match.relativePath, { line: match.line, column: match.column, pin: true, repoRoot: match.repoRoot })
+                    }
+                    onFilesReplaced={entries => {
+                      for (const entry of entries) void reloadTabFromDisk(entry.relativePath, undefined, entry.repoRoot)
                     }}
                   />
                 )}
@@ -538,7 +617,7 @@ export function EditorWorkbench({ repoCwd = '', onRegisterLayoutLeave, onOpenInT
               <div className="min-h-0 flex-1">
                 <EditorTabPane
                   activeTabId={activeTabId}
-                  repoCwd={repoCwd}
+                  repoCwd={effectiveRepoCwd}
                   getGitStatus={getTabGitStatus}
                   onSyncDirty={syncTabDirty}
                   onCursorChange={handleCursorChange}
@@ -612,11 +691,13 @@ export function EditorWorkbench({ repoCwd = '', onRegisterLayoutLeave, onOpenInT
         fileName={fileChangeConfirm?.fileName ?? ''}
         onReload={() => {
           if (!fileChangeConfirm) return
-          void reloadTabFromDisk(fileChangeConfirm.relativePath).then(() => setFileChangeConfirm(null))
+          void reloadTabFromDisk(fileChangeConfirm.relativePath, undefined, fileChangeConfirm.repoRoot).then(() =>
+            setFileChangeConfirm(null)
+          )
         }}
         onKeepLocal={() => {
           if (!fileChangeConfirm) return
-          markTabOutOfSyncWithDisk(fileChangeConfirm.relativePath)
+          markTabOutOfSyncWithDisk(fileChangeConfirm.relativePath, fileChangeConfirm.repoRoot)
           setFileChangeConfirm(null)
         }}
       />
@@ -647,8 +728,9 @@ export function EditorWorkbench({ repoCwd = '', onRegisterLayoutLeave, onOpenInT
       <EditorQuickOpen
         open={quickOpen}
         onOpenChange={setQuickOpen}
-        repoCwd={repoCwd}
-        recentPaths={recentQuickOpenPaths}
+        repoCwd={effectiveRepoCwd}
+        workspaceFolders={useMultiRootExplorer ? workspaceFolders : undefined}
+        recentEntries={recentQuickOpenEntries}
         onOpenFile={(path, opts) => void openFile(path, opts)}
         onRunCommand={commandId => {
           if (commandId === 'revert') void revertActiveTabFromDisk()

@@ -256,6 +256,7 @@
     "explorer": "エクスプローラー",
     "openEditors": "開いているエディター",
     "workspace": "ワークスペース",
+    "workspaceFolders": "{{count}} フォルダー",
     "closeAllEditors": "すべて閉じる",
     "search": "検索",
     "noWorkspace": "設定でソースフォルダーを開いてエディターを使用してください。",
@@ -2484,6 +2485,11 @@
     "fontFamily": "フォントファミリー",
     "developerMode": "開発者モード",
     "developerModeDescription": "F12で全ウィンドウのDevToolsを開く",
+    "shellTabs": {
+      "title": "タイトルバーのタブ",
+      "description": "タイトルバーに表示するタブを選択します。",
+      "lastVisibleHint": "少なくとも1つのタブを表示したままにしてください"
+    },
     "tab": {
       "appearance": "外観",
       "configuration": "設定",

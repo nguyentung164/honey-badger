@@ -1,6 +1,7 @@
 'use client'
 
 import { GlowLoader } from '@/components/ui-elements/GlowLoader'
+import toast from '@/components/ui-elements/Toast'
 import {
     AlertDialog,
     AlertDialogAction,
@@ -14,6 +15,7 @@ import {
 import { ResizableHandle, ResizablePanel, ResizablePanelGroup } from '@/components/ui/resizable'
 import { buildEmbeddedGitConflictPayloadSyncKey } from '@/lib/diffViewer/openDiffViewer'
 import { requestOpenEditor } from '@/lib/openEditor'
+import { requestOpenShowLog } from '@/lib/openShowLog'
 import { useConfigurationStore } from '@/stores/useConfigurationStore'
 import { IPC } from 'main/constants'
 import { forwardRef, useCallback, useEffect, useImperativeHandle, useMemo, useRef, useState } from 'react'
@@ -227,6 +229,54 @@ export const GitConflictDiffView = forwardRef<CodeDiffViewerHandle, GitConflictD
         const path = selectedPaths[0]
         if (!path) return
         requestOpenEditor({ filePath: path, cwd: repoCwd })
+        return
+      }
+
+      if (action === 'showLog') {
+        const path = selectedPaths[0]
+        if (!path) return
+        requestOpenShowLog({ path, isGit: true })
+        return
+      }
+
+      if (action === 'gitBlame') {
+        const path = selectedPaths[0]
+        if (!path) return
+        window.api.electron.send(IPC.WINDOW.SHOW_GIT_BLAME, { path })
+        return
+      }
+
+      if (action === 'copyPath') {
+        try {
+          await navigator.clipboard.writeText(selectedPaths.join('\n'))
+          toast.success(t('toast.copied'))
+        } catch {
+          toast.error('Failed to copy')
+        }
+        return
+      }
+
+      if (action === 'copyFileName') {
+        const names = selectedPaths.map(p => p.replace(/^.*[/\\]/, ''))
+        try {
+          await navigator.clipboard.writeText(names.join('\n'))
+          toast.success(t('toast.copied'))
+        } catch {
+          toast.error('Failed to copy')
+        }
+        return
+      }
+
+      if (action === 'copyFullPath') {
+        const root = (repoCwd ?? '').replace(/\\/g, '/').replace(/\/$/, '')
+        const fullPaths = selectedPaths.map(p => (root ? `${root}/${p.replace(/\\/g, '/')}`.replace(/\/+/g, '/') : p))
+        try {
+          await navigator.clipboard.writeText(fullPaths.join('\n'))
+          toast.success(t('toast.copied'))
+        } catch {
+          toast.error('Failed to copy')
+        }
+        return
       }
     },
     [files, repoCwd, t]

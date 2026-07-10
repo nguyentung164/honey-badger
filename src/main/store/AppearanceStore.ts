@@ -1,4 +1,5 @@
 import Store from 'electron-store'
+import type { MainShellView } from 'shared/mainShellView'
 
 export type Theme =
   | 'theme-default'
@@ -45,6 +46,7 @@ export type AppearanceSchema = {
   buttonVariant: ButtonVariant
   language: Language
   panelHeight: number
+  hiddenShellTabs: MainShellView[]
 }
 
 const appearanceStore = new Store<AppearanceSchema>({
@@ -57,6 +59,7 @@ const appearanceStore = new Store<AppearanceSchema>({
     buttonVariant: 'secondary',
     language: 'en',
     panelHeight: 150,
+    hiddenShellTabs: [],
   },
 })
 

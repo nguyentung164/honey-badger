@@ -13,18 +13,24 @@ import {
   tryResolveQuickOpenFilePath,
   type QuickOpenFuzzyMatch,
 } from 'shared/editor/quickOpenFuzzy'
+import type { EditorWorkspaceFolder } from '@/lib/multiRepoUtils'
+import type { OpenFileOptions } from '@/pages/editor/lib/editorWorkspaceTypes'
 import { cn } from '@/lib/utils'
+
+export type QuickOpenRecentEntry = { relativePath: string; repoRoot: string }
 
 type EditorQuickOpenProps = {
   open: boolean
   onOpenChange: (open: boolean) => void
   repoCwd: string
-  recentPaths?: readonly string[]
-  onOpenFile: (relativePath: string, opts?: { line?: number; column?: number; pin?: boolean }) => void
+  /** Multi-root workspace folders — when provided (length > 1) Quick Open searches every folder. */
+  workspaceFolders?: readonly EditorWorkspaceFolder[]
+  recentEntries?: readonly QuickOpenRecentEntry[]
+  onOpenFile: (relativePath: string, opts?: OpenFileOptions) => void
   onRunCommand?: (commandId: string) => void
 }
 
-type QuickOpenResult = QuickOpenFuzzyMatch & { path: string }
+type QuickOpenResult = QuickOpenFuzzyMatch & { path: string; repoRoot: string; folderLabel: string }
 
 type QuickOpenCommand = {
   id: string
@@ -36,48 +42,92 @@ const EDITOR_COMMANDS: QuickOpenCommand[] = [
   { id: 'revert', label: 'editor.revertFile', keywords: 'revert file reload disk' },
 ]
 
-function buildRecentResults(recentPaths: readonly string[], files: readonly string[], indexReady: boolean): QuickOpenResult[] {
-  const fileSet = indexReady ? new Set(files) : null
+function buildRecentResults(
+  recentEntries: readonly QuickOpenRecentEntry[],
+  folders: readonly EditorWorkspaceFolder[],
+  filesByFolder: ReadonlyMap<string, readonly string[]>,
+  indexReady: boolean,
+  showFolderLabel: boolean
+): QuickOpenResult[] {
+  const folderLabelByPath = new Map(folders.map(f => [f.path, f.label]))
+  const fileSetByFolder = indexReady
+    ? new Map(folders.map(f => [f.path, new Set(filesByFolder.get(f.path) ?? [])]))
+    : null
   const seen = new Set<string>()
   const results: QuickOpenResult[] = []
 
-  for (const path of recentPaths) {
-    if (seen.has(path)) continue
-    if (fileSet && !fileSet.has(path)) continue
-    seen.add(path)
-    const { fileName, dirname } = splitQuickOpenPath(path)
-    results.push({ path, score: 0, fileName, dirname, matchIndices: [] })
+  for (const entry of recentEntries) {
+    const key = `${entry.repoRoot}\0${entry.relativePath}`
+    if (seen.has(key)) continue
+    if (fileSetByFolder && !fileSetByFolder.get(entry.repoRoot)?.has(entry.relativePath)) continue
+    seen.add(key)
+    const { fileName, dirname } = splitQuickOpenPath(entry.relativePath)
+    results.push({
+      path: entry.relativePath,
+      repoRoot: entry.repoRoot,
+      folderLabel: showFolderLabel ? folderLabelByPath.get(entry.repoRoot) ?? '' : '',
+      score: 0,
+      fileName,
+      dirname,
+      matchIndices: [],
+    })
     if (results.length >= 50) return results
   }
 
   if (!indexReady) return results
 
-  for (const path of files) {
-    if (seen.has(path)) continue
-    seen.add(path)
-    const { fileName, dirname } = splitQuickOpenPath(path)
-    results.push({ path, score: 0, fileName, dirname, matchIndices: [] })
-    if (results.length >= 50) break
+  for (const folder of folders) {
+    const files = filesByFolder.get(folder.path) ?? []
+    for (const path of files) {
+      const key = `${folder.path}\0${path}`
+      if (seen.has(key)) continue
+      seen.add(key)
+      const { fileName, dirname } = splitQuickOpenPath(path)
+      results.push({ path, repoRoot: folder.path, folderLabel: showFolderLabel ? folder.label : '', score: 0, fileName, dirname, matchIndices: [] })
+      if (results.length >= 50) return results
+    }
   }
 
   return results
 }
 
-function buildSearchResults(fileQuery: string, files: readonly string[], repoCwd: string): QuickOpenResult[] {
-  const resolved = tryResolveQuickOpenFilePath(fileQuery, repoCwd, files)
-  if (resolved) {
-    const { fileName, dirname } = splitQuickOpenPath(resolved)
-    return [{ path: resolved, score: Number.MAX_SAFE_INTEGER, fileName, dirname, matchIndices: [] }]
+function buildSearchResults(
+  fileQuery: string,
+  folders: readonly EditorWorkspaceFolder[],
+  filesByFolder: ReadonlyMap<string, readonly string[]>,
+  showFolderLabel: boolean
+): QuickOpenResult[] {
+  for (const folder of folders) {
+    const files = filesByFolder.get(folder.path)
+    if (!files) continue
+    const resolved = tryResolveQuickOpenFilePath(fileQuery, folder.path, files)
+    if (resolved) {
+      const { fileName, dirname } = splitQuickOpenPath(resolved)
+      return [
+        {
+          path: resolved,
+          repoRoot: folder.path,
+          folderLabel: showFolderLabel ? folder.label : '',
+          score: Number.MAX_SAFE_INTEGER,
+          fileName,
+          dirname,
+          matchIndices: [],
+        },
+      ]
+    }
   }
 
-  return files
-    .map(path => {
+  const results: QuickOpenResult[] = []
+  for (const folder of folders) {
+    const files = filesByFolder.get(folder.path)
+    if (!files) continue
+    for (const path of files) {
       const match = scoreQuickOpenPath(fileQuery, path)
-      return match ? ({ path, ...match } satisfies QuickOpenResult) : null
-    })
-    .filter((item): item is QuickOpenResult => item != null)
-    .sort((a, b) => b.score - a.score || a.path.localeCompare(b.path))
-    .slice(0, 50)
+      if (match) results.push({ ...match, path, repoRoot: folder.path, folderLabel: showFolderLabel ? folder.label : '' })
+    }
+  }
+
+  return results.sort((a, b) => b.score - a.score || a.path.localeCompare(b.path)).slice(0, 50)
 }
 
 function buildCommandResults(query: string, t: (key: string) => string): QuickOpenCommand[] {
@@ -89,14 +139,38 @@ function buildCommandResults(query: string, t: (key: string) => string): QuickOp
   })
 }
 
-export function EditorQuickOpen({ open, onOpenChange, repoCwd, recentPaths = [], onOpenFile, onRunCommand }: EditorQuickOpenProps) {
+export function EditorQuickOpen({
+  open,
+  onOpenChange,
+  repoCwd,
+  workspaceFolders,
+  recentEntries = [],
+  onOpenFile,
+  onRunCommand,
+}: EditorQuickOpenProps) {
   const { t } = useTranslation()
   const [query, setQuery] = useState('')
-  const [files, setFiles] = useState<string[]>(() => {
-    const cached = repoCwd ? peekQuickOpenFiles(repoCwd) : null
-    return cached ? [...cached] : []
+
+  const folders = useMemo<readonly EditorWorkspaceFolder[]>(() => {
+    if (workspaceFolders && workspaceFolders.length > 0) return workspaceFolders
+    return repoCwd ? [{ path: repoCwd, label: '' }] : []
+  }, [workspaceFolders, repoCwd])
+  const showFolderLabel = folders.length > 1
+  const foldersKey = folders.map(f => f.path).join('\0')
+
+  const [filesByFolder, setFilesByFolder] = useState<Map<string, readonly string[]>>(() => {
+    const map = new Map<string, readonly string[]>()
+    for (const folder of folders) {
+      const cached = peekQuickOpenFiles(folder.path)
+      if (cached) map.set(folder.path, cached)
+    }
+    return map
   })
-  const [indexReady, setIndexReady] = useState(() => Boolean(repoCwd && peekQuickOpenFiles(repoCwd)))
+  const [indexReadyFolders, setIndexReadyFolders] = useState<Set<string>>(() => {
+    const set = new Set<string>()
+    for (const folder of folders) if (peekQuickOpenFiles(folder.path)) set.add(folder.path)
+    return set
+  })
   const [loading, setLoading] = useState(false)
 
   const openRef = useRef(open)
@@ -109,35 +183,45 @@ export function EditorQuickOpen({ open, onOpenChange, repoCwd, recentPaths = [],
   const commandQuery = isCommandMode ? query.trimStart().slice(1).trim() : ''
 
   useEffect(() => {
-    if (!open || !repoCwd) return
+    if (!open || folders.length === 0) return
 
     closingRef.current = false
     selectGuardRef.current = false
     setQuery('')
 
-    const cached = peekQuickOpenFiles(repoCwd)
-    if (cached) {
-      setFiles([...cached])
-      setIndexReady(true)
+    const cachedMap = new Map<string, readonly string[]>()
+    let allCached = true
+    for (const folder of folders) {
+      const cached = peekQuickOpenFiles(folder.path)
+      if (cached) cachedMap.set(folder.path, cached)
+      else allCached = false
+    }
+
+    if (allCached) {
+      setFilesByFolder(cachedMap)
+      setIndexReadyFolders(new Set(folders.map(f => f.path)))
       setLoading(false)
-      void getQuickOpenFiles(repoCwd, { force: true }).then(fresh => {
-        if (!openRef.current) return
-        setFiles(fresh)
-        setIndexReady(true)
-        setLoading(false)
-      })
+      void Promise.all(folders.map(folder => getQuickOpenFiles(folder.path, { force: true }).then(files => [folder.path, files] as const))).then(
+        entries => {
+          if (!openRef.current) return
+          setFilesByFolder(new Map(entries))
+          setIndexReadyFolders(new Set(folders.map(f => f.path)))
+          setLoading(false)
+        }
+      )
       return
     }
 
-    setIndexReady(false)
-    setLoading(recentPaths.length === 0)
-    void getQuickOpenFiles(repoCwd).then(paths => {
+    setIndexReadyFolders(new Set())
+    setLoading(recentEntries.length === 0)
+    void Promise.all(folders.map(folder => getQuickOpenFiles(folder.path).then(files => [folder.path, files] as const))).then(entries => {
       if (!openRef.current) return
-      setFiles(paths)
-      setIndexReady(true)
+      setFilesByFolder(new Map(entries))
+      setIndexReadyFolders(new Set(folders.map(f => f.path)))
       setLoading(false)
     })
-  }, [open, recentPaths.length, repoCwd])
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- foldersKey captures the effective identity of `folders`
+  }, [open, foldersKey, recentEntries.length])
 
   const handleOpenChange = useCallback(
     (next: boolean) => {
@@ -148,13 +232,14 @@ export function EditorQuickOpen({ open, onOpenChange, repoCwd, recentPaths = [],
   )
 
   const parsedQuery = useMemo(() => parseQuickOpenQuery(query), [query])
+  const indexReady = folders.length > 0 && folders.every(f => indexReadyFolders.has(f.path))
 
   const results = useMemo(() => {
     if (isCommandMode) return []
-    if (!parsedQuery.fileQuery) return buildRecentResults(recentPaths, files, indexReady)
+    if (!parsedQuery.fileQuery) return buildRecentResults(recentEntries, folders, filesByFolder, indexReady, showFolderLabel)
     if (!indexReady) return []
-    return buildSearchResults(parsedQuery.fileQuery, files, repoCwd)
-  }, [files, indexReady, isCommandMode, parsedQuery.fileQuery, recentPaths, repoCwd])
+    return buildSearchResults(parsedQuery.fileQuery, folders, filesByFolder, showFolderLabel)
+  }, [filesByFolder, folders, indexReady, isCommandMode, parsedQuery.fileQuery, recentEntries, showFolderLabel])
 
   const commandResults = useMemo(() => {
     if (!isCommandMode) return []
@@ -168,7 +253,7 @@ export function EditorQuickOpen({ open, onOpenChange, repoCwd, recentPaths = [],
       : t('editor.quickOpenRecentlyOpened')
 
   const handleSelect = useCallback(
-    (path: string) => {
+    (path: string, repoRoot: string) => {
       if (selectGuardRef.current || closingRef.current) return
 
       selectGuardRef.current = true
@@ -180,7 +265,7 @@ export function EditorQuickOpen({ open, onOpenChange, repoCwd, recentPaths = [],
       handleOpenChange(false)
 
       queueMicrotask(() => {
-        onOpenFile(path, { pin: true, line, column })
+        onOpenFile(path, { pin: true, line, column, repoRoot })
         selectGuardRef.current = false
         queueMicrotask(() => {
           closingRef.current = false
@@ -263,13 +348,14 @@ export function EditorQuickOpen({ open, onOpenChange, repoCwd, recentPaths = [],
                   ))
                 : results.map(item => (
                     <QuickOpenFileRow
-                      key={item.path}
+                      key={`${item.repoRoot}\0${item.path}`}
                       path={item.path}
                       fileName={item.fileName}
                       dirname={item.dirname}
+                      folderLabel={item.folderLabel}
                       matchIndices={item.matchIndices}
                       locationSuffix={locationSuffix}
-                      onSelect={() => handleSelect(item.path)}
+                      onSelect={() => handleSelect(item.path, item.repoRoot)}
                     />
                   ))}
             </CommandGroup>

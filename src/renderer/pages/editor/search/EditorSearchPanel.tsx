@@ -3,12 +3,17 @@
 import { ChevronDown, ChevronRight, Loader2, Replace, X } from 'lucide-react'
 import { useMemo } from 'react'
 import { useTranslation } from 'react-i18next'
-import type { SearchInFilesMatch } from 'shared/editor/types'
 import { MaterialFileIcon } from '@/components/icons/MaterialFileIcon'
 import toast from '@/components/ui-elements/Toast'
 import { cn } from '@/lib/utils'
+import type { EditorWorkspaceFolder } from '@/lib/multiRepoUtils'
 import { DiffViewerFileTreeVirtualList } from '@/pages/diffviewer/DiffViewerFileTreeVirtualList'
-import { useEditorSearch } from '@/pages/editor/hooks/useEditorSearch'
+import {
+  useEditorSearch,
+  type EditorSearchMatch,
+  type EditorSearchOpenTab,
+  type EditorSearchReplacedEntry,
+} from '@/pages/editor/hooks/useEditorSearch'
 import {
   BookOpen,
   EditorSearchMatchHighlight,
@@ -21,21 +26,22 @@ import {
 
 type EditorSearchPanelProps = {
   repoCwd: string
-  openTabPaths?: string[]
-  onOpenMatch: (match: SearchInFilesMatch) => void
-  onFilesReplaced?: (relativePaths: string[]) => void
+  workspaceFolders?: readonly EditorWorkspaceFolder[]
+  openTabs?: EditorSearchOpenTab[]
+  onOpenMatch: (match: EditorSearchMatch) => void
+  onFilesReplaced?: (entries: EditorSearchReplacedEntry[]) => void
 }
 
 type SearchResultRow =
   | { kind: 'folder'; folderPath: string; fileCount: number; matchCount: number }
-  | { kind: 'file'; relativePath: string; matchCount: number; depth: number }
-  | { kind: 'match'; match: SearchInFilesMatch; depth: number }
+  | { kind: 'file'; relativePath: string; repoRoot: string; folderLabel: string; matchCount: number; depth: number }
+  | { kind: 'match'; match: EditorSearchMatch; depth: number }
 
 const SEARCH_FILE_ROW_HEIGHT = 22
 const SEARCH_MATCH_ROW_HEIGHT = 22
 const SEARCH_FOLDER_ROW_HEIGHT = 22
 
-function countOccurrences(matches: SearchInFilesMatch[]): number {
+function countOccurrences(matches: EditorSearchMatch[]): number {
   return matches.reduce((sum, match) => sum + (match.occurrences ?? 1), 0)
 }
 
@@ -44,7 +50,7 @@ function formatFolderLabel(folderPath: string): string {
   return folderPath
 }
 
-export function EditorSearchPanel({ repoCwd, openTabPaths = [], onOpenMatch, onFilesReplaced }: EditorSearchPanelProps) {
+export function EditorSearchPanel({ repoCwd, workspaceFolders, openTabs = [], onOpenMatch, onFilesReplaced }: EditorSearchPanelProps) {
   const { t } = useTranslation()
   const {
     query,
@@ -75,7 +81,7 @@ export function EditorSearchPanel({ repoCwd, openTabPaths = [], onOpenMatch, onF
     dismissFile,
     replaceAll,
     replaceInFile,
-  } = useEditorSearch(repoCwd, onFilesReplaced, openTabPaths)
+  } = useEditorSearch(repoCwd, onFilesReplaced, openTabs, workspaceFolders)
 
   const rows = useMemo<SearchResultRow[]>(() => {
     const flat: SearchResultRow[] = []
@@ -93,8 +99,15 @@ export function EditorSearchPanel({ repoCwd, openTabPaths = [], onOpenMatch, onF
 
         for (const group of folder.files) {
           const depth = folder.folderPath ? 1 : 0
-          flat.push({ kind: 'file', relativePath: group.relativePath, matchCount: countOccurrences(group.matches), depth })
-          if (collapsedFiles.has(group.relativePath)) continue
+          flat.push({
+            kind: 'file',
+            relativePath: group.relativePath,
+            repoRoot: group.repoRoot,
+            folderLabel: group.folderLabel,
+            matchCount: countOccurrences(group.matches),
+            depth,
+          })
+          if (collapsedFiles.has(`${group.repoRoot}\0${group.relativePath}`)) continue
           for (const match of group.matches) {
             flat.push({ kind: 'match', match, depth: depth + 1 })
           }
@@ -104,8 +117,15 @@ export function EditorSearchPanel({ repoCwd, openTabPaths = [], onOpenMatch, onF
     }
 
     for (const group of groups) {
-      flat.push({ kind: 'file', relativePath: group.relativePath, matchCount: countOccurrences(group.matches), depth: 0 })
-      if (collapsedFiles.has(group.relativePath)) continue
+      flat.push({
+        kind: 'file',
+        relativePath: group.relativePath,
+        repoRoot: group.repoRoot,
+        folderLabel: group.folderLabel,
+        matchCount: countOccurrences(group.matches),
+        depth: 0,
+      })
+      if (collapsedFiles.has(`${group.repoRoot}\0${group.relativePath}`)) continue
       for (const match of group.matches) {
         flat.push({ kind: 'match', match, depth: 1 })
       }
@@ -131,8 +151,8 @@ export function EditorSearchPanel({ repoCwd, openTabPaths = [], onOpenMatch, onF
     }
   }
 
-  const handleReplaceInFile = async (relativePath: string) => {
-    const outcome = await replaceInFile(relativePath)
+  const handleReplaceInFile = async (relativePath: string, folderRepoRoot: string) => {
+    const outcome = await replaceInFile(relativePath, folderRepoRoot)
     if (!outcome) return
     if ('error' in outcome && outcome.error === 'invalidRegex') {
       toast.error(t('editor.searchInvalidRegex'))
@@ -241,8 +261,8 @@ export function EditorSearchPanel({ repoCwd, openTabPaths = [], onOpenMatch, onF
         rows={rows}
         getRowKey={(row, i) => {
           if (row.kind === 'folder') return `folder:${row.folderPath}`
-          if (row.kind === 'file') return `file:${row.relativePath}`
-          return `match:${row.match.relativePath}:${row.match.line}:${i}`
+          if (row.kind === 'file') return `file:${row.repoRoot}\0${row.relativePath}`
+          return `match:${row.match.repoRoot}\0${row.match.relativePath}:${row.match.line}:${i}`
         }}
         estimateRowHeight={row => {
           if (row.kind === 'folder') return SEARCH_FOLDER_ROW_HEIGHT
@@ -269,7 +289,8 @@ export function EditorSearchPanel({ repoCwd, openTabPaths = [], onOpenMatch, onF
           }
 
           if (row.kind === 'file') {
-            const expanded = !collapsedFiles.has(row.relativePath)
+            const fileKey = `${row.repoRoot}\0${row.relativePath}`
+            const expanded = !collapsedFiles.has(fileKey)
             const fileName = row.relativePath.split('/').pop() ?? row.relativePath
             const dirPath = row.relativePath.includes('/') ? row.relativePath.slice(0, row.relativePath.lastIndexOf('/')) : ''
             const paddingLeft = 4 + row.depth * 12
@@ -278,7 +299,7 @@ export function EditorSearchPanel({ repoCwd, openTabPaths = [], onOpenMatch, onF
                 <button
                   type="button"
                   className="flex min-w-0 flex-1 items-center gap-1 rounded-sm py-0.5 pr-0.5 text-left hover:bg-muted/60"
-                  onClick={() => toggleFileCollapsed(row.relativePath)}
+                  onClick={() => toggleFileCollapsed(row.relativePath, row.repoRoot)}
                 >
                   {expanded ? <ChevronDown className="h-3.5 w-3.5 shrink-0 text-muted-foreground" /> : <ChevronRight className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />}
                   <MaterialFileIcon name={row.relativePath} size={16} className="h-4 w-4 shrink-0" />
@@ -286,6 +307,9 @@ export function EditorSearchPanel({ repoCwd, openTabPaths = [], onOpenMatch, onF
                     {fileName}
                     {expanded && dirPath ? <span className="ml-1 text-muted-foreground/70">{dirPath}</span> : null}
                   </span>
+                  {row.folderLabel ? (
+                    <span className="shrink-0 truncate rounded-full bg-muted px-1.5 text-[11px] text-muted-foreground">{row.folderLabel}</span>
+                  ) : null}
                 </button>
                 <div className="flex shrink-0 items-center gap-0.5">
                   {showReplace ? (
@@ -296,7 +320,7 @@ export function EditorSearchPanel({ repoCwd, openTabPaths = [], onOpenMatch, onF
                       disabled={isReplacing}
                       onClick={e => {
                         e.stopPropagation()
-                        void handleReplaceInFile(row.relativePath)
+                        void handleReplaceInFile(row.relativePath, row.repoRoot)
                       }}
                     >
                       <Replace className={cn('h-3.5 w-3.5', isReplacing && 'animate-pulse')} strokeWidth={1.75} />
@@ -312,7 +336,7 @@ export function EditorSearchPanel({ repoCwd, openTabPaths = [], onOpenMatch, onF
                       aria-label={t('editor.searchDismissFile')}
                       onClick={e => {
                         e.stopPropagation()
-                        dismissFile(row.relativePath)
+                        dismissFile(row.relativePath, row.repoRoot)
                       }}
                     >
                       <X className="h-3.5 w-3.5" strokeWidth={2} />

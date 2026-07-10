@@ -1,13 +1,23 @@
 'use client'
 
-import { ChevronDown, ChevronRight, ExternalLink, RotateCcw, SquareMinus, SquarePlus } from 'lucide-react'
+import { ChevronDown, ChevronRight, Copy, Folder, FolderOpen, History, ListFilter, Pencil, Plus, RotateCcw } from 'lucide-react'
 import type React from 'react'
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { flushSync } from 'react-dom'
 import { useTranslation } from 'react-i18next'
 import { GitFileStatusBadge, type GitFileStatusCode, normalizeGitFileStatus } from '@/components/git/GitFileStatusBadge'
 import { MaterialFileIcon } from '@/components/icons/MaterialFileIcon'
-import { ContextMenu, ContextMenuContent, ContextMenuItem, ContextMenuSeparator, ContextMenuShortcut, ContextMenuTrigger } from '@/components/ui/context-menu'
+import {
+  ContextMenu,
+  ContextMenuContent,
+  ContextMenuItem,
+  ContextMenuSeparator,
+  ContextMenuShortcut,
+  ContextMenuSub,
+  ContextMenuSubContent,
+  ContextMenuSubTrigger,
+  ContextMenuTrigger,
+} from '@/components/ui/context-menu'
 import { ResizableHandle, ResizablePanel, ResizablePanelGroup } from '@/components/ui/resizable'
 import toast from '@/components/ui-elements/Toast'
 import { cn } from '@/lib/utils'
@@ -35,7 +45,19 @@ import { isGitEntryStaged, isGitEntryUnstaged, normalizeGitPath } from './diffVi
 import type { DiffViewerFileEntry } from './diffViewerPayload'
 import { persistStagingChangesPanelSize, STAGING_COMMIT_PANEL_MIN_SIZE, useDiffViewerTreePanelPrefs } from './useDiffViewerTreePanelPrefs'
 
-export type DiffViewerFileTreeBulkAction = 'stage' | 'unstage' | 'revert' | 'reveal' | 'openInEditor'
+export type DiffViewerFileTreeBulkAction =
+  | 'stage'
+  | 'unstage'
+  | 'revert'
+  | 'reveal'
+  | 'openInEditor'
+  | 'showLog'
+  | 'gitBlame'
+  | 'copyPath'
+  | 'copyFileName'
+  | 'copyFullPath'
+
+type PathEntryKind = 'file' | 'directory' | 'missing'
 
 interface DiffViewerFileTreePanelProps {
   files: DiffViewerFileEntry[]
@@ -50,6 +72,10 @@ interface DiffViewerFileTreePanelProps {
   onRefresh?: () => void | Promise<void>
   showLocalIgnorePatterns?: boolean
   onOpenLocalIgnorePatterns?: () => void
+  repoCwd?: string
+  repoRootKey?: string
+  onAddToLocalIgnore?: (filePaths: string[]) => void
+  onAddFolderToLocalIgnore?: (filePaths: string[], entryKinds: PathEntryKind[]) => void
 }
 
 
@@ -174,6 +200,26 @@ const TreeFileRow = memo(function TreeFileRow({
   )
 })
 
+function pathEntryKindCacheKey(repoKey: string, relativePath: string): string {
+  return `${repoKey}\0${relativePath}`
+}
+
+function localIgnoreMenuI18nKey(
+  base: 'addToLocalIgnore' | 'addFolderToLocalIgnore',
+  paths: string[],
+  pathEntryKinds: Record<string, PathEntryKind>,
+  repoRootKey: string
+): string {
+  const kinds = paths.map(p => pathEntryKinds[pathEntryKindCacheKey(repoRootKey, p)])
+  if (kinds.some(k => k === undefined)) return `contextMenu.${base}_unknown`
+  const uniq = new Set(kinds)
+  if (uniq.size > 1) return `contextMenu.${base}_mixed`
+  const k = kinds[0]
+  if (k === 'directory') return `contextMenu.${base}_folder`
+  if (k === 'file') return `contextMenu.${base}_file`
+  return `contextMenu.${base}_unknown`
+}
+
 type TreeFileRowItemProps = {
   node: DiffFileTreeFileNode
   isActive: boolean
@@ -188,6 +234,10 @@ type TreeFileRowItemProps = {
   onSelect: (index: number, event: React.MouseEvent, sectionFlatIndices: number[], sectionId: DiffFileTreeSectionId) => void
   onContextMenuOpenChange: (index: number) => (open: boolean) => void
   onContextMenuAction: (action: DiffViewerFileTreeBulkAction, nodeIndex: number, scope: 'unstaged' | 'staged' | 'all') => void
+  repoRootKey?: string
+  pathEntryKinds: Record<string, PathEntryKind>
+  onAddToLocalIgnore?: (filePaths: string[]) => void
+  onAddFolderToLocalIgnore?: (filePaths: string[], entryKinds: PathEntryKind[]) => void
 }
 
 const TreeFileRowItem = memo(function TreeFileRowItem({
@@ -204,14 +254,23 @@ const TreeFileRowItem = memo(function TreeFileRowItem({
   onSelect,
   onContextMenuOpenChange,
   onContextMenuAction,
+  repoRootKey,
+  pathEntryKinds,
+  onAddToLocalIgnore,
+  onAddFolderToLocalIgnore,
 }: TreeFileRowItemProps) {
   const { t } = useTranslation()
   const menuIndices = getContextMenuIndices(node.index)
+  const menuPaths = menuIndices.map(index => files[index]?.filePath).filter(Boolean) as string[]
   const unstagedIndices = menuIndices.filter(index => isGitEntryUnstaged(files[index]))
   const stagedIndices = menuIndices.filter(index => isGitEntryStaged(files[index]))
-  const canStage = showStageActions && unstagedIndices.length > 0
-  const canUnstage = showStageActions && stagedIndices.length > 0
-  const canRevert = showStageActions && unstagedIndices.length > 0
+  const isChangesContext = sectionId === 'changes' || (sectionId === 'files' && isGitEntryUnstaged(files[node.index]))
+  const isStagedContext = sectionId === 'staged' || (sectionId === 'files' && isGitEntryStaged(files[node.index]))
+  const canStage = showStageActions && isChangesContext && unstagedIndices.length > 0
+  const canUnstage = showStageActions && isStagedContext && stagedIndices.length > 0
+  const canRevert = showStageActions && isChangesContext && unstagedIndices.length > 0
+  const showHideFromChanges = isChangesContext && Boolean(onAddToLocalIgnore && onAddFolderToLocalIgnore && repoRootKey)
+  const isDeleted = files[node.index]?.fileStatus === 'deleted'
 
   const handleSelect = useCallback(
     (index: number, event: React.MouseEvent) => {
@@ -228,42 +287,107 @@ const TreeFileRowItem = memo(function TreeFileRowItem({
         </div>
       </ContextMenuTrigger>
       <ContextMenuContent className="z-[200] min-w-48" style={noDragStyle}>
+        <ContextMenuItem onSelect={() => onContextMenuAction('reveal', node.index, 'all')}>
+          {t('contextMenu.revealInExplorer')}
+          <ContextMenuShortcut>
+            <FolderOpen strokeWidth={1.25} className="ml-3 h-4 w-4" />
+          </ContextMenuShortcut>
+        </ContextMenuItem>
+        <ContextMenuItem disabled={isDeleted} onSelect={() => onContextMenuAction('openInEditor', node.index, 'all')}>
+          {t('contextMenu.openInEditor')}
+          <ContextMenuShortcut>
+            <Pencil strokeWidth={1.25} className="ml-3 h-4 w-4" />
+          </ContextMenuShortcut>
+        </ContextMenuItem>
+        <ContextMenuSub>
+          <ContextMenuSubTrigger>{t('contextMenu.copy')}</ContextMenuSubTrigger>
+          <ContextMenuSubContent>
+            <ContextMenuItem onSelect={() => onContextMenuAction('copyPath', node.index, 'all')}>
+              {t('contextMenu.copyPath')}
+              <ContextMenuShortcut>
+                <Copy strokeWidth={1.25} className="ml-3 h-4 w-4" />
+              </ContextMenuShortcut>
+            </ContextMenuItem>
+            <ContextMenuItem onSelect={() => onContextMenuAction('copyFileName', node.index, 'all')}>
+              {t('contextMenu.copyFileName')}
+              <ContextMenuShortcut>
+                <Copy strokeWidth={1.25} className="ml-3 h-4 w-4" />
+              </ContextMenuShortcut>
+            </ContextMenuItem>
+            <ContextMenuItem onSelect={() => onContextMenuAction('copyFullPath', node.index, 'all')}>
+              {t('contextMenu.copyFullPath')}
+              <ContextMenuShortcut>
+                <Copy strokeWidth={1.25} className="ml-3 h-4 w-4" />
+              </ContextMenuShortcut>
+            </ContextMenuItem>
+          </ContextMenuSubContent>
+        </ContextMenuSub>
+        {(canStage || canUnstage || showHideFromChanges) && <ContextMenuSeparator />}
         {canStage ? (
           <ContextMenuItem onSelect={() => onContextMenuAction('stage', node.index, 'unstaged')}>
             {unstagedIndices.length > 1 ? t('dialog.diffViewer.treeStageSelected', { count: unstagedIndices.length }) : t('git.stageFile')}
             <ContextMenuShortcut>
-              <SquarePlus className="ml-3 h-4 w-4" />
+              <Plus strokeWidth={1.25} className="ml-3 h-4 w-4" />
             </ContextMenuShortcut>
           </ContextMenuItem>
+        ) : null}
+        {showHideFromChanges && repoRootKey ? (
+          <ContextMenuSub>
+            <ContextMenuSubTrigger>{t('contextMenu.hideFromChangesLocal')}</ContextMenuSubTrigger>
+            <ContextMenuSubContent>
+              <ContextMenuItem onSelect={() => onAddToLocalIgnore?.(menuPaths)}>
+                {t(localIgnoreMenuI18nKey('addToLocalIgnore', menuPaths, pathEntryKinds, repoRootKey))}
+                <ContextMenuShortcut>
+                  <ListFilter strokeWidth={1.25} className="ml-3 h-4 w-4" />
+                </ContextMenuShortcut>
+              </ContextMenuItem>
+              <ContextMenuItem
+                onSelect={() =>
+                  onAddFolderToLocalIgnore?.(
+                    menuPaths,
+                    menuPaths.map(fp => pathEntryKinds[pathEntryKindCacheKey(repoRootKey, fp)] ?? 'file')
+                  )
+                }
+              >
+                {t(localIgnoreMenuI18nKey('addFolderToLocalIgnore', menuPaths, pathEntryKinds, repoRootKey))}
+                <ContextMenuShortcut>
+                  <Folder strokeWidth={1.25} className="ml-3 h-4 w-4" />
+                </ContextMenuShortcut>
+              </ContextMenuItem>
+            </ContextMenuSubContent>
+          </ContextMenuSub>
         ) : null}
         {canUnstage ? (
           <ContextMenuItem onSelect={() => onContextMenuAction('unstage', node.index, 'staged')}>
             {stagedIndices.length > 1 ? t('dialog.diffViewer.treeUnstageSelected', { count: stagedIndices.length }) : t('git.unstageFile')}
             <ContextMenuShortcut>
-              <SquareMinus className="ml-3 h-4 w-4" />
+              <RotateCcw strokeWidth={1.25} className="ml-3 h-4 w-4" />
             </ContextMenuShortcut>
           </ContextMenuItem>
         ) : null}
-        {canRevert ? (
-          <ContextMenuItem variant="destructive" onSelect={() => onContextMenuAction('revert', node.index, 'unstaged')}>
-            {unstagedIndices.length > 1 ? t('dialog.diffViewer.treeRevertSelected', { count: unstagedIndices.length }) : t('contextMenu.discardChanges')}
-            <ContextMenuShortcut>
-              <RotateCcw className="ml-3 h-4 w-4" />
-            </ContextMenuShortcut>
-          </ContextMenuItem>
-        ) : null}
-        {showStageActions && (canStage || canUnstage || canRevert) ? <ContextMenuSeparator /> : null}
-        <ContextMenuItem onSelect={() => onContextMenuAction('openInEditor', node.index, 'all')}>
-          {t('dialog.diffViewer.openInEditor')}
+        <ContextMenuSeparator />
+        <ContextMenuItem onSelect={() => onContextMenuAction('showLog', node.index, 'all')}>
+          {t('contextMenu.showLog')}
           <ContextMenuShortcut>
-            <ExternalLink className="ml-3 h-4 w-4" />
+            <History strokeWidth={1.25} className="ml-3 h-4 w-4" />
           </ContextMenuShortcut>
         </ContextMenuItem>
-        <ContextMenuItem onSelect={() => onContextMenuAction('reveal', node.index, 'all')}>{t('dialog.diffViewer.revealInExplorer')}</ContextMenuItem>
-        {menuIndices.length > 1 ? (
-          <ContextMenuItem disabled className="text-muted-foreground">
-            {t('dialog.diffViewer.treeSelectedCount', { count: menuIndices.length })}
-          </ContextMenuItem>
+        <ContextMenuItem onSelect={() => onContextMenuAction('gitBlame', node.index, 'all')}>
+          Git Blame
+          <ContextMenuShortcut>
+            <History strokeWidth={1.25} className="ml-3 h-4 w-4" />
+          </ContextMenuShortcut>
+        </ContextMenuItem>
+        {canRevert ? (
+          <>
+            <ContextMenuSeparator />
+            <ContextMenuItem variant="destructive" onSelect={() => onContextMenuAction('revert', node.index, 'unstaged')}>
+              {unstagedIndices.length > 1 ? t('dialog.diffViewer.treeRevertSelected', { count: unstagedIndices.length }) : t('contextMenu.discardChanges')}
+              <ContextMenuShortcut>
+                <RotateCcw strokeWidth={1.25} className="ml-3 h-4 w-4" />
+              </ContextMenuShortcut>
+            </ContextMenuItem>
+          </>
         ) : null}
       </ContextMenuContent>
     </ContextMenu>
@@ -442,8 +566,16 @@ export function DiffViewerFileTreePanel({
   onRefresh,
   showLocalIgnorePatterns = false,
   onOpenLocalIgnorePatterns,
+  repoCwd,
+  repoRootKey,
+  onAddToLocalIgnore,
+  onAddFolderToLocalIgnore,
 }: DiffViewerFileTreePanelProps) {
   const { t } = useTranslation()
+  const [pathEntryKinds, setPathEntryKinds] = useState<Record<string, PathEntryKind>>({})
+  useEffect(() => {
+    setPathEntryKinds({})
+  }, [repoRootKey])
   const { viewMode, sortBy, groupByFolder, statusFilter, stagingChangesPanelSize, toggleViewMode, setSortBy, toggleGroupByFolder, setStatusFilter } =
     useDiffViewerTreePanelPrefs()
   const [selectedIndices, setSelectedIndices] = useState<Set<number>>(() => new Set())
@@ -767,9 +899,21 @@ export function DiffViewerFileTreePanel({
 
   const createContextMenuOpenChange = useCallback(
     (index: number) => (open: boolean) => {
-      if (open) ensureContextMenuSelection(index)
+      if (open) {
+        ensureContextMenuSelection(index)
+        if (repoCwd && repoRootKey && onAddToLocalIgnore) {
+          const menuPaths = resolveContextMenuIndices(selectedIndicesRef.current, index)
+            .map(i => filesRef.current[i]?.filePath)
+            .filter(Boolean) as string[]
+          for (const fp of [...new Set(menuPaths)]) {
+            void window.api.system.get_path_entry_kind({ relativePath: fp, cwd: repoCwd }).then(kind => {
+              setPathEntryKinds(prev => ({ ...prev, [pathEntryKindCacheKey(repoRootKey, fp)]: kind }))
+            })
+          }
+        }
+      }
     },
-    [ensureContextMenuSelection]
+    [ensureContextMenuSelection, repoCwd, repoRootKey, onAddToLocalIgnore]
   )
 
   const runContextMenuBulkAction = useCallback(
@@ -832,9 +976,28 @@ export function DiffViewerFileTreePanel({
         onSelect={handleSelectFile}
         onContextMenuOpenChange={createContextMenuOpenChange}
         onContextMenuAction={runContextMenuBulkAction}
+        repoRootKey={repoRootKey}
+        pathEntryKinds={pathEntryKinds}
+        onAddToLocalIgnore={onAddToLocalIgnore}
+        onAddFolderToLocalIgnore={onAddFolderToLocalIgnore}
       />
     ),
-    [activeIndex, createContextMenuOpenChange, disabled, files, flatView, getContextMenuIndices, handleSelectFile, runContextMenuBulkAction, selectedIndices, showStageActions]
+    [
+      activeIndex,
+      createContextMenuOpenChange,
+      disabled,
+      files,
+      flatView,
+      getContextMenuIndices,
+      handleSelectFile,
+      onAddFolderToLocalIgnore,
+      onAddToLocalIgnore,
+      pathEntryKinds,
+      repoRootKey,
+      runContextMenuBulkAction,
+      selectedIndices,
+      showStageActions,
+    ]
   )
 
   const renderVisibleTreeRow = useCallback(

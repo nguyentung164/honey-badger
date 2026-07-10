@@ -1,12 +1,19 @@
 import { useEffect } from 'react'
-import { flushPersistedSession } from '@/pages/editor/lib/editorSessionPersist'
+import {
+  flushPersistedMultiRootSession,
+  flushPersistedSession,
+} from '@/pages/editor/lib/editorSessionPersist'
 import { useEditorWorkspace } from '@/pages/editor/hooks/useEditorWorkspace'
 
 function snapshotEditorSession() {
-  const { repoCwd, tabs, activeTabId } = useEditorWorkspace.getState()
-  if (!repoCwd.trim()) return
-  const active = tabs.find(t => t.id === activeTabId)
-  flushPersistedSession(repoCwd, tabs, active?.relativePath ?? null)
+  const state = useEditorWorkspace.getState()
+  if (state.multiRootWorkspace && state.workspaceSessionKey) {
+    flushPersistedMultiRootSession(state.workspaceSessionKey, state.tabs, state.activeTabId)
+    return
+  }
+  if (!state.repoCwd.trim()) return
+  const active = state.tabs.find(t => t.id === state.activeTabId)
+  flushPersistedSession(state.repoCwd, state.tabs, active?.relativePath ?? null)
 }
 
 /** Flush editor tab session before the window closes (VS Code workspace backup). */

@@ -1,14 +1,17 @@
 'use client'
 
-import { ALargeSmall, Languages, Palette, TypeOutline } from 'lucide-react'
+import { ALargeSmall, Languages, Palette, PanelsTopLeft, TypeOutline } from 'lucide-react'
 import type { Theme } from 'main/store/AppearanceStore'
-import { memo, useCallback, useEffect, useState } from 'react'
+import { memo, useCallback, useEffect, useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Button } from '@/components/ui/button'
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Combobox } from '@/components/ui/combobox'
 import { Label } from '@/components/ui/label'
 import { Switch } from '@/components/ui/switch'
+import { SHELL_TAB_DEFS } from '@/lib/shellTabDefs'
+import { cn } from '@/lib/utils'
+import { shellTabAccentTextClass } from '@/pages/main/shellTabStyles'
 import { useAppearanceStoreSelect } from '../../../stores/useAppearanceStore'
 import { BUTTON_VARIANTS, FONT_FAMILIES, FONT_SIZES, LANGUAGES, THEMES } from '../../shared/constants'
 
@@ -25,6 +28,9 @@ export const AppearanceTabContent = memo(function AppearanceTabContent() {
   const setButtonVariant = useAppearanceStoreSelect(s => s.setButtonVariant)
   const language = useAppearanceStoreSelect(s => s.language)
   const setLanguage = useAppearanceStoreSelect(s => s.setLanguage)
+  const hiddenShellTabs = useAppearanceStoreSelect(s => s.hiddenShellTabs)
+  const setShellTabHidden = useAppearanceStoreSelect(s => s.setShellTabHidden)
+  const visibleShellTabCount = useMemo(() => SHELL_TAB_DEFS.length - hiddenShellTabs.length, [hiddenShellTabs])
   const [isDarkMode, setIsDarkMode] = useState(themeMode === 'dark')
   useEffect(() => {
     setIsDarkMode(themeMode === 'dark')
@@ -161,6 +167,50 @@ export const AppearanceTabContent = memo(function AppearanceTabContent() {
                 {v.charAt(0).toUpperCase() + v.slice(1)}
               </Button>
             ))}
+          </div>
+        </CardContent>
+      </Card>
+
+      <Card id="settings-shell-tabs-card" className="gap-2 py-4 mb-4 rounded-md">
+        <CardHeader>
+          <CardTitle className="flex flex-row gap-2">
+            <PanelsTopLeft className="w-5 h-5" />
+            {t('settings.shellTabs.title', 'Title Bar Tabs')}
+          </CardTitle>
+          <CardDescription>{t('settings.shellTabs.description', 'Choose which tabs appear on the title bar.')}</CardDescription>
+        </CardHeader>
+        <CardContent>
+          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-2">
+            {SHELL_TAB_DEFS.map(tab => {
+              const Icon = tab.icon
+              const label = tab.defaultLabel != null ? t(tab.labelKey, tab.defaultLabel) : t(tab.labelKey)
+              const hidden = hiddenShellTabs.includes(tab.value)
+              const isLastVisible = !hidden && visibleShellTabCount <= 1
+
+              return (
+                <div
+                  key={tab.value}
+                  className={cn(
+                    'flex items-center justify-between gap-2 rounded-md border px-3 py-2 transition-colors',
+                    hidden ? 'border-border/50 bg-transparent opacity-55' : 'border-border/70 bg-muted/25'
+                  )}
+                  title={isLastVisible ? t('settings.shellTabs.lastVisibleHint', 'Keep at least one tab visible') : undefined}
+                >
+                  <Label htmlFor={`shell-tab-${tab.value}`} className={cn('flex items-center gap-2 text-sm min-w-0', isLastVisible ? 'cursor-not-allowed' : 'cursor-pointer')}>
+                    <Icon className={cn('w-4 h-4 shrink-0', !hidden && shellTabAccentTextClass(tab.value))} />
+                    <span className="truncate">{label}</span>
+                  </Label>
+                  <Switch
+                    id={`shell-tab-${tab.value}`}
+                    size="sm"
+                    checked={!hidden}
+                    disabled={isLastVisible}
+                    onCheckedChange={checked => setShellTabHidden(tab.value, !checked)}
+                    aria-label={label}
+                  />
+                </div>
+              )
+            })}
           </div>
         </CardContent>
       </Card>

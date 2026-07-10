@@ -256,6 +256,7 @@
     "explorer": "Trình khám phá",
     "openEditors": "Trình soạn thảo đang mở",
     "workspace": "Không gian làm việc",
+    "workspaceFolders": "{{count}} thư mục",
     "closeAllEditors": "Đóng tất cả",
     "search": "Tìm kiếm",
     "noWorkspace": "Mở thư mục nguồn trong Cài đặt để dùng trình soạn thảo.",
@@ -2476,6 +2477,11 @@
     "fontFamily": "Phông chữ",
     "developerMode": "Chế độ nhà phát triển",
     "developerModeDescription": "Bật F12 để mở DevTools trên tất cả cửa sổ",
+    "shellTabs": {
+      "title": "Tab thanh tiêu đề",
+      "description": "Chọn các tab hiển thị trên thanh tiêu đề.",
+      "lastVisibleHint": "Cần giữ lại ít nhất một tab hiển thị"
+    },
     "tab": {
       "appearance": "Giao diện",
       "configuration": "Cấu hình",

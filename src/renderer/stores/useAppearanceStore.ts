@@ -2,6 +2,7 @@ import type { ButtonVariant, FontFamily, FontSize, Language, Theme, ThemeMode } 
 import { useTheme } from 'next-themes'
 import { create } from 'zustand'
 import { createJSONStorage, persist } from 'zustand/middleware'
+import type { MainShellView } from 'shared/mainShellView'
 
 function createDebouncedStorage<T>(baseStorage: ReturnType<typeof createJSONStorage<T>>, debounceMs: number) {
   if (!baseStorage) return undefined
@@ -45,6 +46,7 @@ type AppearanceStore = {
   buttonVariant: ButtonVariant
   language: Language
   panelHeight: number
+  hiddenShellTabs: MainShellView[]
   setTheme: (theme: Theme) => void
   setThemeMode: (mode: ThemeMode) => void
   setFontSize: (size: FontSize) => void
@@ -52,6 +54,7 @@ type AppearanceStore = {
   setButtonVariant: (variant: ButtonVariant) => void
   setLanguage: (language: Language) => void
   setPanelHeight: (height: number) => void
+  setShellTabHidden: (tab: MainShellView, hidden: boolean) => void
 }
 
 let appearanceIpcTimer: ReturnType<typeof setTimeout> | null = null
@@ -92,6 +95,7 @@ const useStore = create<AppearanceStore>()(
       buttonVariant: 'secondary',
       language: 'en',
       panelHeight: 150,
+      hiddenShellTabs: [],
       setTheme: theme => {
         set({ theme })
         const html = document.documentElement
@@ -132,6 +136,13 @@ const useStore = create<AppearanceStore>()(
         set({ panelHeight: height })
         debouncedAppearanceSet('panelHeight', height)
       },
+      setShellTabHidden: (tab, hidden) => {
+        set(state => {
+          const next = hidden ? Array.from(new Set([...state.hiddenShellTabs, tab])) : state.hiddenShellTabs.filter(v => v !== tab)
+          debouncedAppearanceSet('hiddenShellTabs', next)
+          return { hiddenShellTabs: next }
+        })
+      },
     }),
     {
       name: 'ui-settings',
@@ -148,6 +159,7 @@ const useStore = create<AppearanceStore>()(
         buttonVariant: state.buttonVariant,
         language: state.language,
         panelHeight: state.panelHeight,
+        hiddenShellTabs: state.hiddenShellTabs,
       }),
     }
   )

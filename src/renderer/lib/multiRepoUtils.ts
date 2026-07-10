@@ -51,6 +51,28 @@ export function deriveRepoLabel(folder: { name?: string | null; path: string }):
  * Build repo options from source folders and their detect results (mirrors useGitReposFromSourceFolders / MainPage).
  * Only includes folders where isGitValid(path) is true. Max limit entries.
  */
+export type EditorWorkspaceFolder = { path: string; label: string }
+
+export function resolveEditorRepoCwd(params: {
+  versionControlSystem: 'git' | 'svn'
+  multiRepoEnabled: boolean
+  isLoggedIn: boolean
+  sourceFolder: string
+  activeRepoPath?: string
+}): string | undefined {
+  const { versionControlSystem, multiRepoEnabled, isLoggedIn, sourceFolder, activeRepoPath } = params
+  const multiRepoWorkspace = versionControlSystem === 'git' && !!multiRepoEnabled && isLoggedIn
+  if (multiRepoWorkspace) return activeRepoPath?.trim() || undefined
+  return sourceFolder?.trim() || undefined
+}
+
+export function buildEditorWorkspaceFolders(paths: string[], labels: string[]): EditorWorkspaceFolder[] {
+  return paths.map((path, i) => ({
+    path,
+    label: (labels[i] ?? path).trim() || path,
+  }))
+}
+
 export function buildRepoOptionsFromSourceFolders(
   sourceFolders: { name?: string | null; path?: string }[],
   isGitValid: (path: string) => boolean,
