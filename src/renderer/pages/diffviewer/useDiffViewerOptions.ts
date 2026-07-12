@@ -1,10 +1,9 @@
 import { useCallback, useState } from 'react'
 import type { editor as MonacoEditor } from 'monaco-editor'
+import type { EditorSettings } from '@/pages/editor/hooks/useEditorSettings'
+import { buildMonacoFontOptions } from '@/pages/editor/lib/buildMonacoEditorOptions'
 import {
   DIFF_VIEWER_BLAME_LINE_DECORATIONS_WIDTH,
-  DIFF_VIEWER_FONT_SIZE_DEFAULT,
-  DIFF_VIEWER_FONT_SIZE_MAX,
-  DIFF_VIEWER_FONT_SIZE_MIN,
   DIFF_VIEWER_LINE_DECORATIONS_WIDTH_DEFAULT,
   DIFF_VIEWER_LINE_DECORATIONS_WIDTH_MAX,
   DIFF_VIEWER_LINE_DECORATIONS_WIDTH_MIN,
@@ -25,7 +24,6 @@ const DEFAULT_OPTIONS: DiffViewerViewOptions = {
   ignoreTrimWhitespace: false,
   collapseUnchangedRegions: false,
   diffOnly: false,
-  fontSize: DIFF_VIEWER_FONT_SIZE_DEFAULT,
   compactMode: false,
   renderOverviewRuler: true,
   diffWordWrap: 'inherit',
@@ -33,8 +31,6 @@ const DEFAULT_OPTIONS: DiffViewerViewOptions = {
   diffCodeLens: false,
   showMoves: false,
   showEmptyDecorations: false,
-  fontLigatures: false,
-  fontVariations: false,
   glyphMargin: true,
   lineDecorationsWidth: DIFF_VIEWER_LINE_DECORATIONS_WIDTH_DEFAULT,
   findSeedFromSelection: 'selection',
@@ -44,10 +40,6 @@ const DEFAULT_OPTIONS: DiffViewerViewOptions = {
   findAddExtraSpaceOnTop: true,
   diffAlgorithm: 'advanced',
   showBlame: false,
-}
-
-function clampFontSize(size: number): number {
-  return Math.min(DIFF_VIEWER_FONT_SIZE_MAX, Math.max(DIFF_VIEWER_FONT_SIZE_MIN, size))
 }
 
 function clampLineDecorationsWidth(width: number): number {
@@ -79,7 +71,6 @@ function normalizeOptions(parsed: Partial<DiffViewerViewOptions> | null | undefi
     collapseUnchangedRegions:
       typeof parsed.collapseUnchangedRegions === 'boolean' ? parsed.collapseUnchangedRegions : DEFAULT_OPTIONS.collapseUnchangedRegions,
     diffOnly: typeof parsed.diffOnly === 'boolean' ? parsed.diffOnly : DEFAULT_OPTIONS.diffOnly,
-    fontSize: typeof parsed.fontSize === 'number' ? clampFontSize(parsed.fontSize) : DEFAULT_OPTIONS.fontSize,
     compactMode: typeof parsed.compactMode === 'boolean' ? parsed.compactMode : DEFAULT_OPTIONS.compactMode,
     renderOverviewRuler: typeof parsed.renderOverviewRuler === 'boolean' ? parsed.renderOverviewRuler : DEFAULT_OPTIONS.renderOverviewRuler,
     diffWordWrap: parseDiffWordWrap(parsed.diffWordWrap),
@@ -87,8 +78,6 @@ function normalizeOptions(parsed: Partial<DiffViewerViewOptions> | null | undefi
     diffCodeLens: typeof parsed.diffCodeLens === 'boolean' ? parsed.diffCodeLens : DEFAULT_OPTIONS.diffCodeLens,
     showMoves: typeof parsed.showMoves === 'boolean' ? parsed.showMoves : DEFAULT_OPTIONS.showMoves,
     showEmptyDecorations: typeof parsed.showEmptyDecorations === 'boolean' ? parsed.showEmptyDecorations : DEFAULT_OPTIONS.showEmptyDecorations,
-    fontLigatures: typeof parsed.fontLigatures === 'boolean' ? parsed.fontLigatures : DEFAULT_OPTIONS.fontLigatures,
-    fontVariations: typeof parsed.fontVariations === 'boolean' ? parsed.fontVariations : DEFAULT_OPTIONS.fontVariations,
     glyphMargin: typeof parsed.glyphMargin === 'boolean' ? parsed.glyphMargin : DEFAULT_OPTIONS.glyphMargin,
     lineDecorationsWidth:
       typeof parsed.lineDecorationsWidth === 'number'
@@ -140,10 +129,11 @@ export function isDiffCollapseActive(viewOptions: DiffViewerViewOptions): boolea
 export function reapplyDiffViewerCollapseOptions(
   diffEditor: MonacoEditor.IStandaloneDiffEditor,
   viewOptions: DiffViewerViewOptions,
+  editorSettings: EditorSettings,
   overrides?: { readOnly?: boolean }
 ) {
   if (!isDiffCollapseActive(viewOptions)) {
-    applyDiffViewerEditorOptions(diffEditor, viewOptions, overrides)
+    applyDiffViewerEditorOptions(diffEditor, viewOptions, editorSettings, overrides)
     return
   }
 
@@ -155,7 +145,7 @@ export function reapplyDiffViewerCollapseOptions(
       showEmptyDecorations: viewOptions.showEmptyDecorations,
     },
   })
-  applyDiffViewerEditorOptions(diffEditor, viewOptions, overrides)
+  applyDiffViewerEditorOptions(diffEditor, viewOptions, editorSettings, overrides)
 }
 
 export function buildDiffEditorDisplayOptions(viewOptions: DiffViewerViewOptions) {
@@ -202,6 +192,7 @@ export function buildDiffEditorDisplayOptions(viewOptions: DiffViewerViewOptions
 
 export function buildDiffEditorOptions(
   viewOptions: DiffViewerViewOptions,
+  editorSettings: EditorSettings,
   overrides?: { readOnly?: boolean }
 ) {
   const readOnly = overrides?.readOnly ?? false
@@ -209,15 +200,16 @@ export function buildDiffEditorOptions(
   const lineDecorationsWidth = viewOptions.showBlame
     ? Math.max(DIFF_VIEWER_BLAME_LINE_DECORATIONS_WIDTH, clampLineDecorationsWidth(viewOptions.lineDecorationsWidth))
     : clampLineDecorationsWidth(viewOptions.lineDecorationsWidth)
+  const fontOptions = buildMonacoFontOptions(editorSettings)
+  const collapseActive = isDiffCollapseActive(viewOptions)
+  // VS Code keeps glyph margin for per-region "Fold Unchanged" even when other gutters are busy.
+  const glyphMargin = collapseActive ? true : viewOptions.showBlame ? false : viewOptions.glyphMargin
 
   return {
     renderWhitespace: 'all' as const,
     readOnly,
-    fontSize: viewOptions.fontSize,
-    fontFamily: 'Jetbrains Mono NL, monospace',
-    fontLigatures: viewOptions.fontLigatures,
-    fontVariations: viewOptions.fontVariations,
-    glyphMargin: viewOptions.showBlame ? false : viewOptions.glyphMargin,
+    ...fontOptions,
+    glyphMargin,
     lineDecorationsWidth,
     automaticLayout: true,
     padding: { top: 12, bottom: 12 },
@@ -254,11 +246,13 @@ export function buildDiffEditorOptions(
 export function applyDiffViewerEditorOptions(
   diffEditor: MonacoEditor.IStandaloneDiffEditor,
   viewOptions: DiffViewerViewOptions,
+  editorSettings: EditorSettings,
   overrides?: { readOnly?: boolean }
 ) {
   const readOnly = overrides?.readOnly ?? false
   const displayOptions = buildDiffEditorDisplayOptions(viewOptions)
-  const built = buildDiffEditorOptions(viewOptions, { readOnly })
+  const built = buildDiffEditorOptions(viewOptions, editorSettings, { readOnly })
+  const fontOptions = buildMonacoFontOptions(editorSettings)
 
   diffEditor.updateOptions({
     renderSideBySide: displayOptions.renderSideBySide,
@@ -280,10 +274,7 @@ export function applyDiffViewerEditorOptions(
     minimap: built.minimap,
     glyphMargin: built.glyphMargin,
     lineDecorationsWidth: built.lineDecorationsWidth,
-    fontSize: built.fontSize,
-    fontFamily: built.fontFamily,
-    fontLigatures: built.fontLigatures,
-    fontVariations: built.fontVariations,
+    ...fontOptions,
     wordWrap: built.wordWrap,
     lineNumbers: built.lineNumbers,
     padding: built.padding,
@@ -322,9 +313,5 @@ export function useDiffViewerOptions() {
     })
   }, [persist])
 
-  const adjustFontSize = useCallback((delta: number) => {
-    setViewOptions(prev => persist({ ...prev, fontSize: clampFontSize(prev.fontSize + delta) }))
-  }, [persist])
-
-  return { viewOptions, setViewOption, adjustFontSize }
+  return { viewOptions, setViewOption }
 }

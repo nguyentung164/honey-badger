@@ -529,7 +529,7 @@ export function DevReportHistory({ refreshKey, onOpenEditReport, targetUserId, i
             />
           </div>
         </ResizablePanel>
-        <ResizableHandle className="bg-border/20" />
+        <ResizableHandle showGrip={false} className="bg-transparent" />
         <ResizablePanel id="dev-history-right" className="flex flex-col min-h-0 pl-0 bg-muted/30">
           {detailPanel}
         </ResizablePanel>

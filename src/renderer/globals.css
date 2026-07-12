@@ -2999,6 +2999,10 @@ body > canvas {
   font-synthesis: none !important;
 }
 
+.monaco-editor .sticky-widget {
+  box-shadow: color-mix(in srgb, var(--vscode-editorStickyScroll-shadow) 20%, transparent) 0 3px 2px -2px !important;
+}
+
 .hb-monaco-editor-root .monaco-editor .view-line .hb-editor-settings-preview-unused {
   opacity: 0.45;
 }
@@ -3225,6 +3229,15 @@ body > canvas {
   position: relative;
 }
 
+
+.monaco-diff-editor.side-by-side .editor.original {
+  box-shadow: 1px 0 1px -1px var(--vscode-scrollbar-shadow) !important;
+}
+
+.monaco-diff-editor.side-by-side .editor.modified {
+  box-shadow: -1px 0 1px -1px var(--vscode-scrollbar-shadow) !important;
+}
+
 .monaco-diff-editor .diff-viewer-pane-label-host {
   position: absolute;
   top: 10px;
@@ -3294,10 +3307,39 @@ body > canvas {
   font-size: 10px;
 }
 
-/* Integrated terminal (xterm.js) */
-.integrated-terminal-host .xterm {
-  height: 100%;
-  padding: 2px 4px;
+/* Diff Viewer — Lucide ChevronsUpDown for collapsed unchanged regions (patched in CodeDiffViewer). */
+.monaco-editor .diff-hidden-lines .center a {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 24px;
+  line-height: 0;
+  text-decoration: none;
+}
+
+.monaco-editor .diff-hidden-lines .center a .codicon.codicon-unfold::before {
+  content: none;
+}
+
+.monaco-editor .diff-hidden-lines .center a .diff-hidden-lines-expand-icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  line-height: 0;
+  color: currentColor;
+  opacity: 0.65;
+  transition: opacity 0.12s ease, color 0.12s ease;
+}
+
+.monaco-editor .diff-hidden-lines .center a .diff-hidden-lines-expand-icon svg {
+  display: block;
+  width: 16px;
+  height: 16px;
+}
+
+.monaco-editor .diff-hidden-lines .center a:hover .diff-hidden-lines-expand-icon {
+  opacity: 1;
+  color: var(--vscode-editorLink-activeForeground);
 }
 
 .integrated-terminal-host .xterm-helper-textarea {
@@ -3398,6 +3440,8 @@ body > canvas {
   --hb-tree-active-fg: #7a6332;
   --hb-tree-active-bg: rgb(0 0 0 / 0.05);
   --hb-tree-flat-dir: #6b6b6b;
+  --hb-sash-hover: #0078d4;
+  --hb-sash-active: #0078d4;
 }
 
 [data-theme-mode="dark"] {
@@ -3414,6 +3458,8 @@ body > canvas {
   --hb-tree-active-fg: #fadc34;
   --hb-tree-active-bg: rgb(255 255 255 / 0.1);
   --hb-tree-flat-dir: #858585;
+  --hb-sash-hover: #0078d4;
+  --hb-sash-active: #0078d4;
 }
 
 /* VS Code Quick Open (Go to File) */

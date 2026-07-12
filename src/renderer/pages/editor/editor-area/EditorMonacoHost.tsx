@@ -8,6 +8,7 @@ import { useGlobalAppMonacoThemeSync, onAppMonacoBeforeMount } from '@/hooks/use
 import { resolveEditorMonacoFontStyle } from '@/pages/editor/lib/editorMonacoTheme'
 import { useEditorMonacoSettings } from '@/pages/editor/hooks/useEditorSettings'
 import { buildMonacoEditorOptions } from '@/pages/editor/lib/buildMonacoEditorOptions'
+import { createEditorTextModelService } from '@/pages/editor/lib/editorTextModelService'
 import {
   applyEditorMonacoSettings,
   editorSettingsFingerprint,
@@ -19,14 +20,14 @@ import {
   getExistingModel,
   saveViewStateForTab,
 } from '@/pages/editor/lib/editorModelRegistry'
+import type { ShellTabActiveProps } from 'shared/shellTabTypes'
 import type { CodeEditorHandle } from '@/components/code/CodeEditor'
 
-export type EditorMonacoHostProps = {
+export type EditorMonacoHostProps = ShellTabActiveProps & {
   repoCwd: string
   tabId: string | null
   relativePath: string | null
   contentLoaded: boolean
-  loadGeneration: number
   revealAt?: { line: number; column: number }
   onChange?: (alternativeVersionId: number, changes: Monaco.editor.IModelContentChange[]) => void
   onCursorChange?: (position: { line: number; column: number }) => void
@@ -36,7 +37,7 @@ export type EditorMonacoHostProps = {
 
 /** VS Code: one ICodeEditor widget; swap ITextModel by URI — no React remount per tab. */
 export const EditorMonacoHost = forwardRef<CodeEditorHandle, EditorMonacoHostProps>(function EditorMonacoHost(
-  { repoCwd, tabId, relativePath, contentLoaded, loadGeneration, revealAt, onChange, onCursorChange, onMount, className },
+  { repoCwd, tabId, relativePath, contentLoaded, revealAt, onChange, onCursorChange, onMount, className, shellTabActive = true },
   ref
 ) {
   const containerRef = useRef<HTMLDivElement>(null)
@@ -57,9 +58,15 @@ export const EditorMonacoHost = forwardRef<CodeEditorHandle, EditorMonacoHostPro
   const editorTheme = useGlobalAppMonacoThemeSync({ includeDiff: true, includeEditorRules: true })
   const fontStyle = useMemo(() => resolveEditorMonacoFontStyle(editorSettings), [editorSettings])
 
+  const repoCwdRef = useRef(repoCwd)
+  repoCwdRef.current = repoCwd
+
   const layoutTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const shellTabActiveRef = useRef(shellTabActive)
+  shellTabActiveRef.current = shellTabActive
 
   const scheduleEditorLayout = useCallback(() => {
+    if (!shellTabActiveRef.current) return
     const editor = editorRef.current
     if (!editor) return
     if (layoutTimerRef.current) clearTimeout(layoutTimerRef.current)
@@ -87,11 +94,17 @@ export const EditorMonacoHost = forwardRef<CodeEditorHandle, EditorMonacoHostPro
 
       let editor: Monaco.editor.IStandaloneCodeEditor
       try {
-        editor = monaco.editor.create(container, {
-          ...buildMonacoEditorOptions(editorSettings, isHeavy, false),
-          theme: editorTheme,
-          model,
-        })
+        editor = monaco.editor.create(
+          container,
+          {
+            ...buildMonacoEditorOptions(editorSettings, isHeavy, false),
+            theme: editorTheme,
+            model,
+          },
+          {
+            textModelService: createEditorTextModelService(monaco, () => repoCwdRef.current),
+          }
+        )
       } catch {
         return
       }
@@ -139,6 +152,7 @@ export const EditorMonacoHost = forwardRef<CodeEditorHandle, EditorMonacoHostPro
           }
         }
         try {
+          ed.setModel(null)
           ed.dispose()
         } catch {
           /* already disposed */
@@ -191,6 +205,11 @@ export const EditorMonacoHost = forwardRef<CodeEditorHandle, EditorMonacoHostPro
     return () => ro.disconnect()
   }, [scheduleEditorLayout])
 
+  useEffect(() => {
+    if (!shellTabActive) return
+    scheduleEditorLayout()
+  }, [shellTabActive, scheduleEditorLayout])
+
   useImperativeHandle(
     ref,
     () => ({
@@ -200,8 +219,15 @@ export const EditorMonacoHost = forwardRef<CodeEditorHandle, EditorMonacoHostPro
       revealLine: (line: number, column = 1) => {
         const ed = editorRef.current
         if (!ed) return
+        const position = { lineNumber: line, column }
         ed.revealLineInCenter(line)
-        ed.setPosition({ lineNumber: line, column })
+        ed.setSelection({
+          startLineNumber: line,
+          startColumn: column,
+          endLineNumber: line,
+          endColumn: column,
+        })
+        ed.setPosition(position)
         ed.focus()
       },
       runAction: async (actionId: string) => {

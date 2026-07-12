@@ -2,6 +2,7 @@ import type { ButtonVariant, FontFamily, FontSize, Language, Theme, ThemeMode } 
 import { useTheme } from 'next-themes'
 import { create } from 'zustand'
 import { createJSONStorage, persist } from 'zustand/middleware'
+import { DEFAULT_SHELL_TAB_ORDER, normalizeShellTabOrder } from '@/lib/shellTabDefs'
 import type { MainShellView } from 'shared/mainShellView'
 
 function createDebouncedStorage<T>(baseStorage: ReturnType<typeof createJSONStorage<T>>, debounceMs: number) {
@@ -47,6 +48,7 @@ type AppearanceStore = {
   language: Language
   panelHeight: number
   hiddenShellTabs: MainShellView[]
+  shellTabOrder: MainShellView[]
   setTheme: (theme: Theme) => void
   setThemeMode: (mode: ThemeMode) => void
   setFontSize: (size: FontSize) => void
@@ -55,6 +57,7 @@ type AppearanceStore = {
   setLanguage: (language: Language) => void
   setPanelHeight: (height: number) => void
   setShellTabHidden: (tab: MainShellView, hidden: boolean) => void
+  setShellTabOrder: (order: MainShellView[]) => void
 }
 
 let appearanceIpcTimer: ReturnType<typeof setTimeout> | null = null
@@ -96,6 +99,7 @@ const useStore = create<AppearanceStore>()(
       language: 'en',
       panelHeight: 150,
       hiddenShellTabs: [],
+      shellTabOrder: DEFAULT_SHELL_TAB_ORDER,
       setTheme: theme => {
         set({ theme })
         const html = document.documentElement
@@ -143,6 +147,11 @@ const useStore = create<AppearanceStore>()(
           return { hiddenShellTabs: next }
         })
       },
+      setShellTabOrder: order => {
+        const next = normalizeShellTabOrder(order)
+        set({ shellTabOrder: next })
+        debouncedAppearanceSet('shellTabOrder', next)
+      },
     }),
     {
       name: 'ui-settings',
@@ -160,7 +169,13 @@ const useStore = create<AppearanceStore>()(
         language: state.language,
         panelHeight: state.panelHeight,
         hiddenShellTabs: state.hiddenShellTabs,
+        shellTabOrder: state.shellTabOrder,
       }),
+      onRehydrateStorage: () => state => {
+        if (state) {
+          state.shellTabOrder = normalizeShellTabOrder(state.shellTabOrder)
+        }
+      },
     }
   )
 )

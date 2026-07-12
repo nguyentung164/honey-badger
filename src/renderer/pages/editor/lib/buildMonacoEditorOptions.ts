@@ -2,25 +2,33 @@ import type * as Monaco from 'monaco-editor'
 import { resolveFontWeightPreviewStyle, resolveTerminalFontFamily } from '@/lib/terminal/terminalPrefs'
 import type { EditorSettings } from '@/pages/editor/hooks/useEditorSettings'
 
+export function buildMonacoFontOptions(
+  settings: Pick<EditorSettings, 'fontSize' | 'fontFamilyId' | 'fontWeight' | 'enableLigatures'>
+): Pick<Monaco.editor.IEditorOptions, 'fontSize' | 'fontFamily' | 'fontWeight' | 'fontLigatures' | 'lineHeight'> {
+  const fontFamily = resolveTerminalFontFamily(settings.fontFamilyId)
+  const weightStyle = resolveFontWeightPreviewStyle(settings.fontFamilyId, settings.fontWeight)
+
+  return {
+    fontSize: settings.fontSize,
+    fontWeight: String(weightStyle.fontWeight),
+    lineHeight: 0,
+    fontFamily,
+    fontLigatures: settings.enableLigatures,
+  }
+}
+
 /** VS Code–aligned Monaco construction options. */
 export function buildMonacoEditorOptions(
   settings: EditorSettings,
   heavy: boolean,
   readOnly: boolean
 ): Monaco.editor.IStandaloneEditorConstructionOptions {
-  const fontFamily = resolveTerminalFontFamily(settings.fontFamilyId)
-  const weightStyle = resolveFontWeightPreviewStyle(settings.fontFamilyId, settings.fontWeight)
-
   return {
     readOnly,
-    fontSize: settings.fontSize,
-    fontWeight: String(weightStyle.fontWeight),
-    lineHeight: 0,
+    ...buildMonacoFontOptions(settings),
     tabSize: settings.tabSize,
     insertSpaces: settings.insertSpaces,
     detectIndentation: settings.detectIndentation,
-    fontFamily,
-    fontLigatures: settings.enableLigatures,
     automaticLayout: false,
     padding: { top: 8, bottom: 8 },
     lineNumbers: settings.lineNumbers,

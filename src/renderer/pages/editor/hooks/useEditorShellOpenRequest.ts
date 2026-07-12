@@ -1,12 +1,6 @@
 import { useCallback, useEffect } from 'react'
-import {
-  clearPendingEditorOpen,
-  MAIN_SHELL_OPEN_EDITOR_EVENT,
-  type EditorOpenPayload,
-  takePendingEditorOpen,
-} from '@/lib/openEditor'
+import { clearPendingEditorOpen, type EditorOpenPayload, MAIN_SHELL_OPEN_EDITOR_EVENT, takePendingEditorOpen } from '@/lib/openEditor'
 import type { OpenFileOptions } from '@/pages/editor/lib/editorWorkspaceTypes'
-import { normalizeEditorRepoKey } from '@/pages/editor/lib/editorSessionPersist'
 
 type UseEditorShellOpenRequestOptions = {
   repoCwd: string

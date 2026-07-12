@@ -11,10 +11,11 @@ import { $createTextNode, $getSelection, $isRangeSelection, type TextNode } from
  *
  */
 import type { RefObject } from 'react'
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useMemo, useState } from 'react'
 import { createPortal } from 'react-dom'
 
 import { Command, CommandGroup, CommandItem, CommandList } from '@/components/ui/command'
+import emojiList from '@/components/editor/utils/emoji-list'
 
 class EmojiOption extends MenuOption {
   title: string
@@ -51,11 +52,8 @@ const MAX_EMOJI_SUGGESTION_COUNT = 10
 export function EmojiPickerPlugin() {
   const [editor] = useLexicalComposerContext()
   const [queryString, setQueryString] = useState<string | null>(null)
-  const [emojis, setEmojis] = useState<Array<Emoji>>([])
+  const [emojis] = useState<Array<Emoji>>(() => emojiList)
   const [_isOpen, setIsOpen] = useState(false)
-  useEffect(() => {
-    import('../utils/emoji-list').then(file => setEmojis(file.default))
-  }, [])
 
   const emojiOptions = useMemo(
     () =>

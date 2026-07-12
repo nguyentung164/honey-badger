@@ -81,7 +81,7 @@ export async function status(cwd?: string): Promise<GitStatusResponse> {
     const statusResult = await git.status()
 
     l.info('Git status fetched successfully')
-    l.debug('Status result:', statusResult)
+    // l.debug('Status result:', statusResult)
 
     const conflicted = await mergeConflictedPathsForStatus(git, statusResult)
 

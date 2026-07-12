@@ -168,7 +168,6 @@ export function EVMTool() {
             groupRef={groupRef}
             orientation="horizontal"
             className="flex min-h-0 min-w-0 flex-1"
-            resizeTargetMinimumSize={{ fine: 10, coarse: 28 }}
             onLayoutChanged={onEvmAiLayoutChanged}
           >
             {/* v4: minSize/maxSize/defaultSize kiểu number = pixel; dùng "%" để kéo theo tỷ lệ màn. */}
@@ -232,7 +231,11 @@ export function EVMTool() {
                 )}
               </main>
             </ResizablePanel>
-            <ResizableHandle disabled={!supportsAiTab} className={cn('bg-transparent', supportsAiTab ? '' : 'pointer-events-none w-0 min-w-0 max-w-0 border-0 p-0 opacity-0')} />
+            <ResizableHandle
+              showGrip={false}
+              disabled={!supportsAiTab}
+              className={cn('bg-transparent', supportsAiTab ? '' : 'pointer-events-none w-0 min-w-0 max-w-0 border-0 p-0 opacity-0')}
+            />
             <ResizablePanel id={PANEL_AI} defaultSize="0%" minSize="0%" maxSize="72%" className="min-h-0 min-w-0 overflow-hidden">
               {supportsAiTab ? <EvmAiInsightPanel activeTab={activeTab} /> : null}
             </ResizablePanel>

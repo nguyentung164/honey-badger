@@ -1,9 +1,10 @@
 import type * as Monaco from 'monaco-editor'
 import { getEditorLanguage, resolveMonacoLanguageId } from '@/lib/monacoLanguage'
 import { compareSideModelPath } from '@/pages/editor/lib/editorCompareModels'
+import { clearMonacoSymbolNavigationDecorations } from '@/pages/editor/lib/definitionNavigation'
 import { emitTextModelReady } from '@/pages/editor/lib/editorModelLifecycle'
 import { getModelDiskRevision, modelKey, setModelBaselineVersion, unregisterModel } from '@/pages/editor/lib/editorTextModels'
-import { documentUriForPath } from '@/pages/editor/lsp/documentUri'
+import { documentUriForPath, canonicalizeFileUri } from '@/pages/editor/lsp/documentUri'
 
 /** VS Code: LRU cap on in-memory ITextModel instances. */
 export const MAX_CACHED_EDITOR_MODELS = 15
@@ -18,14 +19,21 @@ type ModelMeta = {
 const metaByKey = new Map<string, ModelMeta>()
 const viewStateByTabId = new Map<string, string>()
 let monacoRef: typeof Monaco | null = null
-let openTabKeys = new Set<string>()
+const openTabKeysByRoot = new Map<string, Set<string>>()
+
+function isOpenTabKey(key: string): boolean {
+  for (const keys of openTabKeysByRoot.values()) {
+    if (keys.has(key)) return true
+  }
+  return false
+}
 
 export function bindEditorModelRegistry(monaco: typeof Monaco): void {
   monacoRef = monaco
 }
 
 export function syncOpenTabKeys(repoCwd: string, relativePaths: readonly string[]): void {
-  openTabKeys = new Set(relativePaths.map(p => modelKey(repoCwd, p)))
+  openTabKeysByRoot.set(repoCwd, new Set(relativePaths.map(p => modelKey(repoCwd, p))))
 }
 
 export function saveViewStateForTab(tabId: string, state: Monaco.editor.ICodeEditorViewState | null): void {
@@ -105,23 +113,6 @@ export function getExistingModel(
   return monaco.editor.getModel(parseUri(monaco, repoCwd, relativePath))
 }
 
-export function getModelLineCount(repoCwd: string, relativePath: string): number | null {
-  const monaco = monacoRef
-  if (!monaco) return null
-  return getExistingModel(monaco, repoCwd, relativePath)?.getLineCount() ?? null
-}
-
-export function getModelMetrics(
-  repoCwd: string,
-  relativePath: string
-): { byteLength: number; lineCount: number } | null {
-  const monaco = monacoRef
-  if (!monaco) return null
-  const model = getExistingModel(monaco, repoCwd, relativePath)
-  if (!model) return null
-  return { byteLength: model.getValueLength(), lineCount: model.getLineCount() }
-}
-
 export function ensureTextModel(
   monaco: typeof Monaco,
   repoCwd: string,
@@ -138,7 +129,7 @@ export function ensureTextModel(
 
   if (!model) {
     model = monaco.editor.createModel(content, resolvedLanguage, uri)
-    metaByKey.set(key, { repoCwd, relativePath, lastAccess: Date.now(), pinned: openTabKeys.has(key) })
+    metaByKey.set(key, { repoCwd, relativePath, lastAccess: Date.now(), pinned: isOpenTabKey(key) })
     setModelBaselineVersion(repoCwd, relativePath, model.getAlternativeVersionId())
     evictModelsIfNeeded(monaco)
   } else {
@@ -156,11 +147,11 @@ export function ensureTextModel(
   }
 
   if (!metaByKey.has(key)) {
-    metaByKey.set(key, { repoCwd, relativePath, lastAccess: Date.now(), pinned: openTabKeys.has(key) })
+    metaByKey.set(key, { repoCwd, relativePath, lastAccess: Date.now(), pinned: isOpenTabKey(key) })
   }
 
   if (contentUpdated) {
-    emitTextModelReady({ repoCwd, relativePath, content, languageId: resolvedLanguage, reason: 'disk-reload' })
+    emitTextModelReady({ repoCwd, relativePath, contentLength: content.length, getContent: () => content, languageId: resolvedLanguage, reason: 'disk-reload' })
   }
 
   return model
@@ -181,14 +172,35 @@ export function attachModelToEditor(
   const modelChanged = current?.uri.toString() !== model.uri.toString()
   if (modelChanged) {
     editor.setModel(model)
+    clearMonacoSymbolNavigationDecorations(editor)
   }
 
   touchModel(modelKey(repoCwd, relativePath))
 
   if (revealAt) {
     const position = { lineNumber: revealAt.line, column: revealAt.column }
+    clearMonacoSymbolNavigationDecorations(editor)
+    editor.setSelection({
+      startLineNumber: revealAt.line,
+      startColumn: revealAt.column,
+      endLineNumber: revealAt.line,
+      endColumn: revealAt.column,
+    })
     editor.setPosition(position)
     editor.revealPositionInCenterIfOutsideViewport(position)
+    const reassert = () => {
+      clearMonacoSymbolNavigationDecorations(editor)
+      editor.setSelection({
+        startLineNumber: revealAt.line,
+        startColumn: revealAt.column,
+        endLineNumber: revealAt.line,
+        endColumn: revealAt.column,
+      })
+      editor.setPosition(position)
+    }
+    requestAnimationFrame(reassert)
+    window.setTimeout(reassert, 0)
+    window.setTimeout(reassert, 50)
     return model
   }
 
@@ -209,7 +221,9 @@ export function attachModelToEditor(
   emitTextModelReady({
     repoCwd,
     relativePath,
-    content: model.getValue(),
+    contentLength: model.getValueLength(),
+    // Lazy — tab switches on non-LSP or already-synced files never copy the buffer.
+    getContent: () => model.getValue(),
     languageId: model.getLanguageId(),
     reason: 'attach',
   })
@@ -221,6 +235,30 @@ export function getModelText(repoCwd: string, relativePath: string): string | nu
   const monaco = monacoRef
   if (!monaco) return null
   return getExistingModel(monaco, repoCwd, relativePath)?.getValue() ?? null
+}
+
+/** True when the model URI belongs to a file open in an editor tab. */
+export function isModelOpenInTabs(model: Monaco.editor.ITextModel): boolean {
+  const uri = canonicalizeFileUri(model.uri.toString())
+  for (const keys of openTabKeysByRoot.values()) {
+    for (const key of keys) {
+      const meta = metaByKey.get(key)
+      if (!meta) continue
+      const m = monacoRef ? getExistingModel(monacoRef, meta.repoCwd, meta.relativePath) : null
+      if (m && canonicalizeFileUri(m.uri.toString()) === uri) return true
+    }
+  }
+  return false
+}
+
+/** True when the model is tracked by the editor LRU registry. */
+export function isModelInRegistry(model: Monaco.editor.ITextModel): boolean {
+  const uri = canonicalizeFileUri(model.uri.toString())
+  for (const meta of metaByKey.values()) {
+    const m = monacoRef ? getExistingModel(monacoRef, meta.repoCwd, meta.relativePath) : null
+    if (m && canonicalizeFileUri(m.uri.toString()) === uri) return true
+  }
+  return false
 }
 
 export function getModelAlternativeVersionId(repoCwd: string, relativePath: string): number | null {
@@ -250,18 +288,13 @@ function evictModelsIfNeeded(monaco: typeof Monaco): void {
   if (metaByKey.size <= MAX_CACHED_EDITOR_MODELS) return
 
   const candidates = [...metaByKey.entries()]
-    .filter(([, meta]) => !meta.pinned && !openTabKeys.has(modelKey(meta.repoCwd, meta.relativePath)))
+    .filter(([, meta]) => !meta.pinned && !isOpenTabKey(modelKey(meta.repoCwd, meta.relativePath)))
     .sort((a, b) => a[1].lastAccess - b[1].lastAccess)
 
   while (metaByKey.size > MAX_CACHED_EDITOR_MODELS && candidates.length > 0) {
     const [key, meta] = candidates.shift()!
     disposeTextModel(meta.repoCwd, meta.relativePath, monaco)
   }
-}
-
-export function markModelPinned(repoCwd: string, relativePath: string, pinned: boolean): void {
-  const meta = metaByKey.get(modelKey(repoCwd, relativePath))
-  if (meta) meta.pinned = pinned
 }
 
 export function renameModelInRegistry(repoCwd: string, fromPath: string, toPath: string, monaco?: typeof Monaco | null): void {
@@ -284,7 +317,8 @@ export function renameModelInRegistry(repoCwd: string, fromPath: string, toPath:
   emitTextModelReady({
     repoCwd,
     relativePath: toPath.replace(/\\/g, '/'),
-    content: value,
+    contentLength: value.length,
+    getContent: () => value,
     languageId: lang,
     reason: 'attach',
   })

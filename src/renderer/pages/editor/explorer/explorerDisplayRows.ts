@@ -9,7 +9,7 @@ export type ExplorerDisplayRow =
   | { kind: 'phantom'; parentDir: string; createKind: 'file' | 'directory'; depth: number; sessionId: string }
 
 export function buildExplorerDisplayRows(rows: readonly FileTreeRow[], inlineEdit: ExplorerInlineEdit | null): ExplorerDisplayRow[] {
-  if (!inlineEdit || inlineEdit.mode !== 'create') {
+  if (inlineEdit?.mode !== 'create') {
     return rows.map(row => ({ kind: 'tree', row }))
   }
 

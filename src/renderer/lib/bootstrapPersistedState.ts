@@ -6,6 +6,7 @@ import type {
   Theme,
   ThemeMode,
 } from 'main/store/AppearanceStore'
+import { DEFAULT_SHELL_TAB_ORDER, normalizeShellTabOrder } from '@/lib/shellTabDefs'
 import type { MainShellView } from 'shared/mainShellView'
 import { applyAppearanceToDocument } from '@/lib/syncUiSettings'
 import { useAppearanceStoreSelect } from '@/stores/useAppearanceStore'
@@ -20,6 +21,7 @@ type AppearanceSnapshot = {
   language?: string
   panelHeight?: number
   hiddenShellTabs?: MainShellView[]
+  shellTabOrder?: MainShellView[]
 }
 
 function isUiSettingsEmpty(): boolean {
@@ -81,6 +83,12 @@ export async function bootstrapPersistedState(): Promise<void> {
           hiddenShellTabs: ((shouldPreferMain ? appearance.hiddenShellTabs : current.hiddenShellTabs) ??
             appearance.hiddenShellTabs ??
             current.hiddenShellTabs) as MainShellView[],
+          shellTabOrder: normalizeShellTabOrder(
+            ((shouldPreferMain ? appearance.shellTabOrder : current.shellTabOrder) ??
+              appearance.shellTabOrder ??
+              current.shellTabOrder ??
+              DEFAULT_SHELL_TAB_ORDER) as MainShellView[]
+          ),
         }
 
         useAppearanceStoreSelect.setState(next)

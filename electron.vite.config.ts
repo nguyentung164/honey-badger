@@ -3,8 +3,6 @@ import tailwindcss from '@tailwindcss/vite'
 import reactPlugin from '@vitejs/plugin-react'
 import { codeInspectorPlugin } from 'code-inspector-plugin'
 import { defineConfig } from 'electron-vite'
-import injectProcessEnvPlugin from 'rollup-plugin-inject-process-env'
-import tsconfigPathsPlugin from 'vite-tsconfig-paths'
 
 import { main, resources } from './package.json'
 import { settings } from './src/lib/electron-router-dom'
@@ -12,23 +10,24 @@ import { settings } from './src/lib/electron-router-dom'
 const [nodeModules, devFolder] = normalize(dirname(main)).split(/\/|\\/g)
 const devPath = [nodeModules, devFolder].join('/')
 
-const tsconfigPaths = tsconfigPathsPlugin({
-  projects: [resolve('tsconfig.json')],
-})
+const tsconfigPaths = { tsconfigPaths: true } as const
 
 export default defineConfig({
   main: {
-    plugins: [tsconfigPaths],
+    resolve: tsconfigPaths,
 
     build: {
       externalizeDeps: true,
       rollupOptions: {
+        // Native modules must stay external — bundling breaks prebuild path resolution.
+        external: ['electron', /^electron\/.+/, 'node-pty'],
         input: {
           index: resolve('src/main/index.ts'),
           ptyHost: resolve('src/main/terminal/ptyHost/ptyHostMain.ts'),
         },
 
         output: {
+          format: 'cjs',
           dir: resolve(devPath, 'main'),
         },
       },
@@ -36,7 +35,7 @@ export default defineConfig({
   },
 
   preload: {
-    plugins: [tsconfigPaths],
+    resolve: tsconfigPaths,
     build: {
       externalizeDeps: true,
       outDir: resolve(devPath, 'preload'),
@@ -44,8 +43,10 @@ export default defineConfig({
   },
 
   renderer: {
+    resolve: tsconfigPaths,
+
     define: {
-      'process.env.NODE_ENV': JSON.stringify(process.env.NODE_ENV),
+      'process.env.NODE_ENV': JSON.stringify(process.env.NODE_ENV ?? 'production'),
       'process.platform': JSON.stringify(process.platform),
     },
 
@@ -54,7 +55,6 @@ export default defineConfig({
     },
 
     plugins: [
-      tsconfigPaths,
       tailwindcss(),
       codeInspectorPlugin({
         bundler: 'vite',
@@ -70,13 +70,6 @@ export default defineConfig({
       outDir: resolve(devPath, 'renderer'),
 
       rollupOptions: {
-        plugins: [
-          injectProcessEnvPlugin({
-            NODE_ENV: 'production',
-            platform: process.platform,
-          }),
-        ],
-
         input: {
           index: resolve('src/renderer/index.html'),
         },

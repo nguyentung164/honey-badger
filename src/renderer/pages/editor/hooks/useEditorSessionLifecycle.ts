@@ -1,9 +1,6 @@
 import { useEffect } from 'react'
-import {
-  flushPersistedMultiRootSession,
-  flushPersistedSession,
-} from '@/pages/editor/lib/editorSessionPersist'
 import { useEditorWorkspace } from '@/pages/editor/hooks/useEditorWorkspace'
+import { flushPersistedMultiRootSession, flushPersistedSession } from '@/pages/editor/lib/editorSessionPersist'
 
 function snapshotEditorSession() {
   const state = useEditorWorkspace.getState()

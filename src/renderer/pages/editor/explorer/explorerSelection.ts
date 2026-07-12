@@ -1,5 +1,5 @@
-import type { FileTreeRow } from '@/pages/editor/lib/flattenFileTree'
 import { normalizeRepoRelativePath } from '@/pages/editor/lib/fileTreePaths'
+import type { FileTreeRow } from '@/pages/editor/lib/flattenFileTree'
 
 export function resolveContextMenuPaths(selectedPaths: ReadonlySet<string>, targetPath: string): string[] {
   if (selectedPaths.size > 0 && selectedPaths.has(targetPath)) {
@@ -26,9 +26,7 @@ export function toggleSelectionPath(selectedPaths: ReadonlySet<string>, path: st
 }
 
 export function selectedFilePaths(rows: readonly FileTreeRow[], selectedPaths: ReadonlySet<string>): string[] {
-  return rows
-    .filter(r => r.node.kind === 'file' && selectedPaths.has(r.node.relativePath))
-    .map(r => r.node.relativePath)
+  return rows.filter(r => r.node.kind === 'file' && selectedPaths.has(r.node.relativePath)).map(r => r.node.relativePath)
 }
 
 export function remapSelectionPath(path: string, from: string, to: string): string {

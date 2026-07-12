@@ -1,15 +1,8 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import type { GitFileStatusCode } from '@/components/git/GitFileStatusBadge'
-import {
-  buildExplorerFileStatusMap,
-  resolveExplorerGitStatus,
-  type GitStatusPayload,
-} from '@/pages/editor/explorer/explorerGitDecorations'
+import { buildExplorerFileStatusMap, type GitStatusPayload, resolveExplorerGitStatus } from '@/pages/editor/explorer/explorerGitDecorations'
 
-function gitStatusMapsEqual(
-  left: Map<string, GitFileStatusCode>,
-  right: Map<string, GitFileStatusCode>
-): boolean {
+function gitStatusMapsEqual(left: Map<string, GitFileStatusCode>, right: Map<string, GitFileStatusCode>): boolean {
   if (left.size !== right.size) return false
   for (const [path, status] of left) {
     if (right.get(path) !== status) return false
@@ -73,10 +66,7 @@ export function useEditorFolderGitDecorations(repoCwd: string, enabled: boolean)
     }
   }, [enabled, repoCwd, refresh, scheduleRefresh])
 
-  const getGitStatus = useCallback<FolderGitStatusGetter>(
-    (relativePath, isDir) => resolveExplorerGitStatus(relativePath, isDir, fileStatusesRef.current),
-    [fileStatuses]
-  )
+  const getGitStatus = useCallback<FolderGitStatusGetter>((relativePath, isDir) => resolveExplorerGitStatus(relativePath, isDir, fileStatusesRef.current), [fileStatuses])
 
   return { getGitStatus, refresh }
 }

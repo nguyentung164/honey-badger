@@ -410,7 +410,6 @@ export function SpotBugs() {
                         setPanelSizes({ leftPanelSize: left, rightPanelSize: right })
                       }
                     }}
-                    resizeTargetMinimumSize={{ coarse: 37, fine: 27 }}
                   >
                     <ResizablePanel id="spotbugs-bug-list" minSize={10} className="h-full min-h-0 overflow-hidden">
                       <div className="h-full">
@@ -501,7 +500,7 @@ export function SpotBugs() {
                         </div>
                       </div>
                     </ResizablePanel>
-                    <ResizableHandle className="bg-transparent" />
+                    <ResizableHandle showGrip={false} className="bg-transparent" />
                     <ResizablePanel id="spotbugs-detail" minSize={10} className="h-full min-h-0 overflow-hidden">
                       {selectedBug ? (
                         <div className="flex flex-col gap-4 h-full">

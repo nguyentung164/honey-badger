@@ -70,12 +70,6 @@ export function isDirtyByVersion(repoCwd: string, relativePath: string, alternat
   return alternativeVersionId !== rec.baselineAlternativeVersionId
 }
 
-/** @deprecated Prefer isDirtyByVersion for hot paths. */
-export function isDirtyAgainstBaseline(repoCwd: string, relativePath: string, live: string): boolean {
-  const baseline = getModelBaseline(repoCwd, relativePath)
-  return live.replace(/\r\n/g, '\n') !== baseline
-}
-
 /** Force dirty indicator when buffer diverged from disk but user chose to keep local. */
 export function forceBufferDirtyState(repoCwd: string, relativePath: string, alternativeVersionId: number | null): void {
   if (alternativeVersionId == null) return

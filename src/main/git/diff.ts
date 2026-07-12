@@ -1,5 +1,11 @@
 import l from 'electron-log'
 import { resolvePathRelativeToBase } from '../utils/utils'
+import {
+  gitIndexShowSpec,
+  isGitIndexRef,
+  normalizeGitRepoRelativePath,
+  resolveGitBlobShowSpec,
+} from '../../shared/git/revisionSpecs'
 import { formatGitError, getGitInstance, isGitNewFileStatus, isGitPathMissingAtRevisionError } from './utils'
 
 interface GitDiffResponse {
@@ -303,11 +309,8 @@ interface GitFileContentResponse {
   data?: string
 }
 
-/** Git index (staging area) — matches VS Code git URI ref for staged diff right side. */
-export function isGitIndexRef(commitHash?: string): boolean {
-  const ref = (commitHash ?? '').trim()
-  return ref === ':index' || ref.toLowerCase() === 'index'
-}
+/** @deprecated Use `isGitIndexRef` from `shared/git/revisionSpecs`. Re-exported for existing imports. */
+export { isGitIndexRef } from '../../shared/git/revisionSpecs'
 
 /**
  * Get file content from Git
@@ -350,9 +353,9 @@ export async function getFileContent(filePath: string, fileStatus: string, commi
 
     if (isGitIndexRef(commitHash)) {
       l.info('Reading from git index (staging area)')
-      const pathForGit = resolvePathRelativeToBase(cwd, filePath).replace(/^[/\\]+/, '')
+      const pathForGit = normalizeGitRepoRelativePath(resolvePathRelativeToBase(cwd, filePath))
       try {
-        content = await git.show([`:${pathForGit}`])
+        content = await git.show([gitIndexShowSpec(pathForGit)])
       } catch (error) {
         if (isGitPathMissingAtRevisionError(error)) {
           l.info('Path not in index, returning empty content')
@@ -382,8 +385,8 @@ export async function getFileContent(filePath: string, fileStatus: string, commi
         l.warn(`Error reading file from working copy: ${error}`)
         // If file doesn't exist in working copy (might be staged but not committed), try to read from index
         try {
-          const pathForGit = relativePath.replace(/^[/\\]+/, '')
-          content = await git.show([`:${pathForGit}`])
+          const pathForGit = normalizeGitRepoRelativePath(relativePath)
+          content = await git.show([gitIndexShowSpec(pathForGit)])
         } catch (indexError) {
           l.error(`Error reading file from index: ${indexError}`)
           return {
@@ -394,9 +397,9 @@ export async function getFileContent(filePath: string, fileStatus: string, commi
       }
     } else {
       // Read from specific commit - git show does not support paths starting with /
-      const pathForGit = resolvePathRelativeToBase(cwd, filePath).replace(/^[/\\]+/, '')
+      const pathForGit = normalizeGitRepoRelativePath(resolvePathRelativeToBase(cwd, filePath))
       try {
-        content = await git.show([`${commitHash}:${pathForGit}`])
+        content = await git.show([resolveGitBlobShowSpec(commitHash, pathForGit)])
       } catch (error) {
         if (isGitPathMissingAtRevisionError(error)) {
           l.info(`File not present in ${commitHash}, returning empty content`)

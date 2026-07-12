@@ -1,6 +1,6 @@
 import type * as Monaco from 'monaco-editor'
 import { fileUriToPath, joinRepoPath } from 'shared/fileUri'
-import { lspRangeToMonaco, type LspRange } from '@/pages/editor/lsp/lspMonacoConvert'
+import { type LspRange, lspRangeToMonaco } from '@/pages/editor/lsp/lspMonacoConvert'
 
 type WorkspaceTextEdit = {
   range: LspRange
@@ -27,6 +27,13 @@ function uriToRelativePath(repoCwd: string, uri: string): string {
   return abs
 }
 
+function sortEditsDescending<T extends { range: LspRange }>(edits: T[]): T[] {
+  return [...edits].sort((a, b) => {
+    if (a.range.start.line !== b.range.start.line) return b.range.start.line - a.range.start.line
+    return b.range.start.character - a.range.start.character
+  })
+}
+
 function applyTextWorkspaceEdit(monaco: typeof Monaco, edit: WorkspaceEditPayload): boolean {
   let applied = false
 
@@ -34,7 +41,7 @@ function applyTextWorkspaceEdit(monaco: typeof Monaco, edit: WorkspaceEditPayloa
     for (const [uri, textEdits] of Object.entries(edit.changes)) {
       const model = monaco.editor.getModel(monaco.Uri.parse(uri))
       if (!model || textEdits.length === 0) continue
-      const ops = textEdits.map(te => ({ range: lspRangeToMonaco(te.range), text: te.newText }))
+      const ops = sortEditsDescending(textEdits).map(te => ({ range: lspRangeToMonaco(te.range), text: te.newText }))
       model.pushEditOperations([], ops, () => null)
       applied = true
     }
@@ -45,7 +52,7 @@ function applyTextWorkspaceEdit(monaco: typeof Monaco, edit: WorkspaceEditPayloa
       if ('edits' in change && change.textDocument?.uri) {
         const model = monaco.editor.getModel(monaco.Uri.parse(change.textDocument.uri))
         if (!model || change.edits.length === 0) continue
-        const ops = change.edits.map(te => ({ range: lspRangeToMonaco(te.range), text: te.newText }))
+        const ops = sortEditsDescending(change.edits).map(te => ({ range: lspRangeToMonaco(te.range), text: te.newText }))
         model.pushEditOperations([], ops, () => null)
         applied = true
       }
@@ -83,32 +90,18 @@ async function applyFileWorkspaceChanges(repoCwd: string, edit: WorkspaceEditPay
   return applied
 }
 
-export function applyWorkspaceEdit(monaco: typeof Monaco, edit: WorkspaceEditPayload | null | undefined): boolean {
-  if (!edit) return false
-  return applyTextWorkspaceEdit(monaco, edit)
-}
-
-export async function applyWorkspaceEditAsync(
-  monaco: typeof Monaco,
-  edit: WorkspaceEditPayload | null | undefined,
-  repoCwd: string
-): Promise<boolean> {
+export async function applyWorkspaceEditAsync(monaco: typeof Monaco, edit: WorkspaceEditPayload | null | undefined, repoCwd: string): Promise<boolean> {
   if (!edit) return false
   const fileApplied = await applyFileWorkspaceChanges(repoCwd, edit)
   const textApplied = applyTextWorkspaceEdit(monaco, edit)
   return fileApplied || textApplied
 }
 
-export function workspaceEditFromCodeAction(action: {
-  edit?: WorkspaceEditPayload | null
-}): WorkspaceEditPayload | null {
+export function workspaceEditFromCodeAction(action: { edit?: WorkspaceEditPayload | null }): WorkspaceEditPayload | null {
   return action.edit ?? null
 }
 
-export function lspWorkspaceEditToMonaco(
-  monaco: typeof Monaco,
-  edit: WorkspaceEditPayload
-): Monaco.languages.WorkspaceEdit {
+export function lspWorkspaceEditToMonaco(monaco: typeof Monaco, edit: WorkspaceEditPayload): Monaco.languages.WorkspaceEdit {
   const edits: Monaco.languages.IWorkspaceTextEdit[] = []
 
   if (edit.changes) {

@@ -395,7 +395,13 @@
       "formatDocumentNotReady": "言語サービスの準備ができていません。しばらくしてから再試行してください。",
       "formatDocumentNoAction": "このファイルで使えるフォーマッターがありません。",
       "formatDocumentNotSupported": "このファイル形式はフォーマットに対応していません。",
-      "formatDocumentFailed": "ドキュメントをフォーマットできませんでした。"
+      "formatDocumentFailed": "ドキュメントをフォーマットできませんでした。",
+      "goToSourceDefinition": "ソース定義へ移動",
+      "findingSourceDefinitions": "ソース定義を検索中…",
+      "goToSourceDefinitionNoEditor": "ソース定義へ移動に失敗しました。アクティブなエディターがありません。",
+      "goToSourceDefinitionUnsupported": "ソース定義へ移動に失敗しました。未対応のファイル種類です。",
+      "goToSourceDefinitionNotFound": "ソース定義が見つかりませんでした。",
+      "definitionResolveFailed": "モジュール \"{{specifier}}\" をファイルパスに解決できませんでした。"
     },
     "settings": {
       "title": "エディター設定",
@@ -441,6 +447,8 @@
       "codeLensHint": "シンボル上のインラインアクション（参照数、テスト実行など）。",
       "inlayHints": "インレイヒント",
       "inlayHintsHint": "言語サービスによるパラメータ名・型・戻り値のインライン表示。",
+      "preferGoToSourceDefinition": "ソース定義へ移動を優先",
+      "preferGoToSourceDefinitionHint": "有効にすると、定義へ移動で型宣言 (.d.ts) ではなく実装ファイルを開きます。",
       "smoothScrolling": "スムーズスクロール",
       "scrollBeyondLastLine": "最終行を超えてスクロール",
       "cursorBlink": "点滅カーソル",
@@ -2487,7 +2495,9 @@
     "developerModeDescription": "F12で全ウィンドウのDevToolsを開く",
     "shellTabs": {
       "title": "タイトルバーのタブ",
-      "description": "タイトルバーに表示するタブを選択します。",
+      "description": "タイトルバーに表示するタブを選択し、ドラッグで並べ替えます。",
+      "orderHint": "ドラッグしてタイトルバーのタブ順を変更します。",
+      "dragHandle": "ドラッグして並べ替え",
       "lastVisibleHint": "少なくとも1つのタブを表示したままにしてください"
     },
     "tab": {

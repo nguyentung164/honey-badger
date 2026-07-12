@@ -51,7 +51,6 @@ export function useProjectFileTree(repoCwd: string) {
   const expandedPathsRef = useRef(expandedPaths)
   expandedPathsRef.current = expandedPaths
   const [loadingPaths, setLoadingPaths] = useState<Set<string>>(() => new Set())
-  const [selectedPath, setSelectedPath] = useState<string | null>(null)
 
   const commitExpandedPaths = useCallback((updater: (prev: Set<string>) => Set<string>) => {
     setExpandedPaths(prev => {
@@ -117,7 +116,6 @@ export function useProjectFileTree(repoCwd: string) {
     const nextExpanded = new Set([''])
     expandedPathsRef.current = nextExpanded
     setExpandedPaths(nextExpanded)
-    setSelectedPath(null)
     if (!repoCwd) return
 
     const run = () => {
@@ -151,14 +149,35 @@ export function useProjectFileTree(repoCwd: string) {
   )
 
   const refresh = useCallback(() => {
+    const prevExpanded = [...expandedPathsRef.current]
     const emptyRoot = createEmptyRoot()
     setRoot(emptyRoot)
     rootRef.current = emptyRoot
-    const nextExpanded = new Set([''])
-    expandedPathsRef.current = nextExpanded
-    setExpandedPaths(nextExpanded)
-    void loadChildren('')
-  }, [loadChildren])
+
+    void (async () => {
+      await loadChildren('')
+      const nextExpanded = new Set<string>([''])
+      const dirs = prevExpanded.filter(p => p !== '').sort((a, b) => a.length - b.length)
+      for (const path of dirs) {
+        const ancestors = directoryAncestorPaths(path)
+        let valid = true
+        for (const ancestor of ancestors) {
+          await loadChildren(ancestor)
+          if (!findNode(rootRef.current, ancestor)) {
+            valid = false
+            break
+          }
+        }
+        if (!valid) continue
+        const node = findNode(rootRef.current, path)
+        if (node?.kind === 'directory') {
+          for (const ancestor of ancestors) nextExpanded.add(ancestor)
+          nextExpanded.add(path)
+        }
+      }
+      commitExpandedPaths(() => nextExpanded)
+    })()
+  }, [commitExpandedPaths, loadChildren])
 
   const rows = useMemo(() => flattenFileTree(root, expandedPaths), [root, expandedPaths])
 
@@ -186,8 +205,6 @@ export function useProjectFileTree(repoCwd: string) {
         () => ({ root: rootRef.current, expandedPaths: expandedPathsRef.current }),
         normalized
       )
-
-      setSelectedPath(normalized)
     },
     [commitExpandedPaths, ensureDirectoryLoaded, repoCwd]
   )
@@ -196,8 +213,6 @@ export function useProjectFileTree(repoCwd: string) {
     rows,
     expandedPaths,
     loadingPaths,
-    selectedPath,
-    setSelectedPath,
     toggleExpand,
     refresh,
     loadChildren,

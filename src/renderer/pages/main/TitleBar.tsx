@@ -109,14 +109,14 @@ import { useCommitWorkflowStore } from '@/lib/commitWorkflow/commitWorkflowUtils
 import { openGitConflictDiffFromStatus } from '@/lib/diffViewer/openDiffViewer'
 import { requestOpenShowLog } from '@/lib/openShowLog'
 import { cn, normalizePathForCompare } from '@/lib/utils'
+import { ShellTabSwitcher } from '@/pages/main/ShellTabSwitcher'
+import { shellTabDockButtonClass } from '@/pages/main/shellTabStyles'
 import logger from '@/services/logger'
 import { useAchievementStore } from '@/stores/useAchievementStore'
 import { getConfigDataRelevantSnapshot, useConfigurationStore } from '@/stores/useConfigurationStore'
 import { useMultiRepoEffectiveStore } from '@/stores/useMultiRepoEffectiveStore'
 import { useSelectedProjectStore } from '@/stores/useSelectedProjectStore'
 import { useTaskAuthStore } from '@/stores/useTaskAuthStore'
-import { ShellTabSwitcher } from '@/pages/main/ShellTabSwitcher'
-import { shellTabDockButtonClass } from '@/pages/main/shellTabStyles'
 
 const DevReportForm = lazy(() => import('@/pages/dailyreport/DevReportForm').then(m => ({ default: m.DevReportForm })))
 const TaskReminderDialog = lazy(() => import('@/components/dialogs/task/TaskReminderDialog').then(m => ({ default: m.TaskReminderDialog })))
@@ -1371,13 +1371,11 @@ export const TitleBar = ({
 
   const canOpenEvmTool = Boolean(user && !isGuest && ['admin', 'pl', 'pm'].includes(user.role))
   const showVcsChrome = !hideVcsToolbar && (!enableShellSwitcher || shellView === 'vcs')
-  const showWorkspaceRepoChrome =
-    !hideVcsToolbar && (!enableShellSwitcher || shellView === 'vcs' || shellView === 'editor')
+  const showWorkspaceRepoChrome = !hideVcsToolbar && (!enableShellSwitcher || shellView === 'vcs' || shellView === 'editor')
   const showTerminalToggle =
     Boolean(onTerminalToggle) &&
     (!enableShellSwitcher || shellView === 'editor') &&
-    (terminalAvailable ??
-      ((!isMultiRepo && sourceFolders.length > 0 && !!currentFolder) || (isMultiRepo && !!gitContextPath)))
+    (terminalAvailable ?? ((!isMultiRepo && sourceFolders.length > 0 && !!currentFolder) || (isMultiRepo && !!gitContextPath)))
 
   const openEVMToolWindow = () => {
     if (isLoading) return
@@ -1627,7 +1625,11 @@ export const TitleBar = ({
             setGitBehind(statusResult.data.behind || 0)
           }
           toast.success('Đã hoàn tác commit cuối cùng')
-          window.dispatchEvent(new CustomEvent('git-undo-commit'))
+          window.dispatchEvent(
+            new CustomEvent('git-undo-commit', {
+              detail: { commitMessage: result.commitMessage ?? '' },
+            })
+          )
         }
       } else {
         if (idAtStart === gitContextIdRef.current) {
@@ -2126,6 +2128,42 @@ export const TitleBar = ({
     </Tooltip>
   )
 
+  const gitBranchLeftToolbarControls =
+    showGitRepoChrome && currentBranch ? (
+      <>
+        <Separator orientation="vertical" className="h-4 w-px bg-muted mx-0.5 shrink-0" />
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <Button
+              id="git-branch-manage-button"
+              variant="link"
+              size="sm"
+              onClick={() => setShowGitBranchManageDialog(true)}
+              className="shadow-none focus-visible:ring-0 focus-visible:ring-offset-0 hover:bg-muted transition-colors rounded-sm h-[25px] w-[25px]"
+            >
+              <GitBranchPlus strokeWidth={1.25} absoluteStrokeWidth size={15} className="h-4 w-4 text-green-600 dark:text-green-400" />
+            </Button>
+          </TooltipTrigger>
+          <TooltipContent>{activeRepoLabel ? t('git.branchManage.titleForRepo', { repo: activeRepoLabel }) : t('git.branchManage.title')}</TooltipContent>
+        </Tooltip>
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <Button
+              id="titlebar-git-cherry-pick-branches-button"
+              type="button"
+              variant="link"
+              size="sm"
+              onClick={() => setCherryPickOpen(true)}
+              className="shadow-none focus-visible:ring-0 focus-visible:ring-offset-0 transition-colors rounded-sm h-[25px] w-[25px] text-emerald-600 dark:text-emerald-400 hover:bg-emerald-50 dark:hover:bg-emerald-900/30 hover:text-emerald-700 dark:hover:text-emerald-300"
+            >
+              <ListOrdered strokeWidth={1.25} absoluteStrokeWidth size={15} className="h-4 w-4" />
+            </Button>
+          </TooltipTrigger>
+          <TooltipContent side="bottom">{t('git.cherryPickBranches.tooltip')}</TooltipContent>
+        </Tooltip>
+      </>
+    ) : null
+
   const appUpdateButton = showIconUpdateApp ? (
     <Tooltip>
       <TooltipTrigger asChild>
@@ -2390,13 +2428,7 @@ export const TitleBar = ({
             {enableShellSwitcher && automationDetached && onAutomationDock && (
               <Tooltip>
                 <TooltipTrigger asChild>
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    size="icon"
-                    className={shellTabDockButtonClass('automation')}
-                    onClick={onAutomationDock}
-                  >
+                  <Button type="button" variant="ghost" size="icon" className={shellTabDockButtonClass('automation')} onClick={onAutomationDock}>
                     <Bot strokeWidth={1.25} absoluteStrokeWidth className="h-3.5 w-3.5" />
                   </Button>
                 </TooltipTrigger>
@@ -2406,13 +2438,7 @@ export const TitleBar = ({
             {enableShellSwitcher && devPipelinesDetached && onDevPipelinesDock && (
               <Tooltip>
                 <TooltipTrigger asChild>
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    size="icon"
-                    className={shellTabDockButtonClass('devPipelines')}
-                    onClick={onDevPipelinesDock}
-                  >
+                  <Button type="button" variant="ghost" size="icon" className={shellTabDockButtonClass('devPipelines')} onClick={onDevPipelinesDock}>
                     <Rocket strokeWidth={1.25} absoluteStrokeWidth className="h-3.5 w-3.5" />
                   </Button>
                 </TooltipTrigger>
@@ -2422,13 +2448,7 @@ export const TitleBar = ({
             {enableShellSwitcher && showLogDetached && onShowLogDock && (
               <Tooltip>
                 <TooltipTrigger asChild>
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    size="icon"
-                    className={shellTabDockButtonClass('showLog')}
-                    onClick={onShowLogDock}
-                  >
+                  <Button type="button" variant="ghost" size="icon" className={shellTabDockButtonClass('showLog')} onClick={onShowLogDock}>
                     <History strokeWidth={1.25} absoluteStrokeWidth className="h-3.5 w-3.5" />
                   </Button>
                 </TooltipTrigger>
@@ -2438,13 +2458,7 @@ export const TitleBar = ({
             {enableShellSwitcher && prManagerDetached && onPrManagerDock && (
               <Tooltip>
                 <TooltipTrigger asChild>
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    size="icon"
-                    className={shellTabDockButtonClass('prManager')}
-                    onClick={onPrManagerDock}
-                  >
+                  <Button type="button" variant="ghost" size="icon" className={shellTabDockButtonClass('prManager')} onClick={onPrManagerDock}>
                     <GitPullRequest strokeWidth={1.25} absoluteStrokeWidth className="h-3.5 w-3.5" />
                   </Button>
                 </TooltipTrigger>
@@ -2454,13 +2468,7 @@ export const TitleBar = ({
             {enableShellSwitcher && tasksDetached && onTasksDock && (
               <Tooltip>
                 <TooltipTrigger asChild>
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    size="icon"
-                    className={shellTabDockButtonClass('tasks')}
-                    onClick={onTasksDock}
-                  >
+                  <Button type="button" variant="ghost" size="icon" className={shellTabDockButtonClass('tasks')} onClick={onTasksDock}>
                     <CheckSquare strokeWidth={1.25} absoluteStrokeWidth className="h-3.5 w-3.5" />
                   </Button>
                 </TooltipTrigger>
@@ -2490,6 +2498,7 @@ export const TitleBar = ({
                   </TooltipTrigger>
                   <TooltipContent>{isOpeningReportDialog ? t('common.loading', 'Đang tải ...') : t('dailyReport.open')}</TooltipContent>
                 </Tooltip>
+                {gitBranchLeftToolbarControls}
               </>
             )}
             {/* Settings trên bar khi guest */}
@@ -2554,6 +2563,7 @@ export const TitleBar = ({
                       </TooltipTrigger>
                       <TooltipContent>{isOpeningReportDialog ? t('common.loading', 'Đang tải ...') : t('dailyReport.open')}</TooltipContent>
                     </Tooltip>
+                    {gitBranchLeftToolbarControls}
                   </>
                 )}
               </>
@@ -2582,6 +2592,7 @@ export const TitleBar = ({
                   </TooltipTrigger>
                   <TooltipContent>{isOpeningReportDialog ? t('common.loading', 'Đang tải ...') : t('dailyReport.open')}</TooltipContent>
                 </Tooltip>
+                {gitBranchLeftToolbarControls}
                 {canOpenEvmTool && (
                   <Tooltip>
                     <TooltipTrigger asChild>
@@ -2741,10 +2752,7 @@ export const TitleBar = ({
                             ) : (
                               <>
                                 {!isMultiRepoWorkspace && (
-                                  <DropdownMenuItem
-                                    onClick={() => runWithEditorGuard(() => handleProjectSelect(null))}
-                                    className={!selectedProjectId ? 'bg-muted' : ''}
-                                  >
+                                  <DropdownMenuItem onClick={() => runWithEditorGuard(() => handleProjectSelect(null))} className={!selectedProjectId ? 'bg-muted' : ''}>
                                     {t('showlog.allProjects', 'Tất cả')}
                                   </DropdownMenuItem>
                                 )}
@@ -2780,9 +2788,7 @@ export const TitleBar = ({
                                 className="flex items-center gap-1 px-2 py-1 h-7 text-xs font-medium rounded-r-md border-0 bg-transparent text-pink-800 dark:text-pink-400 hover:bg-muted hover:text-pink-900! dark:hover:text-pink-300!"
                               >
                                 <GitBranch className="h-3 w-3 shrink-0" />
-                                <span className="font-medium max-w-[10rem] truncate">
-                                  {multiRepoLabels[Number(multiRepoActiveTab)] ?? multiRepoLabels[0]}
-                                </span>
+                                <span className="font-medium max-w-[10rem] truncate">{multiRepoLabels[Number(multiRepoActiveTab)] ?? multiRepoLabels[0]}</span>
                                 <ChevronDown className="h-3 w-3" />
                               </Button>
                             </DropdownMenuTrigger>
@@ -2806,41 +2812,41 @@ export const TitleBar = ({
                         </DropdownMenuContent>
                       </DropdownMenu>
                     ) : (
-                    <span
-                      className="flex items-center gap-1.5 px-2 py-1 text-xs font-medium rounded-md bg-muted/50 text-pink-800 dark:text-pink-400"
-                      style={{ maxWidth: 'clamp(120px, 30vw, 600px)' }}
-                    >
-                      <GitBranch className="h-3 w-3 shrink-0" />
-                      <span className="shrink-0">Multi-repo:</span>
-                      {/* biome-ignore lint/a11y/noStaticElementInteractions: drag-to-scroll interaction on a presentational container */}
                       <span
-                        ref={multiRepoBadgeScrollRef}
-                        role="presentation"
-                        className="text-foreground font-normal flex items-center gap-1 overflow-x-auto select-none"
-                        style={{ scrollbarWidth: 'none', cursor: 'grab' }}
-                        onWheel={handleMultiRepoBadgeWheel}
-                        onMouseDown={handleMultiRepoBadgeMouseDown}
-                        onMouseMove={handleMultiRepoBadgeMouseMove}
-                        onMouseUp={handleMultiRepoBadgeMouseUp}
-                        onMouseLeave={handleMultiRepoBadgeMouseUp}
+                        className="flex items-center gap-1.5 px-2 py-1 text-xs font-medium rounded-md bg-muted/50 text-pink-800 dark:text-pink-400"
+                        style={{ maxWidth: 'clamp(120px, 30vw, 600px)' }}
                       >
-                        {(marqueeDuplicate ? [...multiRepoLabels, ...multiRepoLabels] : multiRepoLabels).map((label, i) => {
-                          const repoColors = [
-                            'bg-blue-50 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300',
-                            'bg-amber-50 dark:bg-amber-900/30 text-amber-700 dark:text-amber-300',
-                            'bg-emerald-50 dark:bg-emerald-900/30 text-emerald-700 dark:text-emerald-300',
-                            'bg-violet-50 dark:bg-violet-900/30 text-violet-700 dark:text-violet-300',
-                            'bg-rose-50 dark:bg-rose-900/30 text-rose-700 dark:text-rose-300',
-                          ] as const
-                          const originalIdx = i % multiRepoLabels.length
-                          return (
-                            <span key={i} className="flex items-center gap-1 shrink-0">
-                              <span className={cn('px-1.5 rounded', repoColors[originalIdx % 5])}>{label}</span>
-                            </span>
-                          )
-                        })}
+                        <GitBranch className="h-3 w-3 shrink-0" />
+                        <span className="shrink-0">Multi-repo:</span>
+                        {/* biome-ignore lint/a11y/noStaticElementInteractions: drag-to-scroll interaction on a presentational container */}
+                        <span
+                          ref={multiRepoBadgeScrollRef}
+                          role="presentation"
+                          className="text-foreground font-normal flex items-center gap-1 overflow-x-auto select-none"
+                          style={{ scrollbarWidth: 'none', cursor: 'grab' }}
+                          onWheel={handleMultiRepoBadgeWheel}
+                          onMouseDown={handleMultiRepoBadgeMouseDown}
+                          onMouseMove={handleMultiRepoBadgeMouseMove}
+                          onMouseUp={handleMultiRepoBadgeMouseUp}
+                          onMouseLeave={handleMultiRepoBadgeMouseUp}
+                        >
+                          {(marqueeDuplicate ? [...multiRepoLabels, ...multiRepoLabels] : multiRepoLabels).map((label, i) => {
+                            const repoColors = [
+                              'bg-blue-50 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300',
+                              'bg-amber-50 dark:bg-amber-900/30 text-amber-700 dark:text-amber-300',
+                              'bg-emerald-50 dark:bg-emerald-900/30 text-emerald-700 dark:text-emerald-300',
+                              'bg-violet-50 dark:bg-violet-900/30 text-violet-700 dark:text-violet-300',
+                              'bg-rose-50 dark:bg-rose-900/30 text-rose-700 dark:text-rose-300',
+                            ] as const
+                            const originalIdx = i % multiRepoLabels.length
+                            return (
+                              <span key={i} className="flex items-center gap-1 shrink-0">
+                                <span className={cn('px-1.5 rounded', repoColors[originalIdx % 5])}>{label}</span>
+                              </span>
+                            )
+                          })}
+                        </span>
                       </span>
-                    </span>
                     )
                   ) : isMultiRepoWorkspace ? null : sourceFolders.length > 0 ? (
                     <DropdownMenu onOpenChange={open => open && refreshSourceFoldersList()}>
@@ -2898,7 +2904,7 @@ export const TitleBar = ({
                   <Tooltip>
                     <TooltipTrigger asChild>
                       <DropdownMenuTrigger asChild>
-                        <Button variant="ghost" size="sm" className="flex items-center gap-1 px-2 py-1 h-7 text-xs" onMouseEnter={prefetchBranchList}>
+                        <Button variant="ghost" size="sm" className="flex items-center gap-1 px-1 py-1 h-7 text-xs" onMouseEnter={prefetchBranchList}>
                           <span className="text-[10px] text-blue-600 dark:text-blue-400 bg-blue-50 dark:bg-blue-900/30 px-1.5 rounded flex items-center gap-0.5">
                             <GitBranch className="h-2.5 w-2.5" />
                             {currentBranch}
@@ -2974,42 +2980,6 @@ export const TitleBar = ({
                     )}
                   </DropdownMenuContent>
                 </DropdownMenu>
-              )}
-
-              {/* Git Branch Manage - theo tab active khi multi-repo */}
-              {showGitRepoChrome && currentBranch && (
-                <Tooltip>
-                  <TooltipTrigger asChild>
-                    <Button
-                      id="git-branch-manage-button"
-                      variant="link"
-                      size="sm"
-                      onClick={() => setShowGitBranchManageDialog(true)}
-                      className="shadow-none focus-visible:ring-0 focus-visible:ring-offset-0 hover:bg-muted transition-colors rounded-sm h-[25px] w-[25px]"
-                    >
-                      <GitBranchPlus strokeWidth={1.25} absoluteStrokeWidth size={15} className="h-4 w-4 text-green-600 dark:text-green-400" />
-                    </Button>
-                  </TooltipTrigger>
-                  <TooltipContent>{activeRepoLabel ? t('git.branchManage.titleForRepo', { repo: activeRepoLabel }) : t('git.branchManage.title')}</TooltipContent>
-                </Tooltip>
-              )}
-
-              {showGitRepoChrome && currentBranch && (
-                <Tooltip>
-                  <TooltipTrigger asChild>
-                    <Button
-                      id="titlebar-git-cherry-pick-branches-button"
-                      type="button"
-                      variant="link"
-                      size="sm"
-                      onClick={() => setCherryPickOpen(true)}
-                      className="shadow-none focus-visible:ring-0 focus-visible:ring-offset-0 transition-colors rounded-sm h-[25px] w-[25px] text-emerald-600 dark:text-emerald-400 hover:bg-emerald-50 dark:hover:bg-emerald-900/30 hover:text-emerald-700 dark:hover:text-emerald-300"
-                    >
-                      <ListOrdered strokeWidth={1.25} absoluteStrokeWidth size={15} className="h-4 w-4" />
-                    </Button>
-                  </TooltipTrigger>
-                  <TooltipContent side="bottom">{t('git.cherryPickBranches.tooltip')}</TooltipContent>
-                </Tooltip>
               )}
 
               <div className="flex items-center gap-1 pt-0.5">

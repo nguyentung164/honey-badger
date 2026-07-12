@@ -9,7 +9,6 @@ import { CommitWorkflowStatusBar } from '@/components/commit-workflow/CommitWork
 import { Button } from '@/components/ui/button'
 import { Checkbox } from '@/components/ui/checkbox'
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
-import { Separator } from '@/components/ui/separator'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import { GlowLoader } from '@/components/ui-elements/GlowLoader'
 import toast from '@/components/ui-elements/Toast'
@@ -77,7 +76,6 @@ export const CommitFooterActions = memo(function CommitFooterActions({
   const iconClass = compact ? 'h-3.5 w-3.5 shrink-0' : 'h-4 w-4 shrink-0'
   const iconBtnClass = compact ? 'h-7 w-7 shrink-0' : 'h-9 w-9 shrink-0'
   const actionsGap = compact ? 'gap-1.5' : 'gap-2'
-  const separatorClass = compact ? 'h-7' : 'h-9'
 
   const handleSpotbugs = () => {
     if (isAnyLoading) return
@@ -325,8 +323,6 @@ export const CommitFooterActions = memo(function CommitFooterActions({
     <div className={cn('flex shrink-0 flex-wrap items-center', actionsGap, className)}>
       {checkButton}
       {spotbugsButton}
-
-      <Separator orientation="vertical" className={cn('shrink-0', separatorClass)} />
 
       {versionControlSystem === 'git' ? (
         <>

@@ -1,0 +1,19 @@
+packages:
+  - '.'
+
+minimumReleaseAge: 0
+autoInstallPeers: true
+shamefullyHoist: true
+strictPeerDependencies: false
+strictDepBuilds: false
+
+allowBuilds:
+  electron: true
+  electron-vite: true
+  electron-winstaller: true
+  '@biomejs/biome': true
+  '@google/genai': true
+  sharp: true
+  node-pty: true
+  esbuild: true
+  protobufjs: true

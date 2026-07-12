@@ -47,6 +47,7 @@ import type { CodeDiffViewerHandle } from '@/pages/diffviewer/CodeDiffViewer'
 import { isGitConflictedFileStatus } from '@/pages/diffviewer/diffViewerConflictPayload'
 import logger from '@/services/logger'
 import { useAppearanceStoreSelect } from '@/stores/useAppearanceStore'
+import type { ShellTabActiveProps } from 'shared/shellTabTypes'
 import { useConfigurationStore } from '@/stores/useConfigurationStore'
 
 const CodeDiffViewer = lazy(() => import('@/pages/diffviewer/CodeDiffViewer').then(m => ({ default: m.CodeDiffViewer })))
@@ -314,7 +315,7 @@ function removePathsFromRowSelection(selection: Record<string, boolean>, pathsTo
   return changed ? next : selection
 }
 
-interface GitStagingTableProps {
+interface GitStagingTableProps extends ShellTabActiveProps {
   onLoadingChange?: (loading: boolean) => void
   /** When set, all git operations (status, add, reset_staged) use this path instead of config sourceFolder */
   cwd?: string
@@ -325,7 +326,7 @@ interface GitStagingTableProps {
   onLayoutDirectionChange?: (direction: 'horizontal' | 'vertical') => void
 }
 
-export const GitStagingTable = forwardRef(({ onLoadingChange, cwd, label, commitMessagePanel, onLayoutDirectionChange }: GitStagingTableProps, ref) => {
+export const GitStagingTable = forwardRef(({ onLoadingChange, cwd, label, commitMessagePanel, onLayoutDirectionChange, shellTabActive = true }: GitStagingTableProps, ref) => {
   const buttonVariant = useAppearanceStoreSelect(s => s.buttonVariant)
   const [changesData, setChangesData] = useState<GitFile[]>([])
   const [stagedData, setStagedData] = useState<GitFile[]>([])
@@ -530,6 +531,7 @@ export const GitStagingTable = forwardRef(({ onLoadingChange, cwd, label, commit
   const lastStagedClickRef = useRef({ time: 0, rowId: '' })
 
   const loadGitStatus = useCallback(async (options?: { silent?: boolean }) => {
+    if (shellTabActive === false) return
     const silent = options?.silent === true
     if (!silent) {
       setIsTableLoading(true)
@@ -642,7 +644,7 @@ export const GitStagingTable = forwardRef(({ onLoadingChange, cwd, label, commit
         onLoadingChange?.(false)
       }
     }
-  }, [onLoadingChange, cwd, sourceFolder, t])
+  }, [onLoadingChange, cwd, sourceFolder, t, shellTabActive])
 
   const reloadData = useCallback(async (options?: { silent?: boolean }) => {
     await loadGitStatus(options)
@@ -675,7 +677,7 @@ export const GitStagingTable = forwardRef(({ onLoadingChange, cwd, label, commit
         event.preventDefault()
         logger.info('F5 or Ctrl+R pressed, reloading data...')
         void reloadData().finally(() => {
-          ;(document.activeElement as HTMLElement | null)?.blur?.()
+          ; (document.activeElement as HTMLElement | null)?.blur?.()
         })
         toast.info(t('toast.getListSuccess'))
       }
@@ -1381,7 +1383,7 @@ export const GitStagingTable = forwardRef(({ onLoadingChange, cwd, label, commit
       <div className={cn('h-full relative flex-1 min-h-0', label && 'mt-0')}>
         {layoutDirection === 'vertical' ? (
           <div className="flex h-full min-h-0 flex-col overflow-hidden rounded-md">
-            <div className="flex shrink-0 items-center gap-2 border-b bg-muted/30 px-2 py-1 min-h-8">
+            <div className="flex shrink-0 items-center gap-2 border-b bg-muted/30 px-1 min-h-8">
               <Button size="sm" variant={buttonVariant} className="h-6 w-6 shrink-0 p-0" onClick={toggleLayout} title={t('git.layoutToggleToTable')}>
                 <Columns2 className="h-2.5 w-2.5" />
               </Button>
@@ -1400,6 +1402,7 @@ export const GitStagingTable = forwardRef(({ onLoadingChange, cwd, label, commit
                 <CodeDiffViewer
                   ref={embeddedDiffViewerRef}
                   embedded
+                  shellTabActive={shellTabActive}
                   embeddedRepoCwd={repoCwd}
                   embeddedPayload={embeddedDiffPayload}
                   embeddedToolbarHost={embeddedToolbarHost}
@@ -1417,7 +1420,7 @@ export const GitStagingTable = forwardRef(({ onLoadingChange, cwd, label, commit
             <ResizablePanel defaultSize={50} minSize={30}>
               <div className="h-full overflow-hidden rounded-l-md">{renderTableContent(changesTable, t('git.changes'), false)}</div>
             </ResizablePanel>
-            <ResizableHandle />
+            <ResizableHandle showGrip={false} className="bg-transparent" />
             <ResizablePanel defaultSize={50} minSize={30}>
               <div className="h-full overflow-hidden rounded-r-md">{renderTableContent(stagedTable, t('git.stagedChanges'), true)}</div>
             </ResizablePanel>

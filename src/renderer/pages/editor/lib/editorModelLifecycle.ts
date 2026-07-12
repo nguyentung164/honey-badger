@@ -3,7 +3,10 @@
 export type TextModelReadyEvent = {
   repoCwd: string
   relativePath: string
-  content: string
+  /** Cheap length (e.g. `model.getValueLength()`) — lets emit/consumers skip without materializing. */
+  contentLength: number
+  /** Lazy full text — call only when the document actually needs (re)sync to the server. */
+  getContent: () => string
   languageId: string
   /** `attach` = active editor; `disk-reload` = background file refresh (no didOpen). */
   reason: 'attach' | 'disk-reload'
@@ -19,7 +22,7 @@ export function onTextModelReady(listener: TextModelReadyListener): () => void {
 }
 
 export function emitTextModelReady(event: TextModelReadyEvent): void {
-  if (event.content.length === 0) return
+  if (event.contentLength === 0) return
   for (const listener of listeners) {
     listener(event)
   }

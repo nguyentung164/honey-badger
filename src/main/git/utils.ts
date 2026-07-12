@@ -106,6 +106,8 @@ export function isGitPathMissingAtRevisionError(error: unknown): boolean {
     msg.includes('exists on disk, but not in') ||
     msg.includes('exists on disk but not in') ||
     msg.includes('does not exist in') ||
+    msg.includes('neither on disk nor in the index') ||
+    msg.includes('ambiguous argument') ||
     (msg.includes('path') && msg.includes('does not exist'))
   )
 }

@@ -1,7 +1,7 @@
 import { useMemo } from 'react'
+import { useEditorWorkspace } from '@/pages/editor/hooks/useEditorWorkspace'
 import type { EditorTab } from '@/pages/editor/lib/editorWorkspaceTypes'
 import { compareTabLabel } from '@/pages/editor/lib/editorWorkspaceTypes'
-import { useEditorWorkspace } from '@/pages/editor/hooks/useEditorWorkspace'
 
 /** Tab bar metadata — excludes file content to avoid re-renders while typing. */
 export type EditorTabSummary = {
@@ -14,6 +14,7 @@ export type EditorTabSummary = {
   isDirty: boolean
   isPreview: boolean
   isPinned: boolean
+  isSticky: boolean
 }
 
 function buildSummaries(tabs: EditorTab[]): EditorTabSummary[] {
@@ -26,7 +27,11 @@ function buildSummaries(tabs: EditorTab[]): EditorTabSummary[] {
 
   return tabs.map(tab => {
     const baseName = tab.relativePath.split('/').pop() ?? tab.relativePath
-    const folderName = tab.repoRoot.replace(/[/\\]+$/, '').split(/[/\\]/).pop() ?? tab.repoRoot
+    const folderName =
+      tab.repoRoot
+        .replace(/[/\\]+$/, '')
+        .split(/[/\\]/)
+        .pop() ?? tab.repoRoot
     const needsFolderLabel = tab.kind !== 'compare' && (basenameCounts.get(baseName) ?? 0) > 1
 
     return {
@@ -44,6 +49,7 @@ function buildSummaries(tabs: EditorTab[]): EditorTabSummary[] {
       isDirty: tab.isDirty,
       isPreview: tab.isPreview,
       isPinned: tab.isPinned,
+      isSticky: tab.isSticky ?? false,
     }
   })
 }

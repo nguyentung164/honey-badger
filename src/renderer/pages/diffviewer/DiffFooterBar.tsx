@@ -68,7 +68,7 @@ export function DiffFooterBar({
   const [open, setOpen] = useState(false)
   const { t } = useTranslation()
   return (
-    <div className="flex h-7 items-center gap-4 border-t bg-muted/50 px-4 text-[10px]">
+    <div className="flex h-7 items-center gap-4 border-t bg-muted/50 px-4 text-xs">
       <div className="flex items-center gap-2 tabular-nums">
         <span className="text-green-600 dark:text-green-400">+{diffStats?.additions ?? 0}</span>
         <span className="text-red-600 dark:text-red-400">−{diffStats?.deletions ?? 0}</span>
@@ -100,7 +100,7 @@ export function DiffFooterBar({
       <div className="ml-auto flex items-center">
         <Popover open={open} onOpenChange={setOpen}>
           <PopoverTrigger asChild>
-            <Button variant="ghost" aria-expanded={open} className="h-6 justify-between border-0 rounded-none text-[10px]">
+            <Button variant="ghost" aria-expanded={open} className="h-6 justify-between border-0 rounded-none text-xs">
               {languages.find(item => item.value === language)?.label ?? t('dialog.diffViewer.language.select')}
             </Button>
           </PopoverTrigger>

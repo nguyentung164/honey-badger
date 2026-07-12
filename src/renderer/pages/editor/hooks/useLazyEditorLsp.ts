@@ -15,20 +15,20 @@ type TabLspMeta = {
 
 /**
  * VS Code pattern: LSP buffer sync happens in `attachModelToEditor` → `onTextModelReady`
- * → `openTextDocument`. This hook only wires Monaco providers, navigation, and edits.
+ * → `openTextDocument`. This hook wires Monaco providers and LSP document sync.
  */
-export function useLazyEditorLsp(repoCwd: string, tab: TabLspMeta | null) {
-  const navigationDisposableRef = useRef<Monaco.IDisposable | null>(null)
+export function useLazyEditorLsp(repoCwd: string, tab: TabLspMeta | null, shellTabActive = true) {
   const tabRef = useRef(tab)
   tabRef.current = tab
+  const shellTabActiveRef = useRef(shellTabActive)
+  shellTabActiveRef.current = shellTabActive
 
   const onEditorMount = useCallback(
     (editor: Monaco.editor.IStandaloneCodeEditor, monaco: typeof Monaco) => {
       disableMonacoTypeScriptValidation(monaco)
       editorLanguageService.bind(repoCwd, monaco)
       editorLanguageService.registerLspEditorActions(editor)
-      navigationDisposableRef.current?.dispose()
-      navigationDisposableRef.current = registerEditorNavigation(monaco, repoCwd, editor)
+      registerEditorNavigation(monaco, repoCwd)
     },
     [repoCwd]
   )
@@ -38,6 +38,7 @@ export function useLazyEditorLsp(repoCwd: string, tab: TabLspMeta | null) {
   }, [repoCwd])
 
   const onLspModelChange = useCallback((changes: Monaco.editor.IModelContentChange[]) => {
+    if (!shellTabActiveRef.current) return
     const current = tabRef.current
     if (!current?.contentLoaded || changes.length === 0) return
     const lspLanguageId = getLspLanguageId(current.relativePath)
@@ -46,12 +47,5 @@ export function useLazyEditorLsp(repoCwd: string, tab: TabLspMeta | null) {
     editorLanguageService.changeDocumentIncremental(current.relativePath, lspLanguageId, changes)
   }, [])
 
-  useEffect(() => {
-    return () => {
-      navigationDisposableRef.current?.dispose()
-      navigationDisposableRef.current = null
-    }
-  }, [])
-
-  return { onEditorMount, onLspContentChange: onLspModelChange, onLspModelChange }
+  return { onEditorMount, onLspModelChange }
 }

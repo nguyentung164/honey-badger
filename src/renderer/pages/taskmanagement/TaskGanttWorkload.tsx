@@ -4,7 +4,7 @@ import { useVirtualizer } from '@tanstack/react-virtual'
 import type { VirtualItem } from '@tanstack/virtual-core'
 import type { Locale } from 'date-fns'
 import { addDays, addMonths, differenceInCalendarDays, format, getDay, startOfDay, startOfMonth } from 'date-fns'
-import { ChevronDown, ChevronRight, ChevronsDown, ChevronsRight, Crown, FoldVertical, Layers, Lock, Trash2, UnfoldVertical } from 'lucide-react'
+import { ChevronDown, ChevronRight, Crown, Layers, Lock, Trash2 } from 'lucide-react'
 import type { CSSProperties, Dispatch, MouseEvent, ReactNode, RefObject, SetStateAction } from 'react'
 import { memo, startTransition, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
@@ -18,83 +18,36 @@ import { parseLocalDate, toYyyyMmDd } from '@/lib/dateUtils'
 import { cn } from '@/lib/utils'
 import { GanttTimelineGridOverlay } from './GanttTimelineGridOverlay'
 import { HB_GANTT_GRID_V_VAR, HB_GANTT_TODAY_LINE_MARK, hbGantt } from './ganttLayoutCssVars'
-import { Z_GANTT_META_RAIL_FLOATING_TOGGLE } from './taskGanttZIndex'
+import { WORKLOAD_EXPANDED_MINI_MAX_SCROLL_PX } from './taskGanttWorkloadConstants'
+import { buildDisplayWorkloadSegments, normalizeWorkloadDay, workloadRowKey } from './taskGanttWorkloadSegmentUtils'
+import type {
+  WorkloadBoardSegment,
+  WorkloadBucketAgg,
+  WorkloadDayCell,
+  WorkloadDisplayMode,
+  WorkloadGanttScheduledTaskRef,
+  WorkloadOverrideChoiceSnapshot,
+  WorkloadOverrideEditSnapshot,
+  WorkloadOverrideUpsertInput,
+  WorkloadScale,
+  WorkloadTableSegment,
+  WorkloadUserMeta,
+} from './taskGanttWorkloadTypes'
 
-export type WorkloadDayCell = {
-  userId: string
-  date: string
-  derivedHours: number
-  /** Giờ thực tế (daily report); hiển thị khi không có override */
-  actualWorkHours: number | null
-  overrideHours: number | null
-  taskCount: number
-  taskIds: string[]
-}
-
-export type WorkloadUserMeta = {
-  userId: string
-  name: string
-  userCode: string
-  role: 'pm' | 'pl' | 'dev'
-}
-
-export type WorkloadData = {
-  users: WorkloadUserMeta[]
-  days: WorkloadDayCell[]
-  hoursPerDay: number
-  nonWorkingDates: string[]
-  canEditAll: boolean
-  selfUserId: string
-}
-
-/** Một khối workload theo project — Gantt có thể ghép nhiều segment. */
-export type WorkloadBoardSegment = {
-  projectId: string
-  projectLabel: string
-  data: WorkloadData
-}
-
-export type WorkloadScale = 'week' | 'month' | 'monthly'
-
-export type WorkloadDisplayMode = 'hours' | 'tasks'
-
-/** `full`: một khối (banner / đợi load). `header`|`body`: tách header khỏi overflow-y — không dùng sticky dọc, tránh lệch subpixel Chrome. */
-export type WorkloadTableSegment = 'full' | 'header' | 'body'
-
-export type WorkloadOverrideUpsertInput = {
-  projectId: string
-  userId: string
-  workDate: string
-  overrideHours: number | null
-  note: string | null
-}
-
-/** Một dòng chọn ngày trong Dialog override (snapshot khi mở — không đọc cellMap lại trong ô). */
-export type WorkloadOverrideChoiceSnapshot = {
-  iso: string
-  weekend: boolean
-  label: string
-  overrideHours: number | null
-}
-
-/** Payload mở editor override duy nhất cho pane workload. */
-export type WorkloadOverrideEditSnapshot = {
-  projectId: string
-  userId: string
-  canEditAll: boolean
-  choices: WorkloadOverrideChoiceSnapshot[]
-  /** Ngày chọn mặc định (ưu tiên ngày làm việc đầu trong bucket). */
-  initialIso: string
-}
-
-/** Task đã lên lịch trên Gantt — đếm Tasks theo trùng plan với **ngày trong tuần** trong bucket (không T7/CN). */
-export type WorkloadGanttScheduledTaskRef = {
-  id: string
-  projectId: string | null
-  assigneeUserId: string | null
-  planStartDate: string
-  planEndDate: string
-}
+export type {
+  WorkloadBoardSegment,
+  WorkloadBucketAgg,
+  WorkloadDayCell,
+  WorkloadData,
+  WorkloadDisplayMode,
+  WorkloadGanttScheduledTaskRef,
+  WorkloadOverrideChoiceSnapshot,
+  WorkloadOverrideEditSnapshot,
+  WorkloadOverrideUpsertInput,
+  WorkloadScale,
+  WorkloadTableSegment,
+  WorkloadUserMeta,
+} from './taskGanttWorkloadTypes'
 
 type WorkloadProps = {
   segments: WorkloadBoardSegment[]
@@ -192,8 +145,6 @@ const WORKLOAD_VIRTUAL_MIN_ROWS = 28
 const PROJECT_HEADER_ROW_H = 28
 /** Ước lượng chiều cao mini-Gantt trong hàng expand — khớp TaskGanttView `GANTT_ROW_H`. */
 const WORKLOAD_MINI_GANTT_ROW_EST = 36
-/** Sync chiều cao scroll mini-Gantt expand với `WorkloadMiniGanttSplitPanel` (TaskGanttView). */
-export const WORKLOAD_EXPANDED_MINI_MAX_SCROLL_PX = 300
 
 /** Stable empty array — tránh tạo `[]` mới mỗi render khi không có scheduled tasks, ngăn flatRows useMemo invalidate thừa. */
 const EMPTY_SCHED: WorkloadGanttScheduledTaskRef[] = []
@@ -212,15 +163,6 @@ type WorkloadOverrideEditOpenPayload = {
   locale: Locale
   allowEdit: boolean
   canEditAll: boolean
-}
-
-/** Kết quả gộp bucket — tiền tính để tránh gọi aggregate trong từng ô. */
-export type WorkloadBucketAgg = {
-  hours: number
-  tasks: number
-  workingDays: number
-  isFullyNonWorking: boolean
-  hasOverride: boolean
 }
 
 type WorkloadFlatRow =
@@ -246,10 +188,6 @@ type WorkloadSegmentDerived = {
   scheduledByAssignee: Map<string, WorkloadGanttScheduledTaskRef[]>
   totalHoursPerUser: Map<string, number>
   aggMatrix: Map<string, WorkloadBucketAgg[]>
-}
-
-function workloadRowKey(projectId: string, userId: string): string {
-  return `${projectId}|${userId}`
 }
 
 function aggregateBucketForUserWithCtx(
@@ -530,299 +468,6 @@ function buildBuckets(scale: WorkloadScale, start: Date, totalDays: number, pixe
     })
   }
   return out
-}
-
-/** Chuẩn hoá payload IPC / legacy (snake_case) → một shape duy nhất — tránh mất giờ do đọc sai field. */
-function normalizeWorkloadDay(raw: WorkloadDayCell & Record<string, unknown>): WorkloadDayCell {
-  const userId = String(raw.userId ?? raw.user_id ?? '').trim()
-  const date = String(raw.date ?? '')
-    .trim()
-    .slice(0, 10)
-  const d0 = Number(raw.derivedHours ?? raw.derived_hours)
-  const derivedHours = Number.isFinite(d0) ? d0 : 0
-  const a0 = raw.actualWorkHours ?? raw.actual_work_hours
-  const actualWorkHours =
-    a0 == null || a0 === '' || (typeof a0 === 'number' && Number.isNaN(a0))
-      ? null
-      : (() => {
-        const n = Number(a0)
-        return Number.isFinite(n) ? n : null
-      })()
-  const o0 = raw.overrideHours ?? raw.override_hours
-  const overrideHours =
-    o0 == null || o0 === '' || (typeof o0 === 'number' && Number.isNaN(o0))
-      ? null
-      : (() => {
-        const n = Number(o0)
-        return Number.isFinite(n) ? n : null
-      })()
-  const tc0 = Number(raw.taskCount ?? raw.task_count)
-  const taskCount = Number.isFinite(tc0) ? Math.max(0, Math.floor(tc0)) : 0
-  const idsRaw = raw.taskIds ?? raw.task_ids
-  const taskIds = taskCount > 0 && Array.isArray(idsRaw) ? idsRaw.map(x => String(x).trim()).filter(Boolean) : []
-  return { userId, date, derivedHours, actualWorkHours, overrideHours, taskCount, taskIds }
-}
-
-function effectiveHoursOfCell(cell: WorkloadDayCell | undefined, preferActual: boolean): number {
-  if (!cell) return 0
-  if (cell.overrideHours != null) return Number(cell.overrideHours) || 0
-  if (preferActual && cell.actualWorkHours != null) return Number(cell.actualWorkHours) || 0
-  return Number(cell.derivedHours) || 0
-}
-
-/** Gộp workload nhiều project → một user một dòng, cộng giờ / task theo ngày (Assignee mode). */
-function mergeWorkloadSegmentsByAssignee(segments: WorkloadBoardSegment[], preferActual: boolean): WorkloadBoardSegment {
-  const orderedUserIds: string[] = []
-  const userMetaById = new Map<string, WorkloadUserMeta>()
-  const dayMerge = new Map<string, WorkloadDayCell>()
-  const nonWorkingDates = new Set<string>()
-  let hoursPerDay = 8
-  let canEditAll = false
-  let selfUserId = ''
-
-  for (const seg of segments) {
-    const d = seg.data
-    hoursPerDay = d.hoursPerDay ?? hoursPerDay
-    canEditAll = canEditAll || d.canEditAll
-    if (!selfUserId && d.selfUserId) selfUserId = d.selfUserId
-    for (const nw of d.nonWorkingDates ?? []) nonWorkingDates.add(nw)
-    for (const u of d.users) {
-      if (!userMetaById.has(u.userId)) {
-        userMetaById.set(u.userId, u)
-        orderedUserIds.push(u.userId)
-      }
-    }
-    for (const raw of d.days) {
-      const n = normalizeWorkloadDay(raw as WorkloadDayCell & Record<string, unknown>)
-      const k = `${n.userId}|${n.date}`
-      const prev = dayMerge.get(k)
-      if (!prev) {
-        dayMerge.set(k, { ...n })
-      } else {
-        const effSum = effectiveHoursOfCell(prev, preferActual) + effectiveHoursOfCell(n, preferActual)
-        const taskIdSet = new Set<string>([...prev.taskIds, ...n.taskIds])
-        const mergedIds = Array.from(taskIdSet)
-        dayMerge.set(k, {
-          userId: n.userId,
-          date: n.date,
-          derivedHours: effSum,
-          actualWorkHours: null,
-          overrideHours: null,
-          taskCount: mergedIds.length,
-          taskIds: mergedIds,
-        })
-      }
-    }
-  }
-
-  const users = orderedUserIds.map(id => userMetaById.get(id)).filter((u): u is WorkloadUserMeta => Boolean(u))
-  const days = Array.from(dayMerge.values())
-
-  return {
-    projectId: '__workload_assignee__',
-    projectLabel: '',
-    data: {
-      users,
-      days,
-      hoursPerDay,
-      nonWorkingDates: Array.from(nonWorkingDates).sort(),
-      canEditAll,
-      selfUserId,
-    },
-  }
-}
-
-/** Payload có thể lặp cùng một user (ví dụ nhiều vai trò) — workload dùng một dòng / userId cho key + matrix. */
-function dedupeWorkloadUsersPreserveOrder(users: WorkloadUserMeta[]): WorkloadUserMeta[] {
-  const seen = new Set<string>()
-  const out: WorkloadUserMeta[] = []
-  for (const u of users) {
-    const id = String(u.userId ?? '').trim()
-    if (!id || seen.has(id)) continue
-    seen.add(id)
-    out.push(u)
-  }
-  return out
-}
-
-function dedupeSegmentWorkloadUsers(seg: WorkloadBoardSegment): WorkloadBoardSegment {
-  const users = dedupeWorkloadUsersPreserveOrder(seg.data.users)
-  if (users.length === seg.data.users.length) return seg
-  return { ...seg, data: { ...seg.data, users } }
-}
-
-function buildDisplayWorkloadSegments(
-  workloadRowGrouping: 'flat' | 'assignee' | 'project',
-  segments: WorkloadBoardSegment[],
-  showActualBars: boolean
-): WorkloadBoardSegment[] {
-  const base =
-    workloadRowGrouping === 'assignee' && segments.length > 0
-      ? [mergeWorkloadSegmentsByAssignee(segments, showActualBars)]
-      : segments
-  const mapped = base.map(dedupeSegmentWorkloadUsers)
-  return mapped.every((s, i) => s === base[i]) ? base : mapped
-}
-
-/** By-project workload: đóng (0) → mở khối project (1) → mở mini-Gantt user (2) → đóng. Khi không có user row thì chỉ 0↔1. */
-function getWorkloadProjectBulkCyclePhase(
-  projectIds: string[],
-  userRowKeys: string[],
-  collapsedProjectIds: Set<string>,
-  expandedRowKeys: Set<string>
-): 0 | 1 | 2 {
-  if (!projectIds.length) return 0
-  const allCollapsed = projectIds.every(id => collapsedProjectIds.has(id))
-  const allExpanded = projectIds.every(id => !collapsedProjectIds.has(id))
-  const allMinisOpen = userRowKeys.length > 0 && userRowKeys.every(k => expandedRowKeys.has(k))
-
-  if (allCollapsed) return 0
-  if (allExpanded && allMinisOpen) return 2
-  if (allExpanded) return 1
-  return 0
-}
-
-function useWorkloadPaneBulkExpand(
-  segments: WorkloadBoardSegment[],
-  workloadRowGrouping: 'flat' | 'assignee' | 'project',
-  showActualBars: boolean,
-  collapsedProjectIds: Set<string>,
-  setCollapsedProjectIds: Dispatch<SetStateAction<Set<string>>>,
-  expandedRowKeys: Set<string>,
-  setExpandedRowKeys: Dispatch<SetStateAction<Set<string>>>
-) {
-  const displaySegments = useMemo(
-    () => buildDisplayWorkloadSegments(workloadRowGrouping, segments, showActualBars),
-    [workloadRowGrouping, segments, showActualBars]
-  )
-
-  const panelLayout: 'project' | 'flat' | 'assignee' =
-    workloadRowGrouping === 'flat' ? 'flat' : workloadRowGrouping === 'assignee' ? 'assignee' : 'project'
-
-  const workloadProjectBulkIds = useMemo(
-    () =>
-      panelLayout === 'project'
-        ? displaySegments.filter(s => s.data.users.length > 0 && s.data.days.length > 0).map(s => s.projectId)
-        : [],
-    [displaySegments, panelLayout]
-  )
-
-  /** Assignee + flat: cùng mini-Gantt theo `rk = workloadRowKey(projectId, userId)`. */
-  const workloadMiniGanttBulkRowKeys = useMemo(() => {
-    if (workloadRowGrouping !== 'assignee' && workloadRowGrouping !== 'flat') return []
-    const keys: string[] = []
-    for (const seg of displaySegments) {
-      if (seg.data.users.length === 0 || seg.data.days.length === 0) continue
-      for (const u of seg.data.users) {
-        keys.push(workloadRowKey(seg.projectId, u.userId))
-      }
-    }
-    return keys
-  }, [displaySegments, workloadRowGrouping])
-
-  /** By-project: mọi khóa hàng user trong workload (mở mini-Gantt hàng loạt). */
-  const workloadProjectBulkUserRowKeys = useMemo(() => {
-    if (workloadRowGrouping !== 'project') return []
-    const keys: string[] = []
-    for (const seg of displaySegments) {
-      if (seg.data.users.length === 0 || seg.data.days.length === 0) continue
-      for (const u of seg.data.users) {
-        keys.push(workloadRowKey(seg.projectId, u.userId))
-      }
-    }
-    return keys
-  }, [displaySegments, workloadRowGrouping])
-
-  const workloadProjectBulkPhase = useMemo(() => {
-    if (workloadRowGrouping !== 'project' || !workloadProjectBulkIds.length) return 0 as const
-    return getWorkloadProjectBulkCyclePhase(
-      workloadProjectBulkIds,
-      workloadProjectBulkUserRowKeys,
-      collapsedProjectIds,
-      expandedRowKeys
-    )
-  }, [
-    workloadRowGrouping,
-    workloadProjectBulkIds,
-    workloadProjectBulkUserRowKeys,
-    collapsedProjectIds,
-    expandedRowKeys,
-  ])
-
-  const workloadProjectBulkUpcomingPhase = useMemo(() => {
-    if (workloadRowGrouping !== 'project' || !workloadProjectBulkIds.length) return 0 as const
-    const cycleLen = workloadProjectBulkUserRowKeys.length > 0 ? 3 : 2
-    return ((workloadProjectBulkPhase + 1) % cycleLen) as 0 | 1 | 2
-  }, [workloadRowGrouping, workloadProjectBulkIds.length, workloadProjectBulkPhase, workloadProjectBulkUserRowKeys.length])
-
-  const cycleWorkloadProjectBulkExpand = useCallback(() => {
-    const projectIds = workloadProjectBulkIds
-    const rowKeys = workloadProjectBulkUserRowKeys
-    if (!projectIds.length) return
-
-    const phase = getWorkloadProjectBulkCyclePhase(projectIds, rowKeys, collapsedProjectIds, expandedRowKeys)
-    const cycleLen = rowKeys.length > 0 ? 3 : 2
-    const next = ((phase + 1) % cycleLen) as 0 | 1 | 2
-
-    if (next === 0) {
-      setCollapsedProjectIds(prev => {
-        const n = new Set(prev)
-        for (const id of projectIds) n.add(id)
-        return n
-      })
-      setExpandedRowKeys(new Set())
-    } else if (next === 1) {
-      setCollapsedProjectIds(prev => {
-        const n = new Set(prev)
-        for (const id of projectIds) n.delete(id)
-        return n
-      })
-      setExpandedRowKeys(new Set())
-    } else {
-      setCollapsedProjectIds(prev => {
-        const n = new Set(prev)
-        for (const id of projectIds) n.delete(id)
-        return n
-      })
-      setExpandedRowKeys(new Set(rowKeys))
-    }
-  }, [
-    collapsedProjectIds,
-    expandedRowKeys,
-    setCollapsedProjectIds,
-    setExpandedRowKeys,
-    workloadProjectBulkIds,
-    workloadProjectBulkUserRowKeys,
-  ])
-
-  const toggleWorkloadAssigneeMiniBulk = useCallback(() => {
-    const keys = workloadMiniGanttBulkRowKeys
-    if (!keys.length) return
-    setExpandedRowKeys(prev => {
-      const anyOpen = keys.some(k => prev.has(k))
-      if (anyOpen) return new Set<string>()
-      return new Set(keys)
-    })
-  }, [setExpandedRowKeys, workloadMiniGanttBulkRowKeys])
-
-  const anyWorkloadAssigneeMiniOpen = useMemo(
-    () => workloadMiniGanttBulkRowKeys.some(k => expandedRowKeys.has(k)),
-    [expandedRowKeys, workloadMiniGanttBulkRowKeys]
-  )
-
-  const bulkVisible =
-    (workloadRowGrouping === 'project' && workloadProjectBulkIds.length > 0) ||
-    ((workloadRowGrouping === 'assignee' || workloadRowGrouping === 'flat') &&
-      workloadMiniGanttBulkRowKeys.length > 0)
-
-  return {
-    bulkVisible,
-    workloadRowGrouping,
-    workloadProjectBulkUpcomingPhase,
-    anyWorkloadAssigneeMiniOpen,
-    cycleWorkloadProjectBulkExpand,
-    toggleWorkloadAssigneeMiniBulk,
-  }
 }
 
 function formatHours(n: number): string {
@@ -1189,142 +834,6 @@ function WorkloadFrozenMetaBleed() {
       className="pointer-events-none sticky left-0 top-0 z-[2] col-start-1 row-start-1 justify-self-start isolate transform-gpu border-r border-border/50 bg-background"
       style={{ ...hbGantt.leftBlock, height: '100%', minHeight: '100%' }}
     />
-  )
-}
-
-/** Cạnh timeline pane workload: meta rail + bulk (icon, không nhãn). */
-export function WorkloadGanttPaneRailControlStack({
-  metaRailExpanded,
-  onMetaRailToggle,
-  segments,
-  workloadRowGrouping,
-  showActualBars,
-  collapsedProjectIds,
-  setCollapsedProjectIds,
-  expandedRowKeys,
-  setExpandedRowKeys,
-  /** Chế độ Both: pane Timeline đã có nút meta — ẩn hàng meta ở đây, chỉ giữ nút workload. */
-  includeMetaRail = true,
-  includeWorkloadBulk = true,
-}: {
-  metaRailExpanded: boolean
-  onMetaRailToggle: () => void
-  segments: WorkloadBoardSegment[]
-  workloadRowGrouping: 'flat' | 'assignee' | 'project'
-  showActualBars: boolean
-  collapsedProjectIds: Set<string>
-  setCollapsedProjectIds: Dispatch<SetStateAction<Set<string>>>
-  expandedRowKeys: Set<string>
-  setExpandedRowKeys: Dispatch<SetStateAction<Set<string>>>
-  includeMetaRail?: boolean
-  includeWorkloadBulk?: boolean
-}) {
-  const { t } = useTranslation()
-  const {
-    bulkVisible,
-    workloadRowGrouping: grouping,
-    workloadProjectBulkUpcomingPhase,
-    anyWorkloadAssigneeMiniOpen,
-    cycleWorkloadProjectBulkExpand,
-    toggleWorkloadAssigneeMiniBulk,
-  } = useWorkloadPaneBulkExpand(
-    segments,
-    workloadRowGrouping,
-    showActualBars,
-    collapsedProjectIds,
-    setCollapsedProjectIds,
-    expandedRowKeys,
-    setExpandedRowKeys
-  )
-
-  const showBulk = includeWorkloadBulk && bulkVisible
-  const showMeta = includeMetaRail
-  if (!showMeta && !showBulk) return null
-
-  const bulkAria =
-    grouping === 'project'
-      ? workloadProjectBulkUpcomingPhase === 0
-        ? t('taskManagement.workloadBulkByProjectCycleCloseAllAria')
-        : workloadProjectBulkUpcomingPhase === 1
-          ? t('taskManagement.workloadBulkByProjectCycleOpenProjectsAria')
-          : t('taskManagement.workloadBulkByProjectCycleOpenUsersAria')
-      : anyWorkloadAssigneeMiniOpen
-        ? t('taskManagement.workloadBulkCollapseAllMiniGanttAria')
-        : t('taskManagement.workloadBulkExpandAllMiniGanttAria')
-
-  return (
-    <div
-      className="pointer-events-auto absolute flex flex-col overflow-hidden rounded-r-md border border-border/80 border-l-0 bg-background/95 shadow-sm"
-      style={{
-        ...hbGantt.metaRailToggleLeft,
-        top: 'calc(50% + 20px)',
-        transform: 'translate(-1px, -50%)',
-        zIndex: Z_GANTT_META_RAIL_FLOATING_TOGGLE,
-      }}
-    >
-      {showMeta ? (
-        <button
-          type="button"
-          className={cn(
-            'flex h-7 w-5 shrink-0 items-center justify-center',
-            'text-muted-foreground transition-[background-color,box-shadow,color] duration-200 ease-out',
-            'hover:bg-muted hover:text-foreground',
-            'motion-safe:active:scale-[0.97] motion-reduce:active:scale-100',
-            'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/50 focus-visible:ring-inset'
-          )}
-          onClick={e => {
-            e.stopPropagation()
-            onMetaRailToggle()
-          }}
-          aria-expanded={metaRailExpanded}
-          aria-label={metaRailExpanded ? t('taskManagement.ganttMetaRailCollapse') : t('taskManagement.ganttMetaRailExpand')}
-          title={metaRailExpanded ? t('taskManagement.ganttMetaRailCollapse') : t('taskManagement.ganttMetaRailExpand')}
-        >
-          <ChevronsRight
-            className={cn(
-              'h-3.5 w-3.5 shrink-0 motion-safe:transition-transform motion-safe:duration-200 motion-safe:ease-out motion-reduce:transition-none',
-              metaRailExpanded && 'rotate-180'
-            )}
-            aria-hidden
-          />
-        </button>
-      ) : null}
-
-      {showBulk ? (
-        <button
-          type="button"
-          className={cn(
-            'flex h-7 w-5 shrink-0 items-center justify-center',
-            'text-muted-foreground transition-[background-color,color] duration-200 ease-out',
-            'hover:bg-muted hover:text-foreground',
-            'motion-safe:active:scale-[0.97] motion-reduce:active:scale-100',
-            'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/50 focus-visible:ring-inset',
-            showMeta && 'border-t border-border/60'
-          )}
-          aria-label={bulkAria}
-          title={bulkAria}
-          onClick={e => {
-            e.stopPropagation()
-            if (grouping === 'project') cycleWorkloadProjectBulkExpand()
-            else toggleWorkloadAssigneeMiniBulk()
-          }}
-        >
-          {grouping === 'project' ? (
-            workloadProjectBulkUpcomingPhase === 0 ? (
-              <FoldVertical className="h-3.5 w-3.5 shrink-0" aria-hidden />
-            ) : workloadProjectBulkUpcomingPhase === 1 ? (
-              <UnfoldVertical className="h-3.5 w-3.5 shrink-0" aria-hidden />
-            ) : (
-              <ChevronsDown className="h-3.5 w-3.5 shrink-0" aria-hidden />
-            )
-          ) : anyWorkloadAssigneeMiniOpen ? (
-            <FoldVertical className="h-3.5 w-3.5 shrink-0" aria-hidden />
-          ) : (
-            <UnfoldVertical className="h-3.5 w-3.5 shrink-0" aria-hidden />
-          )}
-        </button>
-      ) : null}
-    </div>
   )
 }
 

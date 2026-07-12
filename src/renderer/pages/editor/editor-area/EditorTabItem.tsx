@@ -15,7 +15,9 @@ export type EditorTabItemProps = {
   tabCount: number
   active: boolean
   gitStatus: GitFileStatusCode | null
-  tabMenuActions: EditorTabMenuActions | null
+  showStickySeparator?: boolean
+  /** Stable function — actions are built lazily when the context menu opens. */
+  getTabMenuActions?: (tab: EditorTabSummary, tabIndex: number) => EditorTabMenuActions
   onSelectTab: (tabId: string) => void
   onCloseTab: (tabId: string) => void
   onPinTab?: (tabId: string) => void
@@ -28,7 +30,8 @@ export const EditorTabItem = memo(function EditorTabItem({
   tabCount,
   active,
   gitStatus,
-  tabMenuActions,
+  showStickySeparator,
+  getTabMenuActions,
   onSelectTab,
   onCloseTab,
   onPinTab,
@@ -37,14 +40,17 @@ export const EditorTabItem = memo(function EditorTabItem({
   const isPreview = tab.isPreview && !tab.isPinned
 
   const tabRow = (
-    <div
-      ref={el => setTabRef(tab.id, el)}
-      className={cn(
-        'group flex h-full max-w-[280px] shrink-0 items-center gap-1 border-r border-t-2 px-2 text-xs',
-        active ? 'border-t-[#0078d4] bg-background text-foreground' : 'border-t-transparent bg-muted/10 text-muted-foreground hover:bg-muted/40',
-        isPreview && !active && 'opacity-80'
-      )}
-    >
+    <div className="flex h-full shrink-0 items-stretch">
+      {showStickySeparator ? <div className="mx-0.5 w-px shrink-0 self-stretch bg-border/80" aria-hidden /> : null}
+      <div
+        ref={el => setTabRef(tab.id, el)}
+        className={cn(
+          'group flex h-full max-w-[280px] shrink-0 items-center gap-1 border-r border-t-2 px-2 text-xs',
+          active ? 'border-t-[#0078d4] bg-background text-foreground' : 'border-t-transparent bg-muted/10 text-muted-foreground hover:bg-muted/40',
+          isPreview && !active && 'opacity-80',
+          tab.isSticky && 'bg-muted/25'
+        )}
+      >
       <button
         type="button"
         className="flex h-full min-w-0 flex-1 items-center gap-1.5"
@@ -88,15 +94,16 @@ export const EditorTabItem = memo(function EditorTabItem({
           <X className="h-4 w-4" />
         </button>
       </div>
+      </div>
     </div>
   )
 
-  if (!tabMenuActions) {
+  if (!getTabMenuActions) {
     return tabRow
   }
 
   return (
-    <EditorTabContextMenu tab={tab} tabIndex={tabIndex} tabCount={tabCount} onSelectTab={onSelectTab} actions={tabMenuActions}>
+    <EditorTabContextMenu tab={tab} tabIndex={tabIndex} tabCount={tabCount} onSelectTab={onSelectTab} getActions={() => getTabMenuActions(tab, tabIndex)}>
       {tabRow}
     </EditorTabContextMenu>
   )

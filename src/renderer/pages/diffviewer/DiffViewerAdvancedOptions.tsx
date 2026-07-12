@@ -129,18 +129,6 @@ export function DiffViewerAdvancedOptionsPanel({
       <section className="space-y-0.5 border-b pb-3 mb-3">
         <p className="text-[10px] font-medium text-muted-foreground uppercase tracking-wide mb-1">{t('dialog.diffViewer.sectionEditor')}</p>
         <OptionSwitch
-          id="fontLigatures"
-          label={t('dialog.diffViewer.fontLigatures')}
-          checked={viewOptions.fontLigatures}
-          onCheckedChange={v => onViewOptionChange('fontLigatures', v)}
-        />
-        <OptionSwitch
-          id="fontVariations"
-          label={t('dialog.diffViewer.fontVariations')}
-          checked={viewOptions.fontVariations}
-          onCheckedChange={v => onViewOptionChange('fontVariations', v)}
-        />
-        <OptionSwitch
           id="glyphMargin"
           label={t('dialog.diffViewer.glyphMargin')}
           checked={viewOptions.glyphMargin}
@@ -230,8 +218,6 @@ export function DiffViewerAdvancedOptions({ viewOptions, onViewOptionChange }: D
     viewOptions.diffCodeLens ||
     viewOptions.showMoves ||
     viewOptions.showEmptyDecorations ||
-    viewOptions.fontLigatures ||
-    viewOptions.fontVariations ||
     !viewOptions.glyphMargin ||
     viewOptions.lineDecorationsWidth !== DIFF_VIEWER_LINE_DECORATIONS_WIDTH_DEFAULT ||
     viewOptions.findSeedFromSelection !== 'selection' ||

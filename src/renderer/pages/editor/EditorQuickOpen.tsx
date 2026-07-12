@@ -1,21 +1,23 @@
 'use client'
 
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { type MutableRefObject, useCallback, useDeferredValue, useEffect, useMemo, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { CommandDialog, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from '@/components/ui/command'
-import { GlowLoader } from '@/components/ui-elements/GlowLoader'
-import { getQuickOpenFiles, peekQuickOpenFiles } from '@/pages/editor/lib/quickOpenFileIndex'
-import { QuickOpenFileRow } from '@/pages/editor/quick-open/QuickOpenFileRow'
 import {
+  isPatternSubsequence,
+  normalizeQuickOpenFileQuery,
   parseQuickOpenQuery,
+  type QuickOpenFuzzyMatch,
   scoreQuickOpenPath,
   splitQuickOpenPath,
   tryResolveQuickOpenFilePath,
-  type QuickOpenFuzzyMatch,
 } from 'shared/editor/quickOpenFuzzy'
+import { CommandDialog, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from '@/components/ui/command'
+import { GlowLoader } from '@/components/ui-elements/GlowLoader'
 import type { EditorWorkspaceFolder } from '@/lib/multiRepoUtils'
-import type { OpenFileOptions } from '@/pages/editor/lib/editorWorkspaceTypes'
 import { cn } from '@/lib/utils'
+import type { OpenFileOptions } from '@/pages/editor/lib/editorWorkspaceTypes'
+import { getQuickOpenFiles, getQuickOpenLowercasePaths, peekQuickOpenFiles } from '@/pages/editor/lib/quickOpenFileIndex'
+import { QuickOpenFileRow } from '@/pages/editor/quick-open/QuickOpenFileRow'
 
 export type QuickOpenRecentEntry = { relativePath: string; repoRoot: string }
 
@@ -38,9 +40,7 @@ type QuickOpenCommand = {
   keywords: string
 }
 
-const EDITOR_COMMANDS: QuickOpenCommand[] = [
-  { id: 'revert', label: 'editor.revertFile', keywords: 'revert file reload disk' },
-]
+const EDITOR_COMMANDS: QuickOpenCommand[] = [{ id: 'revert', label: 'editor.revertFile', keywords: 'revert file reload disk' }]
 
 function buildRecentResults(
   recentEntries: readonly QuickOpenRecentEntry[],
@@ -50,9 +50,7 @@ function buildRecentResults(
   showFolderLabel: boolean
 ): QuickOpenResult[] {
   const folderLabelByPath = new Map(folders.map(f => [f.path, f.label]))
-  const fileSetByFolder = indexReady
-    ? new Map(folders.map(f => [f.path, new Set(filesByFolder.get(f.path) ?? [])]))
-    : null
+  const fileSetByFolder = indexReady ? new Map(folders.map(f => [f.path, new Set(filesByFolder.get(f.path) ?? [])])) : null
   const seen = new Set<string>()
   const results: QuickOpenResult[] = []
 
@@ -65,7 +63,7 @@ function buildRecentResults(
     results.push({
       path: entry.relativePath,
       repoRoot: entry.repoRoot,
-      folderLabel: showFolderLabel ? folderLabelByPath.get(entry.repoRoot) ?? '' : '',
+      folderLabel: showFolderLabel ? (folderLabelByPath.get(entry.repoRoot) ?? '') : '',
       score: 0,
       fileName,
       dirname,
@@ -91,11 +89,23 @@ function buildRecentResults(
   return results
 }
 
+type QuickOpenFolderCandidates = {
+  /** Files array identity the cached indices were computed against. */
+  files: readonly string[]
+  indices: number[]
+}
+
+type QuickOpenPrefilterCache = {
+  queryLow: string
+  byFolder: Map<string, QuickOpenFolderCandidates>
+}
+
 function buildSearchResults(
   fileQuery: string,
   folders: readonly EditorWorkspaceFolder[],
   filesByFolder: ReadonlyMap<string, readonly string[]>,
-  showFolderLabel: boolean
+  showFolderLabel: boolean,
+  cacheRef: MutableRefObject<QuickOpenPrefilterCache | null>
 ): QuickOpenResult[] {
   for (const folder of folders) {
     const files = filesByFolder.get(folder.path)
@@ -117,16 +127,42 @@ function buildSearchResults(
     }
   }
 
+  const queryLow = normalizeQuickOpenFileQuery(fileQuery).toLowerCase()
+  // When the new query extends the previous one, only the previous candidates can still match.
+  const prev = cacheRef.current
+  const canNarrow = prev !== null && queryLow.startsWith(prev.queryLow)
+  const nextByFolder = new Map<string, QuickOpenFolderCandidates>()
+
   const results: QuickOpenResult[] = []
   for (const folder of folders) {
     const files = filesByFolder.get(folder.path)
     if (!files) continue
-    for (const path of files) {
+    const lowercasePaths = getQuickOpenLowercasePaths(files)
+    const prevEntry = canNarrow ? prev.byFolder.get(folder.path) : undefined
+    const baseIndices = prevEntry && prevEntry.files === files ? prevEntry.indices : null
+    const indices: number[] = []
+
+    const considerIndex = (i: number) => {
+      const pathLow = lowercasePaths[i]
+      const path = files[i]
+      if (pathLow === undefined || path === undefined) return
+      // Cheap subsequence prefilter — the O(p*w) DP scorer only runs on survivors.
+      if (!isPatternSubsequence(queryLow, pathLow)) return
+      indices.push(i)
       const match = scoreQuickOpenPath(fileQuery, path)
       if (match) results.push({ ...match, path, repoRoot: folder.path, folderLabel: showFolderLabel ? folder.label : '' })
     }
+
+    if (baseIndices) {
+      for (const i of baseIndices) considerIndex(i)
+    } else {
+      for (let i = 0; i < files.length; i++) considerIndex(i)
+    }
+
+    nextByFolder.set(folder.path, { files, indices })
   }
 
+  cacheRef.current = { queryLow, byFolder: nextByFolder }
   return results.sort((a, b) => b.score - a.score || a.path.localeCompare(b.path)).slice(0, 50)
 }
 
@@ -139,15 +175,7 @@ function buildCommandResults(query: string, t: (key: string) => string): QuickOp
   })
 }
 
-export function EditorQuickOpen({
-  open,
-  onOpenChange,
-  repoCwd,
-  workspaceFolders,
-  recentEntries = [],
-  onOpenFile,
-  onRunCommand,
-}: EditorQuickOpenProps) {
+export function EditorQuickOpen({ open, onOpenChange, repoCwd, workspaceFolders, recentEntries = [], onOpenFile, onRunCommand }: EditorQuickOpenProps) {
   const { t } = useTranslation()
   const [query, setQuery] = useState('')
 
@@ -187,6 +215,7 @@ export function EditorQuickOpen({
 
     closingRef.current = false
     selectGuardRef.current = false
+    prefilterCacheRef.current = null
     setQuery('')
 
     const cachedMap = new Map<string, readonly string[]>()
@@ -201,14 +230,12 @@ export function EditorQuickOpen({
       setFilesByFolder(cachedMap)
       setIndexReadyFolders(new Set(folders.map(f => f.path)))
       setLoading(false)
-      void Promise.all(folders.map(folder => getQuickOpenFiles(folder.path, { force: true }).then(files => [folder.path, files] as const))).then(
-        entries => {
-          if (!openRef.current) return
-          setFilesByFolder(new Map(entries))
-          setIndexReadyFolders(new Set(folders.map(f => f.path)))
-          setLoading(false)
-        }
-      )
+      void Promise.all(folders.map(folder => getQuickOpenFiles(folder.path, { force: true }).then(files => [folder.path, files] as const))).then(entries => {
+        if (!openRef.current) return
+        setFilesByFolder(new Map(entries))
+        setIndexReadyFolders(new Set(folders.map(f => f.path)))
+        setLoading(false)
+      })
       return
     }
 
@@ -234,23 +261,23 @@ export function EditorQuickOpen({
   const parsedQuery = useMemo(() => parseQuickOpenQuery(query), [query])
   const indexReady = folders.length > 0 && folders.every(f => indexReadyFolders.has(f.path))
 
+  // Defer heavy scoring so fast typing never blocks the input (VS Code-style responsiveness).
+  const deferredFileQuery = useDeferredValue(parsedQuery.fileQuery)
+  const prefilterCacheRef = useRef<QuickOpenPrefilterCache | null>(null)
+
   const results = useMemo(() => {
     if (isCommandMode) return []
-    if (!parsedQuery.fileQuery) return buildRecentResults(recentEntries, folders, filesByFolder, indexReady, showFolderLabel)
+    if (!deferredFileQuery) return buildRecentResults(recentEntries, folders, filesByFolder, indexReady, showFolderLabel)
     if (!indexReady) return []
-    return buildSearchResults(parsedQuery.fileQuery, folders, filesByFolder, showFolderLabel)
-  }, [filesByFolder, folders, indexReady, isCommandMode, parsedQuery.fileQuery, recentEntries, showFolderLabel])
+    return buildSearchResults(deferredFileQuery, folders, filesByFolder, showFolderLabel, prefilterCacheRef)
+  }, [deferredFileQuery, filesByFolder, folders, indexReady, isCommandMode, recentEntries, showFolderLabel])
 
   const commandResults = useMemo(() => {
     if (!isCommandMode) return []
     return buildCommandResults(commandQuery, t)
   }, [commandQuery, isCommandMode, t])
 
-  const groupHeading = isCommandMode
-    ? t('editor.quickOpenCommands')
-    : parsedQuery.fileQuery
-      ? t('editor.quickOpenFileResults')
-      : t('editor.quickOpenRecentlyOpened')
+  const groupHeading = isCommandMode ? t('editor.quickOpenCommands') : parsedQuery.fileQuery ? t('editor.quickOpenFileResults') : t('editor.quickOpenRecentlyOpened')
 
   const handleSelect = useCallback(
     (path: string, repoRoot: string) => {
@@ -292,12 +319,7 @@ export function EditorQuickOpen({
     [handleOpenChange, onRunCommand]
   )
 
-  const locationSuffix =
-    parsedQuery.line != null
-      ? parsedQuery.column != null
-        ? `:${parsedQuery.line}:${parsedQuery.column}`
-        : `:${parsedQuery.line}`
-      : undefined
+  const locationSuffix = parsedQuery.line != null ? (parsedQuery.column != null ? `:${parsedQuery.line}:${parsedQuery.column}` : `:${parsedQuery.line}`) : undefined
 
   const showListLoader = !isCommandMode && loading && results.length === 0
 
@@ -309,9 +331,7 @@ export function EditorQuickOpen({
       shouldFilter={false}
       showCloseButton={false}
       onCloseAutoFocus={event => event.preventDefault()}
-      className={cn(
-        'hb-quick-open max-w-[600px] gap-0 border border-[var(--hb-quick-open-border)] bg-[var(--hb-quick-open-bg)] p-0 shadow-lg sm:max-w-[600px]'
-      )}
+      className={cn('hb-quick-open max-w-[600px] gap-0 border border-[var(--hb-quick-open-border)] bg-[var(--hb-quick-open-bg)] p-0 shadow-lg sm:max-w-[600px]')}
       commandClassName="hb-quick-open-command bg-transparent text-[var(--hb-quick-open-filename)]"
     >
       <CommandInput
@@ -337,27 +357,22 @@ export function EditorQuickOpen({
             >
               {isCommandMode
                 ? commandResults.map(cmd => (
-                    <CommandItem
-                      key={cmd.id}
-                      value={cmd.id}
-                      onSelect={() => handleSelectCommand(cmd.id)}
-                      className="px-3 py-1.5 text-[13px] text-[var(--hb-quick-open-filename)]"
-                    >
-                      {t(cmd.label)}
-                    </CommandItem>
-                  ))
+                  <CommandItem key={cmd.id} value={cmd.id} onSelect={() => handleSelectCommand(cmd.id)} className="px-3 py-1.5 text-[13px] text-[var(--hb-quick-open-filename)]">
+                    {t(cmd.label)}
+                  </CommandItem>
+                ))
                 : results.map(item => (
-                    <QuickOpenFileRow
-                      key={`${item.repoRoot}\0${item.path}`}
-                      path={item.path}
-                      fileName={item.fileName}
-                      dirname={item.dirname}
-                      folderLabel={item.folderLabel}
-                      matchIndices={item.matchIndices}
-                      locationSuffix={locationSuffix}
-                      onSelect={() => handleSelect(item.path, item.repoRoot)}
-                    />
-                  ))}
+                  <QuickOpenFileRow
+                    key={`${item.repoRoot}\0${item.path}`}
+                    path={item.path}
+                    fileName={item.fileName}
+                    dirname={item.dirname}
+                    folderLabel={item.folderLabel}
+                    matchIndices={item.matchIndices}
+                    locationSuffix={locationSuffix}
+                    onSelect={() => handleSelect(item.path, item.repoRoot)}
+                  />
+                ))}
             </CommandGroup>
           </>
         )}

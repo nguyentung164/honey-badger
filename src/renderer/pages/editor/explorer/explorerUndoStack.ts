@@ -7,6 +7,7 @@ export type ExplorerUndoEntry =
   | { kind: 'delete-file'; path: string; content: string }
   | { kind: 'delete-dir'; path: string; stagingId: string }
   | { kind: 'move'; from: string; to: string }
+  | { kind: 'moves'; moves: Array<{ from: string; to: string }> }
   | { kind: 'copy'; items: Array<{ from: string; to: string }> }
 
 export type ExplorerOpCallbacks = {
@@ -22,6 +23,7 @@ export class ExplorerUndoStack {
   private undoEntries: ExplorerUndoEntry[] = []
   private redoEntries: ExplorerUndoEntry[] = []
 
+  // TODO(Plan 2): call when workspace changes so explorer undo does not target the wrong repo.
   clear(): void {
     this.undoEntries = []
     this.redoEntries = []
@@ -95,6 +97,14 @@ export class ExplorerUndoStack {
           onPathRenamed?.(entry.to, entry.from)
           break
         }
+        case 'moves': {
+          for (const move of [...entry.moves].reverse()) {
+            const result = await window.api.system.rename_path({ from: move.to, to: move.from, cwd: repoCwd })
+            if (!result.success) throw new Error(result.error)
+            onPathRenamed?.(move.to, move.from)
+          }
+          break
+        }
         case 'copy': {
           for (const item of [...entry.items].reverse()) {
             const result = await window.api.system.delete_path(item.to, { cwd: repoCwd })
@@ -147,6 +157,14 @@ export class ExplorerUndoStack {
           const result = await window.api.system.rename_path({ from: entry.from, to: entry.to, cwd: repoCwd })
           if (!result.success) throw new Error(result.error)
           onPathRenamed?.(entry.from, entry.to)
+          break
+        }
+        case 'moves': {
+          for (const move of entry.moves) {
+            const result = await window.api.system.rename_path({ from: move.from, to: move.to, cwd: repoCwd })
+            if (!result.success) throw new Error(result.error)
+            onPathRenamed?.(move.from, move.to)
+          }
           break
         }
         case 'copy': {

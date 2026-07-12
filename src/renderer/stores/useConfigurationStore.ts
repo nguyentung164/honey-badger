@@ -185,7 +185,7 @@ export const useConfigurationStore = create<ConfigurationStore>((set, get) => ({
         throw new Error('window.api.configuration không khả dụng (preload?)')
       }
       const data = (await window.api.configuration.get()) as Record<string, unknown>
-      l.info('Loading configuration from main process:', data)
+      // l.info('Loading configuration from main process:', data)
       const state = get()
       const updates: Record<string, unknown> = { isConfigLoaded: true }
 

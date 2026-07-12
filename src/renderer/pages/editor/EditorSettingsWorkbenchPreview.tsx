@@ -4,19 +4,14 @@ import { ChevronDown, ChevronRight, FileCode2 } from 'lucide-react'
 import { useMemo } from 'react'
 import { useTranslation } from 'react-i18next'
 import { MaterialFileIcon } from '@/components/icons/MaterialFileIcon'
-import {
-  SETTINGS_FONT_CAPTION,
-  SETTINGS_FONT_MICRO,
-  SETTINGS_FONT_NANO,
-  SettingsPreviewHintChips,
-} from '@/components/settings/settingsDialogUi'
-import { cn } from '@/lib/utils'
-import { useEditorMonacoSettings } from '@/pages/editor/hooks/useEditorSettings'
-import { EditorFileBreadcrumbs } from '@/pages/editor/editor-area/EditorFileBreadcrumbs'
-import { collectEditorSettingsPreviewBehaviorHints } from '@/pages/editor/lib/editorSettingsPreviewHints'
+import { SETTINGS_FONT_CAPTION, SETTINGS_FONT_MICRO, SETTINGS_FONT_NANO, SettingsPreviewHintChips } from '@/components/settings/settingsDialogUi'
 import { useAppAppearanceThemeKey } from '@/hooks/useAppAppearanceThemeKey'
-import { resolveEditorThemePreviewColors } from '@/pages/editor/lib/editorMonacoTheme'
 import { resolveAppIsDarkFromDocument } from '@/lib/theme/appThemeMode'
+import { cn } from '@/lib/utils'
+import { EditorFileBreadcrumbs } from '@/pages/editor/editor-area/EditorFileBreadcrumbs'
+import { useEditorMonacoSettings } from '@/pages/editor/hooks/useEditorSettings'
+import { resolveEditorThemePreviewColors } from '@/pages/editor/lib/editorMonacoTheme'
+import { collectEditorSettingsPreviewBehaviorHints } from '@/pages/editor/lib/editorSettingsPreviewHints'
 
 const PREVIEW_WORKSPACE_LABEL = 'honey-badger'
 const PREVIEW_FILE_PATH = 'src/pages/editor/EditorSettingsPreview.tsx'
@@ -52,17 +47,7 @@ const PREVIEW_TREE: TreeNode[] = [
   },
 ]
 
-function ExplorerTreeMock({
-  activePath,
-  highlight,
-  depth = 0,
-  nodes = PREVIEW_TREE,
-}: {
-  activePath: string
-  highlight: boolean
-  depth?: number
-  nodes?: TreeNode[]
-}) {
+function ExplorerTreeMock({ activePath, highlight, depth = 0, nodes = PREVIEW_TREE }: { activePath: string; highlight: boolean; depth?: number; nodes?: TreeNode[] }) {
   return (
     <ul className="space-y-0.5">
       {nodes.map(node => {
@@ -92,9 +77,7 @@ function ExplorerTreeMock({
               )}
               <span className="min-w-0 truncate">{node.name}</span>
             </div>
-            {node.children?.length ? (
-              <ExplorerTreeMock activePath={activePath} highlight={highlight} depth={depth + 1} nodes={node.children} />
-            ) : null}
+            {node.children?.length ? <ExplorerTreeMock activePath={activePath} highlight={highlight} depth={depth + 1} nodes={node.children} /> : null}
           </li>
         )
       })}
@@ -115,9 +98,7 @@ export function EditorSettingsWorkbenchPreview({ className }: EditorSettingsWork
     return resolveEditorThemePreviewColors(resolveAppIsDarkFromDocument())
   }, [appAppearanceKey])
   const autoSaveOn = settings.autoSave === 'afterDelay'
-  const autoSaveLabel = autoSaveOn
-    ? t('editor.settings.previewAutoSaveOn', { delay: (settings.autoSaveDelayMs / 1000).toFixed(1) })
-    : t('editor.settings.previewAutoSaveOff')
+  const autoSaveLabel = autoSaveOn ? t('editor.settings.previewAutoSaveOn', { delay: (settings.autoSaveDelayMs / 1000).toFixed(1) }) : t('editor.settings.previewAutoSaveOff')
   const saveHints = collectEditorSettingsPreviewBehaviorHints(settings, t, 'workbench')
 
   return (
@@ -168,37 +149,31 @@ export function EditorSettingsWorkbenchPreview({ className }: EditorSettingsWork
           {settings.breadcrumbs ? (
             <EditorFileBreadcrumbs relativePath={PREVIEW_FILE_PATH} workspaceLabel={PREVIEW_WORKSPACE_LABEL} />
           ) : (
-            <div className={cn('shrink-0 border-b border-border/40 px-3 py-1 italic text-muted-foreground/45', SETTINGS_FONT_CAPTION)}>{t('editor.settings.previewBreadcrumbsHidden')}</div>
+            <div className={cn('shrink-0 border-b border-border/40 px-3 py-1 italic text-muted-foreground/45', SETTINGS_FONT_CAPTION)}>
+              {t('editor.settings.previewBreadcrumbsHidden')}
+            </div>
           )}
 
           {settings.stickyScroll ? (
-            <div className={cn('shrink-0 border-b border-border/50 bg-muted/25 px-2 py-0.5 font-mono text-muted-foreground', SETTINGS_FONT_NANO)}>
-              export function preview()
-            </div>
+            <div className={cn('shrink-0 border-b border-border/50 bg-muted/25 px-2 py-0.5 font-mono text-muted-foreground', SETTINGS_FONT_NANO)}>export function preview()</div>
           ) : null}
 
           <div
             className={cn('min-h-0 flex-1 overflow-hidden p-2 font-mono leading-relaxed', SETTINGS_FONT_MICRO)}
             style={{ background: colors.background, color: colors.foreground }}
           >
-            {settings.codeLens ? (
-              <div className={cn('mb-0.5 font-medium text-primary/75', SETTINGS_FONT_NANO)}>2 references</div>
-            ) : null}
-            <span style={{ color: colors.keyword }}>export</span>{' '}
-            <span style={{ color: colors.keyword }}>function</span>{' '}
-            <span style={{ color: colors.function }}>preview</span>
+            {settings.codeLens ? <div className={cn('mb-0.5 font-medium text-primary/75', SETTINGS_FONT_NANO)}>2 references</div> : null}
+            <span style={{ color: colors.keyword }}>export</span> <span style={{ color: colors.keyword }}>function</span> <span style={{ color: colors.function }}>preview</span>
             <span>{'() {'}</span>
             <br />
             <span>{'  '}</span>
-            <span style={{ color: colors.keywordControl }}>return</span>{' '}
-            <span style={{ color: colors.string }}>'workbench'</span>
+            <span style={{ color: colors.keywordControl }}>return</span> <span style={{ color: colors.string }}>'workbench'</span>
             <br />
             <span>{'}'}</span>
             <br />
             <span style={{ color: colors.comment }}>{'// inlay hints · unused · links'}</span>
             <br />
-            <span style={{ color: colors.type }}>const</span>{' '}
-            <span style={{ color: colors.variable }}>appId</span>
+            <span style={{ color: colors.type }}>const</span> <span style={{ color: colors.variable }}>appId</span>
             {settings.inlayHints ? <span className="opacity-45">: string</span> : null}
             <span>{' = '}</span>
             <span style={{ color: colors.string }}>{'`com.example.my-app`'}</span>

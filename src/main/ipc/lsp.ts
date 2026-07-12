@@ -34,7 +34,7 @@ export function registerLspIpcHandlers(): void {
   ipcMain.handle(IPC.LSP.START, async (event, payload: unknown) => {
     if (!isStartPayload(payload)) return { success: false, error: 'Invalid payload' }
     const rootPath = fileUriToPath(payload.rootUri)
-    return startLanguageServer(event.sender, payload.serverId, rootPath)
+    return startLanguageServer(event.sender, payload.serverId, rootPath, payload.typescriptUserPreferences)
   })
 
   ipcMain.handle(IPC.LSP.STOP, (_event, payload: unknown) => {

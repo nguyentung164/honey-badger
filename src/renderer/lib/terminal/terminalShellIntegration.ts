@@ -1,5 +1,8 @@
 /** VS Code OSC 633 shell integration — https://code.visualstudio.com/docs/terminal/shell-integration */
 
+import type { Terminal } from '@xterm/xterm'
+import type { TerminalShellProfileId } from 'shared/terminal/shells'
+
 export type ShellIntegrationEvent =
   | { type: 'cwd'; path: string }
   | { type: 'promptStart' }
@@ -22,9 +25,59 @@ export const SHELL_INTEGRATION_SIGINT_EXIT_CODE = 130
 
 const INTERRUPT_CHAR = '\x03'
 
+const ENTER_SUBMIT = /^[\r\n]+$/
+
+/** CMD default `E:\path>` prompt line (no typed command). */
+const CMD_PROMPT_LINE = /^[A-Za-z]:[^>\r\n]*>\s*$/
+
+/** PowerShell default `PS E:\path>` prompt line. */
+const PS_PROMPT_LINE = /^PS (?:[A-Za-z]:[^\r\n]*|[^\r\n]+)>\s*$/
+
+export function stripTerminalAnsi(text: string): string {
+  return text
+    .replace(/\x1b\[[0-9;?]*[ -/]*[@-~]/g, '')
+    .replace(/\x1b\][^\x07\x1b]*(?:\x07|\x1b\\)/g, '')
+}
+
+export function isShellPromptLine(text: string, shellProfileId: TerminalShellProfileId): boolean {
+  const line = stripTerminalAnsi(text).trimEnd()
+  if (shellProfileId === 'cmd') {
+    return CMD_PROMPT_LINE.test(line) || /^>\s*$/.test(line)
+  }
+  return PS_PROMPT_LINE.test(line) || CMD_PROMPT_LINE.test(line)
+}
+
 /**
- * Fallback when the shell does not emit OSC 633;D after Ctrl+C.
- * Do not infer command start from Enter — only the shell's 633;C means execution.
+ * VS Code reads the xterm buffer (not raw PTY chunks) to know the shell is back at a prompt.
+ * @see CommandDetectionCapability + PromptInputModel
+ */
+export function isCursorOnShellPrompt(term: Terminal, shellProfileId: TerminalShellProfileId): boolean {
+  const buffer = term.buffer.active
+  const line = buffer.getLine(buffer.baseY + buffer.cursorY)
+  if (!line) return false
+
+  const text = line.translateToString(true).trimEnd()
+  if (!isShellPromptLine(text, shellProfileId)) return false
+
+  const plain = stripTerminalAnsi(text)
+  return buffer.cursorX >= Math.max(0, plain.trimEnd().length - 1)
+}
+
+export function shellIntegrationBufferEvents(
+  term: Terminal,
+  shellProfileId: TerminalShellProfileId,
+  commandRunning: boolean
+): ShellIntegrationEvent[] {
+  if (!commandRunning) return []
+  if (isCursorOnShellPrompt(term, shellProfileId)) {
+    return [{ type: 'commandFinished', exitCode: undefined }]
+  }
+  return []
+}
+
+/**
+ * Ctrl+C while running, and Enter-at-prompt when OSC 633;C is not forwarded (Windows winpty).
+ * VS Code uses PartialCommandDetection + WindowsPtyHeuristics for the same gap.
  */
 export function shellIntegrationInputEvents(
   data: string,
@@ -33,33 +86,50 @@ export function shellIntegrationInputEvents(
   if (commandRunning && data.includes(INTERRUPT_CHAR)) {
     return [{ type: 'commandFinished', exitCode: SHELL_INTEGRATION_SIGINT_EXIT_CODE }]
   }
+  if (!commandRunning && ENTER_SUBMIT.test(data)) {
+    return [{ type: 'commandExecuted' }]
+  }
   return []
+}
+
+/**
+ * Parse OSC 633/133 payload passed to xterm `registerOscHandler`.
+ * Mirrors VS Code `ShellIntegrationAddon._doHandleVSCodeSequence`.
+ */
+export function parseOsc633HandlerData(data: string): ShellIntegrationEvent[] {
+  const argsIndex = data.indexOf(';')
+  const command = argsIndex === -1 ? data : data.slice(0, argsIndex)
+  const args = argsIndex === -1 ? [] : data.slice(argsIndex + 1).split(';')
+
+  switch (command) {
+    case 'A':
+      return [{ type: 'promptStart' }]
+    case 'B':
+      return [{ type: 'commandInputStart' }]
+    case 'C':
+      return [{ type: 'commandExecuted' }]
+    case 'D': {
+      const exitCode = args[0] !== undefined && args[0] !== '' ? Number.parseInt(args[0], 10) : undefined
+      return [{ type: 'commandFinished', exitCode: Number.isNaN(exitCode) ? undefined : exitCode }]
+    }
+    case 'P': {
+      const cwdMatch = data.match(/Cwd=([^;]+)/i)
+      return cwdMatch?.[1] ? [{ type: 'cwd', path: cwdMatch[1] }] : []
+    }
+    default:
+      return []
+  }
 }
 
 const OSC633_PREFIX = '\x1b]633;'
 const OSC633 = /\x1b\]633;([^\x07\x1b]*)(?:\x07|\x1b\\)/g
 
 function parseOsc633Payload(payload: string): ShellIntegrationEvent | null {
-  const trimmed = payload.trim()
-  // A: prompt start (idle)
-  if (trimmed === 'A') return { type: 'promptStart' }
-  // B: command input area
-  if (trimmed === 'B') return { type: 'commandInputStart' }
-  // C: pre-execution — command is running
-  if (trimmed === 'C') return { type: 'commandExecuted' }
-  // D[;exitCode]: command finished
-  if (trimmed.startsWith('D')) {
-    const match = trimmed.match(/^D(?:;(\d+))?/)
-    return { type: 'commandFinished', exitCode: match?.[1] ? Number(match[1]) : undefined }
-  }
-  if (trimmed.startsWith('P;')) {
-    const cwdMatch = trimmed.match(/Cwd=([^;]+)/i)
-    if (cwdMatch?.[1]) return { type: 'cwd', path: cwdMatch[1] }
-  }
-  return null
+  const events = parseOsc633HandlerData(payload)
+  return events[0] ?? null
 }
 
-/** Parses OSC 633 across PTY chunks that may split escape sequences. */
+/** Parses OSC 633 across PTY chunks that may split escape sequences (legacy / tests). */
 export class ShellIntegrationStreamParser {
   private carry = ''
 

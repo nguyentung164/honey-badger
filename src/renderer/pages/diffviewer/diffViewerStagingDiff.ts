@@ -1,3 +1,5 @@
+import { GIT_INDEX_REF } from 'shared/git/revisionSpecs'
+
 export type StagingDiffCompareMode = 'staged' | 'unstaged'
 
 export type StagingDiffProfile = {
@@ -25,8 +27,6 @@ export type StagingPaneLabelCaseId =
   | 'unstaged-only'
   | 'unstaged-untracked'
   | 'unstaged-deleted'
-
-const GIT_INDEX_REF = ':index'
 
 export function isGitUntrackedFileStatus(fileStatus?: string): boolean {
   const s = (fileStatus || '').trim().toLowerCase()

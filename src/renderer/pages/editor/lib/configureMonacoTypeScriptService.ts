@@ -1,11 +1,13 @@
 import type * as Monaco from 'monaco-editor'
 
 type TsDefaults = {
+  modeConfiguration?: Record<string, boolean>
   setDiagnosticsOptions: (options: {
     noSemanticValidation?: boolean
     noSyntaxValidation?: boolean
     noSuggestionDiagnostics?: boolean
   }) => void
+  setModeConfiguration: (config: Record<string, boolean>) => void
 }
 
 type MonacoWithTypeScript = typeof Monaco & {
@@ -33,6 +35,18 @@ export function disableMonacoTypeScriptValidation(monaco: typeof Monaco): void {
   }
   ts.typescriptDefaults.setDiagnosticsOptions(diagnostics)
   ts.javascriptDefaults.setDiagnosticsOptions(diagnostics)
+
+  // VS Code uses tsserver/LSP only — Monaco's CDN worker lacks project tsconfig and can win
+  // definition races (import bindings) or return stale results for closed files.
+  const navigationOff = (defaults: TsDefaults) => {
+    defaults.setModeConfiguration({
+      ...defaults.modeConfiguration,
+      definitions: false,
+      references: false,
+    })
+  }
+  navigationOff(ts.typescriptDefaults)
+  navigationOff(ts.javascriptDefaults)
 
   for (const model of monaco.editor.getModels()) {
     monaco.editor.setModelMarkers(model, 'typescript', [])

@@ -1,6 +1,7 @@
 import * as monaco from 'monaco-editor'
 import type { editor as MonacoEditor, IRange } from 'monaco-editor'
 import { resolveMonacoLanguageId } from '@/lib/monacoLanguage'
+import type { EditorSettings } from '@/pages/editor/hooks/useEditorSettings'
 import type { ChangePosition, CharDiffStats, DiffStats, DiffViewerViewOptions } from './diffViewerTypes'
 import { applyDiffViewerEditorOptions, isDiffCollapseActive, reapplyDiffViewerCollapseOptions } from './useDiffViewerOptions'
 
@@ -122,25 +123,24 @@ export function collapseAllDiffUnchangedRegions(diffEditor: MonacoEditor.IStanda
   }
 }
 
-/** Re-apply collapse / diff-only after file content changes and @monaco-editor/react prop sync. */
+/** Re-apply hide-unchanged after model/content changes (@monaco-editor/react prop sync). Does not reset per-region expand state. */
 export async function refreshDiffCollapseAfterContentChange(
   diffEditor: MonacoEditor.IStandaloneDiffEditor,
   viewOptions: DiffViewerViewOptions,
+  editorSettings: EditorSettings,
   overrides?: { readOnly?: boolean }
 ): Promise<void> {
   await waitForDiffCompute(diffEditor)
-  // Child DiffEditor effects sync original/modified props after parent setState.
   await new Promise<void>(resolve => setTimeout(resolve, 0))
   await waitForDiffCompute(diffEditor)
 
   if (!isDiffCollapseActive(viewOptions)) {
-    applyDiffViewerEditorOptions(diffEditor, viewOptions, overrides)
+    applyDiffViewerEditorOptions(diffEditor, viewOptions, editorSettings, overrides)
     return
   }
 
-  reapplyDiffViewerCollapseOptions(diffEditor, viewOptions, overrides)
+  reapplyDiffViewerCollapseOptions(diffEditor, viewOptions, editorSettings, overrides)
   await waitForDiffCompute(diffEditor)
-  collapseAllDiffUnchangedRegions(diffEditor)
 }
 
 function waitForDiffComputeViaEvent(diffEditor: MonacoEditor.IStandaloneDiffEditor): Promise<void> {

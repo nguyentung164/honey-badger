@@ -2,15 +2,16 @@
 
 import { lazy, Suspense, startTransition, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
+import type { ShellTabActiveProps } from 'shared/shellTabTypes'
 import { ResizableHandle, ResizablePanel, ResizablePanelGroup } from '@/components/ui/resizable'
 import { GlowLoader } from '@/components/ui-elements/GlowLoader'
 import toast from '@/components/ui-elements/Toast'
+import type { EditorWorkspaceFolder } from '@/lib/multiRepoUtils'
 import { EditorCloseConfirm } from '@/pages/editor/EditorCloseConfirm'
-import { EditorFileChangeDialog } from '@/pages/editor/EditorFileChangeDialog'
 import { EditorDirtyWriteDialog } from '@/pages/editor/EditorDirtyWriteDialog'
+import { EditorFileChangeDialog } from '@/pages/editor/EditorFileChangeDialog'
 import { EditorGoToLineDialog } from '@/pages/editor/EditorGoToLineDialog'
 import { EditorLargeFileDialog } from '@/pages/editor/EditorLargeFileDialog'
-import type { OpenFileOptions } from '@/pages/editor/lib/editorWorkspaceTypes'
 import { EditorQuickOpen } from '@/pages/editor/EditorQuickOpen'
 import { EditorSidebar } from '@/pages/editor/EditorSidebar'
 import { EditorFileBreadcrumbs } from '@/pages/editor/editor-area/EditorFileBreadcrumbs'
@@ -18,39 +19,33 @@ import { EditorStatusBar } from '@/pages/editor/editor-area/EditorStatusBar'
 import { EditorTabBar } from '@/pages/editor/editor-area/EditorTabBar'
 import type { EditorTabMenuActions } from '@/pages/editor/editor-area/EditorTabContextMenu'
 import { EditorTabPane } from '@/pages/editor/editor-area/EditorTabPane'
+import { useEditorExternalFileSync } from '@/pages/editor/hooks/useEditorExternalFileSync'
 import { useEditorGitDecorations } from '@/pages/editor/hooks/useEditorGitDecorations'
 import { useEditorLspPrepare } from '@/pages/editor/hooks/useEditorLspPrepare'
 import { useEditorLspStatusBar } from '@/pages/editor/hooks/useEditorLspStatusBar'
 import { useEditorSettings } from '@/pages/editor/hooks/useEditorSettings'
+import { useEditorShellOpenRequest } from '@/pages/editor/hooks/useEditorShellOpenRequest'
 import { type EditorSidebarView, readEditorSidebarView, writeEditorSidebarView } from '@/pages/editor/hooks/useEditorSidebarView'
 import { EDITOR_MAIN_PANEL_ID, EDITOR_SIDEBAR_PANEL_ID, editorSidebarMaxSize, editorSidebarMinSize, useEditorSidebarWidth } from '@/pages/editor/hooks/useEditorSidebarWidth'
+import { cancelEditorTabPrefetch, scheduleEditorTabPrefetch } from '@/pages/editor/hooks/useEditorTabPrefetch'
 import { useActiveTabStatus, useEditorTabSummaries } from '@/pages/editor/hooks/useEditorTabSelectors'
 import { useEditorWorkspace } from '@/pages/editor/hooks/useEditorWorkspace'
-import { type EditorCursorPosition, editorCommandBridge, runEditorAction } from '@/pages/editor/lib/editorCommandBridge'
+import { editorCommandBridge, runEditorAction } from '@/pages/editor/lib/editorCommandBridge'
+import { type DirtyWritePromptPayload, EDITOR_DIRTY_WRITE_EVENT, resolveDirtyWriteChoice } from '@/pages/editor/lib/editorDirtyWritePrompt'
+import { normalizeEditorRepoKey } from '@/pages/editor/lib/editorSessionPersist'
 import { getEditorTabActivationOrder } from '@/pages/editor/lib/editorTabActivation'
-import { useEditorExternalFileSync } from '@/pages/editor/hooks/useEditorExternalFileSync'
-import {
-  EDITOR_DIRTY_WRITE_EVENT,
-  resolveDirtyWriteChoice,
-  type DirtyWritePromptPayload,
-} from '@/pages/editor/lib/editorDirtyWritePrompt'
+import type { OpenFileOptions } from '@/pages/editor/lib/editorWorkspaceTypes'
 import { prewarmQuickOpenFileIndex } from '@/pages/editor/lib/quickOpenFileIndex'
 import { scheduleBackgroundWork } from '@/pages/editor/lib/scheduleBackgroundWork'
-import { cancelEditorTabPrefetch, scheduleEditorTabPrefetch } from '@/pages/editor/hooks/useEditorTabPrefetch'
-import { useEditorShellOpenRequest } from '@/pages/editor/hooks/useEditorShellOpenRequest'
 import { useEditorTabCloseQueue } from '@/pages/editor/lib/useEditorTabCloseQueue'
 import { joinRepoPath } from '@/pages/editor/lsp/documentUri'
 import type { FormatDocumentResult, OrganizeImportsResult } from '@/pages/editor/lsp/EditorLanguageService'
-import type { EditorWorkspaceFolder } from '@/lib/multiRepoUtils'
-import { normalizeEditorRepoKey } from '@/pages/editor/lib/editorSessionPersist'
 
 const LazyExplorerPanel = lazy(() => import('@/pages/editor/explorer/EditorExplorerPanel').then(m => ({ default: m.EditorExplorerPanel })))
-const LazyMultiRootExplorerPanel = lazy(() =>
-  import('@/pages/editor/explorer/EditorMultiRootExplorerPanel').then(m => ({ default: m.EditorMultiRootExplorerPanel }))
-)
+const LazyMultiRootExplorerPanel = lazy(() => import('@/pages/editor/explorer/EditorMultiRootExplorerPanel').then(m => ({ default: m.EditorMultiRootExplorerPanel })))
 const LazySearchPanel = lazy(() => import('@/pages/editor/search/EditorSearchPanel').then(m => ({ default: m.EditorSearchPanel })))
 
-type EditorWorkbenchProps = {
+type EditorWorkbenchProps = ShellTabActiveProps & {
   repoCwd?: string
   workspaceFolders?: EditorWorkspaceFolder[]
   workspaceSessionKey?: string
@@ -70,6 +65,7 @@ export function EditorWorkbench({
   workspaceEmptyMessage,
   onRegisterLayoutLeave,
   onOpenInTerminal,
+  shellTabActive = true,
 }: EditorWorkbenchProps) {
   const { t } = useTranslation()
   const [sidebarView, setSidebarView] = useState<EditorSidebarView>(() => readEditorSidebarView())
@@ -89,7 +85,6 @@ export function EditorWorkbench({
   } | null>(null)
   const [quickOpen, setQuickOpen] = useState(false)
   const [goToLineOpen, setGoToLineOpen] = useState(false)
-  const [cursor, setCursor] = useState<EditorCursorPosition | null>(null)
   const explorerRevealSeqRef = useRef(0)
   const [explorerRevealRequest, setExplorerRevealRequest] = useState<{ path: string; seq: number } | null>(null)
 
@@ -121,10 +116,7 @@ export function EditorWorkbench({
   )
   /** Resource identity (repoRoot + path) for every open text tab — VS Code matches watcher/search by URI, not name. */
   const openTabResources = useMemo(
-    () =>
-      tabSummaries
-        .filter(t => !t.isCompare)
-        .map(t => ({ tabId: t.id, repoRoot: t.repoRoot, relativePath: t.relativePath })),
+    () => tabSummaries.filter(t => !t.isCompare).map(t => ({ tabId: t.id, repoRoot: t.repoRoot, relativePath: t.relativePath })),
     // eslint-disable-next-line react-hooks/exhaustive-deps -- stable by (repoRoot, path) set, not tab metadata revision
     [tabSummaries.map(t => (t.isCompare ? '' : `${t.id}\0${t.repoRoot}\0${t.relativePath}`)).join('\n')]
   )
@@ -217,7 +209,7 @@ export function EditorWorkbench({
   const activeTabId = useEditorWorkspace(s => s.activeTabId)
   const activeTabStatus = useActiveTabStatus(activeTabId)
   const lspStatus = useEditorLspStatusBar(effectiveRepoCwd, activeTabStatus.languageId)
-  useEditorLspPrepare(effectiveRepoCwd)
+  useEditorLspPrepare(effectiveRepoCwd, shellTabActive)
   const initMultiRootWorkspace = useEditorWorkspace(s => s.initMultiRootWorkspace)
   const setRepoCwd = useEditorWorkspace(s => s.setRepoCwd)
   const openFile = useEditorWorkspace(s => s.openFile)
@@ -304,6 +296,7 @@ export function EditorWorkbench({
     activeTabId,
     onRequestReloadConfirm: payload => setFileChangeConfirm(payload),
     onCloseTab: tabId => closeTab(tabId),
+    shellTabActive,
   })
 
   const { requestCloseTab, requestCloseTabs, advanceCloseQueue, clearCloseQueue } = useEditorTabCloseQueue({
@@ -331,10 +324,10 @@ export function EditorWorkbench({
   }, [])
 
   useEffect(() => {
-    if (!effectiveRepoCwd || !activeTabId) return
+    if (!shellTabActive || !effectiveRepoCwd || !activeTabId) return
     scheduleEditorTabPrefetch(effectiveRepoCwd, activeTabId)
     return () => cancelEditorTabPrefetch()
-  }, [effectiveRepoCwd, activeTabId])
+  }, [effectiveRepoCwd, activeTabId, shellTabActive])
 
   const getTabMenuActions = useCallback(
     (row: (typeof tabSummaries)[number], tabIndex: number): EditorTabMenuActions => {
@@ -365,15 +358,17 @@ export function EditorWorkbench({
     [copyTabPathToClipboard, effectiveRepoCwd, pinTab, requestCloseTab, requestCloseTabs, revealPathInExplorer, revertActiveTabFromDisk, setActiveTab]
   )
 
+  // Subscribe only to the active tab's dirty flag — metadata changes on other tabs
+  // (pin/rename/dirty) must not reset the auto-save timer.
+  const activeTabDirty = useEditorWorkspace(s => Boolean(activeTabId && s.tabs.find(t => t.id === activeTabId)?.isDirty))
+
   useEffect(() => {
-    if (autoSave !== 'afterDelay' || !activeTabId) return
-    const tab = useEditorWorkspace.getState().tabs.find(t => t.id === activeTabId)
-    if (!tab?.isDirty) return
+    if (autoSave !== 'afterDelay' || !activeTabId || !activeTabDirty) return
     const timer = window.setTimeout(() => {
       void saveActiveTab()
     }, autoSaveDelayMs)
     return () => window.clearTimeout(timer)
-  }, [activeTabId, autoSave, autoSaveDelayMs, saveActiveTab, tabSummaries])
+  }, [activeTabId, activeTabDirty, autoSave, autoSaveDelayMs, saveActiveTab])
 
   const handleOrganizeImportsResult = useCallback(
     (result: OrganizeImportsResult) => {
@@ -441,7 +436,13 @@ export function EditorWorkbench({
       }
       if (mod && e.key === 'w') {
         e.preventDefault()
-        if (activeTabId) requestCloseTab(activeTabId)
+        const tabId = useEditorWorkspace.getState().activeTabId
+        if (tabId) requestCloseTab(tabId)
+        return
+      }
+      if (mod && e.shiftKey && e.key.toLowerCase() === 't' && !inQuickOpen) {
+        e.preventDefault()
+        void useEditorWorkspace.getState().reopenLastClosedEditor()
         return
       }
       if (mod && e.shiftKey && e.key === 'F' && !inMonaco) {
@@ -506,32 +507,14 @@ export function EditorWorkbench({
     writeEditorSidebarView(view)
   }, [])
 
-  const handleCursorChange = useCallback((position: EditorCursorPosition | null) => {
-    setCursor(prev => {
-      if (position === null) return prev === null ? prev : null
-      return prev?.line === position.line && prev?.column === position.column ? prev : position
-    })
-  }, [])
-
   if (!effectiveRepoCwd && !(useMultiRootExplorer && workspaceFolders && workspaceFolders.length > 0)) {
-    return (
-      <div className="flex h-full items-center justify-center p-4 text-center text-sm text-muted-foreground">
-        {workspaceEmptyMessage ?? t('editor.noWorkspace')}
-      </div>
-    )
+    return <div className="flex h-full items-center justify-center p-4 text-center text-sm text-muted-foreground">{workspaceEmptyMessage ?? t('editor.noWorkspace')}</div>
   }
 
   return (
-    <div className="flex h-full min-h-0 flex-col pt-1">
+    <div className="flex h-full min-h-0 flex-col border-t">
       <div className="flex min-h-0 flex-1 overflow-hidden">
-        <ResizablePanelGroup
-          groupRef={panelGroupRef}
-          direction="horizontal"
-          className="min-h-0 min-w-0 flex-1"
-          defaultLayout={initialLayout}
-          onLayoutChanged={onLayoutChanged}
-          resizeTargetMinimumSize={{ coarse: 37, fine: 27 }}
-        >
+        <ResizablePanelGroup groupRef={panelGroupRef} direction="horizontal" className="min-h-0 min-w-0 flex-1" defaultLayout={initialLayout} onLayoutChanged={onLayoutChanged}>
           <ResizablePanel id={EDITOR_SIDEBAR_PANEL_ID} minSize={editorSidebarMinSize()} maxSize={editorSidebarMaxSize()} className="min-h-0 min-w-0">
             <EditorSidebar activeView={sidebarView} onViewChange={handleViewChange}>
               <Suspense
@@ -584,9 +567,7 @@ export function EditorWorkbench({
                     repoCwd={effectiveRepoCwd}
                     workspaceFolders={useMultiRootExplorer ? workspaceFolders : undefined}
                     openTabs={openTabResources}
-                    onOpenMatch={match =>
-                      void openFile(match.relativePath, { line: match.line, column: match.column, pin: true, repoRoot: match.repoRoot })
-                    }
+                    onOpenMatch={match => void openFile(match.relativePath, { line: match.line, column: match.column, pin: true, repoRoot: match.repoRoot })}
                     onFilesReplaced={entries => {
                       for (const entry of entries) void reloadTabFromDisk(entry.relativePath, undefined, entry.repoRoot)
                     }}
@@ -595,7 +576,7 @@ export function EditorWorkbench({
               </Suspense>
             </EditorSidebar>
           </ResizablePanel>
-          <ResizableHandle className="bg-transparent" />
+          <ResizableHandle showGrip={false} className="bg-transparent" />
           <ResizablePanel id={EDITOR_MAIN_PANEL_ID} minSize="40%" className="min-h-0 min-w-0">
             <div className="flex h-full min-h-0 flex-col" data-editor-main>
               <EditorTabBar
@@ -608,11 +589,7 @@ export function EditorWorkbench({
                 getTabMenuActions={getTabMenuActions}
               />
               {breadcrumbs && activeTabStatus.relativePath ? (
-                <EditorFileBreadcrumbs
-                  relativePath={activeTabStatus.relativePath}
-                  workspaceLabel={workspaceLabel}
-                  onRevealPath={revealPathInExplorer}
-                />
+                <EditorFileBreadcrumbs relativePath={activeTabStatus.relativePath} workspaceLabel={workspaceLabel} onRevealPath={revealPathInExplorer} />
               ) : null}
               <div className="min-h-0 flex-1">
                 <EditorTabPane
@@ -620,15 +597,14 @@ export function EditorWorkbench({
                   repoCwd={effectiveRepoCwd}
                   getGitStatus={getTabGitStatus}
                   onSyncDirty={syncTabDirty}
-                  onCursorChange={handleCursorChange}
                   onOrganizeImportsResult={handleOrganizeImportsResult}
                   onFormatDocumentResult={handleFormatDocumentResult}
+                  shellTabActive={shellTabActive}
                 />
               </div>
               <EditorStatusBar
                 relativePath={activeTabStatus.relativePath}
                 languageId={activeTabStatus.languageId}
-                cursor={cursor}
                 insertSpaces={insertSpaces}
                 tabSize={tabSize}
                 lspStatus={lspStatus}
@@ -691,9 +667,7 @@ export function EditorWorkbench({
         fileName={fileChangeConfirm?.fileName ?? ''}
         onReload={() => {
           if (!fileChangeConfirm) return
-          void reloadTabFromDisk(fileChangeConfirm.relativePath, undefined, fileChangeConfirm.repoRoot).then(() =>
-            setFileChangeConfirm(null)
-          )
+          void reloadTabFromDisk(fileChangeConfirm.relativePath, undefined, fileChangeConfirm.repoRoot).then(() => setFileChangeConfirm(null))
         }}
         onKeepLocal={() => {
           if (!fileChangeConfirm) return

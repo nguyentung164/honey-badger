@@ -5,36 +5,24 @@ import { useCallback, useMemo, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import type { GitFileStatusCode } from '@/components/git/GitFileStatusBadge'
 import { Button } from '@/components/ui/button'
+import type { EditorWorkspaceFolder } from '@/lib/multiRepoUtils'
 import { DiffViewerFileTreeVirtualList } from '@/pages/diffviewer/DiffViewerFileTreeVirtualList'
-import { EditorExplorerSectionHeader } from '@/pages/editor/explorer/EditorExplorerSectionHeader'
-import { EditorOpenEditorRow } from '@/pages/editor/explorer/EditorOpenEditorRow'
+import type { EditorTabMenuActions } from '@/pages/editor/editor-area/EditorTabContextMenu'
 import { ExplorerRow, type ExplorerRowHandlers } from '@/pages/editor/explorer/EditorExplorerRow'
+import { EditorExplorerSectionHeader } from '@/pages/editor/explorer/EditorExplorerSectionHeader'
+import { EditorFolderGitStatusHost, type FolderGitStatusSnapshot } from '@/pages/editor/explorer/EditorFolderGitStatusHost'
+import { EditorFolderTreeHost, type FolderTreeSnapshot } from '@/pages/editor/explorer/EditorFolderTreeHost'
+import { EditorOpenEditorRow } from '@/pages/editor/explorer/EditorOpenEditorRow'
 import { buildExplorerDisplayRows } from '@/pages/editor/explorer/explorerDisplayRows'
+import { buildExplorerPanelRows, EXPLORER_SECTION_HEADER_HEIGHT, type ExplorerPanelRow, getExplorerPanelRowKey } from '@/pages/editor/explorer/explorerSectionRows'
 import { toggleSelectionPath } from '@/pages/editor/explorer/explorerSelection'
 import { EXPLORER_TREE_ROW_HEIGHT } from '@/pages/editor/explorer/explorerTreeConstants'
-import {
-  buildExplorerPanelRows,
-  EXPLORER_SECTION_HEADER_HEIGHT,
-  getExplorerPanelRowKey,
-  type ExplorerPanelRow,
-} from '@/pages/editor/explorer/explorerSectionRows'
-import { EditorFolderTreeHost, type FolderTreeSnapshot } from '@/pages/editor/explorer/EditorFolderTreeHost'
-import { EditorFolderGitStatusHost, type FolderGitStatusSnapshot } from '@/pages/editor/explorer/EditorFolderGitStatusHost'
-import type { EditorTabMenuActions } from '@/pages/editor/editor-area/EditorTabContextMenu'
+import { type EditorExplorerSectionId, folderSectionId, readExplorerExpandedSections, writeExplorerExpandedSections } from '@/pages/editor/hooks/useEditorExplorerSectionPrefs'
 import type { EditorTabSummary } from '@/pages/editor/hooks/useEditorTabSelectors'
-import {
-  folderSectionId,
-  readExplorerExpandedSections,
-  writeExplorerExpandedSections,
-  type EditorExplorerSectionId,
-} from '@/pages/editor/hooks/useEditorExplorerSectionPrefs'
-import type { EditorWorkspaceFolder } from '@/lib/multiRepoUtils'
-import type { OpenFileOptions } from '@/pages/editor/lib/editorWorkspaceTypes'
 import { normalizeEditorRepoKey } from '@/pages/editor/lib/editorSessionPersist'
+import type { OpenFileOptions } from '@/pages/editor/lib/editorWorkspaceTypes'
 
-type PanelFocus =
-  | { kind: 'open-editor'; tabId: string }
-  | { kind: 'tree'; path: string; folderIndex: number }
+type PanelFocus = { kind: 'open-editor'; tabId: string } | { kind: 'tree'; path: string; folderIndex: number }
 
 function panelFocusFromTreePath(path: string, folderIndex: number): PanelFocus {
   return { kind: 'tree', path, folderIndex }
@@ -83,9 +71,7 @@ export function EditorMultiRootExplorerPanel({
   const activeIndex = Number.isNaN(parsedActiveIndex) ? 0 : parsedActiveIndex
   const [treeSnapshots, setTreeSnapshots] = useState<Record<number, FolderTreeSnapshot>>({})
   const [gitStatusByFolder, setGitStatusByFolder] = useState<Record<number, FolderGitStatusSnapshot>>({})
-  const [expandedSections, setExpandedSections] = useState<Set<EditorExplorerSectionId>>(() =>
-    readExplorerExpandedSections(workspaceFolders.length)
-  )
+  const [expandedSections, setExpandedSections] = useState<Set<EditorExplorerSectionId>>(() => readExplorerExpandedSections(workspaceFolders.length))
   const [panelFocus, setPanelFocus] = useState<PanelFocus | null>(null)
   const [selectedByFolder, setSelectedByFolder] = useState<Record<number, Set<string>>>({})
   const currentRowFolderRef = useRef<number>(activeIndex)
@@ -99,11 +85,7 @@ export function EditorMultiRootExplorerPanel({
         return next
       }
       const existing = prev[folderIndex]
-      if (
-        existing?.rows === snapshot.rows &&
-        existing.expandedPaths === snapshot.expandedPaths &&
-        existing.loadingPaths === snapshot.loadingPaths
-      ) {
+      if (existing?.rows === snapshot.rows && existing.expandedPaths === snapshot.expandedPaths && existing.loadingPaths === snapshot.loadingPaths) {
         return prev
       }
       return { ...prev, [folderIndex]: snapshot }
@@ -184,9 +166,9 @@ export function EditorMultiRootExplorerPanel({
   }, [])
 
   const handlersRef = useRef<ExplorerRowHandlers>({
-    onSelect: () => {},
-    onToggleExpand: () => {},
-    onOpenFile: () => {},
+    onSelect: () => { },
+    onToggleExpand: () => { },
+    onOpenFile: () => { },
   })
 
   handlersRef.current = {
@@ -216,15 +198,9 @@ export function EditorMultiRootExplorerPanel({
 
       if (panelRow.kind === 'open-editor') {
         const { tab, tabIndex } = panelRow
-        const tabFolderIndex = workspaceFolders.findIndex(
-          f => normalizeEditorRepoKey(f.path) === normalizeEditorRepoKey(tab.repoRoot)
-        )
+        const tabFolderIndex = workspaceFolders.findIndex(f => normalizeEditorRepoKey(f.path) === normalizeEditorRepoKey(tab.repoRoot))
         const tabFolderGit = tabFolderIndex >= 0 ? gitStatusByFolder[tabFolderIndex] : undefined
-        const tabGitStatus = tab.isCompare
-          ? null
-          : tabFolderGit
-            ? tabFolderGit.getGitStatus(tab.relativePath, false)
-            : (getTabGitStatus?.(tab.relativePath) ?? null)
+        const tabGitStatus = tab.isCompare ? null : tabFolderGit ? tabFolderGit.getGitStatus(tab.relativePath, false) : (getTabGitStatus?.(tab.relativePath) ?? null)
         return (
           <EditorOpenEditorRow
             tab={tab}
@@ -233,7 +209,7 @@ export function EditorMultiRootExplorerPanel({
             active={tab.id === activeTabId}
             focused={panelFocus?.kind === 'open-editor' && panelFocus.tabId === tab.id}
             gitStatus={tabGitStatus}
-            tabMenuActions={getTabMenuActions?.(tab, tabIndex) ?? null}
+            getTabMenuActions={getTabMenuActions}
             onSelectTab={id => onSelectTab?.(id)}
             onCloseTab={id => onCloseTab?.(id)}
             onPinTab={onPinTab}
@@ -254,11 +230,7 @@ export function EditorMultiRootExplorerPanel({
       const folderRoot = workspaceFolders[folderIndex]?.path ?? ''
       const folderGit = gitStatusByFolder[folderIndex]
       const isFocusedFolder = Boolean(folderRoot && repoCwd && normalizeEditorRepoKey(folderRoot) === normalizeEditorRepoKey(repoCwd))
-      const gitStatus = folderGit
-        ? folderGit.getGitStatus(relativePath, isDir)
-        : isFocusedFolder
-          ? getGitStatus(relativePath, isDir)
-          : null
+      const gitStatus = folderGit ? folderGit.getGitStatus(relativePath, isDir) : isFocusedFolder ? getGitStatus(relativePath, isDir) : null
       const folderSelection = selectedByFolder[folderIndex] ?? new Set<string>()
 
       return (
@@ -327,9 +299,7 @@ export function EditorMultiRootExplorerPanel({
       <DiffViewerFileTreeVirtualList<ExplorerPanelRow>
         rows={panelRows}
         getRowKey={getExplorerPanelRowKey}
-        estimateRowHeight={row =>
-          row.kind === 'section-header' ? EXPLORER_SECTION_HEADER_HEIGHT : EXPLORER_TREE_ROW_HEIGHT
-        }
+        estimateRowHeight={row => (row.kind === 'section-header' ? EXPLORER_SECTION_HEADER_HEIGHT : EXPLORER_TREE_ROW_HEIGHT)}
         overscan={10}
         className="px-0 py-1"
         emptyState={<p className="px-2 py-4 text-[12px] text-muted-foreground">{t('editor.explorerEmpty')}</p>}

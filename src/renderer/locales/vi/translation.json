@@ -395,7 +395,13 @@
       "formatDocumentNotReady": "Language service chưa sẵn sàng. Thử lại sau giây lát.",
       "formatDocumentNoAction": "Không có formatter cho file này.",
       "formatDocumentNotSupported": "Loại file này không hỗ trợ format.",
-      "formatDocumentFailed": "Không thể format file."
+      "formatDocumentFailed": "Không thể format file.",
+      "goToSourceDefinition": "Đi tới Source Definition",
+      "findingSourceDefinitions": "Đang tìm source definitions…",
+      "goToSourceDefinitionNoEditor": "Go to Source Definition thất bại. Không có editor đang active.",
+      "goToSourceDefinitionUnsupported": "Go to Source Definition thất bại. Loại file không được hỗ trợ.",
+      "goToSourceDefinitionNotFound": "Không tìm thấy source definition.",
+      "definitionResolveFailed": "Không thể resolve module \"{{specifier}}\" thành đường dẫn file."
     },
     "settings": {
       "title": "Cài đặt Editor",
@@ -441,6 +447,8 @@
       "codeLensHint": "Hành động nội tuyến trên ký hiệu (vd. số tham chiếu, chạy test).",
       "inlayHints": "Gợi ý nội tuyến",
       "inlayHintsHint": "Tên tham số, kiểu và kiểu trả về từ language service.",
+      "preferGoToSourceDefinition": "Ưu tiên đi tới source definition",
+      "preferGoToSourceDefinitionHint": "Khi bật, go to definition sẽ mở file implementation thay vì file khai báo kiểu (.d.ts).",
       "smoothScrolling": "Cuộn mượt",
       "scrollBeyondLastLine": "Cuộn qua dòng cuối",
       "cursorBlink": "Con trỏ nhấp nháy",
@@ -2479,7 +2487,9 @@
     "developerModeDescription": "Bật F12 để mở DevTools trên tất cả cửa sổ",
     "shellTabs": {
       "title": "Tab thanh tiêu đề",
-      "description": "Chọn các tab hiển thị trên thanh tiêu đề.",
+      "description": "Chọn tab hiển thị trên thanh tiêu đề và kéo để sắp xếp thứ tự.",
+      "orderHint": "Kéo để sắp xếp thứ tự tab trên thanh tiêu đề.",
+      "dragHandle": "Kéo để sắp xếp",
       "lastVisibleHint": "Cần giữ lại ít nhất một tab hiển thị"
     },
     "tab": {

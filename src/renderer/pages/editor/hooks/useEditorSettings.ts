@@ -54,6 +54,8 @@ export type EditorSettings = {
   /** Vertical ruler columns (VS Code editor.rulers). */
   rulers: number[]
   links: boolean
+  /** VS Code `typescript.preferGoToSourceDefinition` — Ctrl+click goes to implementation, not .d.ts. */
+  preferGoToSourceDefinition: boolean
 }
 
 const STORAGE_KEY = 'editor-settings-v1'
@@ -97,6 +99,7 @@ export const EDITOR_SETTINGS_DEFAULTS: EditorSettings = {
   detectIndentation: true,
   rulers: EMPTY_RULERS,
   links: true,
+  preferGoToSourceDefinition: false,
 }
 
 export const EDITOR_TAB_SIZE_OPTIONS = [2, 4, 8] as const
@@ -226,10 +229,6 @@ export const useEditorSettings = create<EditorSettingsState>((set, get) => ({
     set(next)
   },
 }))
-
-export function useEditorSettingsValues(): EditorSettings {
-  return useEditorSettings(useShallow(pickEditorSettings))
-}
 
 export function useEditorMonacoSettings(): EditorSettings {
   return useEditorSettings(useShallow(state => pickEditorSettings(state)))

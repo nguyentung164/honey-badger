@@ -271,6 +271,7 @@ export async function commit(commitMessage: string, selectedFiles: string[] = []
 interface GitResetCommitResponse {
   status: 'success' | 'error'
   message?: string
+  commitMessage?: string
 }
 
 /**
@@ -292,6 +293,8 @@ export async function undoCommit(cwd?: string): Promise<GitResetCommitResponse> 
       return { status: 'error', message: 'No commits to undo' }
     }
 
+    const undoneCommitMessage = logResult.latest.message ?? ''
+
     // Reset to previous commit but keep changes
     await git.reset(['--soft', 'HEAD~1'])
 
@@ -300,6 +303,7 @@ export async function undoCommit(cwd?: string): Promise<GitResetCommitResponse> 
     return {
       status: 'success',
       message: 'Đã hoàn tác commit cuối cùng',
+      commitMessage: undoneCommitMessage,
     }
   } catch (error) {
     l.error('Error undoing commit:', error)

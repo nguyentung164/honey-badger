@@ -1,6 +1,6 @@
 'use client'
 
-import { ChevronDown, ChevronRight, Copy, Folder, FolderOpen, History, ListFilter, Pencil, Plus, RotateCcw } from 'lucide-react'
+import { ChevronDown, ChevronRight, Copy, FileSymlink, Folder, FolderOpen, History, ListFilter, Minus, Pencil, Plus, RotateCcw } from 'lucide-react'
 import type React from 'react'
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { flushSync } from 'react-dom'
@@ -28,6 +28,7 @@ import {
   buildDiffFileTreeSections,
   collectAllFolderIds,
   collectExpandedFolderIdsForFile,
+  collectFileIndicesFromNodes,
   collectVisibleFileIndices,
   type DiffFileTreeFileNode,
   type DiffFileTreeFolderNode,
@@ -45,17 +46,7 @@ import { isGitEntryStaged, isGitEntryUnstaged, normalizeGitPath } from './diffVi
 import type { DiffViewerFileEntry } from './diffViewerPayload'
 import { persistStagingChangesPanelSize, STAGING_COMMIT_PANEL_MIN_SIZE, useDiffViewerTreePanelPrefs } from './useDiffViewerTreePanelPrefs'
 
-export type DiffViewerFileTreeBulkAction =
-  | 'stage'
-  | 'unstage'
-  | 'revert'
-  | 'reveal'
-  | 'openInEditor'
-  | 'showLog'
-  | 'gitBlame'
-  | 'copyPath'
-  | 'copyFileName'
-  | 'copyFullPath'
+export type DiffViewerFileTreeBulkAction = 'stage' | 'unstage' | 'revert' | 'reveal' | 'openInEditor' | 'showLog' | 'gitBlame' | 'copyPath' | 'copyFileName' | 'copyFullPath'
 
 type PathEntryKind = 'file' | 'directory' | 'missing'
 
@@ -65,11 +56,9 @@ interface DiffViewerFileTreePanelProps {
   splitStaging?: boolean
   showStageActions?: boolean
   disabled?: boolean
-  isRefreshing?: boolean
   stagingFooter?: React.ReactNode
   onSelectFile: (index: number) => void
   onBulkAction: (action: DiffViewerFileTreeBulkAction, indices: number[]) => void
-  onRefresh?: () => void | Promise<void>
   showLocalIgnorePatterns?: boolean
   onOpenLocalIgnorePatterns?: () => void
   repoCwd?: string
@@ -78,17 +67,21 @@ interface DiffViewerFileTreePanelProps {
   onAddFolderToLocalIgnore?: (filePaths: string[], entryKinds: PathEntryKind[]) => void
 }
 
-
 const STAGING_TREE_PANEL_ID = 'diff-tree-changes-section'
 const STAGING_COMMIT_PANEL_ID = 'diff-tree-commit-section'
 
 const TREE_INDENT_PX = 12
-const TREE_GUIDE_ALIGN_PX = 14
+const TREE_BASE_PADDING_PX = 8
+const TREE_GUIDE_ALIGN_PX = 7
 
 const noDragStyle = { WebkitAppRegion: 'no-drag' } as React.CSSProperties
 
 function treeRowPaddingLeft(depth: number): number {
-  return depth * TREE_INDENT_PX
+  return TREE_BASE_PADDING_PX + depth * TREE_INDENT_PX
+}
+
+function treeRowIndentStyle(depth: number): React.CSSProperties {
+  return { ...noDragStyle, paddingLeft: treeRowPaddingLeft(depth) }
 }
 
 function treeGuideLeft(level: number): number {
@@ -110,9 +103,7 @@ function TreeDepthShell({ depth, showGuides, className, children }: { depth: num
   return (
     <div className={cn('relative min-w-0 p-0!', className)} style={noDragStyle}>
       {showGuides ? <TreeIndentGuides depth={depth} /> : null}
-      <div className="relative min-w-0" style={{ paddingLeft: treeRowPaddingLeft(depth) }}>
-        {children}
-      </div>
+      {children}
     </div>
   )
 }
@@ -127,26 +118,72 @@ function formatFlatDirPath(filePath: string): string | null {
   return dir
 }
 
+/** Inline hover action (VS Code SCM style) — stops propagation so the row does not get selected. */
+function TreeRowActionButton({
+  label,
+  destructive,
+  disabled,
+  onClick,
+  children,
+}: {
+  label: string
+  destructive?: boolean
+  disabled?: boolean
+  onClick: () => void
+  children: React.ReactNode
+}) {
+  return (
+    <button
+      type="button"
+      className={cn(
+        'flex h-5 w-5 shrink-0 items-center justify-center rounded-sm text-current opacity-80 hover:bg-foreground/10 hover:opacity-100',
+        destructive && 'hover:text-destructive',
+        disabled && 'pointer-events-none opacity-40'
+      )}
+      title={label}
+      aria-label={label}
+      disabled={disabled}
+      onMouseDown={event => {
+        event.preventDefault()
+        event.stopPropagation()
+      }}
+      onClick={event => {
+        event.stopPropagation()
+        onClick()
+      }}
+      style={noDragStyle}
+    >
+      {children}
+    </button>
+  )
+}
+
 const TreeFileRow = memo(function TreeFileRow({
   node,
+  depth,
   isActive,
   isSelected,
   flatView,
   interactionDisabled,
+  actions,
   onSelect,
 }: {
   node: DiffFileTreeFileNode
+  depth: number
   isActive: boolean
   isSelected: boolean
   flatView?: boolean
   interactionDisabled?: boolean
+  actions?: React.ReactNode
   onSelect: (index: number, event: React.MouseEvent) => void
 }) {
   const flatDirPath = flatView ? formatFlatDirPath(node.entry.filePath) : null
 
   return (
-    <button
-      type="button"
+    <div
+      role="treeitem"
+      aria-selected={isActive || isSelected}
+      tabIndex={interactionDisabled ? -1 : 0}
       onMouseDown={event => {
         if (interactionDisabled) return
         event.preventDefault()
@@ -155,8 +192,15 @@ const TreeFileRow = memo(function TreeFileRow({
         if (interactionDisabled) return
         onSelect(node.index, event)
       }}
+      onKeyDown={event => {
+        if (interactionDisabled) return
+        if (event.key === 'Enter' || event.key === ' ') {
+          event.preventDefault()
+          onSelect(node.index, event as unknown as React.MouseEvent)
+        }
+      }}
       className={cn(
-        'flex h-6 w-full min-w-0 cursor-default items-center gap-1.5 px-2 text-left text-xs outline-none focus-visible:ring-1 focus-visible:ring-ring',
+        'group flex h-6 w-full min-w-0 cursor-default items-center gap-1.5 px-2 text-left text-xs outline-none focus-visible:ring-1 focus-visible:ring-ring',
         flatView
           ? cn(
             isActive && 'bg-[var(--hb-explorer-row-active)]',
@@ -171,32 +215,26 @@ const TreeFileRow = memo(function TreeFileRow({
         interactionDisabled && 'opacity-60'
       )}
       title={node.entry.filePath}
-      style={noDragStyle}
+      style={treeRowIndentStyle(depth)}
     >
-      <MaterialFileIcon name={node.entry.filePath} kind="file" className="h-4.5 w-4.5" />
+      <MaterialFileIcon name={node.entry.filePath} kind="file" size={16} className="h-4 w-4 shrink-0" />
       {flatView ? (
-        <span className="flex min-w-0 flex-1 items-center gap-1 overflow-hidden text-[12px] h-[19.5px] font-normal">
-          <span
-            className={cn(
-              'shrink-0',
-              isActive && 'text-foreground',
-              !isActive && isSelected && 'text-primary',
-              !isActive && !isSelected && 'text-foreground'
-            )}
-          >
+        <span className="flex min-w-0 flex-1 items-center gap-1 overflow-hidden text-[13px] h-[20px] font-normal">
+          <span className={cn('shrink-0', isActive && 'text-foreground', !isActive && isSelected && 'text-primary', !isActive && !isSelected && 'text-foreground')}>
             {node.fileName}
           </span>
-          {flatDirPath ? (
-            <span className={cn('min-w-0 truncate', isActive ? 'text-[var(--hb-tree-flat-dir)]' : 'text-muted-foreground')}>{flatDirPath}</span>
-          ) : null}
+          {flatDirPath ? <span className={cn('min-w-0 truncate', isActive ? 'text-[var(--hb-tree-flat-dir)]' : 'text-muted-foreground')}>{flatDirPath}</span> : null}
         </span>
       ) : (
-        <span className={cn('min-w-0 flex-1 truncate text-[12px] h-[19.5px] font-normal', isActive && 'text-[var(--hb-tree-active-fg)]', !isActive && isSelected && 'text-primary')}>
+        <span
+          className={cn('min-w-0 flex-1 truncate text-[13px] h-[20px] font-normal', isActive && 'text-[var(--hb-tree-active-fg)]', !isActive && isSelected && 'text-primary')}
+        >
           {node.fileName}
         </span>
       )}
+      {actions && !interactionDisabled ? <span className="hidden shrink-0 items-center gap-0.5 group-focus-within:flex group-hover:flex">{actions}</span> : null}
       <GitFileStatusBadge status={node.entry.fileStatus} variant="trailing" />
-    </button>
+    </div>
   )
 })
 
@@ -204,12 +242,7 @@ function pathEntryKindCacheKey(repoKey: string, relativePath: string): string {
   return `${repoKey}\0${relativePath}`
 }
 
-function localIgnoreMenuI18nKey(
-  base: 'addToLocalIgnore' | 'addFolderToLocalIgnore',
-  paths: string[],
-  pathEntryKinds: Record<string, PathEntryKind>,
-  repoRootKey: string
-): string {
+function localIgnoreMenuI18nKey(base: 'addToLocalIgnore' | 'addFolderToLocalIgnore', paths: string[], pathEntryKinds: Record<string, PathEntryKind>, repoRootKey: string): string {
   const kinds = paths.map(p => pathEntryKinds[pathEntryKindCacheKey(repoRootKey, p)])
   if (kinds.some(k => k === undefined)) return `contextMenu.${base}_unknown`
   const uniq = new Set(kinds)
@@ -222,6 +255,7 @@ function localIgnoreMenuI18nKey(
 
 type TreeFileRowItemProps = {
   node: DiffFileTreeFileNode
+  depth: number
   isActive: boolean
   isSelected: boolean
   flatView: boolean
@@ -234,6 +268,7 @@ type TreeFileRowItemProps = {
   onSelect: (index: number, event: React.MouseEvent, sectionFlatIndices: number[], sectionId: DiffFileTreeSectionId) => void
   onContextMenuOpenChange: (index: number) => (open: boolean) => void
   onContextMenuAction: (action: DiffViewerFileTreeBulkAction, nodeIndex: number, scope: 'unstaged' | 'staged' | 'all') => void
+  onRowAction: (action: DiffViewerFileTreeBulkAction, indices: number[]) => void
   repoRootKey?: string
   pathEntryKinds: Record<string, PathEntryKind>
   onAddToLocalIgnore?: (filePaths: string[]) => void
@@ -242,6 +277,7 @@ type TreeFileRowItemProps = {
 
 const TreeFileRowItem = memo(function TreeFileRowItem({
   node,
+  depth,
   isActive,
   isSelected,
   flatView,
@@ -254,6 +290,7 @@ const TreeFileRowItem = memo(function TreeFileRowItem({
   onSelect,
   onContextMenuOpenChange,
   onContextMenuAction,
+  onRowAction,
   repoRootKey,
   pathEntryKinds,
   onAddToLocalIgnore,
@@ -279,12 +316,50 @@ const TreeFileRowItem = memo(function TreeFileRowItem({
     [onSelect, sectionFlatIndices, sectionId]
   )
 
+  const entryUnstaged = isGitEntryUnstaged(files[node.index])
+  const entryStaged = isGitEntryStaged(files[node.index])
+  const showOpenAction = !isDeleted
+  const showUnstagedActions = showStageActions && isChangesContext && entryUnstaged
+  const showStagedActions = showStageActions && isStagedContext && entryStaged
+  const hoverActions = (
+    <>
+      {showOpenAction ? (
+        <TreeRowActionButton label={t('contextMenu.openInEditor')} onClick={() => onRowAction('openInEditor', [node.index])}>
+          <FileSymlink strokeWidth={1.5} className="h-3.5 w-3.5" />
+        </TreeRowActionButton>
+      ) : null}
+      {showUnstagedActions ? (
+        <>
+          <TreeRowActionButton destructive label={t('contextMenu.discardChanges')} onClick={() => onRowAction('revert', [node.index])}>
+            <RotateCcw strokeWidth={1.5} className="h-3.5 w-3.5" />
+          </TreeRowActionButton>
+          <TreeRowActionButton label={t('git.stageFile')} onClick={() => onRowAction('stage', [node.index])}>
+            <Plus strokeWidth={1.5} className="h-3.5 w-3.5" />
+          </TreeRowActionButton>
+        </>
+      ) : null}
+      {showStagedActions ? (
+        <TreeRowActionButton label={t('git.unstageFile')} onClick={() => onRowAction('unstage', [node.index])}>
+          <Minus strokeWidth={1.5} className="h-3.5 w-3.5" />
+        </TreeRowActionButton>
+      ) : null}
+    </>
+  )
+  const hasHoverActions = showOpenAction || showUnstagedActions || showStagedActions
+
   return (
     <ContextMenu onOpenChange={onContextMenuOpenChange(node.index)}>
       <ContextMenuTrigger asChild disabled={interactionDisabled}>
-        <div className="w-full min-w-0" style={noDragStyle}>
-          <TreeFileRow node={node} isActive={isActive} isSelected={isSelected} flatView={flatView} interactionDisabled={interactionDisabled} onSelect={handleSelect} />
-        </div>
+        <TreeFileRow
+          node={node}
+          depth={depth}
+          isActive={isActive}
+          isSelected={isSelected}
+          flatView={flatView}
+          interactionDisabled={interactionDisabled}
+          actions={hasHoverActions ? hoverActions : undefined}
+          onSelect={handleSelect}
+        />
       </ContextMenuTrigger>
       <ContextMenuContent className="z-[200] min-w-48" style={noDragStyle}>
         <ContextMenuItem onSelect={() => onContextMenuAction('reveal', node.index, 'all')}>
@@ -394,12 +469,55 @@ const TreeFileRowItem = memo(function TreeFileRowItem({
   )
 })
 
-function TreeGroupRow({ node, depth, showGuides }: { node: DiffFileTreeGroupNode; depth: number; showGuides: boolean }) {
+function TreeGroupRow({
+  node,
+  depth,
+  expanded,
+  showGuides,
+  sectionId,
+  showStageActions,
+  interactionDisabled,
+  onToggle,
+  onGroupAction,
+}: {
+  node: DiffFileTreeGroupNode
+  depth: number
+  expanded: boolean
+  showGuides: boolean
+  sectionId: DiffFileTreeSectionId
+  showStageActions?: boolean
+  interactionDisabled?: boolean
+  onToggle: (groupId: string) => void
+  onGroupAction: (action: DiffViewerFileTreeBulkAction, indices: number[]) => void
+}) {
+  const showGroupActions = Boolean(showStageActions) && !interactionDisabled && (sectionId === 'changes' || sectionId === 'staged')
+  const indices = useMemo(() => node.children.map(child => child.index), [node.children])
+
   return (
     <TreeDepthShell depth={depth} showGuides={showGuides}>
-      <div className="flex h-7 w-full min-w-0 items-center gap-1.5 px-2 text-[11px] font-semibold tracking-wide text-muted-foreground uppercase" style={noDragStyle}>
-        <MaterialFileIcon name={node.label} kind="folder" className="h-4.5 w-4.5 opacity-90" />
-        <span className="min-w-0 truncate normal-case text-[12px] font-normal">{node.label}</span>
+      <div
+        role="treeitem"
+        aria-expanded={expanded}
+        aria-selected={false}
+        tabIndex={0}
+        onClick={() => onToggle(node.id)}
+        onKeyDown={event => {
+          if (event.key === 'Enter' || event.key === ' ') {
+            event.preventDefault()
+            onToggle(node.id)
+          }
+        }}
+        className="group flex h-7 w-full min-w-0 cursor-default items-center gap-1 px-2 text-left text-foreground outline-none hover:bg-[var(--hb-explorer-row-hover)] focus-visible:ring-1 focus-visible:ring-ring"
+        style={treeRowIndentStyle(depth)}
+      >
+        {expanded ? <ChevronDown className="h-4 w-4 shrink-0" /> : <ChevronRight className="h-4 w-4 shrink-0" />}
+        <MaterialFileIcon name={node.label} kind="folder" expanded={expanded} size={16} className="h-4 w-4 shrink-0" />
+        <span className="min-w-0 flex-1 truncate text-[13px]">{node.label}</span>
+        {showGroupActions ? (
+          <span className="hidden shrink-0 items-center gap-0.5 group-focus-within:flex group-hover:flex">
+            <TreeContainerHoverActions indices={indices} sectionId={sectionId} onContainerAction={onGroupAction} />
+          </span>
+        ) : null}
       </div>
     </TreeDepthShell>
   )
@@ -427,8 +545,8 @@ const SectionStatusCounts = memo(function SectionStatusCounts({ files, indices }
   return (
     <div className="flex shrink-0 flex-wrap items-center justify-end gap-1.5">
       {entries.map(status => (
-        <span key={status} className="inline-flex items-center gap-1 text-[11px] font-medium tabular-nums text-muted-foreground">
-          <GitFileStatusBadge status={status} />
+        <span key={status} className="inline-flex items-center gap-1 text-xs font-medium tabular-nums text-muted-foreground">
+          <GitFileStatusBadge status={status} size='md' />
           <span>{counts.get(status)}</span>
         </span>
       ))}
@@ -465,31 +583,105 @@ const SectionHeaderTitle = memo(function SectionHeaderTitle({ section, selectedI
   )
 })
 
+function TreeContainerHoverActions({
+  indices,
+  sectionId,
+  onContainerAction,
+}: {
+  indices: number[]
+  sectionId: DiffFileTreeSectionId
+  onContainerAction: (action: DiffViewerFileTreeBulkAction, indices: number[]) => void
+}) {
+  const { t } = useTranslation()
+  const count = indices.length
+  if (count === 0) return null
+
+  if (sectionId === 'staged') {
+    return (
+      <TreeRowActionButton label={t('dialog.diffViewer.treeUnstageSelected', { count })} onClick={() => onContainerAction('unstage', indices)}>
+        <Minus strokeWidth={1.5} className="h-3.5 w-3.5" />
+      </TreeRowActionButton>
+    )
+  }
+
+  return (
+    <>
+      <TreeRowActionButton
+        destructive
+        label={t('dialog.diffViewer.treeRevertSelected', { count })}
+        onClick={() => onContainerAction('revert', indices)}
+      >
+        <RotateCcw strokeWidth={1.5} className="h-3.5 w-3.5" />
+      </TreeRowActionButton>
+      <TreeRowActionButton label={t('dialog.diffViewer.treeStageSelected', { count })} onClick={() => onContainerAction('stage', indices)}>
+        <Plus strokeWidth={1.5} className="h-3.5 w-3.5" />
+      </TreeRowActionButton>
+    </>
+  )
+}
+
+function TreeFolderHoverActions({
+  node,
+  sectionId,
+  onFolderAction,
+}: {
+  node: DiffFileTreeFolderNode
+  sectionId: DiffFileTreeSectionId
+  onFolderAction: (action: DiffViewerFileTreeBulkAction, indices: number[]) => void
+}) {
+  const indices = collectFileIndicesFromNodes(node.children)
+  return <TreeContainerHoverActions indices={indices} sectionId={sectionId} onContainerAction={onFolderAction} />
+}
+
 function TreeFolderHeader({
   node,
   depth,
   expanded,
   showGuides,
+  sectionId,
+  showStageActions,
+  interactionDisabled,
   onToggle,
+  onFolderAction,
 }: {
   node: DiffFileTreeFolderNode
   depth: number
   expanded: boolean
   showGuides: boolean
+  sectionId: DiffFileTreeSectionId
+  showStageActions?: boolean
+  interactionDisabled?: boolean
   onToggle: (folderId: string) => void
+  onFolderAction: (action: DiffViewerFileTreeBulkAction, indices: number[]) => void
 }) {
+  const showFolderActions = Boolean(showStageActions) && !interactionDisabled && (sectionId === 'changes' || sectionId === 'staged')
+
   return (
     <TreeDepthShell depth={depth} showGuides={showGuides}>
-      <button
-        type="button"
+      <div
+        role="treeitem"
+        aria-expanded={expanded}
+        aria-selected={false}
+        tabIndex={0}
         onClick={() => onToggle(node.id)}
-        className="flex h-7 w-full min-w-0 items-center gap-1 px-2 text-left text-xs font-medium text-muted-foreground hover:bg-muted/60"
-        style={noDragStyle}
+        onKeyDown={event => {
+          if (event.key === 'Enter' || event.key === ' ') {
+            event.preventDefault()
+            onToggle(node.id)
+          }
+        }}
+        className="group flex h-7 w-full min-w-0 cursor-default items-center gap-1 px-2 text-left text-foreground outline-none hover:bg-[var(--hb-explorer-row-hover)] focus-visible:ring-1 focus-visible:ring-ring"
+        style={treeRowIndentStyle(depth)}
       >
-        {expanded ? <ChevronDown className="h-4.5 w-4.5 shrink-0" /> : <ChevronRight className="h-4.5 w-4.5 shrink-0" />}
-        <MaterialFileIcon name={node.name} kind="folder" expanded={expanded} className="h-4.5 w-4.5" />
-        <span className="min-w-0 truncate text-[12px] font-normal">{node.name}</span>
-      </button>
+        {expanded ? <ChevronDown className="h-4 w-4 shrink-0" /> : <ChevronRight className="h-4 w-4 shrink-0" />}
+        <MaterialFileIcon name={node.name} kind="folder" expanded={expanded} size={16} className="h-4 w-4 shrink-0" />
+        <span className="min-w-0 flex-1 truncate text-[13px]">{node.name}</span>
+        {showFolderActions ? (
+          <span className="hidden shrink-0 items-center gap-0.5 group-focus-within:flex group-hover:flex">
+            <TreeFolderHoverActions node={node} sectionId={sectionId} onFolderAction={onFolderAction} />
+          </span>
+        ) : null}
+      </div>
     </TreeDepthShell>
   )
 }
@@ -514,17 +706,15 @@ function VirtualSectionHeaderRow({
       onClick={() => onToggle(section.id)}
       className={cn(
         'sticky top-0 z-[1] flex h-7 w-full items-center gap-1.5 px-2 text-left text-xs font-semibold text-foreground transition-colors',
-        section.id === 'changes' || section.id === 'staged'
-          ? 'bg-muted/75 shadow-sm hover:bg-muted/85 dark:bg-muted/55 dark:hover:bg-muted/65'
-          : 'bg-muted/40 hover:bg-muted/50'
+        section.id === 'changes' || section.id === 'staged' ? 'bg-muted/75 shadow-sm hover:bg-muted/85 dark:bg-muted/55 dark:hover:bg-muted/65' : 'bg-muted/40 hover:bg-muted/50'
       )}
       style={noDragStyle}
       aria-expanded={expanded}
     >
       {expanded ? (
-        <ChevronDown className="h-4.5 w-4.5 shrink-0 text-muted-foreground transition-transform duration-200" />
+        <ChevronDown className="h-4 w-4 shrink-0 text-muted-foreground transition-transform duration-200" />
       ) : (
-        <ChevronRight className="h-4.5 w-4.5 shrink-0 text-muted-foreground transition-transform duration-200" />
+        <ChevronRight className="h-4 w-4 shrink-0 text-muted-foreground transition-transform duration-200" />
       )}
       <SectionHeaderTitle section={section} selectedIndices={selectedIndices} />
       {renderSectionHeaderCounts(section, files)}
@@ -559,11 +749,9 @@ export function DiffViewerFileTreePanel({
   splitStaging = false,
   showStageActions = false,
   disabled = false,
-  isRefreshing = false,
   stagingFooter,
   onSelectFile,
   onBulkAction,
-  onRefresh,
   showLocalIgnorePatterns = false,
   onOpenLocalIgnorePatterns,
   repoCwd,
@@ -576,8 +764,7 @@ export function DiffViewerFileTreePanel({
   useEffect(() => {
     setPathEntryKinds({})
   }, [repoRootKey])
-  const { viewMode, sortBy, groupByFolder, statusFilter, stagingChangesPanelSize, toggleViewMode, setSortBy, toggleGroupByFolder, setStatusFilter } =
-    useDiffViewerTreePanelPrefs()
+  const { viewMode, sortBy, groupByFolder, statusFilter, stagingChangesPanelSize, toggleViewMode, setSortBy, toggleGroupByFolder, setStatusFilter } = useDiffViewerTreePanelPrefs()
   const [selectedIndices, setSelectedIndices] = useState<Set<number>>(() => new Set())
   const [anchorIndex, setAnchorIndex] = useState<number | null>(null)
   const [expandedFolderIds, setExpandedFolderIds] = useState<Set<string>>(() => new Set())
@@ -732,10 +919,6 @@ export function DiffViewerFileTreePanel({
     onBulkAction('stage', selectedUnstagedIndices)
     clearSelection()
   }, [onBulkAction, selectedUnstagedIndices, clearSelection])
-
-  const handleRefresh = useCallback(() => {
-    void onRefresh?.()
-  }, [onRefresh])
 
   const copySelectedPaths = useCallback(async () => {
     const selected = selectedIndicesRef.current
@@ -939,6 +1122,18 @@ export function DiffViewerFileTreePanel({
     return resolveContextMenuIndices(selectedIndicesRef.current, nodeIndex)
   }, [])
 
+  /** Hover action on a single row/folder — acts on the given indices only, not the multi-selection. */
+  const handleRowAction = useCallback(
+    (action: DiffViewerFileTreeBulkAction, indices: number[]) => {
+      if (indices.length === 0) return
+      onBulkAction(action, indices)
+      if (action === 'stage' || action === 'unstage') {
+        clearSelection()
+      }
+    },
+    [onBulkAction, clearSelection]
+  )
+
   const flatView = viewMode === 'flat' && !groupByFolder
   const showTreeGuides = viewMode === 'tree'
 
@@ -961,9 +1156,10 @@ export function DiffViewerFileTreePanel({
   }, [])
 
   const renderTreeFileRow = useCallback(
-    (node: DiffFileTreeFileNode, sectionFlatIndices: number[], sectionId: DiffFileTreeSectionId) => (
+    (node: DiffFileTreeFileNode, depth: number, sectionFlatIndices: number[], sectionId: DiffFileTreeSectionId) => (
       <TreeFileRowItem
         node={node}
+        depth={depth}
         isActive={node.index === activeIndex}
         isSelected={selectedIndices.has(node.index)}
         flatView={flatView}
@@ -976,6 +1172,7 @@ export function DiffViewerFileTreePanel({
         onSelect={handleSelectFile}
         onContextMenuOpenChange={createContextMenuOpenChange}
         onContextMenuAction={runContextMenuBulkAction}
+        onRowAction={handleRowAction}
         repoRootKey={repoRootKey}
         pathEntryKinds={pathEntryKinds}
         onAddToLocalIgnore={onAddToLocalIgnore}
@@ -989,6 +1186,7 @@ export function DiffViewerFileTreePanel({
       files,
       flatView,
       getContextMenuIndices,
+      handleRowAction,
       handleSelectFile,
       onAddFolderToLocalIgnore,
       onAddToLocalIgnore,
@@ -1005,7 +1203,7 @@ export function DiffViewerFileTreePanel({
       if (row.kind === 'file') {
         return (
           <TreeDepthShell depth={row.depth} showGuides={showTreeGuides} className="h-6">
-            {renderTreeFileRow(row.node, sectionFlatIndices, sectionId)}
+            {renderTreeFileRow(row.node, row.depth, sectionFlatIndices, sectionId)}
           </TreeDepthShell>
         )
       }
@@ -1013,18 +1211,38 @@ export function DiffViewerFileTreePanel({
       if (row.kind === 'group') {
         return (
           <div className="h-7 min-w-0">
-            <TreeGroupRow node={row.node} depth={row.depth} showGuides={showTreeGuides} />
+            <TreeGroupRow
+              node={row.node}
+              depth={row.depth}
+              expanded={row.expanded}
+              showGuides={showTreeGuides}
+              sectionId={sectionId}
+              showStageActions={showStageActions}
+              interactionDisabled={disabled}
+              onToggle={handleToggleFolder}
+              onGroupAction={handleRowAction}
+            />
           </div>
         )
       }
 
       return (
         <div className="h-7 min-w-0">
-          <TreeFolderHeader node={row.node} depth={row.depth} expanded={row.expanded} showGuides={showTreeGuides} onToggle={handleToggleFolder} />
+          <TreeFolderHeader
+            node={row.node}
+            depth={row.depth}
+            expanded={row.expanded}
+            showGuides={showTreeGuides}
+            sectionId={sectionId}
+            showStageActions={showStageActions}
+            interactionDisabled={disabled}
+            onToggle={handleToggleFolder}
+            onFolderAction={handleRowAction}
+          />
         </div>
       )
     },
-    [handleToggleFolder, renderTreeFileRow, showTreeGuides]
+    [disabled, handleRowAction, handleToggleFolder, renderTreeFileRow, showStageActions, showTreeGuides]
   )
 
   const renderPanelVirtualRow = useCallback(
@@ -1068,11 +1286,16 @@ export function DiffViewerFileTreePanel({
 
     return (
       <ResizablePanelGroup orientation="vertical" className="min-h-0 flex-1" onLayoutChanged={handleTreeCommitLayoutChanged}>
-        <ResizablePanel id={STAGING_TREE_PANEL_ID} defaultSize={`${initialTreeSize}%`} minSize="15%" className="flex min-h-0 flex-col overflow-hidden bg-background/50 dark:bg-background/15">
+        <ResizablePanel
+          id={STAGING_TREE_PANEL_ID}
+          defaultSize={`${initialTreeSize}%`}
+          minSize="15%"
+          className="flex min-h-0 flex-col overflow-hidden bg-background/50 dark:bg-background/15"
+        >
           {accordionList}
         </ResizablePanel>
 
-        <ResizableHandle className="bg-transparent" withHandle={false} onPointerUp={flushTreePanelPersist} />
+        <ResizableHandle showGrip={false} className="bg-transparent" onPointerUp={flushTreePanelPersist} />
 
         <ResizablePanel
           id={STAGING_COMMIT_PANEL_ID}
@@ -1099,14 +1322,12 @@ export function DiffViewerFileTreePanel({
         canStageSelected={canStageSelected}
         canStageAll={unstagedIndices.length > 0}
         canUnstageAll={stagedIndices.length > 0}
-        isRefreshing={isRefreshing}
         onToggleViewMode={toggleViewMode}
         onSortByChange={setSortBy}
         onToggleGroupByFolder={toggleGroupByFolder}
         onStatusFilterChange={setStatusFilter}
         onCollapseAll={handleCollapseAll}
         onExpandAll={handleExpandAll}
-        onRefresh={handleRefresh}
         onStageSelected={handleStageSelected}
         onStageAll={handleStageAll}
         onUnstageAll={handleUnstageAll}

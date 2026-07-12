@@ -2,8 +2,6 @@ import type * as Monaco from 'monaco-editor'
 import type { EditorSettings } from '@/pages/editor/hooks/useEditorSettings'
 import { buildMonacoEditorOptions } from '@/pages/editor/lib/buildMonacoEditorOptions'
 
-export const EDITOR_SETTINGS_PREVIEW_HEIGHT = 'min(100%, 20rem)'
-
 function resolveEditorSettingsPreviewReadOnly(settings: EditorSettings): boolean {
   return !(settings.previewSampleLanguage === 'html' && settings.linkedEditing)
 }

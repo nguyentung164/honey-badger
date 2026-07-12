@@ -1,6 +1,5 @@
-import type * as Monaco from 'monaco-editor'
 import type { CSSProperties } from 'react'
-import { onAppMonacoBeforeMount, readAppMonacoPreviewColors, resolveAppMonacoThemeId } from '@/lib/monaco/appMonacoTheme'
+import { readAppMonacoPreviewColors } from '@/lib/monaco/appMonacoTheme'
 import { resolveFontWeightPreviewStyle, terminalLigatureCss } from '@/lib/terminal/terminalPrefs'
 import type { EditorPreviewSampleLanguage, EditorSettings } from '@/pages/editor/hooks/useEditorSettings'
 
@@ -129,21 +128,6 @@ export function resolveEditorPreviewMonacoLanguage(language: EditorPreviewSample
   if (language === 'markdown') return 'markdown'
   if (language === 'html') return 'html'
   return 'typescript'
-}
-
-/** Static sample for tests / fallbacks — uses 2-space indentation. */
-const PREVIEW_SAMPLE = buildEditorPreviewSample(2, true)
-
-export { PREVIEW_SAMPLE }
-
-/** @deprecated Themes register via onAppMonacoBeforeMount — kept for call-site compatibility. */
-export function ensureEditorMonacoThemes(monaco: typeof Monaco): void {
-  onAppMonacoBeforeMount(monaco)
-}
-
-/** Follow app appearance (Settings → Appearance). */
-export function resolveEditorMonacoTheme(appIsDark: boolean): string {
-  return resolveAppMonacoThemeId(appIsDark)
 }
 
 export function resolveEditorThemePreviewColors(appIsDark: boolean): EditorThemePreviewColors {

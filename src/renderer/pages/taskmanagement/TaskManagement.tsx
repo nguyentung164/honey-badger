@@ -77,6 +77,7 @@ import {
   PR_MANAGER_ACCENT_OUTLINE_SURFACE,
   PR_MANAGER_ACCENT_TITLEBAR_SURFACE,
 } from '@/pages/prmanager/prManagerButtonStyles'
+import type { ShellTabActiveProps } from 'shared/shellTabTypes'
 import { useAppearanceStoreSelect } from '@/stores/useAppearanceStore'
 import { useTaskAuthStore } from '@/stores/useTaskAuthStore'
 import type { ChartTask } from './chartDataUtils'
@@ -595,7 +596,7 @@ function filterWorkloadSegmentsByAssigneeSelection(segments: WorkloadBoardSegmen
   })
 }
 
-export function TaskManagement({ embedded = false }: { embedded?: boolean }) {
+export function TaskManagement({ embedded = false, shellTabActive = true }: { embedded?: boolean } & ShellTabActiveProps) {
   const { t } = useTranslation()
   const location = useLocation()
   const navigate = useNavigate()
@@ -3323,6 +3324,7 @@ export function TaskManagement({ embedded = false }: { embedded?: boolean }) {
                               taskLinks={ganttTaskLinks}
                               labels={taskGanttViewLabels}
                               onBoardLayoutEffectiveChange={setGanttBoardLayoutEffective}
+                              shellTabActive={shellTabActive}
                             />
                           )}
                           {taskView === 'calendar' && (

@@ -1,5 +1,11 @@
 import type { TerminalShellProfileId } from './shells'
 
+export type ShellIntegrationInjection = {
+  enabled: boolean
+  ps1ScriptPath?: string
+  nonce?: string
+}
+
 export type TerminalCreateOptions = {
   /** Stable terminal tab id (UUID). Reused for attach/revive across panel reloads. */
   id?: string
@@ -11,6 +17,10 @@ export type TerminalCreateOptions = {
   shouldPersist?: boolean
   /** Try attaching to an existing PTY with the same id before spawning. */
   attach?: boolean
+  /** When false, skip VS Code-style shell integration script injection. */
+  shellIntegrationEnabled?: boolean
+  /** Filled by main process before Pty Host spawn. */
+  shellIntegration?: ShellIntegrationInjection
 }
 
 export type TerminalCreateResult =

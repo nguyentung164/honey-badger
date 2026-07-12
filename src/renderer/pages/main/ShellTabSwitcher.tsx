@@ -6,7 +6,7 @@ import type { MainShellView } from 'shared/mainShellView'
 import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import { cn } from '@/lib/utils'
-import { SHELL_TAB_DEFS } from '@/lib/shellTabDefs'
+import { getShellTabsInOrder } from '@/lib/shellTabDefs'
 import { useAppearanceStoreSelect } from '@/stores/useAppearanceStore'
 import { SHELL_TAB_ICON_CLASS, SHELL_TAB_LABEL_CLASS, shellTabItemClass } from '@/pages/main/shellTabStyles'
 
@@ -31,9 +31,10 @@ export function ShellTabSwitcher({
 }: ShellTabSwitcherProps) {
   const { t } = useTranslation()
   const hiddenShellTabs = useAppearanceStoreSelect(s => s.hiddenShellTabs)
+  const shellTabOrder = useAppearanceStoreSelect(s => s.shellTabOrder)
 
   const tabs = useMemo(() => {
-    return SHELL_TAB_DEFS.filter(tab => {
+    return getShellTabsInOrder(shellTabOrder).filter(tab => {
       if (hiddenShellTabs.includes(tab.value)) return false
       if (tab.value === 'tasks') return !tasksDetached
       if (tab.value === 'prManager') return !prManagerDetached
@@ -42,7 +43,7 @@ export function ShellTabSwitcher({
       if (tab.value === 'showLog') return !showLogDetached
       return true
     })
-  }, [automationDetached, devPipelinesDetached, hiddenShellTabs, prManagerDetached, showLogDetached, tasksDetached])
+  }, [automationDetached, devPipelinesDetached, hiddenShellTabs, prManagerDetached, shellTabOrder, showLogDetached, tasksDetached])
 
   return (
     <ToggleGroup

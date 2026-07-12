@@ -131,7 +131,7 @@ export function PrManager({ embedded = false }: PrManagerProps) {
         {embedded && portal.host ? createPortal(topBar, portal.host) : null}
         {!embedded ? topBar : null}
 
-        <div className="relative flex min-h-0 flex-1 flex-col overflow-hidden p-3">
+        <div className="relative flex min-h-0 flex-1 flex-col overflow-hidden p-3 border-t">
           {!projectId ? (
             <div className="flex flex-1 items-center justify-center text-sm text-muted-foreground">{t('prManager.shell.selectProjectHint')}</div>
           ) : (

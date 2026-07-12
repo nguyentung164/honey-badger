@@ -98,11 +98,6 @@ export function buildExplorerFileStatusMap(data: GitStatusPayload): Map<string, 
   return map
 }
 
-function isUnderFolder(filePath: string, folderPath: string): boolean {
-  if (folderPath === '') return true
-  return filePath === folderPath || filePath.startsWith(`${folderPath}/`)
-}
-
 /** Folder labels — no strikethrough (VS Code only strikes deleted files, not parents). */
 export const EXPLORER_GIT_FOLDER_LABEL_CLASS: Record<GitFileStatusCode, string> = {
   modified: 'text-[var(--hb-git-modified)]',
@@ -114,18 +109,59 @@ export const EXPLORER_GIT_FOLDER_LABEL_CLASS: Record<GitFileStatusCode, string> 
   conflicted: 'text-[var(--hb-git-conflicted)]',
 }
 
+/** Precomputed folder → aggregated status index, keyed by status-map identity (root under ''). */
+const folderIndexByStatusMap = new WeakMap<Map<string, GitFileStatusCode>, Map<string, GitFileStatusCode>>()
+
+/**
+ * Build once per git-status refresh: for each changed file, walk parent segments and
+ * merge with `pickHigherStatus`. Folder row lookup becomes O(1) instead of scanning
+ * the whole status map per visible row.
+ */
+function buildFolderStatusIndex(fileStatuses: Map<string, GitFileStatusCode>): Map<string, GitFileStatusCode> {
+  const index = new Map<string, GitFileStatusCode>()
+  for (const [filePath, status] of fileStatuses) {
+    // VS Code: Resource.resourceDecoration sets propagate=false for DELETED/INDEX_DELETED.
+    if (status === 'deleted') continue
+    let slash = filePath.lastIndexOf('/')
+    let done = false
+    while (slash > 0 && !done) {
+      const folder = filePath.slice(0, slash)
+      const existing = index.get(folder) ?? null
+      const merged = pickHigherStatus(existing, status)
+      // Ancestors always rank >= descendants (every contribution walks the full chain),
+      // so once a folder already covers this status the rest of the chain does too.
+      if (merged === existing) {
+        done = true
+        break
+      }
+      index.set(folder, merged)
+      slash = filePath.lastIndexOf('/', slash - 1)
+    }
+    if (!done) {
+      const rootMerged = pickHigherStatus(index.get('') ?? null, status)
+      if (rootMerged !== (index.get('') ?? null)) index.set('', rootMerged)
+    }
+  }
+  return index
+}
+
+function getFolderStatusIndex(fileStatuses: Map<string, GitFileStatusCode>): Map<string, GitFileStatusCode> {
+  const cached = folderIndexByStatusMap.get(fileStatuses)
+  if (cached) return cached
+  const index = buildFolderStatusIndex(fileStatuses)
+  folderIndexByStatusMap.set(fileStatuses, index)
+  return index
+}
+
 export function resolveFolderGitStatus(
   folderPath: string,
   fileStatuses: Map<string, GitFileStatusCode>
 ): GitFileStatusCode | null {
-  let best: GitFileStatusCode | null = null
-  for (const [filePath, status] of fileStatuses) {
-    if (!isUnderFolder(filePath, folderPath)) continue
-    // VS Code: Resource.resourceDecoration sets propagate=false for DELETED/INDEX_DELETED.
-    if (filePath !== folderPath && status === 'deleted') continue
-    best = pickHigherStatus(best, status)
-  }
-  return best
+  const fromDescendants = getFolderStatusIndex(fileStatuses).get(folderPath) ?? null
+  // A status entry exactly at the folder path (e.g. a deleted file where a folder now is)
+  // still applies directly — mirrors the old scan's `filePath === folderPath` case.
+  const direct = fileStatuses.get(folderPath)
+  return direct ? pickHigherStatus(fromDescendants, direct) : fromDescendants
 }
 
 export function resolveExplorerGitStatus(

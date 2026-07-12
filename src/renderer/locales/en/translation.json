@@ -395,7 +395,13 @@
       "formatDocumentNotReady": "Language service is not ready yet. Try again in a moment.",
       "formatDocumentNoAction": "No formatter is available for this file.",
       "formatDocumentNotSupported": "Formatting is not supported for this file type.",
-      "formatDocumentFailed": "Could not format document."
+      "formatDocumentFailed": "Could not format document.",
+      "goToSourceDefinition": "Go to Source Definition",
+      "findingSourceDefinitions": "Finding source definitions…",
+      "goToSourceDefinitionNoEditor": "Go to Source Definition failed. No editor is active.",
+      "goToSourceDefinitionUnsupported": "Go to Source Definition failed. Unsupported file type.",
+      "goToSourceDefinitionNotFound": "No source definitions found.",
+      "definitionResolveFailed": "Could not resolve module \"{{specifier}}\" to a file path."
     },
     "settings": {
       "title": "Editor settings",
@@ -441,6 +447,8 @@
       "codeLensHint": "Inline actions above symbols (e.g. references count, run test).",
       "inlayHints": "Inlay hints",
       "inlayHintsHint": "Inline parameter names, types, and return types from the language service.",
+      "preferGoToSourceDefinition": "Prefer go to source definition",
+      "preferGoToSourceDefinitionHint": "When enabled, go to definition navigates to implementation files instead of type declarations (.d.ts).",
       "smoothScrolling": "Smooth scrolling",
       "scrollBeyondLastLine": "Scroll beyond last line",
       "cursorBlink": "Blinking cursor",
@@ -2488,7 +2496,9 @@
     "developerModeDescription": "Enable F12 to open DevTools on all windows",
     "shellTabs": {
       "title": "Title Bar Tabs",
-      "description": "Choose which tabs appear on the title bar.",
+      "description": "Choose which tabs appear on the title bar and drag to reorder them.",
+      "orderHint": "Drag to reorder tabs on the title bar.",
+      "dragHandle": "Drag to reorder",
       "lastVisibleHint": "Keep at least one tab visible"
     },
     "tab": {

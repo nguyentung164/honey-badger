@@ -5,8 +5,8 @@ import { memo } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
-import type { EditorExplorerSectionId } from '@/pages/editor/hooks/useEditorExplorerSectionPrefs'
 import { EXPLORER_SECTION_HEADER_HEIGHT } from '@/pages/editor/explorer/explorerSectionRows'
+import type { EditorExplorerSectionId } from '@/pages/editor/hooks/useEditorExplorerSectionPrefs'
 
 type EditorExplorerSectionHeaderProps = {
   sectionId: EditorExplorerSectionId
@@ -28,10 +28,7 @@ export const EditorExplorerSectionHeader = memo(function EditorExplorerSectionHe
   onCloseAll,
 }: EditorExplorerSectionHeaderProps) {
   const { t } = useTranslation()
-  const defaultLabel =
-    sectionId === 'open-editors'
-      ? t('editor.openEditors')
-      : t('editor.workspace')
+  const defaultLabel = sectionId === 'open-editors' ? t('editor.openEditors') : t('editor.workspace')
   const displayLabel = label ?? defaultLabel
 
   return (
@@ -44,18 +41,11 @@ export const EditorExplorerSectionHeader = memo(function EditorExplorerSectionHe
     >
       <button
         type="button"
-        className={cn(
-          'flex min-w-0 flex-1 items-center gap-1 px-1 hover:bg-muted/60',
-          isActiveFolder && 'text-primary'
-        )}
+        className={cn('flex min-w-0 flex-1 items-center gap-1 px-1', isActiveFolder && 'text-primary')}
         onClick={() => onToggle(sectionId)}
         aria-expanded={expanded}
       >
-        {expanded ? (
-          <ChevronDown className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
-        ) : (
-          <ChevronRight className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
-        )}
+        {expanded ? <ChevronDown className="h-3.5 w-3.5 shrink-0 text-muted-foreground" /> : <ChevronRight className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />}
         <span className="truncate">{displayLabel}</span>
         {count != null && count > 0 ? <span className="text-muted-foreground">({count})</span> : null}
       </button>
@@ -64,7 +54,7 @@ export const EditorExplorerSectionHeader = memo(function EditorExplorerSectionHe
           type="button"
           variant="ghost"
           size="sm"
-          className="h-6 shrink-0 px-1.5 text-[10px] font-normal normal-case"
+          className="h-6 shrink-0 px-1.5 text-[11px] font-bold text-red-400"
           onClick={e => {
             e.stopPropagation()
             onCloseAll()

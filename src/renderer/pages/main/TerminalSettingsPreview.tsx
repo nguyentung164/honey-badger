@@ -1,3 +1,4 @@
+import { Eraser, Loader, Plus, RotateCcw, Settings2, X } from 'lucide-react'
 import { useEffect, useMemo } from 'react'
 import { useTranslation } from 'react-i18next'
 import { TERMINAL_SHELL_PROFILE_LABEL_KEYS, type TerminalShellProfileId } from 'shared/terminal/shells'
@@ -14,6 +15,7 @@ import {
 import { buildXtermThemeForPrefs, getTerminalThemeColors } from '@/lib/terminal/xtermTheme'
 import { SETTINGS_FONT_MICRO, SettingsPreviewHintChips } from '@/components/settings/settingsDialogUi'
 import { cn } from '@/lib/utils'
+import { TerminalShellTabIcon } from '@/pages/main/TerminalShellTabIcon'
 import {
   collectAllTerminalSettingsPreviewBehaviorHints,
   collectTerminalSettingsPreviewBehaviorHints,
@@ -37,16 +39,9 @@ function resolvePreviewShellLabel(shellId: TerminalShellProfileId, t: (key: stri
   return t(TERMINAL_SHELL_PROFILE_LABEL_KEYS[shellId])
 }
 
-function resolvePreviewPrompt(shellId: TerminalShellProfileId, cwd: string): { accent: 'ps' | 'path' } {
-  void cwd
-  void shellId
-  return shellId === 'cmd' ? { accent: 'path' } : { accent: 'ps' }
-}
-
 function resolvePreviewCursorColor(prefs: TerminalPrefs): string {
-  const colors = getTerminalThemeColors()
   const theme = buildXtermThemeForPrefs(prefs.cursorColorMode, prefs.cursorColor, prefs.cursorStyle)
-  return theme.cursor ?? colors.cursor
+  return theme.cursor ?? getTerminalThemeColors().cursor
 }
 
 function resolvePreviewHeaderMeta(
@@ -75,6 +70,52 @@ function resolvePreviewHeaderMeta(
   return tabTitle
 }
 
+type TerminalSettingsPreviewTabProps = {
+  shellId: TerminalShellProfileId
+  label: string
+  active: boolean
+  running: boolean
+}
+
+function TerminalSettingsPreviewTab({ shellId, label, active, running }: TerminalSettingsPreviewTabProps) {
+  return (
+    <div
+      className={cn(
+        'group flex h-6 max-w-[11rem] shrink-0 items-center gap-0.5 rounded-sm pl-2 pr-1 text-xs',
+        running
+          ? active
+            ? 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400'
+            : 'text-emerald-600/90 dark:text-emerald-400/90'
+          : active
+            ? 'bg-muted text-foreground'
+            : 'text-muted-foreground'
+      )}
+      aria-current={active ? 'true' : undefined}
+    >
+      <span
+        className={cn('min-w-0 flex-1 truncate text-left', running && 'text-emerald-600 dark:text-emerald-400')}
+        title={label}
+      >
+        {label}
+      </span>
+      <div className="relative flex h-5 w-5 shrink-0 items-center justify-center">
+        {running ? (
+          <span className="pointer-events-none absolute inset-0 flex items-center justify-center" aria-hidden>
+            <Loader className="size-3 animate-spin text-emerald-600 dark:text-emerald-400" />
+          </span>
+        ) : (
+          <span className="pointer-events-none absolute inset-0 flex items-center justify-center" aria-hidden>
+            <TerminalShellTabIcon shellProfileId={shellId} />
+          </span>
+        )}
+        <span className="flex h-full w-full items-center justify-center p-0.5 opacity-0" aria-hidden>
+          <X className="size-3 text-red-500 dark:text-red-400" />
+        </span>
+      </div>
+    </div>
+  )
+}
+
 export type TerminalSettingsPreviewProps = {
   prefs: TerminalPrefs
   scope: TerminalSettingsPreviewScope
@@ -101,7 +142,6 @@ export function TerminalSettingsPreview({ prefs, scope, cursorRef, className }: 
     shellLabel,
     cwd,
   })
-  const prompt = resolvePreviewPrompt(prefs.defaultShellProfileId, cwd)
   const cursorColor = useMemo(() => resolvePreviewCursorColor(prefs), [prefs, appAppearanceKey])
   const behaviorHints = useMemo(
     () =>
@@ -112,68 +152,66 @@ export function TerminalSettingsPreview({ prefs, scope, cursorRef, className }: 
   )
   const headerMeta = resolvePreviewHeaderMeta(prefs, t, scope, tabTitle)
   const previewTabs = prefs.reviveTabsOnLaunch ? PREVIEW_RESTORED_TABS : [prefs.defaultShellProfileId]
+  const previewRunning = prefs.enableShellIntegration
+  const isCmdShell = prefs.defaultShellProfileId === 'cmd'
 
   useEffect(() => {
     cursorRef?.current?.style.setProperty('--terminal-cursor-color', cursorColor)
   }, [cursorColor, cursorRef])
 
   return (
-    <div className={cn('flex h-full min-h-[18rem] flex-col overflow-hidden rounded-md border border-border/60 shadow-sm', className)} style={{ backgroundColor: colors.background }}>
-      <div
-        className="flex shrink-0 items-center justify-between border-b px-2.5 py-1"
-        style={{
-          borderColor: `${colors.foreground}18`,
-          backgroundColor: `${colors.foreground}08`,
-        }}
-      >
-        <span className={cn(SETTINGS_FONT_MICRO, 'font-medium uppercase tracking-wider')} style={{ color: `${colors.foreground}70` }}>
+    <div className={cn('flex h-full min-h-[18rem] flex-col overflow-hidden rounded-md border border-border/60 bg-background shadow-sm', className)}>
+      <div className="flex shrink-0 items-center justify-between border-b border-border/50 bg-muted/10 px-2.5 py-1">
+        <span className={cn(SETTINGS_FONT_MICRO, 'font-medium uppercase tracking-wider text-muted-foreground')}>
           {t('terminal.settings.preview')}
         </span>
-        <span className={cn('max-w-[65%] truncate text-right tabular-nums', SETTINGS_FONT_MICRO)} style={{ color: `${colors.foreground}55` }}>
+        <span className={cn('max-w-[65%] truncate text-right tabular-nums text-muted-foreground/80', SETTINGS_FONT_MICRO)}>
           {headerMeta}
         </span>
       </div>
 
-      <div
-        className="flex shrink-0 items-center gap-1 overflow-x-auto border-b px-1 py-0.5"
-        style={{
-          borderColor: `${colors.foreground}12`,
-          backgroundColor: `${colors.foreground}05`,
-        }}
-      >
-        {previewTabs.map(shellId => {
-          const label = resolveTerminalTabTitle({
-            mode: prefs.tabTitleMode,
-            customTitle: prefs.tabTitleCustom,
-            shellLabel: resolvePreviewShellLabel(shellId, t),
-            cwd,
-          })
-          const active = shellId === prefs.defaultShellProfileId
-          return (
-            <div
-              key={shellId}
-              className={cn(
-                'flex max-w-[8rem] shrink-0 items-center rounded-sm px-1.5 py-0.5',
-                SETTINGS_FONT_MICRO,
-                active ? 'ring-1' : 'opacity-70'
-              )}
-              style={
-                active
-                  ? {
-                      color: colors.foreground,
-                      backgroundColor: `${colors.foreground}10`,
-                      boxShadow: `inset 0 0 0 1px ${colors.foreground}22`,
-                    }
-                  : { color: `${colors.foreground}88` }
-              }
-            >
-              <span className="truncate">{label}</span>
-              {prefs.enableShellIntegration && active ? (
-                <span className="ml-1 shrink-0 opacity-70">{t('terminal.shellIntegration.running')}</span>
-              ) : null}
-            </div>
-          )
-        })}
+      <div className="flex h-8 shrink-0 items-center gap-1 border-b border-border/60 px-1">
+        <div className="flex min-w-0 flex-1 items-center gap-0.5 overflow-x-auto">
+          {previewTabs.map(shellId => {
+            const active = shellId === prefs.defaultShellProfileId
+            const label = resolveTerminalTabTitle({
+              mode: prefs.tabTitleMode,
+              customTitle: prefs.tabTitleCustom,
+              shellLabel: resolvePreviewShellLabel(shellId, t),
+              cwd,
+            })
+            return (
+              <TerminalSettingsPreviewTab
+                key={shellId}
+                shellId={shellId}
+                label={label}
+                active={active}
+                running={active && previewRunning}
+              />
+            )
+          })}
+          <span
+            className="inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-sm text-muted-foreground"
+            aria-hidden
+          >
+            <Plus className="size-3.5" />
+          </span>
+        </div>
+
+        <div className="flex shrink-0 items-center gap-0.5 border-l border-border/40 pl-1 text-muted-foreground">
+          <span className="inline-flex h-6 w-6 items-center justify-center" aria-hidden>
+            <Settings2 className="size-3.5" />
+          </span>
+          <span className="inline-flex h-6 px-1.5 items-center justify-center" aria-hidden>
+            <Eraser className="size-3" />
+          </span>
+          <span className="inline-flex h-6 px-1.5 items-center justify-center" aria-hidden>
+            <RotateCcw className="size-3" />
+          </span>
+          <span className="inline-flex h-6 px-1.5 items-center justify-center" aria-hidden>
+            <X className="size-3.5" />
+          </span>
+        </div>
       </div>
 
       <pre
@@ -186,12 +224,13 @@ export function TerminalSettingsPreview({ prefs, scope, cursorRef, className }: 
             fontVariationSettings: weightStyle.fontVariationSettings,
             fontSynthesis: weightStyle.fontSynthesis,
             lineHeight: prefs.lineHeight,
+            backgroundColor: colors.background,
             color: colors.foreground,
             ...ligatureCss,
           } as React.CSSProperties
         }
       >
-        {prompt.accent === 'ps' ? (
+        {!isCmdShell ? (
           <>
             <span style={{ color: colors.cyan }}>PS</span> <span style={{ color: colors.yellow }}>{cwd}</span>
             <span style={{ color: colors.brightBlack }}>{'>'} </span>
@@ -238,10 +277,7 @@ export function TerminalSettingsPreview({ prefs, scope, cursorRef, className }: 
         />
       </pre>
 
-      <SettingsPreviewHintChips
-        hints={behaviorHints}
-        style={{ borderColor: `${colors.foreground}12` } as React.CSSProperties}
-      />
+      <SettingsPreviewHintChips hints={behaviorHints} className="border-border/50" />
     </div>
   )
 }

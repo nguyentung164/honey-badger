@@ -1,41 +1,38 @@
 'use client'
 
 import type * as Monaco from 'monaco-editor'
-import { lazy, Suspense, useCallback, useEffect, useRef } from 'react'
+import { useCallback, useEffect, useRef } from 'react'
 import { useTranslation } from 'react-i18next'
-import { GlowLoader } from '@/components/ui-elements/GlowLoader'
-import type { GitFileStatusCode } from '@/components/git/GitFileStatusBadge'
 import type { CodeEditorHandle } from '@/components/code/CodeEditor'
+import type { GitFileStatusCode } from '@/components/git/GitFileStatusBadge'
+import { GlowLoader } from '@/components/ui-elements/GlowLoader'
+import { languageIdForLsp } from '@/lib/monacoLanguage'
 import { EditorComparePane } from '@/pages/editor/editor-area/EditorComparePane'
 import { EditorEmptyState } from '@/pages/editor/editor-area/EditorEmptyState'
 import { EditorMonacoHost } from '@/pages/editor/editor-area/EditorMonacoHost'
-import { languageIdForLsp } from '@/lib/monacoLanguage'
-import { editorCommandBridge, type EditorCursorPosition } from '@/pages/editor/lib/editorCommandBridge'
+import { useEditorMonacoSettings } from '@/pages/editor/hooks/useEditorSettings'
+import { useActiveEditorTab } from '@/pages/editor/hooks/useEditorTabSelectors'
+import { useEditorWorkspace } from '@/pages/editor/hooks/useEditorWorkspace'
+import { useLazyEditorLsp } from '@/pages/editor/hooks/useLazyEditorLsp'
+import { editorCommandBridge } from '@/pages/editor/lib/editorCommandBridge'
+import { setEditorCursorPosition } from '@/pages/editor/lib/editorCursorStore'
+import { syncOpenTabKeys } from '@/pages/editor/lib/editorModelRegistry'
+import type { EditorTabKind } from '@/pages/editor/lib/editorWorkspaceTypes'
 import { registerEditorGitScm } from '@/pages/editor/lib/registerEditorGitScm'
 import { registerEditorKeybindings } from '@/pages/editor/lib/registerEditorKeybindings'
-import { useEditorMonacoSettings } from '@/pages/editor/hooks/useEditorSettings'
-import { syncOpenTabKeys } from '@/pages/editor/lib/editorModelRegistry'
-import { useActiveEditorTab } from '@/pages/editor/hooks/useEditorTabSelectors'
-import { useLazyEditorLsp } from '@/pages/editor/hooks/useLazyEditorLsp'
-import { useEditorWorkspace } from '@/pages/editor/hooks/useEditorWorkspace'
-import type { EditorTabKind } from '@/pages/editor/lib/editorWorkspaceTypes'
+import type { ShellTabActiveProps } from 'shared/shellTabTypes'
 import { editorLanguageService, type FormatDocumentResult, type OrganizeImportsResult } from '@/pages/editor/lsp/EditorLanguageService'
 
-const LazyEditorMonacoHost = lazy(() =>
-  Promise.resolve({ default: EditorMonacoHost })
-)
-
-type EditorTabPaneProps = {
+type EditorTabPaneProps = ShellTabActiveProps & {
   activeTabId: string | null
   repoCwd: string
   getGitStatus?: (relativePath: string) => GitFileStatusCode | null
   onSyncDirty: (tabId: string, alternativeVersionId: number) => void
-  onCursorChange?: (position: EditorCursorPosition | null) => void
   onOrganizeImportsResult?: (result: OrganizeImportsResult) => void
   onFormatDocumentResult?: (result: FormatDocumentResult) => void
 }
 
-export function EditorTabPane({ activeTabId, repoCwd, getGitStatus, onSyncDirty, onCursorChange, onOrganizeImportsResult, onFormatDocumentResult }: EditorTabPaneProps) {
+export function EditorTabPane({ activeTabId, repoCwd, getGitStatus, onSyncDirty, onOrganizeImportsResult, onFormatDocumentResult, shellTabActive = true }: EditorTabPaneProps) {
   const { t } = useTranslation()
   const tab = useActiveEditorTab(activeTabId)
   const editorRef = useRef<CodeEditorHandle>(null)
@@ -122,7 +119,7 @@ export function EditorTabPane({ activeTabId, repoCwd, getGitStatus, onSyncDirty,
   }, [])
 
   useEffect(() => {
-    if (!tab || tab.kind !== 'text' || !tab.contentLoaded) return
+    if (tab?.kind !== 'text' || !tab.contentLoaded) return
     return registerBridge()
   }, [tab?.id, tab?.kind, tab?.contentLoaded, registerBridge])
 
@@ -146,11 +143,8 @@ export function EditorTabPane({ activeTabId, repoCwd, getGitStatus, onSyncDirty,
   getGitStatusRef.current = getGitStatus
 
   const tabRoot = tab?.repoRoot?.trim() || repoCwd
-  const lspTab =
-    tab && tab.kind === 'text'
-      ? { relativePath: tab.relativePath, languageId: tab.languageId, contentLoaded: tab.contentLoaded }
-      : null
-  const { onEditorMount, onLspContentChange, onLspModelChange } = useLazyEditorLsp(tabRoot, lspTab)
+  const lspTab = tab && tab.kind === 'text' ? { relativePath: tab.relativePath, languageId: tab.languageId, contentLoaded: tab.contentLoaded } : null
+  const { onEditorMount, onLspModelChange } = useLazyEditorLsp(tabRoot, lspTab, shellTabActive)
 
   const handleEditorMount = useCallback(
     (editor: Monaco.editor.IStandaloneCodeEditor, monaco: typeof Monaco) => {
@@ -172,11 +166,9 @@ export function EditorTabPane({ activeTabId, repoCwd, getGitStatus, onSyncDirty,
           const meta = tabMetaRef.current
           if (!languageIdForLsp(meta.languageId)) return
           const { tabSize, insertSpaces } = editorSettingsRef.current
-          void editorLanguageService
-            .formatDocument(meta.relativePath, meta.languageId, { tabSize, insertSpaces })
-            .then(result => {
-              onFormatDocumentResultRef.current?.(result)
-            })
+          void editorLanguageService.formatDocument(meta.relativePath, meta.languageId, { tabSize, insertSpaces }).then(result => {
+            onFormatDocumentResultRef.current?.(result)
+          })
         },
         onOrganizeImports: () => {
           const meta = tabMetaRef.current
@@ -235,11 +227,7 @@ export function EditorTabPane({ activeTabId, repoCwd, getGitStatus, onSyncDirty,
   }
 
   if (tab.kind !== 'text') {
-    return (
-      <div className="flex h-full items-center justify-center p-6 text-sm text-muted-foreground">
-        {t('editor.binaryNotEditable', { path: tab.relativePath })}
-      </div>
-    )
+    return <div className="flex h-full items-center justify-center p-6 text-sm text-muted-foreground">{t('editor.binaryNotEditable', { path: tab.relativePath })}</div>
   }
 
   const showLoader = tab.isLoading || !tab.contentLoaded
@@ -251,27 +239,19 @@ export function EditorTabPane({ activeTabId, repoCwd, getGitStatus, onSyncDirty,
           <GlowLoader className="h-10 w-10" />
         </div>
       ) : null}
-      <Suspense
-        fallback={
-          <div className="flex h-full items-center justify-center">
-            <GlowLoader className="h-10 w-10" />
-          </div>
-        }
-      >
-        <LazyEditorMonacoHost
-          ref={editorRef}
-          repoCwd={activeTabRoot}
-          tabId={tab.id}
-          relativePath={tab.relativePath}
-          contentLoaded={tab.contentLoaded}
-          loadGeneration={tab.loadGeneration}
-          revealAt={tab.reveal}
-          onChange={handleChange}
-          onCursorChange={onCursorChange}
-          onMount={handleEditorMount}
-          className="h-full min-h-0"
-        />
-      </Suspense>
+      <EditorMonacoHost
+        ref={editorRef}
+        repoCwd={activeTabRoot}
+        tabId={tab.id}
+        relativePath={tab.relativePath}
+        contentLoaded={tab.contentLoaded}
+        revealAt={tab.reveal}
+        onChange={handleChange}
+        onCursorChange={setEditorCursorPosition}
+        onMount={handleEditorMount}
+        shellTabActive={shellTabActive}
+        className="h-full min-h-0"
+      />
     </div>
   )
 }

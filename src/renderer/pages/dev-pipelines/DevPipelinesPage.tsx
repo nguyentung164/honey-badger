@@ -2397,7 +2397,6 @@ export default function DevPipelinesPage({ mode = 'standalone' }: DevPipelinesPa
         orientation="horizontal"
         className="min-h-0 flex-1"
         defaultLayout={initialPanelLayout}
-        resizeTargetMinimumSize={{ coarse: 37, fine: 27 }}
         onLayoutChanged={layout => {
           const sidebar = layout['dev-pipeline-sidebar']
           if (typeof sidebar === 'number') {
@@ -2433,7 +2432,7 @@ export default function DevPipelinesPage({ mode = 'standalone' }: DevPipelinesPa
             onClickTemplate={(id, kind) => addFromTemplateFnRef.current(id, kind)}
           />
         </ResizablePanel>
-        <ResizableHandle className="z-20 after:w-2" />
+        <ResizableHandle showGrip={false} className="z-20 bg-transparent after:w-2" />
         <ResizablePanel id="dev-pipeline-canvas" minSize="35%" className="flex min-h-0 min-w-0 flex-1 flex-col">
           <ReactFlowProvider>
             <DevPipelinesEditorInner

@@ -1,5 +1,6 @@
 import { useCallback, useRef } from 'react'
 import { useEditorWorkspace } from '@/pages/editor/hooks/useEditorWorkspace'
+import { beginCloseEditorsBatch, endCloseEditorsBatch } from '@/pages/editor/lib/editorClosedTabsHistory'
 
 export type EditorCloseConfirmState = {
   tabId: string
@@ -17,6 +18,14 @@ type UseEditorTabCloseQueueOptions = {
 
 export function useEditorTabCloseQueue({ closeTab, setCloseConfirm }: UseEditorTabCloseQueueOptions) {
   const pendingCloseIdsRef = useRef<string[]>([])
+  const closeBatchActiveRef = useRef(false)
+
+  const finishCloseBatchIfIdle = useCallback(() => {
+    if (pendingCloseIdsRef.current.length === 0 && closeBatchActiveRef.current) {
+      endCloseEditorsBatch()
+      closeBatchActiveRef.current = false
+    }
+  }, [])
 
   const drainCloseQueue = useCallback(() => {
     const queue = pendingCloseIdsRef.current
@@ -38,12 +47,17 @@ export function useEditorTabCloseQueue({ closeTab, setCloseConfirm }: UseEditorT
       closeTab(tabId)
       queue.shift()
     }
-  }, [closeTab, setCloseConfirm])
+    finishCloseBatchIfIdle()
+  }, [closeTab, finishCloseBatchIfIdle, setCloseConfirm])
 
   const requestCloseTabs = useCallback(
     (tabIds: readonly string[]) => {
       const unique = [...new Set(tabIds)].filter(id => useEditorWorkspace.getState().tabs.some(t => t.id === id))
       if (unique.length === 0) return
+      if (!closeBatchActiveRef.current) {
+        beginCloseEditorsBatch()
+        closeBatchActiveRef.current = true
+      }
       pendingCloseIdsRef.current = unique
       drainCloseQueue()
     },
@@ -59,6 +73,10 @@ export function useEditorTabCloseQueue({ closeTab, setCloseConfirm }: UseEditorT
 
   const clearCloseQueue = useCallback(() => {
     pendingCloseIdsRef.current = []
+    if (closeBatchActiveRef.current) {
+      endCloseEditorsBatch()
+      closeBatchActiveRef.current = false
+    }
   }, [])
 
   return {

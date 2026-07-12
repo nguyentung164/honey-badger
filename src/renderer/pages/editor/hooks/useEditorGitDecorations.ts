@@ -1,15 +1,8 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import type { GitFileStatusCode } from '@/components/git/GitFileStatusBadge'
-import {
-  buildExplorerFileStatusMap,
-  resolveExplorerGitStatus,
-  type GitStatusPayload,
-} from '@/pages/editor/explorer/explorerGitDecorations'
+import { buildExplorerFileStatusMap, type GitStatusPayload, resolveExplorerGitStatus } from '@/pages/editor/explorer/explorerGitDecorations'
 
-function gitStatusMapsEqual(
-  left: Map<string, GitFileStatusCode>,
-  right: Map<string, GitFileStatusCode>
-): boolean {
+function gitStatusMapsEqual(left: Map<string, GitFileStatusCode>, right: Map<string, GitFileStatusCode>): boolean {
   if (left.size !== right.size) return false
   for (const [path, status] of left) {
     if (right.get(path) !== status) return false
@@ -17,11 +10,7 @@ function gitStatusMapsEqual(
   return true
 }
 
-function openTabPathsChanged(
-  prev: Map<string, GitFileStatusCode>,
-  next: Map<string, GitFileStatusCode>,
-  openTabPaths: readonly string[]
-): boolean {
+function openTabPathsChanged(prev: Map<string, GitFileStatusCode>, next: Map<string, GitFileStatusCode>, openTabPaths: readonly string[]): boolean {
   for (const path of openTabPaths) {
     if (prev.get(path) !== next.get(path)) return true
   }
@@ -49,8 +38,7 @@ export function useEditorGitDecorations(repoCwd: string, options: UseEditorGitDe
     const prev = fileStatusesRef.current
     if (gitStatusMapsEqual(prev, next)) return
     fileStatusesRef.current = next
-    const shouldRender =
-      explorerActiveRef.current || openTabPathsChanged(prev, next, openTabPathsRef.current)
+    const shouldRender = explorerActiveRef.current || openTabPathsChanged(prev, next, openTabPathsRef.current)
     if (shouldRender) setFileStatuses(next)
   }, [])
 
@@ -103,10 +91,7 @@ export function useEditorGitDecorations(repoCwd: string, options: UseEditorGitDe
     setFileStatuses(fileStatusesRef.current)
   }, [explorerActive, openTabPaths.join('\0')])
 
-  const getGitStatus = useCallback(
-    (relativePath: string, isDir: boolean) => resolveExplorerGitStatus(relativePath, isDir, fileStatusesRef.current),
-    [fileStatuses]
-  )
+  const getGitStatus = useCallback((relativePath: string, isDir: boolean) => resolveExplorerGitStatus(relativePath, isDir, fileStatusesRef.current), [fileStatuses])
 
   return { fileStatuses, getGitStatus, refreshGitDecorations }
 }

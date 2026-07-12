@@ -4,7 +4,7 @@ import path from 'node:path'
 import * as pty from 'node-pty'
 import type { IPty } from 'node-pty'
 import { defaultShellProfileId, resolveShellForProfile } from 'main/terminal/shells'
-import { resolveShellArgs } from 'main/terminal/shellInit'
+import { resolveShellLaunch } from 'main/terminal/shellInit'
 import type { TerminalCreateOptions } from 'shared/terminal/types'
 
 export type TerminalProcessCallbacks = {
@@ -12,7 +12,7 @@ export type TerminalProcessCallbacks = {
   onExit: (exitCode: number, signal?: number) => void
 }
 
-function buildTerminalEnv(): Record<string, string> {
+function buildTerminalEnv(envMixin: Record<string, string> = {}): Record<string, string> {
   const env = { ...process.env } as Record<string, string>
   delete env.NO_COLOR
   delete env.CI
@@ -20,13 +20,15 @@ function buildTerminalEnv(): Record<string, string> {
 
   return {
     ...env,
+    ...envMixin,
     TERM: 'xterm-256color',
     COLORTERM: 'truecolor',
     FORCE_COLOR: '1',
     CLICOLOR: '1',
     CLICOLOR_FORCE: '1',
     HOME: process.env.HOME || os.homedir(),
-    HB_SHELL_INTEGRATION: '1',
+    TERM_PROGRAM: 'vscode',
+    TERM_PROGRAM_VERSION: '1.0.0',
   }
 }
 
@@ -50,7 +52,7 @@ export class TerminalProcess {
     const cwd = resolveCwd(opts.cwd)
     const shellProfileId = opts.shellProfileId ?? defaultShellProfileId()
     const shell = resolveShellForProfile(shellProfileId)
-    const shellArgs = resolveShellArgs(shellProfileId)
+    const { args: shellArgs, envMixin } = resolveShellLaunch(shellProfileId, opts.shellIntegration)
     const cols = Math.max(2, opts.cols ?? 80)
     const rows = Math.max(1, opts.rows ?? 24)
 
@@ -61,7 +63,7 @@ export class TerminalProcess {
       cwd,
       cols,
       rows,
-      env: buildTerminalEnv(),
+      env: buildTerminalEnv(envMixin),
       // ConPTY + utility process on Windows can fail AttachConsole; winpty is stable here.
       ...(process.platform === 'win32' && isUtilityHost ? { useConpty: false } : {}),
     })

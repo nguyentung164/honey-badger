@@ -758,7 +758,7 @@ export function MergeSvn() {
                 <ResizablePanel defaultSize={40} minSize={30}>
                   <SvnFileTable ref={tableRef} targetPath={targetPath} />
                 </ResizablePanel>
-                <ResizableHandle />
+                <ResizableHandle showGrip={false} className="bg-transparent" />
                 <ResizablePanel className="p-2" defaultSize={60} minSize={30}>
                   <div className="relative overflow-hidden h-full flex flex-col">
                     <Label className="h-10">Commit Message</Label>

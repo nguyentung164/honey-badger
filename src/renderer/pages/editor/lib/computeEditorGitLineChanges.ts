@@ -2,7 +2,6 @@ import type * as Monaco from 'monaco-editor'
 import type { GitFileStatusCode } from '@/components/git/GitFileStatusBadge'
 import { waitForDiffCompute } from '@/pages/diffviewer/diffViewerUtils'
 import { classifyEditorGitLineChange } from '@/pages/editor/lib/buildEditorGitScmDecorations'
-import type { EditorGitChangeKind } from '@/pages/editor/lib/editorGitScmColors'
 
 /** Repo-relative path for `git show` / `git.cat` (must not be absolute). */
 export function normalizeEditorGitRepoPath(relativePath: string): string {
@@ -55,6 +54,9 @@ const SHARED_DIFF_LAYOUT = { width: 800, height: 600 } as const
 type SharedGitDiffComputer = {
   container: HTMLDivElement
   editor: Monaco.editor.IStandaloneDiffEditor
+  /** Persistent original-side model — setValue only when the HEAD snapshot changes. */
+  originalModel: Monaco.editor.ITextModel
+  originalText: string
 }
 
 let sharedGitDiffComputer: SharedGitDiffComputer | null = null
@@ -81,23 +83,34 @@ function getSharedGitDiffComputer(monaco: typeof Monaco): SharedGitDiffComputer 
     folding: false,
   })
 
-  sharedGitDiffComputer = { container, editor }
+  // Plaintext: diff compute does not need tokenization on the hidden original side.
+  const originalModel = monaco.editor.createModel('', 'plaintext')
+
+  sharedGitDiffComputer = { container, editor, originalModel, originalText: '' }
   return sharedGitDiffComputer
 }
 
+/**
+ * Diff HEAD snapshot against the live editor model.
+ * Reuses one hidden diff editor + persistent original model; the modified side
+ * is the live ITextModel itself — no full-buffer string copy per refresh.
+ */
 export async function computeEditorGitLineChanges(
   monaco: typeof Monaco,
   originalText: string,
-  modifiedText: string,
-  languageId: string
+  modifiedModel: Monaco.editor.ITextModel
 ): Promise<Monaco.editor.ILineChange[]> {
   const original = normalizeEditorGitDiffText(originalText)
-  const modified = normalizeEditorGitDiffText(modifiedText)
-  if (original === modified) return []
+  // Cheap unchanged fast path: only pay for getValue() when lengths already match (LF-normalized).
+  const lf = monaco.editor.EndOfLinePreference.LF
+  if (original.length === modifiedModel.getValueLength(lf) && original === modifiedModel.getValue(lf)) return []
 
-  const { editor: diffEditor } = getSharedGitDiffComputer(monaco)
-  const originalModel = monaco.editor.createModel(original, languageId)
-  const modifiedModel = monaco.editor.createModel(modified, languageId)
+  const computer = getSharedGitDiffComputer(monaco)
+  const { editor: diffEditor, originalModel } = computer
+  if (computer.originalText !== original) {
+    originalModel.setValue(original)
+    computer.originalText = original
+  }
 
   try {
     const diffReady = waitForDiffCompute(diffEditor)
@@ -106,9 +119,8 @@ export async function computeEditorGitLineChanges(
     await diffReady
     return diffEditor.getLineChanges() ?? []
   } finally {
+    // Detach so the hidden diff editor stops recomputing on every keystroke.
     diffEditor.setModel(null)
-    originalModel.dispose()
-    modifiedModel.dispose()
   }
 }
 
@@ -205,17 +217,6 @@ export function getEditorGitRevealLineRange(change: Monaco.editor.ILineChange): 
   }
 }
 
-export function anchorLineForGitChange(
-  change: Monaco.editor.ILineChange,
-  kind: EditorGitChangeKind
-): number {
-  if (kind === 'deleted') {
-    if (change.modifiedStartLineNumber === 0 && change.modifiedEndLineNumber === 0) return 1
-    return Math.max(1, change.modifiedStartLineNumber)
-  }
-  return Math.max(1, change.modifiedStartLineNumber)
-}
-
 export function revertGitChangeInEditor(
   editor: Monaco.editor.IStandaloneCodeEditor,
   monaco: typeof Monaco,
@@ -271,8 +272,4 @@ export function revertGitChangeInEditor(
     },
   ])
   return true
-}
-
-export function describeEditorGitChangeKind(kind: EditorGitChangeKind): EditorGitChangeKind {
-  return kind
 }

@@ -8,6 +8,17 @@ type FileIndexCache = {
 const cacheByCwd = new Map<string, FileIndexCache>()
 const inflightByCwd = new Map<string, Promise<string[]>>()
 
+/** Lowercase (slash-normalized) paths per index array — computed once, keyed by array identity. */
+const lowercasePathsByFiles = new WeakMap<readonly string[], readonly string[]>()
+
+export function getQuickOpenLowercasePaths(files: readonly string[]): readonly string[] {
+  const cached = lowercasePathsByFiles.get(files)
+  if (cached) return cached
+  const lows = files.map(path => path.replace(/\\/g, '/').toLowerCase())
+  lowercasePathsByFiles.set(files, lows)
+  return lows
+}
+
 /** VS Code file index via ripgrep --files (respects .gitignore). */
 async function collectWorkspaceFilesRipgrep(cwd: string, maxFiles = 20_000): Promise<string[]> {
   const result = await window.api.system.list_workspace_files({ cwd, maxFiles })
@@ -71,6 +82,7 @@ export function patchQuickOpenFileIndex(cwd: string, relativePath: string, event
   }
 }
 
+// TODO(Plan 2): call when explorer refresh runs so Quick Open file index stays current.
 export function invalidateQuickOpenFileIndex(cwd: string): void {
   cacheByCwd.delete(cwd)
   inflightByCwd.delete(cwd)

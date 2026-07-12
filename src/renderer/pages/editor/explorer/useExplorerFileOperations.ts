@@ -226,14 +226,6 @@ export function useExplorerFileOperations({
     [setDeleteTarget]
   )
 
-  const requestDeleteOne = useCallback(
-    (relativePath: string, isDir: boolean) => {
-      const name = relativePath.split('/').pop() ?? relativePath
-      requestDelete([{ relativePath, isDir, name }])
-    },
-    [requestDelete]
-  )
-
   const revealInOsExplorer = useCallback(
     (relativePath: string) => {
       void window.api.system.reveal_in_file_explorer(joinRepoPath(repoCwd, relativePath))
@@ -329,7 +321,7 @@ export function useExplorerFileOperations({
 
       if (clip.cut) {
         for (const move of moves) onPathRenamed?.(move.from, move.to)
-        undoStackRef.current.push({ kind: 'move', from: moves[0].from, to: moves[0].to })
+        undoStackRef.current.push({ kind: 'moves', moves })
         clearExplorerClipboard()
       } else if (copies.length > 0) {
         undoStackRef.current.push({ kind: 'copy', items: copies })
@@ -364,9 +356,6 @@ export function useExplorerFileOperations({
     await undoStackRef.current.redo(opCallbacksRef.current)
   }, [])
 
-  const canUndo = useCallback(() => undoStackRef.current.canUndo(), [])
-  const canRedo = useCallback(() => undoStackRef.current.canRedo(), [])
-
   return {
     commitRename,
     commitCreate,
@@ -376,7 +365,6 @@ export function useExplorerFileOperations({
     startCreateFile,
     startCreateFolder,
     requestDelete,
-    requestDeleteOne,
     revealInOsExplorer,
     copyPath,
     copyRelativePath,
@@ -388,8 +376,6 @@ export function useExplorerFileOperations({
     compareSelected,
     undo,
     redo,
-    canUndo,
-    canRedo,
     consumeSuppressMenuFocusRestore,
   }
 }

@@ -1,10 +1,7 @@
 'use client'
 
 import { useEffect, useRef } from 'react'
-import {
-  useEditorFolderGitDecorations,
-  type FolderGitStatusGetter,
-} from '@/pages/editor/hooks/useEditorFolderGitDecorations'
+import { type FolderGitStatusGetter, useEditorFolderGitDecorations } from '@/pages/editor/hooks/useEditorFolderGitDecorations'
 
 export type FolderGitStatusSnapshot = {
   getGitStatus: FolderGitStatusGetter

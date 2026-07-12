@@ -127,7 +127,8 @@ function charMatchScore(
   return score
 }
 
-function isPatternSubsequence(patternLow: string, wordLow: string): boolean {
+/** Cheap subsequence prefilter — run before the DP scorer on large indexes. */
+export function isPatternSubsequence(patternLow: string, wordLow: string): boolean {
   let pi = 0
   for (let wi = 0; wi < wordLow.length && pi < patternLow.length; wi++) {
     if (patternLow[pi] === wordLow[wi]) pi++

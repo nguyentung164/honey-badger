@@ -75,10 +75,20 @@ function readAppMonacoBaseColors(themeId: AppThemeId, appIsDark: boolean): Recor
 function buildThemeDefinition(appIsDark: boolean, options: AppMonacoThemeRegisterOptions): Monaco.editor.IStandaloneThemeData {
   const themeId = resolveCurrentAppThemeId()
   const palette = resolveAppCodePalette(themeId, appIsDark)
+  const base = readAppMonacoBaseColors(themeId, appIsDark)
+  const readVar = (varName: string, fallback: string) =>
+    readCssVarForAppearance(varName, themeId, appIsDark, fallback, (el, name, fb) => readCssVarAsHexColor(name, fb, el))
+  const sideBar = readVar('--sidebar', base['editor.background'] ?? (appIsDark ? '#1e1e1e' : '#ffffff'))
 
   const colors: Record<string, string> = {
-    ...readAppMonacoBaseColors(themeId, appIsDark),
-    ...(options.includeDiff ? buildMonacoDiffColors(palette.diff) : {}),
+    ...base,
+    ...(options.includeDiff
+      ? buildMonacoDiffColors(
+          palette.diff,
+          { foreground: base['editor.foreground'] ?? (appIsDark ? '#d4d4d4' : '#000000'), sideBarBackground: sideBar },
+          appIsDark
+        )
+      : {}),
     ...(options.includeEditorRules ? buildMonacoBracketColors(palette.editor) : {}),
   }
 

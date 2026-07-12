@@ -740,7 +740,7 @@ export function GitStashDialog({ open, onOpenChange, onStashApplied, cwd }: GitS
                   </div>
                 )}
               </ResizablePanel>
-              <ResizableHandle />
+              <ResizableHandle showGrip={false} className="bg-transparent" />
               <ResizablePanel defaultSize={65} minSize={30} className="h-full min-h-0 overflow-hidden flex flex-col">
                 <p className="text-sm font-medium px-3 py-2 border-b bg-muted/50 shrink-0 truncate" title={viewStashSelectedPath ?? undefined}>
                   {viewStashSelectedPath ? viewStashSelectedPath : t('git.stash.selectFileToViewDiff')}

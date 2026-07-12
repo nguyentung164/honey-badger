@@ -1,4 +1,4 @@
-import { Eraser, Loader2, Plus, RotateCcw, X } from 'lucide-react'
+import { Eraser, Loader, Plus, RotateCcw, X } from 'lucide-react'
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import '@xterm/xterm/css/xterm.css'
@@ -33,6 +33,7 @@ import { type PersistedTerminalTab, readPersistedTerminalSession, writePersisted
 import type { TerminalShellIntegrationState } from '@/lib/terminal/terminalShellIntegration'
 import { cn } from '@/lib/utils'
 import { TerminalSettingsDialog } from '@/pages/main/TerminalSettingsDialog'
+import { TerminalShellTabIcon } from '@/pages/main/TerminalShellTabIcon'
 import { TerminalTabPane } from '@/pages/main/TerminalTabPane'
 
 type TerminalTabState = {
@@ -71,20 +72,15 @@ export function IntegratedTerminalPanel({ repoCwd, panelVisible, onClose }: Inte
 
   const shellLabel = useCallback((id: TerminalShellProfileId) => t(TERMINAL_SHELL_PROFILE_LABEL_KEYS[id]), [t])
 
-  const tabLabel = useCallback(
-    (tab: TerminalTabState) => {
-      const base = resolveTerminalTabTitle({
+  const tabBaseLabel = useCallback(
+    (tab: TerminalTabState) =>
+      resolveTerminalTabTitle({
         mode: prefs.tabTitleMode,
         customTitle: prefs.tabTitleCustom,
         shellLabel: shellLabel(tab.shellProfileId),
         cwd: tabDisplayCwd(tab),
-      })
-      if (prefs.enableShellIntegration && tab.commandRunning) {
-        return `${base} ${t('terminal.shellIntegration.running')}`
-      }
-      return base
-    },
-    [prefs.tabTitleMode, prefs.tabTitleCustom, prefs.enableShellIntegration, shellLabel, t]
+      }),
+    [prefs.tabTitleMode, prefs.tabTitleCustom, shellLabel]
   )
 
   useEffect(() => {
@@ -244,11 +240,11 @@ export function IntegratedTerminalPanel({ repoCwd, panelVisible, onClose }: Inte
       requestKillConfirm(
         Boolean(tab?.commandRunning),
         t('terminal.confirmKill.closeTitle'),
-        t('terminal.confirmKill.closeDescription', { name: tab ? tabLabel(tab) : '' }),
+        t('terminal.confirmKill.closeDescription', { name: tab ? tabBaseLabel(tab) : '' }),
         () => closeTabNow(tabId)
       )
     },
-    [tabs, requestKillConfirm, t, tabLabel, closeTabNow]
+    [tabs, requestKillConfirm, t, tabBaseLabel, closeTabNow]
   )
 
   const activeTab = useMemo(() => tabs.find(tab => tab.id === activeTabId) ?? tabs[0], [tabs, activeTabId])
@@ -263,10 +259,10 @@ export function IntegratedTerminalPanel({ repoCwd, panelVisible, onClose }: Inte
     requestKillConfirm(
       Boolean(activeTab?.commandRunning),
       t('terminal.confirmKill.restartTitle'),
-      t('terminal.confirmKill.restartDescription', { name: tabLabel(activeTab) }),
+      t('terminal.confirmKill.restartDescription', { name: tabBaseLabel(activeTab) }),
       restartActiveTabNow
     )
-  }, [activeTab, requestKillConfirm, t, tabLabel, restartActiveTabNow])
+  }, [activeTab, requestKillConfirm, t, tabBaseLabel, restartActiveTabNow])
 
   const clearActiveTab = useCallback(() => {
     if (!activeTab) return
@@ -288,37 +284,66 @@ export function IntegratedTerminalPanel({ repoCwd, panelVisible, onClose }: Inte
 
   return (
     <section className={cn('flex h-full min-h-0 flex-col bg-background', !panelVisible && 'hidden')} aria-label={t('terminal.title')} aria-hidden={!panelVisible}>
-      <div className="flex h-8 shrink-0 items-center gap-1 border-b border-border/60 px-1">
+      <div className="flex h-8 shrink-0 items-center gap-1 border-b border-t border-border/60 px-1">
         <div className="flex min-w-0 flex-1 items-center gap-0.5 overflow-x-auto">
           {tabs.map(tab => {
             const isFocused = tab.id === activeTabId
-            const label = tabLabel(tab)
+            const isRunning = Boolean(tab.commandRunning)
+            const label = tabBaseLabel(tab)
             return (
               <ContextMenu key={tab.id}>
                 <ContextMenuTrigger asChild>
                   <div
                     className={cn(
-                      'group flex h-6 max-w-[11rem] shrink-0 items-center gap-0.5 rounded-sm px-1.5 text-xs',
-                      isFocused ? 'bg-muted text-foreground' : 'text-muted-foreground hover:bg-muted/60 hover:text-foreground'
+                      'group flex h-6 max-w-[11rem] shrink-0 items-center gap-0.5 rounded-sm pl-2 pr-1 text-xs',
+                      isRunning
+                        ? isFocused
+                          ? 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400'
+                          : 'text-emerald-600/90 hover:bg-emerald-500/10 hover:text-emerald-600 dark:text-emerald-400/90 dark:hover:text-emerald-400'
+                        : isFocused
+                          ? 'bg-muted text-foreground'
+                          : 'text-muted-foreground hover:bg-muted/60 hover:text-foreground'
                     )}
                   >
-                    <button type="button" className="min-w-0 flex-1 truncate text-left" onClick={() => selectTab(tab.id)} title={label}>
-                      {prefs.enableShellIntegration && tab.commandRunning ? (
-                        <Loader2 className="mr-0.5 inline size-3 animate-spin opacity-70" aria-hidden />
-                      ) : null}
-                      {label}
-                    </button>
                     <button
                       type="button"
-                      className="rounded-sm p-0.5 opacity-60 hover:bg-background/80 hover:opacity-100"
-                      onClick={e => {
-                        e.stopPropagation()
-                        closeTab(tab.id)
-                      }}
-                      aria-label={t('terminal.closeTab')}
+                      className={cn(
+                        'min-w-0 flex-1 truncate text-left',
+                        isRunning && 'text-emerald-600 dark:text-emerald-400'
+                      )}
+                      onClick={() => selectTab(tab.id)}
+                      title={label}
                     >
-                      <X className="size-3" />
+                      {label}
                     </button>
+                    <div className="relative flex h-5 w-5 shrink-0 items-center justify-center">
+                      {isRunning ? (
+                        <span
+                          className="pointer-events-none absolute inset-0 flex items-center justify-center transition-opacity group-hover:opacity-0"
+                          aria-hidden
+                        >
+                          <Loader className="size-3 animate-spin text-emerald-600 dark:text-emerald-400" />
+                        </span>
+                      ) : (
+                        <span
+                          className="pointer-events-none absolute inset-0 flex items-center justify-center transition-opacity group-hover:opacity-0"
+                          aria-hidden
+                        >
+                          <TerminalShellTabIcon shellProfileId={tab.shellProfileId} />
+                        </span>
+                      )}
+                      <button
+                        type="button"
+                        className="flex h-full w-full items-center justify-center rounded-sm p-0.5 opacity-0 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100"
+                        onClick={e => {
+                          e.stopPropagation()
+                          closeTab(tab.id)
+                        }}
+                        aria-label={t('terminal.closeTab')}
+                      >
+                        <X className="size-3 text-red-500 transition-colors hover:text-red-600 dark:text-red-400 dark:hover:text-red-300" />
+                      </button>
+                    </div>
                   </div>
                 </ContextMenuTrigger>
                 <ContextMenuContent className="min-w-[12rem]">

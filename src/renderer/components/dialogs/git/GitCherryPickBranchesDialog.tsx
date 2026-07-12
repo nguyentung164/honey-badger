@@ -1333,7 +1333,7 @@ export function GitCherryPickBranchesDialog({ open, onOpenChange, onComplete, se
 
               <ResizablePanelGroup orientation="horizontal" className="min-h-0 flex-1 basis-0 overflow-hidden rounded-md border">
                 <ResizablePanel defaultSize={50} minSize={25} className="flex min-h-0 min-w-0 flex-col overflow-hidden">
-                  <div className="shrink-0 border-b bg-muted/40 px-2 py-1.5 font-medium">{t('git.cherryPickBranches.panelTarget')}</div>
+                  <div className="shrink-0 border-b bg-muted/40 px-2 py-1.5 font-medium text-sm">{t('git.cherryPickBranches.panelTarget')}</div>
                   <div ref={leftScrollRef} onScroll={handleLeftScroll} className="min-h-0 flex-1 overflow-y-auto overflow-x-hidden overscroll-y-contain">
                     {logLoadingLeft ? (
                       <div className="flex justify-center py-8">
@@ -1377,9 +1377,9 @@ export function GitCherryPickBranchesDialog({ open, onOpenChange, onComplete, se
                     )}
                   </div>
                 </ResizablePanel>
-                <ResizableHandle withHandle={false} />
+                <ResizableHandle showGrip={false} className="bg-transparent" />
                 <ResizablePanel defaultSize={50} minSize={25} className="flex min-h-0 min-w-0 flex-col overflow-hidden">
-                  <div className="shrink-0 border-b bg-muted/40 px-2 py-1.5 font-medium">{t('git.cherryPickBranches.panelSource')}</div>
+                  <div className="shrink-0 border-b bg-muted/40 px-2 py-1.5 font-medium text-sm">{t('git.cherryPickBranches.panelSource')}</div>
                   <div ref={rightScrollRef} onScroll={handleRightScroll} className="min-h-0 flex-1 overflow-y-auto overflow-x-hidden overscroll-y-contain">
                     {logLoadingRight ? (
                       <div className="flex justify-center py-8">

@@ -77,7 +77,3 @@ export function countNewlines(text: string): number {
 export function isLargeFileByMetrics(byteLength: number, lineCount: number): boolean {
   return byteLength > LSP_LARGE_FILE_BYTES || lineCount > LSP_LARGE_FILE_LINES
 }
-
-export function isLargeFileForLsp(content: string): boolean {
-  return isLargeFileByMetrics(content.length, countNewlines(content))
-}

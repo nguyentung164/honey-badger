@@ -8,7 +8,7 @@ import type { TFunction } from 'i18next'
 import { Briefcase, ChevronDown, ChevronRight, ChevronsRight, FoldVertical, Layers, Loader2, UnfoldVertical, Users } from 'lucide-react'
 import type { CSSProperties, DragEvent, ReactNode, RefObject, UIEvent } from 'react'
 import { Activity, lazy, memo, Suspense, startTransition, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, useTransition } from 'react'
-import { useTranslation } from 'react-i18next'
+import type { ShellTabActiveProps } from 'shared/shellTabTypes'
 import { Button } from '@/components/ui/button'
 import { Checkbox } from '@/components/ui/checkbox'
 import { Label } from '@/components/ui/label'
@@ -23,8 +23,6 @@ import { cn, getProgressColor } from '@/lib/utils'
 import { GanttTimelineGridOverlay } from './GanttTimelineGridOverlay'
 import { GANTT_LEADING_FIXED_W, GANTT_LEFT_META_FIXED_W, HB_GANTT_GRID_V_VAR, HB_GANTT_NAME_W_VAR, HB_GANTT_TODAY_LINE_MARK, hbGantt, hbGanttRootStyle } from './ganttLayoutCssVars'
 import { PLAN_UNSCHED_TASK_DRAG_MIME } from './planUnschedTaskDragMime'
-import type { WorkloadBoardSegment, WorkloadDisplayMode, WorkloadOverrideUpsertInput } from './TaskGanttWorkload'
-import { WORKLOAD_EXPANDED_MINI_MAX_SCROLL_PX, WorkloadGanttPaneRailControlStack } from './TaskGanttWorkload'
 import { isTaskBulkSelectable, type TaskTableRowTask, taskDisplayLabel } from './TaskTableRow'
 import {
   bucketTasksByGroup,
@@ -34,8 +32,11 @@ import {
   saveUnschedCollapsedSegments,
   type TaskBoardRowGrouping,
 } from './taskBoardGroupBuckets'
+import { WORKLOAD_EXPANDED_MINI_MAX_SCROLL_PX } from './taskGanttWorkloadConstants'
+import type { WorkloadBoardSegment, WorkloadDisplayMode, WorkloadOverrideUpsertInput } from './taskGanttWorkloadTypes'
 import { Z_GANTT_META_RAIL_FLOATING_TOGGLE, Z_GANTT_STICKY_TOP_HEADER } from './taskGanttZIndex'
 import { taskStatusBarParentFillStyle, taskStatusBarStyle } from './taskStatusVisual'
+import { WorkloadGanttPaneRailControlStack } from './WorkloadGanttPaneRailControlStack'
 
 const TaskGanttWorkloadLazy = lazy(async () => {
   const m = await import('./TaskGanttWorkload')
@@ -1210,6 +1211,7 @@ export function TaskGanttView({
   getUserAvatarUrl,
   taskLinks,
   onBoardLayoutEffectiveChange,
+  shellTabActive = true,
 }: {
   tasks: TaskTableRowTask[]
   locale: Locale
@@ -1247,7 +1249,7 @@ export function TaskGanttView({
   taskLinks?: GanttTaskLink[]
   /** Báo layout board hiệu lực (sau khi biết có workload hay không) — parent có thể điều chỉnh toolbar. */
   onBoardLayoutEffectiveChange?: (mode: TaskGanttLayoutMode) => void
-}) {
+} & ShellTabActiveProps) {
   const { t } = useTranslation()
   const [scale, setScale] = useState<TaskGanttScale>('week')
   const [tightWindow, setTightWindow] = useState(false)
@@ -1376,6 +1378,8 @@ export function TaskGanttView({
   })
   const renderMiniGanttForUserRef = useRef<(userId: string, projectId: string | null) => ReactNode>(null)
   const chromeFlashTimeoutRef = useRef(0)
+  const shellTabActiveRef = useRef(shellTabActive)
+  shellTabActiveRef.current = shellTabActive
   const [timelineChromeFlash, setTimelineChromeFlash] = useState(false)
   /** Đồng bộ Hours/Tasks giữa header và body khi tách hai mount. */
   const [workloadDisplayMode, setWorkloadDisplayMode] = useState<WorkloadDisplayMode>('hours')
@@ -1879,6 +1883,7 @@ export function TaskGanttView({
   }, [taskLinks, taskRowTopPx, scheduled, start, pixelPerDay])
 
   const flashTimelineChrome = useCallback(() => {
+    if (!shellTabActiveRef.current) return
     if (ganttReducedMotion()) return
     if (chromeFlashTimeoutRef.current) window.clearTimeout(chromeFlashTimeoutRef.current)
     setTimelineChromeFlash(true)
@@ -1923,6 +1928,7 @@ export function TaskGanttView({
 
   const syncHorizontalScrollFrom = useCallback(
     (source: 'ganttBody' | 'workloadBody') => {
+      if (!shellTabActiveRef.current) return
       if (syncingHScrollRef.current) return
       const g = ganttScrollRef.current
       const w = workloadScrollRef.current
@@ -1960,6 +1966,17 @@ export function TaskGanttView({
       if (chromeFlashTimeoutRef.current) window.clearTimeout(chromeFlashTimeoutRef.current)
     }
   }, [])
+
+  useEffect(() => {
+    if (shellTabActive !== false) return
+    if (chromeFlashTimeoutRef.current) window.clearTimeout(chromeFlashTimeoutRef.current)
+    chromeFlashTimeoutRef.current = 0
+    setTimelineChromeFlash(false)
+    if (ganttSplitDragRafRef.current != null) {
+      cancelAnimationFrame(ganttSplitDragRafRef.current)
+      ganttSplitDragRafRef.current = null
+    }
+  }, [shellTabActive])
 
   useLayoutEffect(() => {
     const g = fitScrollGenRef.current

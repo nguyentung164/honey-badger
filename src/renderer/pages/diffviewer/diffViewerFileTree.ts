@@ -235,7 +235,7 @@ function buildFolderTreeFromEntries(items: IndexedEntry[]): DiffFileTreeNode[] {
   return mutableFolderToNodes(root)
 }
 
-function collectFileIndicesFromNodes(nodes: DiffFileTreeNode[]): number[] {
+export function collectFileIndicesFromNodes(nodes: DiffFileTreeNode[]): number[] {
   const indices: number[] = []
   for (const node of nodes) {
     if (node.kind === 'file') {
@@ -328,11 +328,21 @@ export function folderContainsFileIndex(node: DiffFileTreeFolderNode, targetInde
   return false
 }
 
+export function groupContainsFileIndex(node: DiffFileTreeGroupNode, targetIndex: number): boolean {
+  return node.children.some(child => child.index === targetIndex)
+}
+
 export function collectExpandedFolderIdsForFile(sections: DiffFileTreeSection[], targetIndex: number): string[] {
   const ids: string[] = []
 
   const walk = (nodes: DiffFileTreeNode[]) => {
     for (const node of nodes) {
+      if (node.kind === 'group') {
+        if (groupContainsFileIndex(node, targetIndex)) {
+          ids.push(node.id)
+        }
+        continue
+      }
       if (node.kind !== 'folder') continue
       if (folderContainsFileIndex(node, targetIndex)) {
         ids.push(node.id)
@@ -352,9 +362,12 @@ export function collectAllFolderIds(sections: DiffFileTreeSection[]): string[] {
   const ids: string[] = []
   const walk = (nodes: DiffFileTreeNode[]) => {
     for (const node of nodes) {
-      if (node.kind !== 'folder') continue
-      ids.push(node.id)
-      walk(node.children)
+      if (node.kind === 'folder') {
+        ids.push(node.id)
+        walk(node.children)
+      } else if (node.kind === 'group') {
+        ids.push(node.id)
+      }
     }
   }
   for (const section of sections) {
@@ -380,7 +393,7 @@ export const DIFF_TREE_SECTION_HEADER_HEIGHT = 26
 export type DiffFileTreeVisibleRow =
   | { kind: 'file'; id: string; depth: number; node: DiffFileTreeFileNode }
   | { kind: 'folder'; id: string; depth: number; node: DiffFileTreeFolderNode; expanded: boolean }
-  | { kind: 'group'; id: string; depth: number; node: DiffFileTreeGroupNode }
+  | { kind: 'group'; id: string; depth: number; node: DiffFileTreeGroupNode; expanded: boolean }
 
 export type DiffFileTreePanelVirtualRow =
   | { kind: 'section-header'; id: string; section: DiffFileTreeSection }
@@ -406,9 +419,12 @@ export function flattenDiffFileTreeRows(
     }
 
     if (node.kind === 'group') {
-      out.push({ kind: 'group', id: node.id, depth, node })
-      for (const child of node.children) {
-        out.push({ kind: 'file', id: child.id, depth: depth + 1, node: child })
+      const expanded = forceExpand || options.expandedFolderIds.has(node.id)
+      out.push({ kind: 'group', id: node.id, depth, node, expanded })
+      if (expanded) {
+        for (const child of node.children) {
+          out.push({ kind: 'file', id: child.id, depth: depth + 1, node: child })
+        }
       }
       continue
     }

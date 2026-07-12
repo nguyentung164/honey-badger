@@ -1,24 +1,11 @@
 'use client'
 
-import {
-  BookOpen,
-  ChevronDown,
-  ChevronRight,
-  ChevronsDownUp,
-  FilePlus2,
-  FilterX,
-  LayoutList,
-  ListTree,
-  ListX,
-  MoreHorizontal,
-  RefreshCw,
-  Replace,
-} from 'lucide-react'
+import { BookOpen, ChevronDown, ChevronRight, ChevronsDownUp, FilePlus2, FilterX, LayoutList, ListTree, ListX, MoreHorizontal, RefreshCw, Replace } from 'lucide-react'
 import type { InputHTMLAttributes, ReactNode } from 'react'
 import { useTranslation } from 'react-i18next'
 import { buildSearchRegExp } from 'shared/editor/searchReplace'
-import { cn } from '@/lib/utils'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
+import { cn } from '@/lib/utils'
 
 export function EditorSearchToolbar({
   onRefresh,
@@ -165,12 +152,7 @@ export function EditorSearchQueryInput({
         spellCheck={false}
       />
       <div className="flex shrink-0 items-center gap-px pr-0.5">
-        <EditorSearchInputToggle
-          label="Aa"
-          active={caseSensitive}
-          onToggle={onToggleCaseSensitive}
-          title={t('editor.matchCase')}
-        />
+        <EditorSearchInputToggle label="Aa" active={caseSensitive} onToggle={onToggleCaseSensitive} title={t('editor.matchCase')} />
         <EditorSearchInputToggle
           label="ab"
           active={wholeWord}
@@ -294,6 +276,22 @@ export function EditorSearchPatternInput({
   )
 }
 
+/** All visible rows share the same query/options — compile the highlight regex once, not per row. */
+let cachedHighlightEntry: { key: string; pattern: RegExp | null } | null = null
+
+function getHighlightPattern(query: string, caseSensitive: boolean, wholeWord: boolean, regex: boolean): RegExp | null {
+  const key = `${caseSensitive ? 1 : 0}${wholeWord ? 1 : 0}${regex ? 1 : 0}\0${query}`
+  if (cachedHighlightEntry?.key === key) return cachedHighlightEntry.pattern
+  let pattern: RegExp | null = null
+  try {
+    pattern = buildSearchRegExp(query, { caseSensitive, wholeWord, regex })
+  } catch {
+    pattern = null
+  }
+  cachedHighlightEntry = { key, pattern }
+  return pattern
+}
+
 export function EditorSearchMatchHighlight({
   preview,
   query,
@@ -309,25 +307,23 @@ export function EditorSearchMatchHighlight({
 }) {
   if (!query.trim()) return <>{preview}</>
 
-  try {
-    const pattern = buildSearchRegExp(query, { caseSensitive, wholeWord, regex })
-    const match = pattern.exec(preview)
-    if (!match || match.index == null) return <>{preview}</>
+  const pattern = getHighlightPattern(query, caseSensitive, wholeWord, regex)
+  if (!pattern) return <>{preview}</>
 
-    const start = match.index
-    const end = start + match[0].length
-    return (
-      <>
-        {preview.slice(0, start)}
-        <mark className="editor-search-match-highlight rounded-[2px] bg-[var(--hb-search-match-bg)] px-0 text-inherit">
-          {preview.slice(start, end)}
-        </mark>
-        {preview.slice(end)}
-      </>
-    )
-  } catch {
-    return <>{preview}</>
-  }
+  // Shared regex has the `g` flag — reset stateful lastIndex before each row.
+  pattern.lastIndex = 0
+  const match = pattern.exec(preview)
+  if (!match || match.index == null) return <>{preview}</>
+
+  const start = match.index
+  const end = start + match[0].length
+  return (
+    <>
+      {preview.slice(0, start)}
+      <mark className="editor-search-match-highlight rounded-[2px] bg-[var(--hb-search-match-bg)] px-0 text-inherit">{preview.slice(start, end)}</mark>
+      {preview.slice(end)}
+    </>
+  )
 }
 
 export { BookOpen, FilterX }

@@ -104,12 +104,21 @@ export function buildMonacoBracketColors(palette: AppCodePalette['editor']): Rec
   return out
 }
 
-export function buildMonacoDiffColors(diff: AppCodePalette['diff']): Record<string, string> {
+/** VS Code `diffEditor.*` tokens for inline diff + hide-unchanged widgets. */
+export function buildMonacoDiffColors(
+  diff: AppCodePalette['diff'],
+  chrome: { foreground: string; sideBarBackground: string },
+  appIsDark: boolean
+): Record<string, string> {
   return {
     'diffEditor.insertedTextBackground': diff.insertedTextBackground,
     'diffEditor.removedTextBackground': diff.removedTextBackground,
     'diffEditor.insertedLineBackground': diff.insertedLineBackground,
     'diffEditor.removedLineBackground': diff.removedLineBackground,
+    'diffEditor.unchangedCodeBackground': appIsDark ? '#74747429' : '#b8b8b829',
+    'diffEditor.unchangedRegionBackground': chrome.sideBarBackground,
+    'diffEditor.unchangedRegionForeground': chrome.foreground,
+    'diffEditor.unchangedRegionShadow': appIsDark ? '#00000066' : '#73737366',
   }
 }
 

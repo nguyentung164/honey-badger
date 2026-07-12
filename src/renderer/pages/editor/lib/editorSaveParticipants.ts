@@ -26,7 +26,7 @@ export type EditorSaveParticipantsOptions = {
   insertSpaces: boolean
 }
 
-export function shouldSkipEditorSaveParticipants(relativePath: string): boolean {
+function shouldSkipEditorSaveParticipants(relativePath: string): boolean {
   const normalized = relativePath.replace(/\\/g, '/')
   if (isCompareModelPath(normalized)) return true
   if (normalized.includes('(disk)') || normalized.includes('(editor)')) return true
@@ -105,7 +105,7 @@ async function applyTrimTrailingWhitespace(repoCwd: string, relativePath: string
 /**
  * One `pushEditOperations` batch — O(n) scan, single edit (fast on large files).
  */
-export function trimTrailingWhitespaceInTextModel(model: Monaco.editor.ITextModel): boolean {
+function trimTrailingWhitespaceInTextModel(model: Monaco.editor.ITextModel): boolean {
   const lineCount = model.getLineCount()
   const eol = model.getEOL()
   let changed = false
@@ -138,7 +138,7 @@ export function trimTrailingWhitespaceInTextModel(model: Monaco.editor.ITextMode
 }
 
 /** VS Code `files.insertFinalNewline` — ensure document ends with model EOL. */
-export function insertFinalNewlineInTextModel(model: Monaco.editor.ITextModel, Range: typeof Monaco.Range): boolean {
+function insertFinalNewlineInTextModel(model: Monaco.editor.ITextModel, Range: typeof Monaco.Range): boolean {
   const value = model.getValue()
   if (value.length === 0) return false
 

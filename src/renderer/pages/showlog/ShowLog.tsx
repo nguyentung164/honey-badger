@@ -2,9 +2,9 @@
 import type { ColumnDef, SortingState } from '@tanstack/react-table'
 import chalk from 'chalk'
 import { IPC } from 'main/constants'
-import { forwardRef, memo, startTransition, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type MutableRefObject } from 'react'
-import { createPortal } from 'react-dom'
+import { forwardRef, type MutableRefObject, memo, startTransition, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import type { DateRange } from 'react-day-picker'
+import { createPortal } from 'react-dom'
 import { useTranslation } from 'react-i18next'
 import { formatDateTime } from 'shared/utils'
 import { GitConflictDialog } from '@/components/dialogs/git/GitConflictDialog'
@@ -31,10 +31,10 @@ import { TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/compon
 import { GlowLoader } from '@/components/ui-elements/GlowLoader'
 import { StatusIcon } from '@/components/ui-elements/StatusIcon'
 import toast from '@/components/ui-elements/Toast'
-import i18n from '@/lib/i18n'
 import { openGitHistoryDiff, openSvnRevisionDiff, openSvnWorkingDiff } from '@/lib/diffViewer/openDiffViewer'
-import { cn } from '@/lib/utils'
+import i18n from '@/lib/i18n'
 import { buildShowLogOpenPayload, canOpenShowLogEmbedded, type ShowLogOpenPayload } from '@/lib/openShowLog'
+import { cn } from '@/lib/utils'
 import { useShowLogToolbarPortalTarget } from '@/pages/main/ShowLogToolbarPortalContext'
 import logger from '@/services/logger'
 import { useButtonVariant } from '@/stores/useAppearanceStore'
@@ -171,11 +171,11 @@ function applyOpenPayload(
   const revision = typeof data === 'string' ? '' : String((data as { currentRevision?: string }).currentRevision || '')
   const ctx =
     (data as { sourceFolder?: string; versionControlSystem?: 'git' | 'svn' }).sourceFolder &&
-    (data as { sourceFolder?: string; versionControlSystem?: 'git' | 'svn' }).versionControlSystem
+      (data as { sourceFolder?: string; versionControlSystem?: 'git' | 'svn' }).versionControlSystem
       ? {
-          sourceFolder: (data as { sourceFolder: string }).sourceFolder,
-          versionControlSystem: (data as { versionControlSystem: 'git' | 'svn' }).versionControlSystem,
-        }
+        sourceFolder: (data as { sourceFolder: string }).sourceFolder,
+        versionControlSystem: (data as { versionControlSystem: 'git' | 'svn' }).versionControlSystem,
+      }
       : null
   setWindowContext(ctx)
   setFilePath(path)
@@ -644,27 +644,27 @@ export default function ShowLog({ mode = 'standalone', pendingOpenPayload, hando
       },
       ...(effectiveVersionControlSystem === 'git'
         ? [
-            {
-              accessorKey: 'email',
-              size: 200,
-              minSize: 150,
-              header: ({ column }) => (
-                <Button className="!p-0 !h-7 !bg-transparent !hover:bg-transparent" variant="ghost" onClick={() => column.toggleSorting()}>
-                  {t('dialog.showLogs.email')}
-                  <span className="pr-0.5">
-                    {!column.getIsSorted()}
-                    {column.getIsSorted() === 'asc' && '↑'}
-                    {column.getIsSorted() === 'desc' && '↓'}
-                  </span>
-                </Button>
-              ),
-              cell: ({ row }) => (
-                <div className="truncate" title={row.original.email ?? ''}>
-                  {row.original.email ?? '-'}
-                </div>
-              ),
-            } as ColumnDef<LogEntry>,
-          ]
+          {
+            accessorKey: 'email',
+            size: 200,
+            minSize: 150,
+            header: ({ column }) => (
+              <Button className="!p-0 !h-7 !bg-transparent !hover:bg-transparent" variant="ghost" onClick={() => column.toggleSorting()}>
+                {t('dialog.showLogs.email')}
+                <span className="pr-0.5">
+                  {!column.getIsSorted()}
+                  {column.getIsSorted() === 'asc' && '↑'}
+                  {column.getIsSorted() === 'desc' && '↓'}
+                </span>
+              </Button>
+            ),
+            cell: ({ row }) => (
+              <div className="truncate" title={row.original.email ?? ''}>
+                {row.original.email ?? '-'}
+              </div>
+            ),
+          } as ColumnDef<LogEntry>,
+        ]
         : []),
       {
         accessorKey: 'action',
@@ -992,19 +992,13 @@ export default function ShowLog({ mode = 'standalone', pendingOpenPayload, hando
 
   useEffect(() => {
     if (!pendingOpenPayload) return
-    applyOpenPayload(
-      pendingOpenPayload,
-      setWindowContext,
-      setFilePath,
-      setCurrentRevision,
-      () => {
-        setCurrentPage(1)
-        setAllLogData([])
-        setFilteredLogData([])
-        setDataForCurrentPage([])
-        setTotalEntriesFromBackend(0)
-      }
-    )
+    applyOpenPayload(pendingOpenPayload, setWindowContext, setFilePath, setCurrentRevision, () => {
+      setCurrentPage(1)
+      setAllLogData([])
+      setFilteredLogData([])
+      setDataForCurrentPage([])
+      setTotalEntriesFromBackend(0)
+    })
   }, [pendingOpenPayload])
 
   useEffect(() => {
@@ -1269,7 +1263,7 @@ export default function ShowLog({ mode = 'standalone', pendingOpenPayload, hando
             <GlowLoader className="w-10 h-10" />
           </div>
         ) : (
-          <div className="p-4 space-y-4 flex-1 h-full flex flex-col overflow-hidden">
+          <div className="space-y-4 flex-1 h-full flex flex-col overflow-hidden border-t p-3">
             {layoutDirection === 'horizontal' ? (
               <ResizablePanelGroup orientation="horizontal">
                 <ResizablePanel
@@ -1313,7 +1307,7 @@ export default function ShowLog({ mode = 'standalone', pendingOpenPayload, hando
                   </div>
                 </ResizablePanel>
 
-                <ResizableHandle className="bg-transparent" />
+                <ResizableHandle showGrip={false} className="bg-transparent" />
 
                 <ResizablePanel
                   key={`second-panel-${layoutDirection}`}
@@ -1347,7 +1341,7 @@ export default function ShowLog({ mode = 'standalone', pendingOpenPayload, hando
                       />
                     </ResizablePanel>
 
-                    <ResizableHandle className="bg-transparent" />
+                    <ResizableHandle showGrip={false} className="bg-transparent" />
 
                     <ResizablePanel
                       key={`files-panel-${layoutDirection}`}
@@ -1444,7 +1438,7 @@ export default function ShowLog({ mode = 'standalone', pendingOpenPayload, hando
                   </div>
                 </ResizablePanel>
 
-                <ResizableHandle className="bg-transparent" />
+                <ResizableHandle showGrip={false} className="bg-transparent" />
 
                 <ResizablePanel
                   key={`second-panel-${layoutDirection}`}
@@ -1478,7 +1472,7 @@ export default function ShowLog({ mode = 'standalone', pendingOpenPayload, hando
                       />
                     </ResizablePanel>
 
-                    <ResizableHandle className="bg-transparent" />
+                    <ResizableHandle showGrip={false} className="bg-transparent" />
 
                     <ResizablePanel
                       key={`files-panel-${layoutDirection}`}

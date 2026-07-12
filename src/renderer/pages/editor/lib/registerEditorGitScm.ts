@@ -1,4 +1,5 @@
 import type * as Monaco from 'monaco-editor'
+import { isLargeFileByMetrics } from 'shared/fileUri'
 import type { GitFileStatusCode } from '@/components/git/GitFileStatusBadge'
 import {
   computeEditorGitLineChanges,
@@ -191,7 +192,14 @@ export function registerEditorGitScm(
     const generation = ++refreshGeneration
     const ctx = readContext()
     const model = editor.getModel()
-    if (!model || !ctx.repoCwd || !ctx.relativePath || !shouldTrackGitChanges(ctx.gitStatus)) {
+    if (
+      !model ||
+      !ctx.repoCwd ||
+      !ctx.relativePath ||
+      !shouldTrackGitChanges(ctx.gitStatus) ||
+      // VS Code-style guard: skip dirty-diff for large files — the advanced diff is too costly.
+      isLargeFileByMetrics(model.getValueLength(), model.getLineCount())
+    ) {
       lineChanges = []
       lineChangesFingerprint = ''
       decorationIds = editor.deltaDecorations(decorationIds, [])
@@ -230,9 +238,8 @@ export function registerEditorGitScm(
       return
     }
 
-    const workingText = model.getValue()
     try {
-      const changes = await computeEditorGitLineChanges(monaco, headSnapshot, workingText, ctx.languageId)
+      const changes = await computeEditorGitLineChanges(monaco, headSnapshot, model)
       if (generation !== refreshGeneration) return
       lastDecoratedVersionId = versionId
       applyDecorations(changes)

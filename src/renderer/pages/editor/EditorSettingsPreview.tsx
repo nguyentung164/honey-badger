@@ -3,23 +3,18 @@
 import Editor, { type OnMount, useMonaco } from '@monaco-editor/react'
 import { useCallback, useEffect, useMemo, useRef } from 'react'
 import { useTranslation } from 'react-i18next'
+import { SETTINGS_FONT_MICRO, SettingsPreviewHintChips } from '@/components/settings/settingsDialogUi'
 import { onAppMonacoBeforeMount, useAppMonacoThemeId, useSyncAppMonacoTheme } from '@/hooks/useAppMonacoTheme'
 import { TERMINAL_FONT_FAMILY_LABEL_KEYS } from '@/lib/terminal/terminalPrefs'
-import { SETTINGS_FONT_MICRO, SettingsPreviewHintChips } from '@/components/settings/settingsDialogUi'
 import { cn } from '@/lib/utils'
+import { EditorSettingsWorkbenchPreview } from '@/pages/editor/EditorSettingsWorkbenchPreview'
 import { useEditorMonacoSettings } from '@/pages/editor/hooks/useEditorSettings'
 import { editorSettingsFingerprint, refreshEditorMonacoAfterSettings } from '@/pages/editor/lib/applyEditorMonacoSettings'
-import {
-  buildEditorSettingsPreviewOptions,
-} from '@/pages/editor/lib/buildEditorSettingsPreviewOptions'
+import { buildEditorSettingsPreviewOptions } from '@/pages/editor/lib/buildEditorSettingsPreviewOptions'
+import { buildEditorPreviewSample, resolveEditorMonacoFontStyle, resolveEditorPreviewMonacoLanguage } from '@/pages/editor/lib/editorMonacoTheme'
 import { applyEditorSettingsPreview } from '@/pages/editor/lib/editorSettingsPreviewEffects'
 import { collectEditorSettingsPreviewBehaviorHints } from '@/pages/editor/lib/editorSettingsPreviewHints'
-import {
-  EDITOR_SETTINGS_PREVIEW_MODEL_PATH,
-  ensureEditorSettingsPreviewLanguageService,
-} from '@/pages/editor/lib/editorSettingsPreviewLanguageService'
-import { buildEditorPreviewSample, resolveEditorMonacoFontStyle, resolveEditorPreviewMonacoLanguage } from '@/pages/editor/lib/editorMonacoTheme'
-import { EditorSettingsWorkbenchPreview } from '@/pages/editor/EditorSettingsWorkbenchPreview'
+import { EDITOR_SETTINGS_PREVIEW_MODEL_PATH, ensureEditorSettingsPreviewLanguageService } from '@/pages/editor/lib/editorSettingsPreviewLanguageService'
 
 export type EditorSettingsPreviewVariant = 'monaco' | 'workbench'
 
@@ -44,10 +39,7 @@ function EditorSettingsMonacoPreview({ className, dialogOpen = true }: { classNa
   const editorRef = useRef<Parameters<OnMount>[0] | null>(null)
   const fontStyle = useMemo(() => resolveEditorMonacoFontStyle(settings), [settings])
   const editorOptions = useMemo(() => buildEditorSettingsPreviewOptions(settings), [settings, settingsKey])
-  const previewLanguage = useMemo(
-    () => resolveEditorPreviewMonacoLanguage(settings.previewSampleLanguage),
-    [settings.previewSampleLanguage, settingsKey]
-  )
+  const previewLanguage = useMemo(() => resolveEditorPreviewMonacoLanguage(settings.previewSampleLanguage), [settings.previewSampleLanguage, settingsKey])
   const previewSample = useMemo(
     () => buildEditorPreviewSample(settings.tabSize, settings.insertSpaces, settings.previewSampleLanguage),
     [settings.insertSpaces, settings.previewSampleLanguage, settings.tabSize, settingsKey]
@@ -83,10 +75,7 @@ function EditorSettingsMonacoPreview({ className, dialogOpen = true }: { classNa
     }
   }, [dialogOpen, previewSample, settings])
 
-  const previewBehaviorHints = useMemo(
-    () => collectEditorSettingsPreviewBehaviorHints(settings, t, 'monaco'),
-    [settings, t]
-  )
+  const previewBehaviorHints = useMemo(() => collectEditorSettingsPreviewBehaviorHints(settings, t, 'monaco'), [settings, t])
 
   return (
     <div className={cn('flex h-full min-h-[18rem] flex-col overflow-hidden rounded-md border border-border/60 shadow-sm', className)}>

@@ -69,6 +69,11 @@ export default {
       from: 'src/main/task/schema/schema.sql',
       to: 'task-schema/schema.sql',
     },
+    {
+      from: 'src/main/terminal/scripts',
+      to: 'terminal-scripts',
+      filter: ['**/*'],
+    },
   ],
 
   mac: {

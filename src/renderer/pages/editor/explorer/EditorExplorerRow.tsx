@@ -1,17 +1,14 @@
 'use client'
 
 import { ChevronDown, ChevronRight } from 'lucide-react'
-import { memo, type MouseEvent, type RefObject } from 'react'
+import { type MouseEvent, memo, type RefObject } from 'react'
 import { GitFileStatusBadge, type GitFileStatusCode } from '@/components/git/GitFileStatusBadge'
 import { MaterialFileIcon } from '@/components/icons/MaterialFileIcon'
 import { cn } from '@/lib/utils'
 import { ExplorerRowInlineEdit } from '@/pages/editor/explorer/ExplorerRowInlineEdit'
-import {
-  EXPLORER_GIT_DOT_CLASS,
-  EXPLORER_GIT_FOLDER_LABEL_CLASS,
-  EXPLORER_GIT_LABEL_CLASS,
-} from '@/pages/editor/explorer/explorerGitDecorations'
-import { EXPLORER_TREE_BASE_PADDING_PX, EXPLORER_TREE_INDENT_PX, EXPLORER_TREE_ROW_HEIGHT } from '@/pages/editor/explorer/explorerTreeConstants'
+import { EXPLORER_GIT_DOT_CLASS, EXPLORER_GIT_FOLDER_LABEL_CLASS, EXPLORER_GIT_LABEL_CLASS } from '@/pages/editor/explorer/explorerGitDecorations'
+import { EXPLORER_TREE_ROW_HEIGHT, explorerTreePaddingLeft } from '@/pages/editor/explorer/explorerTreeConstants'
+import { ExplorerIndentGuides } from '@/pages/editor/explorer/explorerTreeGuides'
 import type { FileTreeRow } from '@/pages/editor/lib/flattenFileTree'
 
 export type ExplorerRowHandlers = {
@@ -54,20 +51,22 @@ export const ExplorerRow = memo(
   }: ExplorerRowProps) {
     const { node, depth } = row
     const isDir = node.kind === 'directory'
-    const paddingLeft = EXPLORER_TREE_BASE_PADDING_PX + depth * EXPLORER_TREE_INDENT_PX
+    const paddingLeft = explorerTreePaddingLeft(depth)
     const showFolderDot = isDir && gitStatus != null
 
     return (
-      <div
-        role="treeitem"
-        tabIndex={-1}
-        aria-selected={isSelected}
-        className={cn(
-          'flex w-full min-w-0 cursor-pointer items-center gap-1 px-2 text-left outline-none',
-          isCut && 'opacity-40',
-          isSelected ? cn('bg-primary/15 hover:bg-primary/20', !gitStatus && 'text-primary') : 'text-foreground hover:bg-[var(--hb-explorer-row-hover)]'
-        )}
-        style={{ height: EXPLORER_TREE_ROW_HEIGHT, paddingLeft, contain: 'layout style paint' }}
+      <div className="relative min-w-0 p-0!">
+        {depth > 0 ? <ExplorerIndentGuides depth={depth} /> : null}
+        <div
+          role="treeitem"
+          tabIndex={-1}
+          aria-selected={isSelected}
+          className={cn(
+            'flex w-full min-w-0 cursor-pointer items-center gap-1 px-2 text-left outline-none',
+            isCut && 'opacity-40',
+            isSelected ? cn('bg-primary/15 hover:bg-primary/20', !gitStatus && 'text-primary') : 'text-foreground hover:bg-[var(--hb-explorer-row-hover)]'
+          )}
+          style={{ height: EXPLORER_TREE_ROW_HEIGHT, paddingLeft, contain: 'layout style paint' }}
         onMouseDown={e => {
           if (isEditing) return
           if (e.shiftKey || e.ctrlKey || e.metaKey) e.preventDefault()
@@ -124,13 +123,7 @@ export const ExplorerRow = memo(
         )}
         <MaterialFileIcon name={node.name} kind={isDir ? 'folder' : 'file'} expanded={isExpanded} size={16} className="h-4 w-4 shrink-0" />
         {isEditing && onEditValueChange && onEditCommit && onEditCancel ? (
-          <ExplorerRowInlineEdit
-            value={editValue}
-            selectAll={editSelectAll}
-            onChange={onEditValueChange}
-            onCommit={onEditCommit}
-            onCancel={onEditCancel}
-          />
+          <ExplorerRowInlineEdit value={editValue} selectAll={editSelectAll} onChange={onEditValueChange} onCommit={onEditCommit} onCancel={onEditCancel} />
         ) : (
           <span
             className={cn(
@@ -141,10 +134,9 @@ export const ExplorerRow = memo(
             {node.name}
           </span>
         )}
-        {!isEditing && showFolderDot ? (
-          <span className={cn('mr-0.5 h-1.5 w-1.5 shrink-0 rounded-full', EXPLORER_GIT_DOT_CLASS[gitStatus])} aria-hidden />
-        ) : null}
+        {!isEditing && showFolderDot ? <span className={cn('mr-0.5 h-1.5 w-1.5 shrink-0 rounded-full', EXPLORER_GIT_DOT_CLASS[gitStatus])} aria-hidden /> : null}
         {!isEditing && !isDir && gitStatus ? <GitFileStatusBadge status={gitStatus} variant="trailing" /> : null}
+        </div>
       </div>
     )
   },
@@ -169,24 +161,17 @@ type ExplorerPhantomRowProps = {
   onCancel: () => void
 }
 
-export const ExplorerPhantomRow = memo(function ExplorerPhantomRow({
-  depth,
-  createKind,
-  value,
-  onChange,
-  onCommit,
-  onCancel,
-}: ExplorerPhantomRowProps) {
-  const paddingLeft = EXPLORER_TREE_BASE_PADDING_PX + depth * EXPLORER_TREE_INDENT_PX
+export const ExplorerPhantomRow = memo(function ExplorerPhantomRow({ depth, createKind, value, onChange, onCommit, onCancel }: ExplorerPhantomRowProps) {
+  const paddingLeft = explorerTreePaddingLeft(depth)
 
   return (
-    <div
-      className="flex w-full min-w-0 items-center gap-1 bg-primary/10 px-2 text-left"
-      style={{ height: EXPLORER_TREE_ROW_HEIGHT, paddingLeft }}
-    >
-      <span className="w-4 shrink-0" />
-      <MaterialFileIcon name="" kind={createKind === 'directory' ? 'folder' : 'file'} size={16} className="h-4 w-4 shrink-0 opacity-80" />
-      <ExplorerRowInlineEdit value={value} onChange={onChange} onCommit={onCommit} onCancel={onCancel} />
+    <div className="relative min-w-0 p-0!">
+      {depth > 0 ? <ExplorerIndentGuides depth={depth} /> : null}
+      <div className="flex w-full min-w-0 items-center gap-1 bg-primary/10 px-2 text-left" style={{ height: EXPLORER_TREE_ROW_HEIGHT, paddingLeft }}>
+        <span className="w-4 shrink-0" />
+        <MaterialFileIcon name="" kind={createKind === 'directory' ? 'folder' : 'file'} size={16} className="h-4 w-4 shrink-0 opacity-80" />
+        <ExplorerRowInlineEdit value={value} onChange={onChange} onCommit={onCommit} onCancel={onCancel} />
+      </div>
     </div>
   )
 })

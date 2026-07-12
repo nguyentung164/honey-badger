@@ -13,13 +13,13 @@ export type EditorTab = {
   /** VS Code preview tab — replaced on next single-click open until pinned. */
   isPreview: boolean
   isPinned: boolean
+  /** VS Code sticky tab — pinned to the front of the tab strip. */
+  isSticky: boolean
   kind: EditorTabKind
   version: number
   /** Bumped when content is loaded/reloaded from disk — triggers model sync. */
   loadGeneration: number
   reveal?: { line: number; column: number }
-  /** Serialized Monaco ICodeEditorViewState for tab switch restore. */
-  viewStateJson?: string
   /** Right-hand file path when `kind === 'compare'`. */
   compareWithPath?: string
 }
@@ -31,6 +31,10 @@ export type OpenFileOptions = {
   preview?: boolean
   /** Double-click or explicit pin — keeps tab open. */
   pin?: boolean
+  /** VS Code sticky tab — insert at the front sticky section. */
+  sticky?: boolean
+  /** Restore tab position when reopening a closed editor. */
+  insertIndex?: number
   /** Skip the large-file confirmation gate. */
   forceLarge?: boolean
   /** Workspace folder root when opening from multi-root explorer. */
@@ -54,10 +58,6 @@ export function tabIdForCompare(repoRoot: string, leftPath: string, rightPath: s
   return `compare:${root}::${left}\0${right}`
 }
 
-export function isCompareTabId(tabId: string): boolean {
-  return tabId.startsWith('compare:')
-}
-
 export function compareTabLabel(repoRoot: string, leftPath: string, rightPath: string): string {
   const leftName = leftPath.split('/').pop() ?? leftPath
   const rightName = rightPath.split('/').pop() ?? rightPath
@@ -66,7 +66,9 @@ export function compareTabLabel(repoRoot: string, leftPath: string, rightPath: s
   return `${leftName} ↔ ${rightName}`
 }
 
-export const MAX_EDITOR_TABS = 20
+export type OpenCompareOptions = {
+  sticky?: boolean
+  insertIndex?: number
+}
 
-export const EDITOR_OPEN_TABS_KEY_PREFIX = 'editor-open-tabs:'
-export const EDITOR_SESSION_KEY_PREFIX = 'editor-session:'
+export const MAX_EDITOR_TABS = 20

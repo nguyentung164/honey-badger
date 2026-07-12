@@ -17,6 +17,7 @@ import { registerCommitMessageHistoryIpcHandlers } from './ipc/commitMessageHist
 import { registerDailyReportIpcHandlers } from './ipc/dailyReport'
 import { registerDevPipelinesIpcHandlers } from './ipc/devPipelines'
 import { registerCommitWorkflowIpcHandlers } from './ipc/commitWorkflow'
+import { flushSyncQueue } from './commitWorkflow/syncQueue'
 import { registerEVMHandlers } from './ipc/evm'
 import { registerGitIpcHandlers } from './ipc/git'
 import { registerGitCommitQueueIpcHandlers } from './ipc/gitCommitQueue'
@@ -64,6 +65,7 @@ import {
   migrateEvmWbsDayUnitFkCascade,
   migrateProjectFkCascade,
 } from './task/schema/taskDbPatches'
+import { seedAchievements } from './task/achievement/achievementSeed'
 import { initAutoUpdater } from './updater'
 import { initDeveloperModeShortcut } from './utils/developerModeShortcut'
 import { startFileWatcher } from './utils/fileWatcher'
@@ -139,7 +141,6 @@ makeAppWithSingleInstanceLock(async () => {
         startDailyReportReminderScheduler()
         const { startTaskNotificationPoller } = await import('./scheduler/taskNotificationPoller')
         startTaskNotificationPoller()
-        const { seedAchievements } = await import('./task/achievement/achievementSeed')
         seedAchievements().catch(() => {})
         const { startAchievementDailyScheduler } = await import('./scheduler/achievementDailyScheduler')
         startAchievementDailyScheduler()
@@ -170,7 +171,6 @@ makeAppWithSingleInstanceLock(async () => {
         await migrateCommitWorkflowTables().catch(() => {})
         await migrateCommitWorkflowDevPipelineCleanup().catch(() => {})
         await migrateDropCommitReviewsTable().catch(() => {})
-        const { flushSyncQueue } = await import('./commitWorkflow/syncQueue')
         await flushSyncQueue().catch(() => {})
         await migrateAiUsageEventsUserIdColumn().catch(() => {})
         await migrateEvmWbsDayUnitFkCascade().catch(() => {})

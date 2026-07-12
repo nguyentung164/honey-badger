@@ -1,10 +1,10 @@
 'use client'
 
-import { EditorWorkbench } from '@/pages/editor/EditorWorkbench'
 import type { EditorWorkspaceFolder } from '@/lib/multiRepoUtils'
-import { normalizeEditorRepoKey } from '@/pages/editor/lib/editorSessionPersist'
+import type { ShellTabActiveProps } from 'shared/shellTabTypes'
+import { EditorWorkbench } from '@/pages/editor/EditorWorkbench'
 
-export type EditorPageProps = {
+export type EditorPageProps = ShellTabActiveProps & {
   repoCwd?: string
   workspaceFolders?: EditorWorkspaceFolder[]
   workspaceSessionKey?: string
@@ -13,7 +13,6 @@ export type EditorPageProps = {
   workspaceEmptyMessage?: string
   onRegisterLayoutLeave?: (handler: (action: () => void) => void) => void
   onOpenInTerminal?: (absoluteCwd: string) => void
-  terminalOpen?: boolean
 }
 
 export function EditorPage({
@@ -25,6 +24,7 @@ export function EditorPage({
   workspaceEmptyMessage,
   onRegisterLayoutLeave,
   onOpenInTerminal,
+  shellTabActive = true,
 }: EditorPageProps) {
   return (
     <EditorWorkbench
@@ -36,6 +36,7 @@ export function EditorPage({
       workspaceEmptyMessage={workspaceEmptyMessage}
       onRegisterLayoutLeave={onRegisterLayoutLeave}
       onOpenInTerminal={onOpenInTerminal}
+      shellTabActive={shellTabActive}
     />
   )
 }

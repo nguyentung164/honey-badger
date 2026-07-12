@@ -7,6 +7,7 @@ import { forwardRef, type ReactNode, useCallback, useEffect, useImperativeHandle
 import { useTranslation } from 'react-i18next'
 import type { FilesChangedPayload } from 'shared/filesChanged'
 import { filesChangedTargetsRepo } from 'shared/filesChanged'
+import type { ShellTabActiveProps } from 'shared/shellTabTypes'
 import { ResizableHandle, ResizablePanel, ResizablePanelGroup } from '@/components/ui/resizable'
 import toast from '@/components/ui-elements/Toast'
 import { useAppMonacoThemeId, useSyncAppMonacoTheme } from '@/hooks/useAppMonacoTheme'
@@ -54,6 +55,7 @@ import {
   removeEmptyLinesFromDiffEditor,
   resetDiffEditorCursors,
   collapseAllDiffUnchangedRegions,
+  refreshDiffCollapseAfterContentChange,
   resolveDiffViewerRevealPath,
   stabilizeDiffEditorAfterEdit,
   swapDiffEditorModels,
@@ -69,7 +71,11 @@ import { useDiffViewerDirty } from './useDiffViewerDirty'
 import { useDiffViewerFileNav } from './useDiffViewerFileNav'
 import { useDiffViewerMinimapHighlights } from './useDiffViewerMinimapHighlights'
 import { applyDiffViewerEditorOptions, buildDiffEditorOptions, isDiffCollapseActive, useDiffViewerOptions } from './useDiffViewerOptions'
+import { observeDiffHiddenLinesIcons, patchDiffHiddenLinesIcons } from './patchDiffHiddenLinesIcon'
 import { useDiffViewerPaneLabels } from './useDiffViewerPaneLabels'
+import { useEditorMonacoSettings } from '@/pages/editor/hooks/useEditorSettings'
+import { editorSettingsFingerprint, refreshEditorMonacoAfterSettings } from '@/pages/editor/lib/applyEditorMonacoSettings'
+import { resolveEditorMonacoFontStyle } from '@/pages/editor/lib/editorMonacoTheme'
 import {
   DIFF_VIEWER_EDITOR_PANEL_ID,
   DIFF_VIEWER_TREE_PANEL_ID,
@@ -83,7 +89,7 @@ export type CodeDiffViewerHandle = {
   requestLayoutLeave: (onProceed: () => void) => void
 }
 
-export type CodeDiffViewerProps = {
+export type CodeDiffViewerProps = ShellTabActiveProps & {
   /** Render inside MainPage git staging area instead of a dedicated window. */
   embedded?: boolean
   /** Repo root when embedded (multi-repo); prevents falling back to global sourceFolder. */
@@ -232,7 +238,7 @@ function formatLoadError(error: unknown): string {
 }
 
 export const CodeDiffViewer = forwardRef<CodeDiffViewerHandle, CodeDiffViewerProps>(function CodeDiffViewer(
-  { embedded = false, embeddedRepoCwd, embeddedPayload = null, embeddedToolbarHost = null, embeddedStagingFooter = null, embeddedOnReloadFileList, embeddedOnOpenLocalIgnorePatterns, embeddedOnAddToLocalIgnore, embeddedOnAddFolderToLocalIgnore },
+  { embedded = false, embeddedRepoCwd, embeddedPayload = null, embeddedToolbarHost = null, embeddedStagingFooter = null, embeddedOnOpenLocalIgnorePatterns, embeddedOnAddToLocalIgnore, embeddedOnAddFolderToLocalIgnore, shellTabActive = true },
   ref
 ) {
   const monaco = useMonaco()
@@ -269,7 +275,6 @@ export const CodeDiffViewer = forwardRef<CodeDiffViewerHandle, CodeDiffViewerPro
   const [language, setLanguage] = useState('javascript')
   const [cursorPosition, setCursorPosition] = useState({ line: 1, column: 1 })
   const [isLoading, setIsLoading] = useState(false)
-  const [isTreeRefreshing, setIsTreeRefreshing] = useState(false)
   const [isSaving, setIsSaving] = useState(false)
   const [isStaging, setIsStaging] = useState(false)
   const [isReverting, setIsReverting] = useState(false)
@@ -291,7 +296,11 @@ export const CodeDiffViewer = forwardRef<CodeDiffViewerHandle, CodeDiffViewerPro
   const [pendingNavIndex, setPendingNavIndex] = useState<number | null>(null)
   const [showCloseConfirm, setShowCloseConfirm] = useState(false)
 
+  const activeIndexRef = useRef(0)
+  const pendingNavIndexRef = useRef<number | null>(null)
+
   const editorRef = useRef<MonacoEditor.IStandaloneDiffEditor | null>(null)
+  const hiddenLinesIconObserverCleanupRef = useRef<(() => void) | null>(null)
   const rootRef = useRef<HTMLDivElement | null>(null)
   const originalEditableRef = useRef(false)
   const loadContextRef = useRef<DiffViewerLoadPayload | null>(null)
@@ -306,11 +315,15 @@ export const CodeDiffViewer = forwardRef<CodeDiffViewerHandle, CodeDiffViewerPro
   const modifiedCodeRef = useRef(modifiedCode)
 
   const { viewOptions, setViewOption } = useDiffViewerOptions()
+  const editorSettings = useEditorMonacoSettings()
+  const editorSettingsKey = useMemo(() => editorSettingsFingerprint(editorSettings), [editorSettings])
+  const fontStyle = useMemo(() => resolveEditorMonacoFontStyle(editorSettings), [editorSettings])
   const { autoAdvance, toggleAutoAdvance } = useDiffViewerAutoAdvance()
   const { panelGroupRef, initialLayout, handleLayoutChanged } = useDiffViewerTreePanelWidth()
 
   const notifyContentChangeRef = useRef<((event: { isFlush?: boolean }) => void) | null>(null)
   const { files, activeIndex, activeFile, initFiles, goToFile, refreshFilesFromGit, refreshFromContext, hasMultipleFiles, setActiveEntryStagingState } = useDiffViewerFileNav()
+  activeIndexRef.current = activeIndex
 
   const displayedFileEntry = useMemo(() => {
     if (activeFile && pathsEqual(activeFile.filePath, filePath)) {
@@ -350,12 +363,15 @@ export const CodeDiffViewer = forwardRef<CodeDiffViewerHandle, CodeDiffViewerPro
     [viewOptions, stagingDiffProfile]
   )
 
-  const editorOptions = useMemo(() => buildDiffEditorOptions(editorViewOptions, { readOnly: !editable }), [editorViewOptions, editable])
+  const editorOptions = useMemo(
+    () => buildDiffEditorOptions(editorViewOptions, editorSettings, { readOnly: !editable }),
+    [editorViewOptions, editorSettings, editable]
+  )
 
-  /** Remount diff editor per loaded file when collapse is on — updateOptions alone is ignored after content changes (monaco-react #548). */
+  /** Remount when toggling collapse mode — not on every file change (preserves per-region fold state). */
   const diffEditorRemountKey = useMemo(
-    () => (isDiffCollapseActive(editorViewOptions) ? `collapse-${contentEpoch}` : 'diff-editor'),
-    [editorViewOptions, contentEpoch]
+    () => (isDiffCollapseActive(editorViewOptions) ? 'collapse' : 'diff-editor'),
+    [editorViewOptions.collapseUnchangedRegions, editorViewOptions.diffOnly]
   )
 
   const { isDirty, setBaseline, notifyContentChange, beginProgrammaticUpdate, endProgrammaticUpdate } = useDiffViewerDirty(editable)
@@ -365,6 +381,7 @@ export const CodeDiffViewer = forwardRef<CodeDiffViewerHandle, CodeDiffViewerPro
   stagingHintRef.current = stagingHintForRefresh
   const editorViewOptionsRef = useRef(editorViewOptions)
   editorViewOptionsRef.current = editorViewOptions
+  const collapseActiveRef = useRef(false)
   const editableRef = useRef(editable)
   editableRef.current = editable
 
@@ -428,6 +445,7 @@ export const CodeDiffViewer = forwardRef<CodeDiffViewerHandle, CodeDiffViewerPro
 
   useEffect(() => {
     if (fileKind !== 'text') return
+    if (!shellTabActive) return
 
     const focusKey = `${contentEpoch}:${editorMountEpoch}`
     const skipAutoFocus = autoFocusFirstChangeKeyRef.current === focusKey
@@ -489,7 +507,7 @@ export const CodeDiffViewer = forwardRef<CodeDiffViewerHandle, CodeDiffViewerPro
     return () => {
       cancelled = true
     }
-  }, [contentEpoch, editorMountEpoch, fileKind, refreshDiffState])
+  }, [contentEpoch, editorMountEpoch, fileKind, refreshDiffState, shellTabActive])
 
   const loadImageDataUrl = useCallback(
     async (path: string, source?: { gitRevision?: string; svnRevision?: string; svnFileStatus?: string }): Promise<string | null> => {
@@ -559,7 +577,7 @@ export const CodeDiffViewer = forwardRef<CodeDiffViewerHandle, CodeDiffViewerPro
 
   const applyLoadedTextContent = useCallback(
     (nextOriginal: string, nextModified: string) => {
-      beginProgrammaticUpdate()
+      const programmaticEpoch = beginProgrammaticUpdate()
       resetDiffEditorCursors(editorRef.current)
       const diffEditor = editorRef.current
       if (diffEditor) {
@@ -579,7 +597,7 @@ export const CodeDiffViewer = forwardRef<CodeDiffViewerHandle, CodeDiffViewerPro
       setContentEpoch(e => e + 1)
       requestAnimationFrame(() => {
         requestAnimationFrame(() => {
-          endProgrammaticUpdate()
+          endProgrammaticUpdate(programmaticEpoch)
         })
       })
     },
@@ -886,16 +904,6 @@ export const CodeDiffViewer = forwardRef<CodeDiffViewerHandle, CodeDiffViewerPro
     runLoad(ctx)
   }, [runLoad, refreshFromContext, stagingHintForRefresh, filePath])
 
-  const handleTreeRefresh = useCallback(() => {
-    if (embedded && embeddedOnReloadFileList) {
-      void embeddedOnReloadFileList()
-      toast.info(t('toast.getListSuccess'))
-      return
-    }
-    setIsTreeRefreshing(true)
-    void onRefresh().finally(() => setIsTreeRefreshing(false))
-  }, [embedded, embeddedOnReloadFileList, onRefresh, t])
-
   const navigateToFile = useCallback(
     (index: number) => {
       const entry = files[index]
@@ -920,16 +928,18 @@ export const CodeDiffViewer = forwardRef<CodeDiffViewerHandle, CodeDiffViewerPro
 
   const requestNavigateToFile = useCallback(
     (index: number) => {
-      if (index === activeIndex) return
+      if (index === activeIndexRef.current) return
       if (isDirty) {
+        pendingNavIndexRef.current = index
         setPendingNavIndex(index)
         setShowCloseConfirm(true)
         return
       }
+      activeIndexRef.current = index
       goToFile(index)
       navigateToFile(index)
     },
-    [activeIndex, isDirty, goToFile, navigateToFile]
+    [isDirty, goToFile, navigateToFile]
   )
 
   const handlePrevFile = useCallback(() => {
@@ -979,11 +989,13 @@ export const CodeDiffViewer = forwardRef<CodeDiffViewerHandle, CodeDiffViewerPro
   useImperativeHandle(ref, () => ({ requestLayoutLeave }), [requestLayoutLeave])
 
   const completePendingLeaveAction = useCallback(() => {
-    if (pendingNavIndex != null) {
-      const idx = pendingNavIndex
+    const pendingIdx = pendingNavIndexRef.current ?? pendingNavIndex
+    if (pendingIdx != null) {
+      pendingNavIndexRef.current = null
       setPendingNavIndex(null)
-      goToFile(idx)
-      navigateToFile(idx)
+      activeIndexRef.current = pendingIdx
+      goToFile(pendingIdx)
+      navigateToFile(pendingIdx)
       return true
     }
     if (pendingLayoutLeaveRef.current) {
@@ -1525,13 +1537,18 @@ export const CodeDiffViewer = forwardRef<CodeDiffViewerHandle, CodeDiffViewerPro
 
   const handleEditorMount: DiffOnMount = (editor, _monaco) => {
     editorRef.current = editor
-    applyDiffViewerEditorOptions(editor, editorViewOptions, { readOnly: !editable })
+    applyDiffViewerEditorOptions(editor, editorViewOptions, editorSettings, { readOnly: !editable })
+    refreshEditorMonacoAfterSettings(editor.getOriginalEditor())
+    refreshEditorMonacoAfterSettings(editor.getModifiedEditor())
     setEditorMountEpoch(e => e + 1)
     const modifiedEditor = editor.getModifiedEditor()
     const originalEditor = editor.getOriginalEditor()
 
     editor.onDidUpdateDiff(() => {
       requestAnimationFrame(refreshDiffState)
+      if (isDiffCollapseActive(editorViewOptionsRef.current)) {
+        patchDiffHiddenLinesIcons(editor.getContainerDomNode())
+      }
     })
 
     modifiedEditor.onDidChangeModelContent(event => {
@@ -1566,13 +1583,19 @@ export const CodeDiffViewer = forwardRef<CodeDiffViewerHandle, CodeDiffViewerPro
     })
 
     requestAnimationFrame(() => {
-      void refreshDiffStateAfterCompute().then(() => {
-        if (isDiffCollapseActive(editorViewOptionsRef.current)) {
-          collapseAllDiffUnchangedRegions(editor)
-        }
-      })
+      void refreshDiffStateAfterCompute()
     })
+
+    hiddenLinesIconObserverCleanupRef.current?.()
+    hiddenLinesIconObserverCleanupRef.current = observeDiffHiddenLinesIcons(editor.getContainerDomNode())
   }
+
+  useEffect(() => {
+    return () => {
+      hiddenLinesIconObserverCleanupRef.current?.()
+      hiddenLinesIconObserverCleanupRef.current = null
+    }
+  }, [])
 
   useEffect(() => {
     const diffEditor = editorRef.current
@@ -1724,11 +1747,19 @@ export const CodeDiffViewer = forwardRef<CodeDiffViewerHandle, CodeDiffViewerPro
   }, [isLoading, editable, fileKind, setBaseline])
 
   useEffect(() => {
+    if (!shellTabActive) return
     const diffEditor = editorRef.current
     if (!diffEditor) return
-    applyDiffViewerEditorOptions(diffEditor, editorViewOptions, { readOnly: !editable })
+    applyDiffViewerEditorOptions(diffEditor, editorViewOptions, editorSettings, { readOnly: !editable })
+    refreshEditorMonacoAfterSettings(diffEditor.getOriginalEditor())
+    refreshEditorMonacoAfterSettings(diffEditor.getModifiedEditor())
+
+    const collapseActive = isDiffCollapseActive(editorViewOptions)
+    const justEnabledCollapse = collapseActive && !collapseActiveRef.current
+    collapseActiveRef.current = collapseActive
+
     void (async () => {
-      if (!isDiffCollapseActive(editorViewOptions)) {
+      if (!collapseActive) {
         requestAnimationFrame(() => {
           diffEditor.layout()
           refreshDiffState()
@@ -1736,13 +1767,35 @@ export const CodeDiffViewer = forwardRef<CodeDiffViewerHandle, CodeDiffViewerPro
         return
       }
       await waitForDiffCompute(diffEditor)
-      collapseAllDiffUnchangedRegions(diffEditor)
+      if (justEnabledCollapse) {
+        collapseAllDiffUnchangedRegions(diffEditor)
+      }
       requestAnimationFrame(() => {
         diffEditor.layout()
         refreshDiffState()
+        patchDiffHiddenLinesIcons(diffEditor.getContainerDomNode())
       })
     })()
-  }, [editorViewOptions, editable, refreshDiffState])
+  }, [editorViewOptions, editorSettings, editorSettingsKey, editable, refreshDiffState, shellTabActive])
+
+  useEffect(() => {
+    if (!shellTabActive || fileKind !== 'text') return
+    const diffEditor = editorRef.current
+    if (!diffEditor || !isDiffCollapseActive(editorViewOptionsRef.current)) return
+    void refreshDiffCollapseAfterContentChange(diffEditor, editorViewOptionsRef.current, editorSettings, {
+      readOnly: !editableRef.current,
+    })
+  }, [contentEpoch, shellTabActive, fileKind, editorSettings, editorMountEpoch])
+
+  useEffect(() => {
+    if (!shellTabActive) return
+    const diffEditor = editorRef.current
+    if (!diffEditor) return
+    requestAnimationFrame(() => {
+      diffEditor.layout()
+      refreshDiffState()
+    })
+  }, [shellTabActive, refreshDiffState])
 
   useEffect(() => {
     return () => {
@@ -1751,12 +1804,12 @@ export const CodeDiffViewer = forwardRef<CodeDiffViewerHandle, CodeDiffViewerPro
   }, [])
 
   useEffect(() => {
-    if (isLoading || fileKind !== 'text') return
+    if (!shellTabActive || isLoading || fileKind !== 'text') return
     const timer = window.setTimeout(() => {
       void refreshDiffStateAfterCompute()
     }, 600)
     return () => window.clearTimeout(timer)
-  }, [originalCode, modifiedCode, isLoading, fileKind, refreshDiffStateAfterCompute])
+  }, [originalCode, modifiedCode, isLoading, fileKind, refreshDiffStateAfterCompute, shellTabActive])
 
   const originalLabel = useMemo(() => {
     if (stagingPaneLabels && isGit && !commitHash && !currentCommitHash) {
@@ -1823,7 +1876,7 @@ export const CodeDiffViewer = forwardRef<CodeDiffViewerHandle, CodeDiffViewerPro
       )
     }
     return (
-      <div className="relative flex-1 overflow-hidden">
+      <div className="relative flex-1 overflow-hidden hb-monaco-editor-root" style={fontStyle}>
         <DiffEditor
           key={diffEditorRemountKey}
           height="100%"
@@ -1917,11 +1970,9 @@ export const CodeDiffViewer = forwardRef<CodeDiffViewerHandle, CodeDiffViewerPro
                 splitStaging={diffViewerMode === 'git-staging'}
                 showStageActions={diffViewerSupportsStageActions(diffViewerMode)}
                 disabled={isStaging || isReverting}
-                isRefreshing={isTreeRefreshing}
                 stagingFooter={embedded && embeddedStagingFooter ? embeddedStagingFooter : undefined}
                 onSelectFile={requestNavigateToFile}
                 onBulkAction={(action, indices) => void handleTreeBulkAction(action, indices)}
-                onRefresh={handleTreeRefresh}
                 showLocalIgnorePatterns={Boolean(embedded && embeddedOnOpenLocalIgnorePatterns)}
                 onOpenLocalIgnorePatterns={embeddedOnOpenLocalIgnorePatterns}
                 repoCwd={getRepoCwd()}
@@ -1932,7 +1983,7 @@ export const CodeDiffViewer = forwardRef<CodeDiffViewerHandle, CodeDiffViewerPro
             </div>
           </ResizablePanel>
 
-          <ResizableHandle className="bg-transparent" />
+          <ResizableHandle showGrip={false} className="bg-transparent" />
 
           <ResizablePanel id={DIFF_VIEWER_EDITOR_PANEL_ID} minSize="45%" className="h-full flex flex-col min-h-0">
             {renderMainContent()}
@@ -1956,6 +2007,7 @@ export const CodeDiffViewer = forwardRef<CodeDiffViewerHandle, CodeDiffViewerPro
         onOpenChange={open => {
           if (!open) {
             setShowCloseConfirm(false)
+            pendingNavIndexRef.current = null
             setPendingNavIndex(null)
             pendingCloseRef.current = false
             pendingLayoutLeaveRef.current = null

@@ -1,23 +1,11 @@
 'use client'
 
-import {
-  Brain,
-  FileText,
-  IndentIncrease,
-  LayoutDashboard,
-  ListTree,
-  MousePointerClick,
-  RotateCcw,
-  Ruler,
-  ScrollText,
-  Sparkles,
-  TextCursor,
-  Type,
-  WrapText,
-} from 'lucide-react'
+import { Brain, FileText, IndentIncrease, LayoutDashboard, ListTree, MousePointerClick, RotateCcw, Ruler, ScrollText, Sparkles, TextCursor, Type, WrapText } from 'lucide-react'
 import { useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import {
+  SETTINGS_CONTROL_CLASS,
+  SETTINGS_FONT_MICRO,
   SettingsAccordion,
   SettingsAccordionSection,
   SettingsDialogFrame,
@@ -27,9 +15,6 @@ import {
   SettingsTabPanel,
   SettingsToggleRow,
   SettingsValueBadge,
-  SETTINGS_CONTROL_CLASS,
-  SETTINGS_FONT_LABEL,
-  SETTINGS_FONT_MICRO,
 } from '@/components/settings/settingsDialogUi'
 import { Button } from '@/components/ui/button'
 import { Dialog } from '@/components/ui/dialog'
@@ -49,8 +34,6 @@ import { cn } from '@/lib/utils'
 import { EditorSettingsPreview } from '@/pages/editor/EditorSettingsPreview'
 import {
   EDITOR_TAB_SIZE_OPTIONS,
-  formatRulersInput,
-  parseRulersInput,
   type EditorAutoSave,
   type EditorCursorStyle,
   type EditorLineNumbers,
@@ -58,15 +41,12 @@ import {
   type EditorRenderWhitespace,
   type EditorSettings,
   type EditorWordWrap,
+  formatRulersInput,
+  parseRulersInput,
   useEditorMonacoSettings,
   useEditorSettings,
 } from '@/pages/editor/hooks/useEditorSettings'
-import {
-  EDITOR_AUTO_SAVE_DELAY_MAX,
-  EDITOR_AUTO_SAVE_DELAY_MIN,
-  EDITOR_FONT_SIZE_MAX,
-  EDITOR_FONT_SIZE_MIN,
-} from '@/pages/editor/lib/editorMonacoTheme'
+import { EDITOR_AUTO_SAVE_DELAY_MAX, EDITOR_AUTO_SAVE_DELAY_MIN, EDITOR_FONT_SIZE_MAX, EDITOR_FONT_SIZE_MIN } from '@/pages/editor/lib/editorMonacoTheme'
 
 type EditorSettingsDialogProps = {
   open: boolean
@@ -130,15 +110,7 @@ function FontWeightPicker({ value, fontFamilyId, onChange }: { value: TerminalFo
               selected ? 'border-primary ring-1 ring-primary/35' : 'border-border/60'
             )}
           >
-            <input
-              type="radio"
-              name="editor-settings-font-weight"
-              value={id}
-              checked={selected}
-              onChange={() => onChange(id)}
-              className="sr-only"
-              aria-label={optionLabel}
-            />
+            <input type="radio" name="editor-settings-font-weight" value={id} checked={selected} onChange={() => onChange(id)} className="sr-only" aria-label={optionLabel} />
             <span className="text-lg leading-none text-foreground" style={weightStyle} aria-hidden>
               Ag
             </span>
@@ -186,13 +158,13 @@ export function EditorSettingsDialog({ open, onOpenChange }: EditorSettingsDialo
         }
       >
         <SettingsSearchProvider query={searchQuery}>
-        <SettingsDialogSplitLayout
-          previewPanelId="editor-settings-preview"
-          contentPanelId="editor-settings-content"
-          preview={<EditorSettingsPreview variant="monaco" dialogOpen={open} className="h-full" />}
-        >
-          <SettingsTabPanel>
-            <SettingsAccordion>
+          <SettingsDialogSplitLayout
+            previewPanelId="editor-settings-preview"
+            contentPanelId="editor-settings-content"
+            preview={<EditorSettingsPreview variant="monaco" dialogOpen={open} className="h-full" />}
+          >
+            <SettingsTabPanel>
+              <SettingsAccordion>
                 <SettingsAccordionSection value="typography-font" icon={Type} title={t('editor.settings.groups.font')} description={t('editor.settings.groups.fontHint')}>
                   <SettingsFieldBlock label={t('editor.settings.fontSize')} htmlFor="editor-font-size">
                     <div className="flex items-center gap-3">
@@ -240,10 +212,7 @@ export function EditorSettingsDialog({ open, onOpenChange }: EditorSettingsDialo
                   />
 
                   <SettingsFieldBlock label={t('editor.settings.previewSampleLanguage')} htmlFor="editor-preview-language">
-                    <Select
-                      value={settings.previewSampleLanguage}
-                      onValueChange={(value: EditorPreviewSampleLanguage) => patch({ previewSampleLanguage: value })}
-                    >
+                    <Select value={settings.previewSampleLanguage} onValueChange={(value: EditorPreviewSampleLanguage) => patch({ previewSampleLanguage: value })}>
                       <SelectTrigger id="editor-preview-language" className={SETTINGS_CONTROL_CLASS}>
                         <SelectValue />
                       </SelectTrigger>
@@ -307,7 +276,12 @@ export function EditorSettingsDialog({ open, onOpenChange }: EditorSettingsDialo
                   </SettingsFieldBlock>
                 </SettingsAccordionSection>
 
-                <SettingsAccordionSection value="appearance-cursor" icon={TextCursor} title={t('editor.settings.groups.cursor')} description={t('editor.settings.groups.cursorHint')}>
+                <SettingsAccordionSection
+                  value="appearance-cursor"
+                  icon={TextCursor}
+                  title={t('editor.settings.groups.cursor')}
+                  description={t('editor.settings.groups.cursorHint')}
+                >
                   <SettingsFieldBlock label={t('editor.settings.cursorStyle')} htmlFor="editor-cursor-style">
                     <Select value={settings.cursorStyle} onValueChange={(value: EditorCursorStyle) => patch({ cursorStyle: value })}>
                       <SelectTrigger id="editor-cursor-style" className={SETTINGS_CONTROL_CLASS}>
@@ -331,7 +305,12 @@ export function EditorSettingsDialog({ open, onOpenChange }: EditorSettingsDialo
                   />
                 </SettingsAccordionSection>
 
-                <SettingsAccordionSection value="appearance-scrolling" icon={ScrollText} title={t('editor.settings.groups.scrolling')} description={t('editor.settings.groups.scrollingHint')}>
+                <SettingsAccordionSection
+                  value="appearance-scrolling"
+                  icon={ScrollText}
+                  title={t('editor.settings.groups.scrolling')}
+                  description={t('editor.settings.groups.scrollingHint')}
+                >
                   <SettingsToggleRow
                     id="editor-smooth-scrolling"
                     label={t('editor.settings.smoothScrolling')}
@@ -347,7 +326,12 @@ export function EditorSettingsDialog({ open, onOpenChange }: EditorSettingsDialo
                   />
                 </SettingsAccordionSection>
 
-                <SettingsAccordionSection value="editing-indentation" icon={IndentIncrease} title={t('editor.settings.groups.indentation')} description={t('editor.settings.groups.indentationHint')}>
+                <SettingsAccordionSection
+                  value="editing-indentation"
+                  icon={IndentIncrease}
+                  title={t('editor.settings.groups.indentation')}
+                  description={t('editor.settings.groups.indentationHint')}
+                >
                   <SettingsFieldBlock label={t('editor.settings.tabSize')} htmlFor="editor-tab-size">
                     <Select value={String(settings.tabSize)} onValueChange={value => patch({ tabSize: Number(value) })}>
                       <SelectTrigger id="editor-tab-size" className={SETTINGS_CONTROL_CLASS}>
@@ -380,7 +364,12 @@ export function EditorSettingsDialog({ open, onOpenChange }: EditorSettingsDialo
                   />
                 </SettingsAccordionSection>
 
-                <SettingsAccordionSection value="editing-behavior" icon={MousePointerClick} title={t('editor.settings.groups.behavior')} description={t('editor.settings.groups.behaviorHint')}>
+                <SettingsAccordionSection
+                  value="editing-behavior"
+                  icon={MousePointerClick}
+                  title={t('editor.settings.groups.behavior')}
+                  description={t('editor.settings.groups.behaviorHint')}
+                >
                   <SettingsToggleRow
                     id="editor-linked-editing"
                     label={t('editor.settings.linkedEditing')}
@@ -414,7 +403,12 @@ export function EditorSettingsDialog({ open, onOpenChange }: EditorSettingsDialo
                   />
                 </SettingsAccordionSection>
 
-                <SettingsAccordionSection value="editing-wrapping" icon={WrapText} title={t('editor.settings.groups.wrapping')} description={t('editor.settings.groups.wrappingHint')}>
+                <SettingsAccordionSection
+                  value="editing-wrapping"
+                  icon={WrapText}
+                  title={t('editor.settings.groups.wrapping')}
+                  description={t('editor.settings.groups.wrappingHint')}
+                >
                   <SettingsFieldBlock label={t('editor.settings.wordWrap')} htmlFor="editor-word-wrap">
                     <Select value={settings.wordWrap} onValueChange={(value: EditorWordWrap) => patch({ wordWrap: value })}>
                       <SelectTrigger id="editor-word-wrap" className={SETTINGS_CONTROL_CLASS}>
@@ -428,7 +422,12 @@ export function EditorSettingsDialog({ open, onOpenChange }: EditorSettingsDialo
                   </SettingsFieldBlock>
                 </SettingsAccordionSection>
 
-                <SettingsAccordionSection value="editing-formatting" icon={Sparkles} title={t('editor.settings.groups.formatting')} description={t('editor.settings.groups.formattingHint')}>
+                <SettingsAccordionSection
+                  value="editing-formatting"
+                  icon={Sparkles}
+                  title={t('editor.settings.groups.formatting')}
+                  description={t('editor.settings.groups.formattingHint')}
+                >
                   <SettingsToggleRow
                     id="editor-format-on-save"
                     label={t('editor.settings.formatOnSave')}
@@ -461,7 +460,12 @@ export function EditorSettingsDialog({ open, onOpenChange }: EditorSettingsDialo
                   />
                 </SettingsAccordionSection>
 
-                <SettingsAccordionSection value="editing-intellisense" icon={Brain} title={t('editor.settings.groups.intelliSense')} description={t('editor.settings.groups.intelliSenseHint')}>
+                <SettingsAccordionSection
+                  value="editing-intellisense"
+                  icon={Brain}
+                  title={t('editor.settings.groups.intelliSense')}
+                  description={t('editor.settings.groups.intelliSenseHint')}
+                >
                   <SettingsToggleRow
                     id="editor-sticky-scroll"
                     label={t('editor.settings.stickyScroll')}
@@ -485,9 +489,22 @@ export function EditorSettingsDialog({ open, onOpenChange }: EditorSettingsDialo
                     checked={settings.inlayHints}
                     onCheckedChange={checked => patch({ inlayHints: checked })}
                   />
+
+                  <SettingsToggleRow
+                    id="editor-prefer-go-to-source-definition"
+                    label={t('editor.settings.preferGoToSourceDefinition')}
+                    description={t('editor.settings.preferGoToSourceDefinitionHint')}
+                    checked={settings.preferGoToSourceDefinition}
+                    onCheckedChange={checked => patch({ preferGoToSourceDefinition: checked })}
+                  />
                 </SettingsAccordionSection>
 
-                <SettingsAccordionSection value="workbench-layout" icon={LayoutDashboard} title={t('editor.settings.groups.workbench')} description={t('editor.settings.groups.workbenchHint')}>
+                <SettingsAccordionSection
+                  value="workbench-layout"
+                  icon={LayoutDashboard}
+                  title={t('editor.settings.groups.workbench')}
+                  description={t('editor.settings.groups.workbenchHint')}
+                >
                   <SettingsToggleRow
                     id="editor-breadcrumbs"
                     label={t('editor.settings.breadcrumbs')}
@@ -546,9 +563,9 @@ export function EditorSettingsDialog({ open, onOpenChange }: EditorSettingsDialo
                     </SettingsFieldBlock>
                   ) : null}
                 </SettingsAccordionSection>
-            </SettingsAccordion>
-          </SettingsTabPanel>
-        </SettingsDialogSplitLayout>
+              </SettingsAccordion>
+            </SettingsTabPanel>
+          </SettingsDialogSplitLayout>
         </SettingsSearchProvider>
       </SettingsDialogFrame>
     </Dialog>

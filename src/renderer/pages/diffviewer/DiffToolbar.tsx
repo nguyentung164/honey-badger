@@ -28,13 +28,13 @@ import {
 import type React from 'react'
 import { createPortal } from 'react-dom'
 import { Button } from '@/components/ui/button'
-import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator, DropdownMenuTrigger } from '@/components/ui/dropdown-menu'
-import { Slider } from '@/components/ui/slider'
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuTrigger } from '@/components/ui/dropdown-menu'
+import { Separator } from '@/components/ui/separator'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import { cn } from '@/lib/utils'
 import { DiffViewerFilePicker } from './DiffViewerFilePicker'
 import type { DiffViewerFileEntry } from './diffViewerPayload'
-import { DIFF_VIEWER_FONT_SIZE_MAX, DIFF_VIEWER_FONT_SIZE_MIN, type DiffViewerViewOptionKey, type DiffViewerViewOptions } from './diffViewerTypes'
+import type { DiffViewerViewOptionKey, DiffViewerViewOptions } from './diffViewerTypes'
 
 export interface DiffToolbarProps {
   onRefresh?: () => void
@@ -228,24 +228,6 @@ function DiffToolbarSettingsMenu({
         {showAutoAdvanceToggle && onToggleAutoAdvance ? (
           <ViewMenuToggleItem icon={SkipForward} label={t('dialog.diffViewer.autoAdvanceMenu')} active={autoAdvance} onSelect={() => onToggleAutoAdvance()} />
         ) : null}
-        <DropdownMenuSeparator />
-        <DropdownMenuItem className="flex cursor-default flex-col items-stretch gap-2 p-2 focus:bg-accent" onSelect={e => e.preventDefault()}>
-          <div className="flex items-center justify-between gap-2">
-            <span className="text-xs text-muted-foreground">{t('dialog.diffViewer.fontSize')}</span>
-            <span className="text-xs font-medium tabular-nums">{viewOptions.fontSize}</span>
-          </div>
-          <Slider
-            value={[viewOptions.fontSize]}
-            onValueChange={([size]) => {
-              if (size != null) onViewOptionChange('fontSize', size)
-            }}
-            min={DIFF_VIEWER_FONT_SIZE_MIN}
-            max={DIFF_VIEWER_FONT_SIZE_MAX}
-            step={1}
-            className="w-full"
-            onPointerDown={e => e.stopPropagation()}
-          />
-        </DropdownMenuItem>
       </DropdownMenuContent>
     </DropdownMenu>
   )
@@ -409,10 +391,10 @@ export function DiffToolbarHeaderControls(props: DiffToolbarProps) {
                 size="sm"
                 onClick={onFormat}
                 disabled={isFormatting || disableFormat}
-                className={cn(toggleBtnClass, 'text-sky-500 dark:text-sky-300 hover:text-sky-400 dark:hover:text-sky-200 hover:bg-sky-400/15')}
+                className={toggleBtnClass}
                 aria-label={t('dialog.diffViewer.formatCode')}
               >
-                <Wand2 strokeWidth={1.25} className="h-4 w-4" />
+                <Wand2 strokeWidth={1.25} absoluteStrokeWidth size={15} className="h-4 w-4 text-sky-600 dark:text-sky-400" />
               </Button>
             </TooltipTrigger>
             <TooltipContent>{t('dialog.diffViewer.formatCodeHint')}</TooltipContent>
@@ -426,16 +408,17 @@ export function DiffToolbarHeaderControls(props: DiffToolbarProps) {
                 size="sm"
                 onClick={onRemoveEmptyLines}
                 disabled={isRemovingEmptyLines || disableRemoveEmptyLines}
-                className={cn(toggleBtnClass, 'text-violet-500 dark:text-violet-300 hover:text-violet-400 dark:hover:text-violet-200 hover:bg-violet-400/15')}
+                className={toggleBtnClass}
                 aria-label={t('dialog.diffViewer.removeEmptyLines')}
               >
-                <ListMinus strokeWidth={1.25} className="h-4 w-4" />
+                <ListMinus strokeWidth={1.25} absoluteStrokeWidth size={15} className="h-4 w-4 text-violet-600 dark:text-violet-400" />
               </Button>
             </TooltipTrigger>
             <TooltipContent>{t('dialog.diffViewer.removeEmptyLinesHint')}</TooltipContent>
           </Tooltip>
         ) : null}
       </div>
+      <Separator orientation="vertical" className="h-full px-2 bg-transparent" />
       <DiffToolbarChangeNav
         onPrevChange={onPrevChange}
         onNextChange={onNextChange}
@@ -445,6 +428,7 @@ export function DiffToolbarHeaderControls(props: DiffToolbarProps) {
         disableChangeNav={disableChangeNav}
         showNoChangesBadge={showNoChangesBadge}
       />
+      <Separator orientation="vertical" className="h-full px-2 bg-transparent" />
       <DiffToolbarSettingsMenu
         onSwapSides={onSwapSides}
         showBlameToggle={showBlameToggle}

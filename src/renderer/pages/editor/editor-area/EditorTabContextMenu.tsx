@@ -1,6 +1,6 @@
 'use client'
 
-import { memo, type ReactNode } from 'react'
+import { memo, type ReactNode, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { ContextMenu, ContextMenuContent, ContextMenuItem, ContextMenuSeparator, ContextMenuShortcut, ContextMenuTrigger } from '@/components/ui/context-menu'
 import { editorContextMenuContentClass } from '@/pages/editor/lib/editorContextMenuStyles'
@@ -20,12 +20,30 @@ export type EditorTabMenuActions = {
   onRevert: () => void
 }
 
+const NOOP = () => {}
+
+/** Placeholder while the menu is closed — real actions are built lazily on open. */
+const EMPTY_ACTIONS: EditorTabMenuActions = {
+  onClose: NOOP,
+  onCloseOthers: NOOP,
+  onCloseToRight: NOOP,
+  onCloseSaved: NOOP,
+  onCloseAll: NOOP,
+  onCopyPath: NOOP,
+  onCopyRelativePath: NOOP,
+  onRevealInFileExplorer: NOOP,
+  onRevealInExplorerView: NOOP,
+  onPin: NOOP,
+  onRevert: NOOP,
+}
+
 type EditorTabContextMenuProps = {
   tab: EditorTabSummary
   tabIndex: number
   tabCount: number
   onSelectTab: (tabId: string) => void
-  actions: EditorTabMenuActions
+  /** Called lazily when the menu opens — avoids building action closures per tab row render. */
+  getActions: () => EditorTabMenuActions
   children: ReactNode
 }
 
@@ -34,17 +52,21 @@ export const EditorTabContextMenu = memo(function EditorTabContextMenu({
   tabIndex,
   tabCount,
   onSelectTab,
-  actions,
+  getActions,
   children,
 }: EditorTabContextMenuProps) {
   const { t } = useTranslation()
+  const [actions, setActions] = useState<EditorTabMenuActions>(EMPTY_ACTIONS)
   const canCloseToRight = tabIndex < tabCount - 1
   const canCloseOthers = tabCount > 1
 
   return (
     <ContextMenu
       onOpenChange={open => {
-        if (open) onSelectTab(tab.id)
+        if (open) {
+          setActions(getActions())
+          onSelectTab(tab.id)
+        }
       }}
     >
       <ContextMenuTrigger asChild>{children}</ContextMenuTrigger>
@@ -95,7 +117,7 @@ export const EditorTabContextMenu = memo(function EditorTabContextMenu({
           {t('editor.revertFile')}
         </ContextMenuItem>
 
-        <ContextMenuItem disabled={tab.isPinned} onSelect={actions.onPin}>
+        <ContextMenuItem disabled={tab.isSticky} onSelect={actions.onPin}>
           {t('editor.tabMenu.pin')}
           <ContextMenuShortcut>Ctrl+M Shift+Enter</ContextMenuShortcut>
         </ContextMenuItem>

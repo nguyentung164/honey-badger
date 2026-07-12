@@ -459,15 +459,13 @@ export const GitConflictDiffView = forwardRef<CodeDiffViewerHandle, GitConflictD
                 splitStaging={false}
                 showStageActions={false}
                 disabled={Boolean(resolvingFile) || isSaving}
-                isRefreshing={isTreeRefreshing}
                 onSelectFile={navigateToFile}
                 onBulkAction={(action, indices) => void handleTreeBulkAction(action, indices)}
-                onRefresh={() => void handleRefreshAll()}
               />
             </div>
           </ResizablePanel>
 
-          <ResizableHandle className="bg-transparent" />
+          <ResizableHandle showGrip={false} className="bg-transparent" />
 
           <ResizablePanel id={DIFF_VIEWER_EDITOR_PANEL_ID} minSize="45%" className="h-full flex flex-col min-h-0">
             <DiffViewerConflictPane

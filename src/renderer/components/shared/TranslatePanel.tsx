@@ -138,7 +138,7 @@ export function TranslatePanel({
   const canTranslate = !!resolvedText?.trim() && apiKeyConfigured && !disabled
 
   const translateButton = (
-    <Button variant={buttonVariant} size="icon-sm" className="shrink-0" disabled={!resolvedText?.trim() || isTranslating || disabled} title={t('translation.translate')}>
+    <Button variant='ghost' size="icon-sm" className="shrink-0" disabled={!resolvedText?.trim() || isTranslating || disabled} title={t('translation.translate')}>
       {isTranslating ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Languages className="h-3.5 w-3.5" />}
     </Button>
   )

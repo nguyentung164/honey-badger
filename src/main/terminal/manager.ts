@@ -4,6 +4,7 @@ import l from 'electron-log'
 import { IPC } from 'main/constants'
 import type { TerminalCreateOptions, TerminalCreateResult } from 'shared/terminal/types'
 import { getPtyHostClient, warmPtyHost } from './ptyHost/ptyHostClient'
+import { buildShellIntegrationConfig } from './shellIntegrationInjection'
 
 const ownerCleanup = new Map<number, () => void>()
 
@@ -60,10 +61,18 @@ export async function createTerminal(owner: WebContents, opts: TerminalCreateOpt
   const id = opts.id ?? randomUUID()
   const shouldPersist = opts.shouldPersist ?? false
   const client = getPtyHostClient()
+      const shellIntegration = buildShellIntegrationConfig({
+        enabled: opts.shellIntegrationEnabled !== false,
+        shellProfileId: opts.shellProfileId,
+      })
+      if (shellIntegration.enabled) {
+        l.info(`[terminal] Shell integration enabled for ${opts.shellProfileId ?? 'powershell'}`)
+      }
   const result = await client.createTerminal(owner.id, {
     ...opts,
     id,
     shouldPersist,
+    shellIntegration,
   })
   if (result.success) {
     l.info(`[terminal] ${result.attached ? 'Attached' : 'Created'} session ${result.id}`)

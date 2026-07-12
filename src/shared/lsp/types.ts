@@ -1,8 +1,23 @@
 export type LspServerId = 'typescript' | 'java'
 
+export type TypeScriptUserPreferencesConfig = {
+  preferGoToSourceDefinition: boolean
+}
+
+export type LspServerCapabilities = {
+  customSourceDefinitionProvider?: boolean
+}
+
 export type LspStartPayload = {
   serverId: LspServerId
   rootUri: string
+  typescriptUserPreferences?: TypeScriptUserPreferencesConfig
+}
+
+export type LspStartResult = {
+  success: boolean
+  error?: string
+  capabilities?: LspServerCapabilities
 }
 
 export type LspStopPayload = {
@@ -29,4 +44,5 @@ export type LspStateEvent = {
   rootUri: string
   state: LspServerState
   error?: string
+  capabilities?: LspServerCapabilities
 }

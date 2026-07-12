@@ -1,6 +1,6 @@
+import { joinRepoPath } from 'shared/fileUri'
 import { getModelText } from '@/pages/editor/lib/editorModelRegistry'
 import { getModelBaseline, getModelDiskMtimeMs } from '@/pages/editor/lib/editorTextModels'
-import { joinRepoPath } from 'shared/fileUri'
 
 export function normalizeEditorRelativePath(relativePath: string): string {
   return relativePath.replace(/\\/g, '/').replace(/^\/+/, '')
@@ -14,48 +14,10 @@ export function editorPathsEqual(a: string, b: string): boolean {
   return na.toLowerCase() === nb.toLowerCase()
 }
 
-const WATCH_IGNORE =
-  /(?:^|\/)(?:node_modules|\.git|\.svn|\.vite|dist|build|out|\.cursor|\.gitnexus)(?:\/|$)/i
+const WATCH_IGNORE = /(?:^|\/)(?:node_modules|\.git|\.svn|\.vite|dist|build|out|\.cursor|\.gitnexus)(?:\/|$)/i
 
 export function shouldIgnoreWorkspaceWatchEvent(relativePath: string): boolean {
   return WATCH_IGNORE.test(normalizeEditorRelativePath(relativePath))
-}
-
-/** Map absolute watcher path to repo-relative path for open tabs. */
-export function editorRelativePathFromRepoCwd(repoCwd: string, filePath: string): string | null {
-  const normalized = filePath.replace(/\\/g, '/')
-  const root = repoCwd.replace(/\\/g, '/').replace(/\/+$/, '')
-  if (!root) return null
-
-  const rootLower = root.toLowerCase()
-  const pathLower = normalized.toLowerCase()
-  if (pathLower.startsWith(`${rootLower}/`)) {
-    return normalizeEditorRelativePath(normalized.slice(root.length + 1))
-  }
-
-  if (!/^[a-zA-Z]:\//.test(normalized) && !normalized.startsWith('/')) {
-    return normalizeEditorRelativePath(normalized)
-  }
-
-  return null
-}
-
-/** Resolve watcher absolute path to an open tab's repo-relative path. */
-export function resolveExternalChangeForOpenTab(
-  repoCwd: string,
-  filePath: string,
-  openRelativePaths: readonly string[]
-): string | null {
-  const direct = editorRelativePathFromRepoCwd(repoCwd, filePath)
-  if (direct && openRelativePaths.some(p => editorPathsEqual(p, direct))) return direct
-
-  const normalizedChanged = filePath.replace(/\\/g, '/').toLowerCase()
-  for (const relativePath of openRelativePaths) {
-    const abs = joinRepoPath(repoCwd, relativePath).replace(/\\/g, '/').toLowerCase()
-    if (abs === normalizedChanged) return normalizeEditorRelativePath(relativePath)
-  }
-
-  return null
 }
 
 /** Open tab resource identity — VS Code matches watcher events by URI (folder + path), not by name. */
@@ -65,10 +27,7 @@ export type OpenTabResource = { tabId: string; repoRoot: string; relativePath: s
  * Multi-root correct resolution: match a watcher's absolute path against each open tab's own
  * `repoRoot`, instead of joining every tab's relative path against a single focused repo cwd.
  */
-export function resolveOpenTabForAbsolutePath(
-  absolutePath: string,
-  openTabs: readonly OpenTabResource[]
-): OpenTabResource | null {
+export function resolveOpenTabForAbsolutePath(absolutePath: string, openTabs: readonly OpenTabResource[]): OpenTabResource | null {
   const normalizedChanged = absolutePath.replace(/\\/g, '/').toLowerCase()
   for (const tab of openTabs) {
     if (!tab.repoRoot) continue
@@ -101,10 +60,7 @@ export type DiskContentCheck = {
  * VS Code: compare in-memory model to disk bytes (mtime alone is unreliable on Windows).
  * Returns disk text when read so callers can sync without a second read_file.
  */
-export async function checkDiskContentAgainstBuffer(
-  repoCwd: string,
-  relativePath: string
-): Promise<DiskContentCheck> {
+export async function checkDiskContentAgainstBuffer(repoCwd: string, relativePath: string): Promise<DiskContentCheck> {
   const normalized = normalizeEditorRelativePath(relativePath)
   const storedMtime = getModelDiskMtimeMs(repoCwd, normalized)
   if (storedMtime != null) {
@@ -124,12 +80,4 @@ export async function checkDiskContentAgainstBuffer(
     changed: !editorBufferMatchesDisk(repoCwd, normalized, diskText),
     diskText,
   }
-}
-
-/**
- * VS Code: compare in-memory model to disk bytes (mtime alone is unreliable on Windows).
- */
-export async function hasDiskContentChanged(repoCwd: string, relativePath: string): Promise<boolean> {
-  const { changed } = await checkDiskContentAgainstBuffer(repoCwd, relativePath)
-  return changed
 }

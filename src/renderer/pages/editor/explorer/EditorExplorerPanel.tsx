@@ -6,39 +6,28 @@ import { useTranslation } from 'react-i18next'
 import type { GitFileStatusCode } from '@/components/git/GitFileStatusBadge'
 import { Button } from '@/components/ui/button'
 import { DiffViewerFileTreeVirtualList } from '@/pages/diffviewer/DiffViewerFileTreeVirtualList'
+import type { EditorTabMenuActions } from '@/pages/editor/editor-area/EditorTabContextMenu'
 import { EditorExplorerContextMenu } from '@/pages/editor/explorer/EditorExplorerContextMenu'
+import { ExplorerPhantomRow, ExplorerRow, type ExplorerRowHandlers } from '@/pages/editor/explorer/EditorExplorerRow'
 import { EditorExplorerSectionHeader } from '@/pages/editor/explorer/EditorExplorerSectionHeader'
 import { EditorOpenEditorRow } from '@/pages/editor/explorer/EditorOpenEditorRow'
-import { ExplorerPhantomRow, ExplorerRow, type ExplorerRowHandlers } from '@/pages/editor/explorer/EditorExplorerRow'
 import { ExplorerDeleteConfirmDialog } from '@/pages/editor/explorer/ExplorerDeleteConfirmDialog'
 import { getExplorerClipboard, parentRelativeDir, subscribeExplorerClipboard } from '@/pages/editor/explorer/explorerClipboard'
 import { buildExplorerDisplayRows, type ExplorerInlineEdit } from '@/pages/editor/explorer/explorerDisplayRows'
+import { buildExplorerPanelRows, EXPLORER_SECTION_HEADER_HEIGHT, type ExplorerPanelRow, getExplorerPanelRowKey } from '@/pages/editor/explorer/explorerSectionRows'
 import { pruneDeletedSelectionPaths, rangeSelectPaths, remapSelectionPaths, resolveContextMenuPaths, toggleSelectionPath } from '@/pages/editor/explorer/explorerSelection'
 import { EXPLORER_TREE_ROW_HEIGHT } from '@/pages/editor/explorer/explorerTreeConstants'
-import {
-  buildExplorerPanelRows,
-  EXPLORER_SECTION_HEADER_HEIGHT,
-  getExplorerPanelRowKey,
-  type ExplorerPanelRow,
-} from '@/pages/editor/explorer/explorerSectionRows'
 import { useExplorerFileOperations } from '@/pages/editor/explorer/useExplorerFileOperations'
-import type { EditorTabMenuActions } from '@/pages/editor/editor-area/EditorTabContextMenu'
-import type { EditorTabSummary } from '@/pages/editor/hooks/useEditorTabSelectors'
-import {
-  readExplorerExpandedSections,
-  writeExplorerExpandedSections,
-  type EditorExplorerSectionId,
-} from '@/pages/editor/hooks/useEditorExplorerSectionPrefs'
+import { type EditorExplorerSectionId, readExplorerExpandedSections, writeExplorerExpandedSections } from '@/pages/editor/hooks/useEditorExplorerSectionPrefs'
 import { useEditorSettings } from '@/pages/editor/hooks/useEditorSettings'
+import type { EditorTabSummary } from '@/pages/editor/hooks/useEditorTabSelectors'
 import { useEditorWorkspace } from '@/pages/editor/hooks/useEditorWorkspace'
 import { useExplorerAutoReveal } from '@/pages/editor/hooks/useExplorerAutoReveal'
 import { useProjectFileTree } from '@/pages/editor/hooks/useProjectFileTree'
 import { normalizeRepoRelativePath } from '@/pages/editor/lib/fileTreePaths'
 import type { FileTreeRow } from '@/pages/editor/lib/flattenFileTree'
 
-type PanelFocus =
-  | { kind: 'open-editor'; tabId: string }
-  | { kind: 'tree'; path: string }
+type PanelFocus = { kind: 'open-editor'; tabId: string } | { kind: 'tree'; path: string }
 
 type NavigablePanelRow = Exclude<ExplorerPanelRow, { kind: 'section-header' }>
 
@@ -84,7 +73,7 @@ function isExplorerFocused(container: HTMLDivElement | null): boolean {
   if (!active) return false
   if (container.contains(active)) return true
   if (active.tagName === 'INPUT' && container.contains(active)) return true
-  return active === document.body
+  return false
 }
 
 function pathsToDeleteTargets(rows: readonly FileTreeRow[], paths: ReadonlySet<string>) {
@@ -276,21 +265,13 @@ export function EditorExplorerPanel({
 
   const displayRows = useMemo(() => buildExplorerDisplayRows(rows, inlineEdit), [inlineEdit, rows])
 
-  const panelRows = useMemo(
-    () => buildExplorerPanelRows(tabs, expandedSections, { mode: 'single', treeDisplayRows: displayRows }),
-    [tabs, displayRows, expandedSections]
-  )
+  const panelRows = useMemo(() => buildExplorerPanelRows(tabs, expandedSections, { mode: 'single', treeDisplayRows: displayRows }), [tabs, displayRows, expandedSections])
 
-  const navigablePanelRows = useMemo(
-    () => panelRows.filter((row): row is NavigablePanelRow => row.kind !== 'section-header'),
-    [panelRows]
-  )
+  const navigablePanelRows = useMemo(() => panelRows.filter((row): row is NavigablePanelRow => row.kind !== 'section-header'), [panelRows])
 
   const mappedRevealScroll = useMemo(() => {
     if (!revealScroll) return null
-    const panelIndex = panelRows.findIndex(
-      row => row.kind === 'tree' && row.displayRow.kind === 'tree' && row.displayRow.row.node.relativePath === revealScroll.path
-    )
+    const panelIndex = panelRows.findIndex(row => row.kind === 'tree' && row.displayRow.kind === 'tree' && row.displayRow.row.node.relativePath === revealScroll.path)
     if (panelIndex < 0) return null
     return { index: panelIndex, sequence: revealScroll.sequence }
   }, [panelRows, revealScroll])
@@ -380,7 +361,7 @@ export function EditorExplorerPanel({
             active={tab.id === activeTabId}
             focused={panelFocus?.kind === 'open-editor' && panelFocus.tabId === tab.id}
             gitStatus={tab.isCompare ? null : (getTabGitStatus?.(tab.relativePath) ?? null)}
-            tabMenuActions={getTabMenuActions?.(tab, tabIndex) ?? null}
+            getTabMenuActions={getTabMenuActions}
             onSelectTab={id => onSelectTab?.(id)}
             onCloseTab={id => onCloseTab?.(id)}
             onPinTab={onPinTab}
@@ -391,7 +372,7 @@ export function EditorExplorerPanel({
 
       const displayRow = panelRow.displayRow
       if (displayRow.kind === 'phantom') {
-        if (!inlineEdit || inlineEdit.mode !== 'create' || inlineEdit.sessionId !== displayRow.sessionId) return null
+        if (inlineEdit?.mode !== 'create' || inlineEdit.sessionId !== displayRow.sessionId) return null
         return (
           <ExplorerPhantomRow
             depth={displayRow.depth}
@@ -471,9 +452,7 @@ export function EditorExplorerPanel({
       if (inlineEdit) return
       if (navigablePanelRows.length === 0) return
 
-      const currentIndex = panelFocus
-        ? navigablePanelRows.findIndex(row => panelFocusMatchesRow(panelFocus, row))
-        : -1
+      const currentIndex = panelFocus ? navigablePanelRows.findIndex(row => panelFocusMatchesRow(panelFocus, row)) : -1
       const nextIndex = Math.max(0, Math.min(navigablePanelRows.length - 1, (currentIndex < 0 ? 0 : currentIndex) + delta))
       const nextRow = navigablePanelRows[nextIndex]
 
@@ -616,19 +595,7 @@ export function EditorExplorerPanel({
           break
       }
     },
-    [
-      expandedPaths,
-      inlineEdit,
-      movePanelFocus,
-      onCloseTab,
-      onOpenFile,
-      onSelectTab,
-      panelFocus,
-      resolveFocusedTreeRow,
-      rows,
-      selectedPaths,
-      toggleExpandUser,
-    ]
+    [expandedPaths, inlineEdit, movePanelFocus, onCloseTab, onOpenFile, onSelectTab, panelFocus, resolveFocusedTreeRow, rows, selectedPaths, toggleExpandUser]
   )
 
   useEffect(() => {
@@ -649,9 +616,7 @@ export function EditorExplorerPanel({
       <DiffViewerFileTreeVirtualList<ExplorerPanelRow>
         rows={panelRows}
         getRowKey={getExplorerPanelRowKey}
-        estimateRowHeight={row =>
-          row.kind === 'section-header' ? EXPLORER_SECTION_HEADER_HEIGHT : EXPLORER_TREE_ROW_HEIGHT
-        }
+        estimateRowHeight={row => (row.kind === 'section-header' ? EXPLORER_SECTION_HEADER_HEIGHT : EXPLORER_TREE_ROW_HEIGHT)}
         revealScroll={mappedRevealScroll}
         overscan={10}
         className="px-0 py-1"

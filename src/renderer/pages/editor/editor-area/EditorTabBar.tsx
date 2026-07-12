@@ -127,11 +127,8 @@ export function EditorTabBar({ tabs, activeTabId, onSelectTab, onCloseTab, onPin
 
   if (tabs.length === 0) return null
 
-  const scrollRange = Math.max(0, scrollMetrics.scrollWidth - scrollMetrics.clientWidth)
-  const hasOverflow = scrollRange > 1
-  const thumbRatio = hasOverflow ? scrollMetrics.clientWidth / scrollMetrics.scrollWidth : 1
-  const thumbWidthPercent = thumbRatio * 100
-  const thumbLeftPercent = hasOverflow ? (scrollMetrics.scrollLeft / scrollRange) * (100 - thumbWidthPercent) : 0
+  const stickyCount = tabs.findIndex(t => !t.isSticky)
+  const stickyEnd = stickyCount === -1 ? tabs.length : stickyCount
 
   return (
     <div ref={hostRef} className="editor-tab-bar-host flex shrink-0 flex-col border-b bg-muted/20">
@@ -143,8 +140,9 @@ export function EditorTabBar({ tabs, activeTabId, onSelectTab, onCloseTab, onPin
             tabIndex={tabIndex}
             tabCount={tabs.length}
             active={tab.id === activeTabId}
+            showStickySeparator={tabIndex === stickyEnd && stickyEnd > 0 && stickyEnd < tabs.length}
             gitStatus={!tab.isCompare ? (getGitStatus?.(tab.relativePath) ?? null) : null}
-            tabMenuActions={getTabMenuActions(tab, tabIndex)}
+            getTabMenuActions={getTabMenuActions}
             onSelectTab={onSelectTab}
             onCloseTab={onCloseTab}
             onPinTab={onPinTab}
@@ -152,17 +150,24 @@ export function EditorTabBar({ tabs, activeTabId, onSelectTab, onCloseTab, onPin
           />
         ))}
       </div>
-      {hasOverflow ? (
-        <div className="editor-tab-bar-scroll-track" aria-hidden>
-          <div
-            className="editor-tab-bar-scroll-thumb"
-            style={{
-              width: `${thumbWidthPercent}%`,
-              left: `${thumbLeftPercent}%`,
-            }}
-          />
-        </div>
-      ) : null}
+      {(() => {
+        const scrollRange = Math.max(0, scrollMetrics.scrollWidth - scrollMetrics.clientWidth)
+        const hasOverflow = scrollRange > 1
+        const thumbRatio = hasOverflow ? scrollMetrics.clientWidth / scrollMetrics.scrollWidth : 1
+        const thumbWidthPercent = thumbRatio * 100
+        const thumbLeftPercent = hasOverflow ? (scrollMetrics.scrollLeft / scrollRange) * (100 - thumbWidthPercent) : 0
+        return hasOverflow ? (
+          <div className="editor-tab-bar-scroll-track" aria-hidden>
+            <div
+              className="editor-tab-bar-scroll-thumb"
+              style={{
+                width: `${thumbWidthPercent}%`,
+                left: `${thumbLeftPercent}%`,
+              }}
+            />
+          </div>
+        ) : null
+      })()}
     </div>
   )
 }

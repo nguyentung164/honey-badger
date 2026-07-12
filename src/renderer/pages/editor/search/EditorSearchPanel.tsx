@@ -5,15 +5,10 @@ import { useMemo } from 'react'
 import { useTranslation } from 'react-i18next'
 import { MaterialFileIcon } from '@/components/icons/MaterialFileIcon'
 import toast from '@/components/ui-elements/Toast'
-import { cn } from '@/lib/utils'
 import type { EditorWorkspaceFolder } from '@/lib/multiRepoUtils'
+import { cn } from '@/lib/utils'
 import { DiffViewerFileTreeVirtualList } from '@/pages/diffviewer/DiffViewerFileTreeVirtualList'
-import {
-  useEditorSearch,
-  type EditorSearchMatch,
-  type EditorSearchOpenTab,
-  type EditorSearchReplacedEntry,
-} from '@/pages/editor/hooks/useEditorSearch'
+import { type EditorSearchMatch, type EditorSearchOpenTab, type EditorSearchReplacedEntry, useEditorSearch } from '@/pages/editor/hooks/useEditorSearch'
 import {
   BookOpen,
   EditorSearchMatchHighlight,
@@ -270,7 +265,7 @@ export function EditorSearchPanel({ repoCwd, workspaceFolders, openTabs = [], on
           return SEARCH_MATCH_ROW_HEIGHT
         }}
         className="min-h-0 flex-1 px-1 pb-1"
-        emptyState={<p className="px-2 py-4 text-[13px] text-muted-foreground">{hasQuery ? t('editor.searchNoResults') : t('editor.searchHint')}</p>}
+        emptyState={<p className="px-2 py-4 text-xs text-muted-foreground">{hasQuery ? t('editor.searchNoResults') : t('editor.searchHint')}</p>}
         renderRow={row => {
           if (row.kind === 'folder') {
             const expanded = !collapsedFolders.has(row.folderPath)
@@ -307,9 +302,7 @@ export function EditorSearchPanel({ repoCwd, workspaceFolders, openTabs = [], on
                     {fileName}
                     {expanded && dirPath ? <span className="ml-1 text-muted-foreground/70">{dirPath}</span> : null}
                   </span>
-                  {row.folderLabel ? (
-                    <span className="shrink-0 truncate rounded-full bg-muted px-1.5 text-[11px] text-muted-foreground">{row.folderLabel}</span>
-                  ) : null}
+                  {row.folderLabel ? <span className="shrink-0 truncate rounded-full bg-muted px-1.5 text-[11px] text-muted-foreground">{row.folderLabel}</span> : null}
                 </button>
                 <div className="flex shrink-0 items-center gap-0.5">
                   {showReplace ? (
@@ -327,9 +320,7 @@ export function EditorSearchPanel({ repoCwd, workspaceFolders, openTabs = [], on
                     </button>
                   ) : null}
                   <div className="relative flex h-5 w-5 shrink-0 items-center justify-center">
-                    <span className="rounded-full bg-muted px-1.5 text-[11px] tabular-nums text-muted-foreground transition-opacity group-hover:opacity-0">
-                      {row.matchCount}
-                    </span>
+                    <span className="rounded-full bg-muted px-1.5 text-[11px] tabular-nums text-muted-foreground transition-opacity group-hover:opacity-0">{row.matchCount}</span>
                     <button
                       type="button"
                       className="absolute inset-0 flex items-center justify-center rounded-sm text-muted-foreground opacity-0 transition-opacity hover:bg-muted/80 hover:text-foreground group-hover:opacity-100"

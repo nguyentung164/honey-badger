@@ -1,10 +1,10 @@
+import { EDITOR_OPEN_FILE_MAX_BYTES, LSP_LARGE_FILE_BYTES } from 'shared/fileUri'
 import { create } from 'zustand'
 import toast from '@/components/ui-elements/Toast'
 import i18n from '@/lib/i18n'
 import { getEditorLanguage } from '@/lib/monacoLanguage'
 import { useEditorSettings } from '@/pages/editor/hooks/useEditorSettings'
 import { editorCommandBridge } from '@/pages/editor/lib/editorCommandBridge'
-import { EDITOR_OPEN_FILE_MAX_BYTES, LSP_LARGE_FILE_BYTES } from 'shared/fileUri'
 import { compareSideModelPath } from '@/pages/editor/lib/editorCompareModels'
 import {
   clearViewStateForTab,
@@ -15,7 +15,25 @@ import {
   getModelText,
   renameModelInRegistry,
 } from '@/pages/editor/lib/editorModelRegistry'
-import { editorLanguageService } from '@/pages/editor/lsp/EditorLanguageService'
+import { markPathSaving, unmarkPathSaving } from '@/pages/editor/lib/editorSavingPaths'
+import {
+  flushPersistedSession,
+  normalizeEditorRepoKey,
+  readPersistedMultiRootSession,
+  readPersistedSession,
+  schedulePersistedMultiRootSession,
+  schedulePersistedSession,
+} from '@/pages/editor/lib/editorSessionPersist'
+import { insertTabAtIndex, moveTabToStickyEnd, resolveReopenInsertIndex } from '@/pages/editor/lib/editorTabPlacement'
+import { recordEditorTabActivation, removeEditorTabFromActivation, resolveNextActiveTabAfterClose, seedEditorTabActivation } from '@/pages/editor/lib/editorTabActivation'
+import {
+  clearClosedEditorTabsHistory,
+  recordClosedEditorTab,
+  removeClosedEditorTabsForPath,
+  runIgnoringClosedEditorRecording,
+  takeLastClosedEditorsBatch,
+  hasClosedEditorTabs,
+} from '@/pages/editor/lib/editorClosedTabsHistory'
 import {
   commitModelBaseline,
   forceBufferDirtyState,
@@ -25,34 +43,33 @@ import {
   renameModelPath,
   unregisterModel,
 } from '@/pages/editor/lib/editorTextModels'
-import {
-  flushPersistedSession,
-  flushPersistedMultiRootSession,
-  normalizeEditorRepoKey,
-  readPersistedMultiRootSession,
-  readPersistedSession,
-  schedulePersistedMultiRootSession,
-  schedulePersistedSession,
-} from '@/pages/editor/lib/editorSessionPersist'
-import {
-  type EditorTab,
-  type OpenFileOptions,
-  MAX_EDITOR_TABS,
-  tabIdForCompare,
-  tabIdForResource,
-  tabRepoRoot,
-} from '@/pages/editor/lib/editorWorkspaceTypes'
-import {
-  recordEditorTabActivation,
-  removeEditorTabFromActivation,
-  resolveNextActiveTabAfterClose,
-  seedEditorTabActivation,
-} from '@/pages/editor/lib/editorTabActivation'
-import { markPathSaving, unmarkPathSaving } from '@/pages/editor/lib/editorSavingPaths'
+import { type EditorTab, MAX_EDITOR_TABS, type OpenCompareOptions, type OpenFileOptions, tabIdForCompare, tabIdForResource, tabRepoRoot } from '@/pages/editor/lib/editorWorkspaceTypes'
+import { editorLanguageService } from '@/pages/editor/lsp/EditorLanguageService'
 
 const BINARY_EXTENSIONS = new Set([
-  'png', 'jpg', 'jpeg', 'gif', 'webp', 'ico', 'bmp', 'svg', 'zip', 'gz', '7z', 'rar',
-  'exe', 'dll', 'so', 'dylib', 'woff', 'woff2', 'ttf', 'eot', 'mp3', 'mp4', 'pdf',
+  'png',
+  'jpg',
+  'jpeg',
+  'gif',
+  'webp',
+  'ico',
+  'bmp',
+  'svg',
+  'zip',
+  'gz',
+  '7z',
+  'rar',
+  'exe',
+  'dll',
+  'so',
+  'dylib',
+  'woff',
+  'woff2',
+  'ttf',
+  'eot',
+  'mp3',
+  'mp4',
+  'pdf',
 ])
 
 type EditorWorkspaceState = {
@@ -64,16 +81,14 @@ type EditorWorkspaceState = {
   tabsMetaRevision: number
   setRepoCwd: (cwd: string) => void
   initMultiRootWorkspace: (sessionKey: string, folderRoots: string[]) => void
-  setFocusedRepoCwd: (cwd: string) => void
   openFile: (relativePath: string, opts?: OpenFileOptions) => Promise<void>
   consumeTabReveal: (tabId: string) => void
-  openCompare: (leftPath: string, rightPath: string) => Promise<void>
+  openCompare: (leftPath: string, rightPath: string, opts?: OpenCompareOptions) => Promise<void>
   openCompareSnapshots: (leftPath: string, rightPath: string, leftContent: string, rightContent: string) => Promise<void>
   closeTab: (tabId: string) => void
   setActiveTab: (tabId: string) => void
   pinTab: (tabId: string) => void
   syncTabDirty: (tabId: string, alternativeVersionId: number) => void
-  saveTabViewState: (tabId: string, viewStateJson: string) => void
   saveTab: (tabId: string) => Promise<boolean>
   saveActiveTab: () => Promise<boolean>
   hasDirtyTabs: () => boolean
@@ -87,6 +102,7 @@ type EditorWorkspaceState = {
   revertDirtyTabs: () => void
   renameExplorerPath: (from: string, to: string) => void
   closeTabsForExplorerDelete: (relativePath: string, isDir: boolean) => void
+  reopenLastClosedEditor: () => Promise<void>
   resetForRepo: (cwd: string) => void
 }
 
@@ -101,6 +117,7 @@ function createStubTab(relativePath: string, repoRoot: string): EditorTab {
     contentLoaded: false,
     isPreview: false,
     isPinned: true,
+    isSticky: false,
     kind: 'text',
     version: 1,
     loadGeneration: 0,
@@ -112,10 +129,7 @@ function isLikelyBinaryPath(relativePath: string): boolean {
   return BINARY_EXTENSIONS.has(ext)
 }
 
-async function detectTextFileMeta(
-  relativePath: string,
-  repoCwd: string
-): Promise<{ size: number; mtimeMs: number | null; kind: 'text' | 'image' | 'binary' }> {
+async function detectTextFileMeta(relativePath: string, repoCwd: string): Promise<{ size: number; mtimeMs: number | null; kind: 'text' | 'image' | 'binary' }> {
   const detected = await window.api.system.detect_file_kind(relativePath, { cwd: repoCwd })
   return {
     size: detected.size ?? 0,
@@ -143,11 +157,7 @@ function normalizeExplorerPath(relativePath: string): string {
 function findTabForRepoPath(tabs: readonly EditorTab[], relativePath: string, repoCwd: string): EditorTab | undefined {
   const normalized = relativePath.replace(/\\/g, '/')
   const repoKey = normalizeEditorRepoKey(repoCwd)
-  return tabs.find(
-    t =>
-      t.relativePath.replace(/\\/g, '/') === normalized &&
-      normalizeEditorRepoKey(tabRepoRoot(t, repoCwd)) === repoKey
-  )
+  return tabs.find(t => t.relativePath.replace(/\\/g, '/') === normalized && normalizeEditorRepoKey(tabRepoRoot(t, repoCwd)) === repoKey)
 }
 
 function remapPathForRename(path: string, from: string, to: string): string | null {
@@ -163,13 +173,11 @@ function pinTabFields(): Pick<EditorTab, 'isPreview' | 'isPinned'> {
   return { isPreview: false, isPinned: true }
 }
 
-async function syncTextModelFromDisk(
-  repoCwd: string,
-  relativePath: string,
-  baseline: string,
-  languageId: string,
-  loadGeneration: number
-): Promise<void> {
+function stickyTabFields(): Pick<EditorTab, 'isPreview' | 'isPinned' | 'isSticky'> {
+  return { isPreview: false, isPinned: true, isSticky: true }
+}
+
+async function syncTextModelFromDisk(repoCwd: string, relativePath: string, baseline: string, languageId: string, loadGeneration: number): Promise<void> {
   const monaco = await import('monaco-editor')
   ensureTextModel(monaco, repoCwd, relativePath, baseline, languageId, loadGeneration)
 }
@@ -222,10 +230,10 @@ async function loadTabContentForStoreInner(
     tabs: state.tabs.map(t =>
       t.id === tabId
         ? {
-            ...t,
-            isLoading: true,
-            reveal: opts?.line ? { line: opts.line, column: opts.column ?? 1 } : t.reveal,
-          }
+          ...t,
+          isLoading: true,
+          reveal: opts?.line ? { line: opts.line, column: opts.column ?? 1 } : t.reveal,
+        }
         : t
     ),
   }))
@@ -238,13 +246,13 @@ async function loadTabContentForStoreInner(
         tabs: state.tabs.map(t =>
           t.id === tabId
             ? {
-                ...t,
-                isLoading: false,
-                contentLoaded: true,
-                kind: 'binary',
-                languageId: 'plaintext',
-                loadGeneration,
-              }
+              ...t,
+              isLoading: false,
+              contentLoaded: true,
+              kind: 'binary',
+              languageId: 'plaintext',
+              loadGeneration,
+            }
             : t
         ),
       }))
@@ -253,8 +261,7 @@ async function loadTabContentForStoreInner(
 
     const languageId = getEditorLanguage(tab.relativePath)
     const cachedModelText = getModelText(repoCwd, tab.relativePath)
-    const content =
-      cachedModelText ?? (await window.api.system.read_file(tab.relativePath, { cwd: repoCwd }))
+    const content = cachedModelText ?? (await window.api.system.read_file(tab.relativePath, { cwd: repoCwd }))
     const baseline = content.replace(/\r\n/g, '\n')
     const meta = await detectTextFileMeta(tab.relativePath, repoCwd)
     const loadGeneration = registerModelBaseline(repoCwd, tab.relativePath, baseline, meta.mtimeMs)
@@ -264,16 +271,15 @@ async function loadTabContentForStoreInner(
       const nextTabs = state.tabs.map(t =>
         t.id === tabId
           ? {
-              ...t,
-              languageId,
-              isLoading: false,
-              contentLoaded: true,
-              kind: 'text' as const,
-              loadGeneration,
-            }
+            ...t,
+            languageId,
+            isLoading: false,
+            contentLoaded: true,
+            kind: 'text' as const,
+            loadGeneration,
+          }
           : t
       )
-      const active = state.tabs.find(t => t.id === state.activeTabId)
       persistWorkspaceSession(state, nextTabs, state.activeTabId)
       return { tabs: nextTabs, tabsMetaRevision: bumpMeta(state.tabsMetaRevision) }
     })
@@ -284,7 +290,10 @@ async function loadTabContentForStoreInner(
       const wasActive = state.activeTabId === tabId
       const activeTabId = wasActive ? resolveNextActiveTabAfterClose(tabId, state.tabs, next) : state.activeTabId
       if (wasActive && activeTabId) {
-        recordEditorTabActivation(activeTabId, next.map(t => t.id))
+        recordEditorTabActivation(
+          activeTabId,
+          next.map(t => t.id)
+        )
       } else if (!wasActive) {
         removeEditorTabFromActivation(tabId)
       }
@@ -328,12 +337,12 @@ async function loadCompareTabContent(
       tabs: state.tabs.map(t =>
         t.id === tabId
           ? {
-              ...t,
-              languageId,
-              isLoading: false,
-              contentLoaded: true,
-              loadGeneration: Math.max(leftGen, rightGen),
-            }
+            ...t,
+            languageId,
+            isLoading: false,
+            contentLoaded: true,
+            loadGeneration: Math.max(leftGen, rightGen),
+          }
           : t
       ),
     }))
@@ -344,7 +353,10 @@ async function loadCompareTabContent(
       const wasActive = state.activeTabId === tabId
       const activeTabId = wasActive ? resolveNextActiveTabAfterClose(tabId, state.tabs, next) : state.activeTabId
       if (wasActive && activeTabId) {
-        recordEditorTabActivation(activeTabId, next.map(t => t.id))
+        recordEditorTabActivation(
+          activeTabId,
+          next.map(t => t.id)
+        )
       } else if (!wasActive) {
         removeEditorTabFromActivation(tabId)
       }
@@ -386,12 +398,12 @@ async function loadCompareTabContentFromMemory(
       tabs: state.tabs.map(t =>
         t.id === tabId
           ? {
-              ...t,
-              languageId,
-              isLoading: false,
-              contentLoaded: true,
-              loadGeneration: Math.max(leftGen, rightGen),
-            }
+            ...t,
+            languageId,
+            isLoading: false,
+            contentLoaded: true,
+            loadGeneration: Math.max(leftGen, rightGen),
+          }
           : t
       ),
     }))
@@ -402,7 +414,10 @@ async function loadCompareTabContentFromMemory(
       const wasActive = state.activeTabId === tabId
       const activeTabId = wasActive ? resolveNextActiveTabAfterClose(tabId, state.tabs, next) : state.activeTabId
       if (wasActive && activeTabId) {
-        recordEditorTabActivation(activeTabId, next.map(t => t.id))
+        recordEditorTabActivation(
+          activeTabId,
+          next.map(t => t.id)
+        )
       } else if (!wasActive) {
         removeEditorTabFromActivation(tabId)
       }
@@ -422,17 +437,6 @@ function persistWorkspaceSession(state: EditorWorkspaceState, tabs: EditorTab[],
   }
 }
 
-function flushWorkspaceSession(state: EditorWorkspaceState, tabs: EditorTab[], activeTabId: string | null) {
-  if (state.multiRootWorkspace && state.workspaceSessionKey) {
-    flushPersistedMultiRootSession(state.workspaceSessionKey, tabs, activeTabId)
-    return
-  }
-  const active = tabs.find(t => t.id === activeTabId)
-  if (state.repoCwd) {
-    flushPersistedSession(state.repoCwd, tabs, active?.relativePath ?? null)
-  }
-}
-
 export const useEditorWorkspace = create<EditorWorkspaceState>((set, get) => ({
   repoCwd: '',
   multiRootWorkspace: false,
@@ -440,12 +444,6 @@ export const useEditorWorkspace = create<EditorWorkspaceState>((set, get) => ({
   tabs: [],
   activeTabId: null,
   tabsMetaRevision: 0,
-
-  setFocusedRepoCwd: cwd => {
-    const state = get()
-    if (!cwd || state.repoCwd === cwd || normalizeEditorRepoKey(state.repoCwd) === normalizeEditorRepoKey(cwd)) return
-    set({ repoCwd: cwd })
-  },
 
   initMultiRootWorkspace: (sessionKey, folderRoots) => {
     const roots = folderRoots.map(r => r.trim()).filter(Boolean)
@@ -466,14 +464,13 @@ export const useEditorWorkspace = create<EditorWorkspaceState>((set, get) => ({
       flushPersistedSession(prev.repoCwd, prev.tabs, active?.relativePath ?? null)
     }
 
+    clearClosedEditorTabsHistory()
+
     const restoreTabs = useEditorSettings.getState().restoreEditorTabs
     const session = readPersistedMultiRootSession(sessionKey, roots, restoreTabs)
     const limited = session.tabs.slice(0, MAX_EDITOR_TABS)
     const stubs = limited.map(entry => createStubTab(entry.relativePath, entry.repoRoot))
-    const activeId =
-      session.activeTabId && stubs.some(s => s.id === session.activeTabId)
-        ? session.activeTabId
-        : stubs[0]?.id ?? null
+    const activeId = session.activeTabId && stubs.some(s => s.id === session.activeTabId) ? session.activeTabId : (stubs[0]?.id ?? null)
     const focusedCwd = stubs.find(s => s.id === activeId)?.repoRoot ?? roots[0]
 
     set(state => ({
@@ -511,10 +508,11 @@ export const useEditorWorkspace = create<EditorWorkspaceState>((set, get) => ({
   },
 
   resetForRepo: cwd => {
+    clearClosedEditorTabsHistory()
     const restoreTabs = useEditorSettings.getState().restoreEditorTabs
     const { paths, activePath } = readPersistedSession(cwd, restoreTabs)
     const limited = paths.slice(0, MAX_EDITOR_TABS)
-    const active = activePath && limited.includes(activePath) ? activePath : limited[0] ?? null
+    const active = activePath && limited.includes(activePath) ? activePath : (limited[0] ?? null)
     const stubs = limited.map(p => createStubTab(p, cwd))
 
     set(state => ({
@@ -544,6 +542,7 @@ export const useEditorWorkspace = create<EditorWorkspaceState>((set, get) => ({
 
     const pin = opts?.pin === true || opts?.preview === false
     const preview = opts?.preview === true && !pin
+    const sticky = opts?.sticky === true
     const id = tabIdForResource(repoRoot, normalized)
 
     const existing = tabs.find(t => t.id === id)
@@ -562,7 +561,10 @@ export const useEditorWorkspace = create<EditorWorkspaceState>((set, get) => ({
         tabsMetaRevision: bumpMeta(state.tabsMetaRevision),
         tabs: nextTabs,
       }))
-      recordEditorTabActivation(existing.id, nextTabs.map(t => t.id))
+      recordEditorTabActivation(
+        existing.id,
+        nextTabs.map(t => t.id)
+      )
       persistWorkspaceSession(get(), get().tabs, existing.id)
       if (!existing.contentLoaded) {
         await loadTabContentForStore(get, set, existing.id, opts)
@@ -572,6 +574,7 @@ export const useEditorWorkspace = create<EditorWorkspaceState>((set, get) => ({
 
     const previewSlot = preview ? tabs.find(t => t.isPreview && !t.isPinned && !t.isDirty) : null
     if (previewSlot) {
+      clearViewStateForTab(previewSlot.id)
       removeEditorTabFromActivation(previewSlot.id)
       tabs = tabs.filter(t => t.id !== previewSlot.id)
     } else if (tabs.length >= MAX_EDITOR_TABS) {
@@ -597,20 +600,25 @@ export const useEditorWorkspace = create<EditorWorkspaceState>((set, get) => ({
       contentLoaded: false,
       isPreview: preview,
       isPinned: !preview,
+      isSticky: sticky,
       kind: 'text',
       version: 1,
       loadGeneration: 0,
       reveal: opts?.line ? { line: opts.line, column: opts.column ?? 1 } : undefined,
     }
 
-    const nextTabs = [...tabs, placeholder]
+    const insertIndex = resolveReopenInsertIndex(tabs, opts?.insertIndex ?? tabs.length, sticky)
+    const nextTabs = insertTabAtIndex(tabs, placeholder, insertIndex)
     set(state => ({
       tabs: nextTabs,
       activeTabId: id,
       repoCwd: repoRoot,
       tabsMetaRevision: bumpMeta(state.tabsMetaRevision),
     }))
-    recordEditorTabActivation(id, nextTabs.map(t => t.id))
+    recordEditorTabActivation(
+      id,
+      nextTabs.map(t => t.id)
+    )
     persistWorkspaceSession(get(), nextTabs, id)
     await loadTabContentForStore(get, set, id, opts)
   },
@@ -622,17 +630,21 @@ export const useEditorWorkspace = create<EditorWorkspaceState>((set, get) => ({
     }))
   },
 
-  openCompare: async (leftPath, rightPath) => {
+  openCompare: async (leftPath, rightPath, opts) => {
     const left = leftPath.replace(/\\/g, '/')
     const right = rightPath.replace(/\\/g, '/')
     const { repoCwd, tabs } = get()
     if (!repoCwd || left === right) return
 
+    const sticky = opts?.sticky === true
     const id = tabIdForCompare(repoCwd, left, right)
     const existing = tabs.find(t => t.id === id)
     if (existing) {
       set({ activeTabId: existing.id, repoCwd })
-      recordEditorTabActivation(existing.id, get().tabs.map(t => t.id))
+      recordEditorTabActivation(
+        existing.id,
+        get().tabs.map(t => t.id)
+      )
       if (!existing.contentLoaded) {
         await loadCompareTabContent(get, set, id)
       }
@@ -655,17 +667,24 @@ export const useEditorWorkspace = create<EditorWorkspaceState>((set, get) => ({
       contentLoaded: false,
       isPreview: false,
       isPinned: true,
+      isSticky: sticky,
       kind: 'compare',
       version: 1,
       loadGeneration: 0,
     }
 
+    const insertIndex = resolveReopenInsertIndex(tabs, opts?.insertIndex ?? tabs.length, sticky)
+    const nextTabs = insertTabAtIndex(tabs, placeholder, insertIndex)
+
     set(state => ({
-      tabs: [...tabs, placeholder],
+      tabs: nextTabs,
       activeTabId: id,
       tabsMetaRevision: bumpMeta(state.tabsMetaRevision),
     }))
-    recordEditorTabActivation(id, [...get().tabs].map(t => t.id))
+    recordEditorTabActivation(
+      id,
+      nextTabs.map(t => t.id)
+    )
     await loadCompareTabContent(get, set, id)
   },
 
@@ -679,7 +698,10 @@ export const useEditorWorkspace = create<EditorWorkspaceState>((set, get) => ({
     const existing = tabs.find(t => t.id === id)
     if (existing) {
       set({ activeTabId: existing.id, repoCwd })
-      recordEditorTabActivation(existing.id, get().tabs.map(t => t.id))
+      recordEditorTabActivation(
+        existing.id,
+        get().tabs.map(t => t.id)
+      )
       if (!existing.contentLoaded) {
         await loadCompareTabContentFromMemory(get, set, id, leftContent, rightContent)
       }
@@ -702,6 +724,7 @@ export const useEditorWorkspace = create<EditorWorkspaceState>((set, get) => ({
       contentLoaded: false,
       isPreview: false,
       isPinned: true,
+      isSticky: false,
       kind: 'compare',
       version: 1,
       loadGeneration: 0,
@@ -712,26 +735,45 @@ export const useEditorWorkspace = create<EditorWorkspaceState>((set, get) => ({
       activeTabId: id,
       tabsMetaRevision: bumpMeta(state.tabsMetaRevision),
     }))
-    recordEditorTabActivation(id, [...get().tabs].map(t => t.id))
+    recordEditorTabActivation(
+      id,
+      [...get().tabs].map(t => t.id)
+    )
     await loadCompareTabContentFromMemory(get, set, id, leftContent, rightContent)
   },
 
   closeTab: tabId => {
-    const tab = get().tabs.find(t => t.id === tabId)
+    const { tabs } = get()
+    const tab = tabs.find(t => t.id === tabId)
+    const tabIndex = tabs.findIndex(t => t.id === tabId)
     const repoCwd = tab ? tabRepoRoot(tab, get().repoCwd) : get().repoCwd
     if (tab && repoCwd && tab.kind === 'compare') {
       void import('monaco-editor').then(monaco => disposeCompareModels(repoCwd, tab.id, monaco))
+    }
+    if (tab && tabIndex >= 0) {
+      recordClosedEditorTab(
+        {
+          kind: tab.kind,
+          relativePath: tab.relativePath,
+          repoRoot: tabRepoRoot(tab, get().repoCwd),
+          compareWithPath: tab.compareWithPath,
+          reveal: tab.reveal,
+          isSticky: tab.isSticky ?? false,
+        },
+        tabIndex
+      )
     }
     clearViewStateForTab(tabId)
 
     set(state => {
       const next = state.tabs.filter(t => t.id !== tabId)
       const wasActive = state.activeTabId === tabId
-      const activeTabId = wasActive
-        ? resolveNextActiveTabAfterClose(tabId, state.tabs, next)
-        : state.activeTabId
+      const activeTabId = wasActive ? resolveNextActiveTabAfterClose(tabId, state.tabs, next) : state.activeTabId
       if (wasActive && activeTabId) {
-        recordEditorTabActivation(activeTabId, next.map(t => t.id))
+        recordEditorTabActivation(
+          activeTabId,
+          next.map(t => t.id)
+        )
       } else if (!wasActive) {
         removeEditorTabFromActivation(tabId)
       }
@@ -757,7 +799,10 @@ export const useEditorWorkspace = create<EditorWorkspaceState>((set, get) => ({
       }
     })
     if (tab) {
-      recordEditorTabActivation(tabId, get().tabs.map(t => t.id))
+      recordEditorTabActivation(
+        tabId,
+        get().tabs.map(t => t.id)
+      )
       persistWorkspaceSession(get(), get().tabs, tabId)
       if (!tab.contentLoaded) {
         if (tab.kind === 'compare') void loadCompareTabContent(get, set, tabId)
@@ -767,28 +812,22 @@ export const useEditorWorkspace = create<EditorWorkspaceState>((set, get) => ({
   },
 
   pinTab: tabId => {
-    set(state => ({
-      tabs: state.tabs.map(t => (t.id === tabId ? { ...t, ...pinTabFields() } : t)),
-      tabsMetaRevision: bumpMeta(state.tabsMetaRevision),
-    }))
+    set(state => {
+      if (!state.tabs.some(t => t.id === tabId)) return state
+      const withPin = state.tabs.map(t => (t.id === tabId ? { ...t, ...stickyTabFields() } : t))
+      return {
+        tabs: moveTabToStickyEnd(withPin, tabId),
+        tabsMetaRevision: bumpMeta(state.tabsMetaRevision),
+      }
+    })
     persistWorkspaceSession(get(), get().tabs, tabId)
-  },
-
-  saveTabViewState: (tabId, viewStateJson) => {
-    set(state => ({
-      tabs: state.tabs.map(t => {
-        if (t.id !== tabId) return t
-        if (t.viewStateJson === viewStateJson) return t
-        return { ...t, viewStateJson }
-      }),
-    }))
   },
 
   syncTabDirty: (tabId, alternativeVersionId) => {
     const tab = get().tabs.find(t => t.id === tabId)
     const repoCwd = tab ? tabRepoRoot(tab, get().repoCwd) : get().repoCwd
     if (!repoCwd) return
-    if (!tab || tab.kind !== 'text') return
+    if (tab?.kind !== 'text') return
     const isDirty = isDirtyByVersion(repoCwd, tab.relativePath, alternativeVersionId)
 
     set(state => {
@@ -813,7 +852,7 @@ export const useEditorWorkspace = create<EditorWorkspaceState>((set, get) => ({
     const { activeTabId } = get()
     const tab = get().tabs.find(t => t.id === tabId)
     const repoCwd = tab ? tabRepoRoot(tab, get().repoCwd) : get().repoCwd
-    if (!tab || tab.kind !== 'text' || !repoCwd) return true
+    if (tab?.kind !== 'text' || !repoCwd) return true
 
     const { applyEditorSaveParticipantsBeforeWrite } = await import('@/pages/editor/lib/editorSaveParticipants')
     await applyEditorSaveParticipantsBeforeWrite({
@@ -830,14 +869,48 @@ export const useEditorWorkspace = create<EditorWorkspaceState>((set, get) => ({
     })
 
     const content = resolveTabContent(repoCwd, tab, activeTabId)
+    const snapshotVersionId = getModelAlternativeVersionId(repoCwd, tab.relativePath)
 
     const { checkDirtyWriteOnSave } = await import('@/pages/editor/lib/editorDirtyWrite')
-    const dirtyWriteCheck = await checkDirtyWriteOnSave(repoCwd, tab.relativePath, content)
+    let dirtyWriteCheck = await checkDirtyWriteOnSave(repoCwd, tab.relativePath, content)
+
+    if (dirtyWriteCheck.action === 'confirm') {
+      const { requestDirtyWriteChoice } = await import('@/pages/editor/lib/editorDirtyWritePrompt')
+      const fileName = tab.relativePath.split('/').pop() ?? tab.relativePath
+      const tabRoot = tabRepoRoot(tab, get().repoCwd)
+
+      while (dirtyWriteCheck.action === 'confirm') {
+        const shownDiskContent = dirtyWriteCheck.diskContent
+        const choice = await requestDirtyWriteChoice({
+          relativePath: tab.relativePath,
+          fileName,
+          diskContent: dirtyWriteCheck.diskContent,
+          editorContent: dirtyWriteCheck.editorContent,
+        })
+        if (choice === 'cancel') return false
+        if (choice === 'revert') {
+          await get().reloadTabFromDisk(tab.relativePath, undefined, tabRoot)
+          return false
+        }
+        if (choice === 'compare') {
+          const diskLabel = `${tab.relativePath} (disk)`
+          const editorLabel = `${tab.relativePath} (editor)`
+          await get().openCompareSnapshots(diskLabel, editorLabel, dirtyWriteCheck.diskContent, dirtyWriteCheck.editorContent)
+          return false
+        }
+        // overwrite — re-check disk before writing (TOCTOU)
+        dirtyWriteCheck = await checkDirtyWriteOnSave(repoCwd, tab.relativePath, content)
+        if (dirtyWriteCheck.action === 'confirm' && dirtyWriteCheck.diskContent !== shownDiskContent) {
+          continue
+        }
+        break
+      }
+    }
 
     if (dirtyWriteCheck.action === 'noop') {
-      const versionId = getModelAlternativeVersionId(repoCwd, tab.relativePath)
-      const meta = await detectTextFileMeta(tab.relativePath, repoCwd)
-      commitModelBaseline(repoCwd, tab.relativePath, content, versionId ?? undefined, meta.mtimeMs)
+      // Reuse the mtime already fetched by the dirty-write check — no duplicate IPC.
+      const mtimeMs = dirtyWriteCheck.diskMtimeMs ?? (await detectTextFileMeta(tab.relativePath, repoCwd)).mtimeMs
+      commitModelBaseline(repoCwd, tab.relativePath, content, snapshotVersionId ?? undefined, mtimeMs)
       set(state => ({
         tabs: state.tabs.map(t => (t.id === tabId ? { ...t, isDirty: false, ...pinTabFields() } : t)),
         tabsMetaRevision: bumpMeta(state.tabsMetaRevision),
@@ -845,30 +918,8 @@ export const useEditorWorkspace = create<EditorWorkspaceState>((set, get) => ({
       return true
     }
 
-    if (dirtyWriteCheck.action === 'confirm') {
-      const { requestDirtyWriteChoice } = await import('@/pages/editor/lib/editorDirtyWritePrompt')
-      const fileName = tab.relativePath.split('/').pop() ?? tab.relativePath
-      const choice = await requestDirtyWriteChoice({
-        relativePath: tab.relativePath,
-        fileName,
-        diskContent: dirtyWriteCheck.diskContent,
-        editorContent: dirtyWriteCheck.editorContent,
-      })
-      if (choice === 'cancel') return false
-      if (choice === 'revert') {
-        await get().reloadTabFromDisk(tab.relativePath)
-        return false
-      }
-      if (choice === 'compare') {
-        const diskLabel = `${tab.relativePath} (disk)`
-        const editorLabel = `${tab.relativePath} (editor)`
-        await get().openCompareSnapshots(diskLabel, editorLabel, dirtyWriteCheck.diskContent, dirtyWriteCheck.editorContent)
-        return false
-      }
-    }
-
     const normalized = tab.relativePath.replace(/\\/g, '/')
-    markPathSaving(normalized)
+    markPathSaving(repoCwd, normalized)
     try {
       const result = await window.api.system.write_file(tab.relativePath, content, { cwd: repoCwd })
       if (!result.success) {
@@ -876,18 +927,15 @@ export const useEditorWorkspace = create<EditorWorkspaceState>((set, get) => ({
         return false
       }
 
-      const versionId = getModelAlternativeVersionId(repoCwd, tab.relativePath)
       const meta = await detectTextFileMeta(tab.relativePath, repoCwd)
-      commitModelBaseline(repoCwd, tab.relativePath, content, versionId ?? undefined, meta.mtimeMs)
+      commitModelBaseline(repoCwd, tab.relativePath, content, snapshotVersionId ?? undefined, meta.mtimeMs)
       set(state => ({
-        tabs: state.tabs.map(t =>
-          t.id === tabId ? { ...t, isDirty: false, ...pinTabFields() } : t
-        ),
+        tabs: state.tabs.map(t => (t.id === tabId ? { ...t, isDirty: false, ...pinTabFields() } : t)),
         tabsMetaRevision: bumpMeta(state.tabsMetaRevision),
       }))
       return true
     } finally {
-      unmarkPathSaving(normalized)
+      unmarkPathSaving(repoCwd, normalized)
     }
   },
 
@@ -905,7 +953,7 @@ export const useEditorWorkspace = create<EditorWorkspaceState>((set, get) => ({
     const repoCwd = repoRootHint || focusedRepoCwd
     if (!repoCwd) return
     const tab = findTabForRepoPath(tabs, normalized, repoCwd)
-    if (!tab || tab.kind !== 'text') return
+    if (tab?.kind !== 'text') return
     const tabRoot = tabRepoRoot(tab, repoCwd)
 
     const { syncOpenFileFromDiskQuiet } = await import('@/pages/editor/lib/editorQuietDiskSync')
@@ -926,9 +974,7 @@ export const useEditorWorkspace = create<EditorWorkspaceState>((set, get) => ({
         const versionId = getModelAlternativeVersionId(tabRoot, normalized)
         commitModelBaseline(tabRoot, normalized, baseline, versionId ?? undefined, meta.mtimeMs)
         set(state => ({
-          tabs: state.tabs.map(t =>
-            t.id === tab.id ? { ...t, isDirty: false, contentLoaded: true, loadGeneration } : t
-          ),
+          tabs: state.tabs.map(t => (t.id === tab.id ? { ...t, isDirty: false, contentLoaded: true, loadGeneration } : t)),
           tabsMetaRevision: bumpMeta(state.tabsMetaRevision),
         }))
       } catch {
@@ -952,7 +998,7 @@ export const useEditorWorkspace = create<EditorWorkspaceState>((set, get) => ({
     const repoCwd = repoRootHint || focusedRepoCwd
     if (!repoCwd) return
     const tab = findTabForRepoPath(tabs, normalized, repoCwd)
-    if (!tab || tab.kind !== 'text' || !tab.contentLoaded || tab.isDirty) return
+    if (tab?.kind !== 'text' || !tab.contentLoaded || tab.isDirty) return
     const tabRoot = tabRepoRoot(tab, repoCwd)
 
     const { syncOpenFileFromDiskQuiet } = await import('@/pages/editor/lib/editorQuietDiskSync')
@@ -977,7 +1023,7 @@ export const useEditorWorkspace = create<EditorWorkspaceState>((set, get) => ({
       const { tabs } = get()
       if (!repoCwd) return
       const tab = findTabForRepoPath(tabs, normalized, repoCwd)
-      if (!tab || tab.kind !== 'text' || !tab.contentLoaded || tab.isDirty) return
+      if (tab?.kind !== 'text' || !tab.contentLoaded || tab.isDirty) return
       const tabRoot = tabRepoRoot(tab, repoCwd)
 
       const { checkDiskContentAgainstBuffer } = await import('@/pages/editor/lib/editorExternalFileSync')
@@ -1019,7 +1065,7 @@ export const useEditorWorkspace = create<EditorWorkspaceState>((set, get) => ({
     const { activeTabId, tabs } = get()
     if (!activeTabId) return
     const tab = tabs.find(t => t.id === activeTabId)
-    if (!tab || tab.kind !== 'text') return
+    if (tab?.kind !== 'text') return
     await get().reloadTabFromDisk(tab.relativePath)
   },
 
@@ -1040,9 +1086,7 @@ export const useEditorWorkspace = create<EditorWorkspaceState>((set, get) => ({
     forceBufferDirtyState(tabRoot, normalized, versionId)
 
     set(state => ({
-      tabs: state.tabs.map(t =>
-        t.id === tab.id ? { ...t, isDirty: true, ...(t.isPreview ? pinTabFields() : {}) } : t
-      ),
+      tabs: state.tabs.map(t => (t.id === tab.id ? { ...t, isDirty: true, ...(t.isPreview ? pinTabFields() : {}) } : t)),
       tabsMetaRevision: bumpMeta(state.tabsMetaRevision),
     }))
   },
@@ -1128,18 +1172,15 @@ export const useEditorWorkspace = create<EditorWorkspaceState>((set, get) => ({
     const { repoCwd, tabs } = get()
     if (!repoCwd || !target) return
 
+    removeClosedEditorTabsForPath(relativePath, repoCwd, isDir)
+
     const closing = tabs.filter(tab => {
       if (normalizeEditorRepoKey(tabRepoRoot(tab, repoCwd)) !== normalizeEditorRepoKey(repoCwd)) return false
       if (tab.kind === 'compare' && tab.compareWithPath) {
         const left = normalizeExplorerPath(tab.relativePath)
         const right = normalizeExplorerPath(tab.compareWithPath)
         if (isDir) {
-          return (
-            left === target ||
-            left.startsWith(`${target}/`) ||
-            right === target ||
-            right.startsWith(`${target}/`)
-          )
+          return left === target || left.startsWith(`${target}/`) || right === target || right.startsWith(`${target}/`)
         }
         return left === target || right === target
       }
@@ -1165,7 +1206,10 @@ export const useEditorWorkspace = create<EditorWorkspaceState>((set, get) => ({
       if (activeTabId && closingIds.has(activeTabId)) {
         activeTabId = resolveNextActiveTabAfterClose(activeTabId, state.tabs, next)
         if (activeTabId) {
-          recordEditorTabActivation(activeTabId, next.map(t => t.id))
+          recordEditorTabActivation(
+            activeTabId,
+            next.map(t => t.id)
+          )
         }
       }
       for (const id of closingIds) {
@@ -1181,5 +1225,52 @@ export const useEditorWorkspace = create<EditorWorkspaceState>((set, get) => ({
       persistWorkspaceSession({ ...state, ...nextState }, next, activeTabId)
       return nextState
     })
+  },
+
+  reopenLastClosedEditor: async () => {
+    const lastClosedEditors = takeLastClosedEditorsBatch()
+    if (lastClosedEditors.length === 0) return
+
+    let anyReopened = false
+    await runIgnoringClosedEditorRecording(async () => {
+      for (const closed of lastClosedEditors) {
+        const { tabs } = get()
+        const alreadyOpen =
+          closed.kind === 'compare' && closed.compareWithPath
+            ? tabs.some(
+                t =>
+                  t.kind === 'compare' &&
+                  t.relativePath.replace(/\\/g, '/') === closed.relativePath &&
+                  t.compareWithPath?.replace(/\\/g, '/') === closed.compareWithPath &&
+                  normalizeEditorRepoKey(tabRepoRoot(t, get().repoCwd)) === normalizeEditorRepoKey(closed.repoRoot)
+              )
+            : Boolean(findTabForRepoPath(tabs, closed.relativePath, closed.repoRoot))
+
+        if (alreadyOpen) continue
+
+        if (closed.kind === 'compare' && closed.compareWithPath) {
+          const insertIndex = resolveReopenInsertIndex(get().tabs, closed.index, closed.sticky)
+          await get().openCompare(closed.relativePath, closed.compareWithPath, {
+            sticky: closed.sticky,
+            insertIndex,
+          })
+        } else {
+          const insertIndex = resolveReopenInsertIndex(get().tabs, closed.index, closed.sticky)
+          await get().openFile(closed.relativePath, {
+            pin: true,
+            sticky: closed.sticky,
+            insertIndex,
+            repoRoot: closed.repoRoot,
+            line: closed.reveal?.line,
+            column: closed.reveal?.column,
+          })
+        }
+        anyReopened = true
+      }
+    })
+
+    if (!anyReopened && hasClosedEditorTabs()) {
+      await get().reopenLastClosedEditor()
+    }
   },
 }))

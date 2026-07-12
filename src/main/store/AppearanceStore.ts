@@ -47,6 +47,7 @@ export type AppearanceSchema = {
   language: Language
   panelHeight: number
   hiddenShellTabs: MainShellView[]
+  shellTabOrder: MainShellView[]
 }
 
 const appearanceStore = new Store<AppearanceSchema>({
@@ -60,6 +61,7 @@ const appearanceStore = new Store<AppearanceSchema>({
     language: 'en',
     panelHeight: 150,
     hiddenShellTabs: [],
+    shellTabOrder: ['editor', 'vcs', 'showLog', 'tasks', 'prManager', 'automation', 'devPipelines'],
   },
 })
 

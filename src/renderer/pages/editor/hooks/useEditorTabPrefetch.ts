@@ -1,6 +1,6 @@
+import { useEditorWorkspace } from '@/pages/editor/hooks/useEditorWorkspace'
 import { getEditorTabActivationOrder } from '@/pages/editor/lib/editorTabActivation'
 import { scheduleBackgroundWork } from '@/pages/editor/lib/scheduleBackgroundWork'
-import { useEditorWorkspace } from '@/pages/editor/hooks/useEditorWorkspace'
 
 const PREFETCH_COUNT = 4
 let prefetchCancel: (() => void) | null = null
@@ -11,10 +11,13 @@ export function scheduleEditorTabPrefetch(_repoCwd: string, activeTabId: string 
   prefetchCancel = null
   if (!activeTabId) return
 
-  prefetchCancel = scheduleBackgroundWork(() => {
-    prefetchCancel = null
-    void prefetchAdjacentTabs(activeTabId)
-  }, { timeout: 2000 })
+  prefetchCancel = scheduleBackgroundWork(
+    () => {
+      prefetchCancel = null
+      void prefetchAdjacentTabs(activeTabId)
+    },
+    { timeout: 2000 }
+  )
 }
 
 export function cancelEditorTabPrefetch(): void {

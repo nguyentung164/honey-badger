@@ -20,6 +20,7 @@ import { getAutomationRoot } from '../automation/workspace'
 import configurationStore from '../store/ConfigurationStore'
 import { isBinary } from '../utils/istextorbinary'
 import { getResourcePath, resolvePathRelativeToBase } from '../utils/utils'
+import { gitTreeishBlobShowSpec, normalizeGitRepoRelativePath } from '../../shared/git/revisionSpecs'
 import { detectVersionControl, getVersionControlDetails } from '../utils/versionControlDetector'
 
 const DEFAULT_HIDDEN_DIR_NAMES = new Set(['.git', 'node_modules', '.svn', '.hg'])
@@ -28,6 +29,28 @@ function shouldHideEntry(name: string, includeHidden: boolean): boolean {
   if (includeHidden) return false
   if (name.startsWith('.')) return true
   return DEFAULT_HIDDEN_DIR_NAMES.has(name)
+}
+
+/** Map `node:path` (and other Node built-ins) to `@types/node` .d.ts within the workspace. */
+function resolveNodeTypesRelativePath(basePath: string, specifier: string): string | null {
+  const moduleName = specifier.startsWith('node:') ? specifier.slice('node:'.length) : specifier
+  if (!moduleName || moduleName.startsWith('.') || moduleName.includes('\\')) return null
+
+  try {
+    const req = createRequire(path.join(basePath, 'package.json'))
+    const typesPkg = req.resolve('@types/node/package.json')
+    const typesDir = path.dirname(typesPkg)
+    const segments = moduleName.split('/')
+    const candidates = [path.join(typesDir, ...segments) + '.d.ts', path.join(typesDir, ...segments, 'index.d.ts')]
+    for (const abs of candidates) {
+      if (!fs.existsSync(abs)) continue
+      const rel = path.relative(basePath, abs).replace(/\\/g, '/')
+      if (rel && !rel.startsWith('..')) return rel
+    }
+  } catch {
+    /* @types/node not installed */
+  }
+  return null
 }
 
 async function listDirectoryEntries(
@@ -468,8 +491,8 @@ export function registerSystemIpcHandlers() {
             const basePathRaw = options?.cwd?.trim() || configurationStore.store.sourceFolder
             const basePath = await resolveReadWriteBase(basePathRaw)
             if (!basePath) throw new Error('Repository root not configured')
-            const relativePath = resolvePathRelativeToBase(basePath, filePath).replace(/\\/g, '/')
-            const spec = `${gitRevision}:${relativePath}`
+            const relativePath = normalizeGitRepoRelativePath(resolvePathRelativeToBase(basePath, filePath))
+            const spec = gitTreeishBlobShowSpec(gitRevision, relativePath)
             try {
               const gitShow = await execFilePromise('git', ['-C', basePath, 'show', spec], {
                 encoding: 'buffer',
@@ -539,9 +562,16 @@ export function registerSystemIpcHandlers() {
         const basePath = await resolveReadWriteBase(basePathRaw)
         if (!basePath) return null
 
+        if (specifier.startsWith('node:')) {
+          return resolveNodeTypesRelativePath(basePath, specifier)
+        }
+
         const fromAbs = path.join(basePath, resolvePathRelativeToBase(basePath, fromRelativePath))
         const req = createRequire(fromAbs)
         const resolvedAbs = req.resolve(specifier)
+        if (!path.isAbsolute(resolvedAbs)) {
+          return resolveNodeTypesRelativePath(basePath, resolvedAbs)
+        }
         const relativePath = path.relative(basePath, resolvedAbs).replace(/\\/g, '/')
         if (!relativePath || relativePath.startsWith('..')) return null
         return relativePath

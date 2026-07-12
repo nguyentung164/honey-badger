@@ -17,7 +17,8 @@ type EditorOpenEditorRowProps = {
   active: boolean
   focused?: boolean
   gitStatus: GitFileStatusCode | null
-  tabMenuActions: EditorTabMenuActions | null
+  /** Stable function — actions are built lazily when the context menu opens. */
+  getTabMenuActions?: (tab: EditorTabSummary, tabIndex: number) => EditorTabMenuActions
   onSelectTab: (tabId: string) => void
   onCloseTab: (tabId: string) => void
   onPinTab?: (tabId: string) => void
@@ -31,7 +32,7 @@ export const EditorOpenEditorRow = memo(function EditorOpenEditorRow({
   active,
   focused = false,
   gitStatus,
-  tabMenuActions,
+  getTabMenuActions,
   onSelectTab,
   onCloseTab,
   onPinTab,
@@ -42,6 +43,7 @@ export const EditorOpenEditorRow = memo(function EditorOpenEditorRow({
   const row = (
     <div
       role="treeitem"
+      tabIndex={-1}
       aria-selected={active}
       className={cn(
         'group flex w-full min-w-0 items-center gap-1 pr-1 text-[13px]',
@@ -99,10 +101,10 @@ export const EditorOpenEditorRow = memo(function EditorOpenEditorRow({
     </div>
   )
 
-  if (!tabMenuActions) return row
+  if (!getTabMenuActions) return row
 
   return (
-    <EditorTabContextMenu tab={tab} tabIndex={tabIndex} tabCount={tabCount} onSelectTab={onSelectTab} actions={tabMenuActions}>
+    <EditorTabContextMenu tab={tab} tabIndex={tabIndex} tabCount={tabCount} onSelectTab={onSelectTab} getActions={() => getTabMenuActions(tab, tabIndex)}>
       {row}
     </EditorTabContextMenu>
   )

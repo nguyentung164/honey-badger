@@ -96,7 +96,7 @@ function applyPreviewWhitespaceSelection(editor: Monaco.editor.IStandaloneCodeEd
 }
 
 /** Push preview-only visual effects that Monaco options alone cannot demonstrate. */
-export function applyEditorSettingsPreviewEffects(
+function applyEditorSettingsPreviewEffects(
   editor: Monaco.editor.IStandaloneCodeEditor,
   settings: EditorSettings
 ): void {

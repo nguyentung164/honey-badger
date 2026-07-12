@@ -20,12 +20,11 @@ import {
 import { buildXtermThemeForPrefs } from '@/lib/terminal/xtermTheme'
 import {
   INITIAL_SHELL_INTEGRATION_STATE,
-  reduceShellIntegrationState,
+  shellIntegrationBufferEvents,
   shellIntegrationInputEvents,
-  ShellIntegrationStreamParser,
-  type ShellIntegrationEvent,
   type TerminalShellIntegrationState,
 } from '@/lib/terminal/terminalShellIntegration'
+import { TerminalShellIntegrationAddon } from '@/lib/terminal/terminalShellIntegrationAddon'
 import { useAppAppearanceThemeKey } from '@/hooks/useAppAppearanceThemeKey'
 import type { TerminalShellProfileId } from 'shared/terminal/shells'
 
@@ -102,7 +101,9 @@ export function useIntegratedTerminal({
   const confirmMultiLinePasteRef = useRef(confirmMultiLinePaste)
   const onShellIntegrationChangeRef = useRef(onShellIntegrationChange)
   const integrationStateRef = useRef<TerminalShellIntegrationState>(INITIAL_SHELL_INTEGRATION_STATE)
-  const integrationParserRef = useRef(new ShellIntegrationStreamParser())
+  const shellIntegrationAddonRef = useRef<TerminalShellIntegrationAddon | null>(null)
+  const promptCheckTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const onCursorMoveDisposableRef = useRef<{ dispose: () => void } | null>(null)
   const webglAddonRef = useRef<WebglAddon | null>(null)
   const panelVisibleRef = useRef(panelVisible)
   const focusedRef = useRef(focused)
@@ -264,6 +265,14 @@ export function useIntegratedTerminal({
     const term = termRef.current
     termRef.current = null
     fitAddonRef.current = null
+    shellIntegrationAddonRef.current?.dispose()
+    shellIntegrationAddonRef.current = null
+    onCursorMoveDisposableRef.current?.dispose()
+    onCursorMoveDisposableRef.current = null
+    if (promptCheckTimerRef.current) {
+      clearTimeout(promptCheckTimerRef.current)
+      promptCheckTimerRef.current = null
+    }
     webglAddonRef.current?.dispose()
     webglAddonRef.current = null
     hostIntersectingRef.current = true
@@ -272,21 +281,38 @@ export function useIntegratedTerminal({
     }
   }, [])
 
-  const emitIntegration = useCallback((event: ShellIntegrationEvent) => {
-    if (!prefsRef.current.enableShellIntegration) return
-    integrationStateRef.current = reduceShellIntegrationState(integrationStateRef.current, event)
-    onShellIntegrationChangeRef.current?.(integrationStateRef.current)
+  const applyShellIntegrationInput = useCallback((data: string) => {
+    const addon = shellIntegrationAddonRef.current
+    if (!addon) return
+    for (const event of shellIntegrationInputEvents(data, integrationStateRef.current.commandRunning)) {
+      addon.applyInputEvent(event)
+      integrationStateRef.current = addon.getState()
+      onShellIntegrationChangeRef.current?.(integrationStateRef.current)
+    }
   }, [])
 
-  const applyShellIntegrationInput = useCallback(
-    (data: string) => {
-      if (!prefsRef.current.enableShellIntegration) return
-      for (const event of shellIntegrationInputEvents(data, integrationStateRef.current.commandRunning)) {
-        emitIntegration(event)
-      }
-    },
-    [emitIntegration]
-  )
+  const applyShellIntegrationBufferCheck = useCallback(() => {
+    const addon = shellIntegrationAddonRef.current
+    const term = termRef.current
+    if (!addon || !term || !integrationStateRef.current.commandRunning) return
+    for (const event of shellIntegrationBufferEvents(term, shellProfileId, true)) {
+      addon.applyInputEvent(event)
+      integrationStateRef.current = addon.getState()
+      onShellIntegrationChangeRef.current?.(integrationStateRef.current)
+    }
+  }, [shellProfileId])
+
+  const scheduleShellIntegrationBufferCheck = useCallback(() => {
+    if (promptCheckTimerRef.current) clearTimeout(promptCheckTimerRef.current)
+    promptCheckTimerRef.current = setTimeout(() => {
+      promptCheckTimerRef.current = null
+      applyShellIntegrationBufferCheck()
+    }, 80)
+  }, [applyShellIntegrationBufferCheck])
+
+  const applyShellIntegrationOutput = useCallback(() => {
+    scheduleShellIntegrationBufferCheck()
+  }, [scheduleShellIntegrationBufferCheck])
 
   const attachInputHandlers = useCallback((term: Terminal, container: HTMLElement) => {
     detachShortcutsRef.current?.()
@@ -343,9 +369,12 @@ export function useIntegratedTerminal({
       setStatus('loading')
       setErrorMessage(null)
 
-      integrationParserRef.current.reset()
       integrationStateRef.current = INITIAL_SHELL_INTEGRATION_STATE
       onShellIntegrationChangeRef.current?.(INITIAL_SHELL_INTEGRATION_STATE)
+      if (promptCheckTimerRef.current) {
+        clearTimeout(promptCheckTimerRef.current)
+        promptCheckTimerRef.current = null
+      }
 
       await destroySession()
       disposeTerminal()
@@ -375,6 +404,16 @@ export function useIntegratedTerminal({
       })
 
       const fitAddon = new FitAddon()
+      if (currentPrefs.enableShellIntegration) {
+        const shellIntegrationAddon = new TerminalShellIntegrationAddon(state => {
+          integrationStateRef.current = state
+          onShellIntegrationChangeRef.current?.(state)
+        })
+        shellIntegrationAddonRef.current = shellIntegrationAddon
+        term.loadAddon(shellIntegrationAddon)
+      } else {
+        shellIntegrationAddonRef.current = null
+      }
       term.loadAddon(fitAddon)
 
       term.open(container)
@@ -399,6 +438,7 @@ export function useIntegratedTerminal({
         shellProfileId,
         shouldPersist,
         attach: tryAttach,
+        shellIntegrationEnabled: currentPrefs.enableShellIntegration,
       })
 
       if (disposed || token !== restartTokenRef.current) {
@@ -431,6 +471,12 @@ export function useIntegratedTerminal({
         writeToPty(data)
       })
 
+      onCursorMoveDisposableRef.current?.dispose()
+      onCursorMoveDisposableRef.current = term.onCursorMove(() => {
+        if (!integrationStateRef.current.commandRunning) return
+        scheduleShellIntegrationBufferCheck()
+      })
+
       setStatus('ready')
       if (focusedRef.current && isActiveTerminalSurface()) {
         term.focus()
@@ -444,17 +490,9 @@ export function useIntegratedTerminal({
     const unsubscribeData = window.api.terminal.onData(({ id, data }) => {
       if (id !== terminalIdRef.current) return
       const term = termRef.current
-      if (!term) return
-
-      let output = data
-      if (prefsRef.current.enableShellIntegration) {
-        const parsed = integrationParserRef.current.feed(data)
-        for (const event of parsed.events) emitIntegration(event)
-        output = parsed.output
-      }
-
-      if (!output) return
-      term.write(output)
+      if (!term || !data) return
+      term.write(data)
+      applyShellIntegrationOutput()
     })
 
     const unsubscribeExit = window.api.terminal.onExit(({ id, exitCode }) => {
@@ -506,6 +544,12 @@ export function useIntegratedTerminal({
       }
       unsubscribeData()
       unsubscribeExit()
+      onCursorMoveDisposableRef.current?.dispose()
+      onCursorMoveDisposableRef.current = null
+      if (promptCheckTimerRef.current) {
+        clearTimeout(promptCheckTimerRef.current)
+        promptCheckTimerRef.current = null
+      }
       void destroySession()
       disposeTerminal()
     }
@@ -524,7 +568,8 @@ export function useIntegratedTerminal({
     attachInputHandlers,
     writeToPty,
     applyShellIntegrationInput,
-    emitIntegration,
+    applyShellIntegrationOutput,
+    scheduleShellIntegrationBufferCheck,
     isActiveTerminalSurface,
     syncWebglRenderer,
   ])

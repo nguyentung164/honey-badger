@@ -2,6 +2,7 @@ import { readFile } from 'node:fs/promises'
 import path from 'node:path'
 import l from 'electron-log'
 import { resolvePathRelativeToBase } from '../utils/utils'
+import { gitIndexShowSpec, gitIndexStageShowSpec, type GitIndexStage } from '../../shared/git/revisionSpecs'
 import { formatGitError, getGitInstance } from './utils'
 
 interface GitMergeResponse {
@@ -253,9 +254,9 @@ export async function readConflictWorkingContent(filePath: string, cwd?: string)
 
     const normalizeShow = (raw: string | Buffer): string => (Buffer.isBuffer(raw) ? raw.toString('utf-8') : raw)
 
-    for (const stage of ['2', '3', '1'] as const) {
+    for (const stage of [2, 3, 1] as const) {
       try {
-        const spec = `:${stage}:${indexPath}`
+        const spec = gitIndexStageShowSpec(stage as GitIndexStage, indexPath)
         const raw = await git.show([spec])
         return { status: 'success', data: normalizeShow(raw as string | Buffer) }
       } catch {
@@ -264,7 +265,7 @@ export async function readConflictWorkingContent(filePath: string, cwd?: string)
     }
 
     try {
-      const raw = await git.show([`:${indexPath}`])
+      const raw = await git.show([gitIndexShowSpec(indexPath)])
       return { status: 'success', data: normalizeShow(raw as string | Buffer) }
     } catch {
       /* fall through */

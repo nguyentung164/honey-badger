@@ -1,6 +1,6 @@
 'use client'
 import { IPC } from 'main/constants'
-import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { lazy, type MutableRefObject, type RefObject, Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import type { CommitWorkflowRunChoices } from 'shared/commitWorkflow/runChoices'
 import { EMPTY_COMMIT_WORKFLOW_RUN_CHOICES } from 'shared/commitWorkflow/runChoices'
@@ -40,45 +40,43 @@ import { ResizableHandle, ResizablePanel, ResizablePanelGroup } from '@/componen
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { GlowLoader } from '@/components/ui-elements/GlowLoader'
 import toast from '@/components/ui-elements/Toast'
+import { useTerminalPrefs } from '@/hooks/useTerminalPrefs'
 import { triggerCommitWorkflowAfterCommit } from '@/lib/commitWorkflow/commitWorkflowUtils'
 import { gitStagingRepoRootKey, readGitStagingLayoutDirection } from '@/lib/diffViewer/openDiffViewer'
+import { buildEditorWorkspaceFolders, resolveEditorRepoCwd } from '@/lib/multiRepoUtils'
 import { MAIN_SHELL_OPEN_EDITOR_EVENT } from '@/lib/openEditor'
 import { buildShowLogOpenPayload, MAIN_SHELL_OPEN_SHOW_LOG_EVENT, type ShowLogOpenPayload } from '@/lib/openShowLog'
-import { cn } from '@/lib/utils'
+import { requestTerminalAtPath } from '@/lib/terminal/terminalLaunchBridge'
+import { isTerminalToggleShortcut, shouldBlockTerminalToggleShortcut } from '@/lib/terminal/terminalToggleShortcut'
 import { validateCommitMessage } from '@/lib/validateCommitMessage'
+import { useEditorSessionLifecycle } from '@/pages/editor/hooks/useEditorSessionLifecycle'
+import { useEditorWorkspace } from '@/pages/editor/hooks/useEditorWorkspace'
 import { AutomationToolbarPortalContext } from '@/pages/main/AutomationToolbarPortalContext'
 import { CommitFooterActions } from '@/pages/main/CommitFooterActions'
 import { CommitGenerateButton } from '@/pages/main/CommitGenerateButton'
 import { CommitMessagePanel } from '@/pages/main/CommitMessagePanel'
-import { useEditorWorkspace } from '@/pages/editor/hooks/useEditorWorkspace'
-import { useEditorSessionLifecycle } from '@/pages/editor/hooks/useEditorSessionLifecycle'
 import { DevPipelinesToolbarPortalContext } from '@/pages/main/DevPipelinesToolbarPortalContext'
 import { GitStagingTable } from '@/pages/main/GitStagingTable'
 import { IntegratedTerminalPanel } from '@/pages/main/IntegratedTerminalPanel'
-import { isTerminalToggleShortcut, shouldBlockTerminalToggleShortcut } from '@/lib/terminal/terminalToggleShortcut'
-import { useTerminalPrefs } from '@/hooks/useTerminalPrefs'
 import { PrManagerToolbarPortalContext } from '@/pages/main/PrManagerToolbarPortalContext'
 import { QuickCreatePrDialog } from '@/pages/main/QuickCreatePrDialog'
 import { ShowLogToolbarPortalContext } from '@/pages/main/ShowLogToolbarPortalContext'
 import { type FileData, SvnFileTable } from '@/pages/main/SvnFileTable'
+import { type LazyShellView, ShellTabPanel, useShellTabIdleUnload, useShellTabLastActiveAt, useShellTabVisited } from '@/pages/main/shellTabLifecycle'
 import { TaskToolbarPortalContext } from '@/pages/main/TaskToolbarPortalContext'
 import { TitleBar } from '@/pages/main/TitleBar'
 import { useMainTerminalPanel } from '@/pages/main/useMainTerminalPanel'
-import { requestTerminalAtPath } from '@/lib/terminal/terminalLaunchBridge'
 import logger from '@/services/logger'
 import { useAppearanceStoreSelect, useButtonVariant } from '@/stores/useAppearanceStore'
 import { getConfigDataRelevantSnapshot, useConfigurationStore } from '@/stores/useConfigurationStore'
 import { useHistoryStore } from '@/stores/useHistoryStore'
 import { useMultiRepoEffectiveStore } from '@/stores/useMultiRepoEffectiveStore'
-import { buildEditorWorkspaceFolders, resolveEditorRepoCwd } from '@/lib/multiRepoUtils'
 import { useSelectedProjectStore } from '@/stores/useSelectedProjectStore'
 import { useTaskAuthStore } from '@/stores/useTaskAuthStore'
 
+import { normalizeShellTabOrder } from '@/lib/shellTabDefs'
+
 const MAIN_PANEL_SIZES_KEY = 'main-panel-sizes-config'
-
-/** Thứ tự ưu tiên khi tab đang active bị ẩn (setting Appearance) và cần fallback sang tab khác. */
-const SHELL_TAB_ORDER: MainShellView[] = ['vcs', 'editor', 'tasks', 'prManager', 'automation', 'devPipelines', 'showLog']
-
 const MAIN_GIT_COMMIT_OPTIONS_KEY = 'main-git-commit-options'
 
 type GitCommitOptionsPersisted = { amend: boolean; signOff: boolean; autoPush: boolean }
@@ -97,6 +95,36 @@ function readGitCommitOptionsFromStorage(): GitCommitOptionsPersisted {
   } catch {
     return defaults
   }
+}
+
+function stripSignedOffByLine(message: string): string {
+  return message.replace(/\n\nSigned-off-by: .+ <[^>]+>\s*$/s, '').trimEnd()
+}
+
+/** Restore commit panel fields from the undone git commit message. */
+function applyUndoneCommitMessageToPanel(
+  fullMessage: string,
+  setCommitMessageSeed: (value: string) => void,
+  referenceIdRef: RefObject<HTMLInputElement | null>,
+  referenceId: MutableRefObject<string>
+) {
+  const message = stripSignedOffByLine(fullMessage)
+  const newlineIdx = message.indexOf('\n')
+  if (newlineIdx === -1) {
+    setCommitMessageSeed(message)
+    if (referenceIdRef.current) {
+      referenceIdRef.current.value = ''
+      referenceId.current = ''
+    }
+    return
+  }
+  const refId = message.slice(0, newlineIdx).trim()
+  const body = message.slice(newlineIdx + 1)
+  if (referenceIdRef.current) {
+    referenceIdRef.current.value = refId
+    referenceId.current = refId
+  }
+  setCommitMessageSeed(body)
 }
 
 const TaskManagement = lazy(() => import('@/pages/taskmanagement/TaskManagement').then(m => ({ default: m.TaskManagement })))
@@ -131,6 +159,7 @@ interface MainPanelSizes {
 export function MainPage() {
   const language = useAppearanceStoreSelect(s => s.language)
   const hiddenShellTabs = useAppearanceStoreSelect(s => s.hiddenShellTabs)
+  const shellTabOrder = useAppearanceStoreSelect(s => s.shellTabOrder)
   const { t } = useTranslation()
   const variant = useButtonVariant()
   const { addHistory } = useHistoryStore()
@@ -169,7 +198,9 @@ export function MainPage() {
   const gitMultiTableRefs = useRef<Record<string, any>>({})
   const effectivePathsRef = useRef<string[]>([])
   const prevIsMultiRepoRef = useRef<boolean>(false)
-  const prevShellViewRef = useRef<MainShellView | null>(null)
+  /** VCS tab đang hiển thị — dùng trong IPC handlers để defer reload khi tab ẩn. */
+  const vcsShellTabActiveRef = useRef(true)
+  const pendingVcsActionRef = useRef<'reload' | 'clear' | null>(null)
   const isMultiRepo = versionControlSystem === 'git' && !!multiRepoEnabled && effectivePaths.length >= 1
 
   useEffect(() => {
@@ -306,6 +337,7 @@ export function MainPage() {
     queueMicrotask(() => {
       const table = gitDualTableRef.current
       if (table) table.reloadData()
+      else pendingVcsActionRef.current = 'reload'
     })
   }, [isConfigLoaded, versionControlSystem, isMultiRepo, effectivePaths.length])
 
@@ -317,6 +349,10 @@ export function MainPage() {
     prevIsMultiRepoRef.current = isMultiRepo
 
     if (isMultiRepo && effectivePaths.length > 0) {
+      if (!vcsShellTabActiveRef.current) {
+        pendingVcsActionRef.current = 'reload'
+        return
+      }
       const timer = setTimeout(() => {
         effectivePaths.forEach(path => {
           gitMultiTableRefs.current[path]?.reloadData?.()
@@ -325,6 +361,10 @@ export function MainPage() {
       return () => clearTimeout(timer)
     }
     if (wasMultiRepo && !isMultiRepo) {
+      if (!vcsShellTabActiveRef.current) {
+        pendingVcsActionRef.current = 'reload'
+        return
+      }
       const timer = setTimeout(() => {
         gitDualTableRef.current?.reloadData?.()
       }, 0)
@@ -338,6 +378,10 @@ export function MainPage() {
     prevVersionControlSystemRef.current = versionControlSystem
     if (prev === null) return
     if (prev === versionControlSystem) return
+    if (!vcsShellTabActiveRef.current) {
+      pendingVcsActionRef.current = 'reload'
+      return
+    }
     if (versionControlSystem === 'git') {
       logger.info('Version control system changed to Git')
       const paths = effectivePathsRef.current
@@ -368,12 +412,15 @@ export function MainPage() {
   useEffect(() => {
     const handleFilesChanged = (_event: unknown, detail?: FilesChangedPayload) => {
       logger.info('Files changed in source folder, reloading data...', detail)
+      if (!vcsShellTabActiveRef.current) {
+        pendingVcsActionRef.current = 'reload'
+        return
+      }
       const cfg = useConfigurationStore.getState()
       const vcs = cfg.versionControlSystem
       const paths = effectivePathsRef.current
       const multi = vcs === 'git' && !!cfg.multiRepoEnabled && paths.length >= 1
-      const reloadOpts =
-        detail?.source === 'watcher' || detail?.source === 'staging' ? { silent: true as const } : undefined
+      const reloadOpts = detail?.source === 'watcher' || detail?.source === 'staging' ? { silent: true as const } : undefined
       if (vcs === 'git') {
         if (multi && paths.length > 0) {
           let targetPath: string | undefined
@@ -414,6 +461,10 @@ export function MainPage() {
         // Kiểm tra xem có phải clear data không (folder không phải Git/SVN)
         if (event.detail?.clearData) {
           logger.info('Clearing data - folder is not a valid Git/SVN repository')
+          if (!vcsShellTabActiveRef.current) {
+            pendingVcsActionRef.current = 'clear'
+            return
+          }
           if (gitDualTableRef.current?.clearData) gitDualTableRef.current.clearData()
           Object.values(gitMultiTableRefs.current).forEach(ref => {
             ref?.clearData?.()
@@ -435,6 +486,10 @@ export function MainPage() {
         const updatedMultiRepo = !!state.multiRepoEnabled && (state.multiRepoSource === 'byProject' || (Array.isArray(state.multiRepoPaths) && state.multiRepoPaths.length >= 2))
         logger.info('Configuration reloaded in MainPage, versionControlSystem:', updatedVCS, 'multiRepo:', updatedMultiRepo)
 
+        if (!vcsShellTabActiveRef.current) {
+          pendingVcsActionRef.current = 'reload'
+          return
+        }
         const paths = effectivePathsRef.current
         if (updatedVCS === 'git') {
           if (updatedMultiRepo && paths.length > 0) {
@@ -452,6 +507,10 @@ export function MainPage() {
 
     const handleGitBranchChange = () => {
       logger.info('Git branch changed, reloading data...')
+      if (!vcsShellTabActiveRef.current) {
+        pendingVcsActionRef.current = 'reload'
+        return
+      }
       const cfg = useConfigurationStore.getState()
       const paths = effectivePathsRef.current
       const multi = cfg.versionControlSystem === 'git' && !!cfg.multiRepoEnabled && paths.length >= 1
@@ -468,6 +527,10 @@ export function MainPage() {
 
     const handleGitUndoCommit = () => {
       logger.info('Git undo commit detected, reloading data...')
+      if (!vcsShellTabActiveRef.current) {
+        pendingVcsActionRef.current = 'reload'
+        return
+      }
       const cfg = useConfigurationStore.getState()
       const paths = effectivePathsRef.current
       const multi = cfg.versionControlSystem === 'git' && !!cfg.multiRepoEnabled && paths.length >= 1
@@ -500,6 +563,15 @@ export function MainPage() {
   const commitMessageRef = useRef<string>('')
   const referenceIdRef = useRef<HTMLInputElement>(null)
   const referenceId = useRef('')
+  useEffect(() => {
+    const handleGitUndoCommitMessage = (event: Event) => {
+      const commitMessage = (event as CustomEvent<{ commitMessage?: string }>).detail?.commitMessage
+      if (!commitMessage?.trim()) return
+      applyUndoneCommitMessageToPanel(commitMessage, setCommitMessageSeed, referenceIdRef, referenceId)
+    }
+    window.addEventListener('git-undo-commit', handleGitUndoCommitMessage)
+    return () => window.removeEventListener('git-undo-commit', handleGitUndoCommitMessage)
+  }, [])
   const hasCheckCodingRuleRef = useRef(false)
   const hasCheckSpotbugsRef = useRef(false)
   const isAnyLoading = isLoadingGenerate || isLoadingCommit
@@ -536,6 +608,8 @@ export function MainPage() {
   const [showLoginDialog, setShowLoginDialog] = useState(false)
   const [showChangePasswordDialog, setShowChangePasswordDialog] = useState(false)
   const [shellView, setShellView] = useState<MainShellView>(() => getInitialMainPageShellView())
+  const { visitedShellTabs, markVisited, unmarkVisited, resetVisited } = useShellTabVisited(getInitialMainPageShellView(), false)
+  const shellTabLastActiveAtRef = useShellTabLastActiveAt()
   const [prManagerDetached, setPrManagerDetached] = useState<boolean>(() => readPersistedPrManagerDetached())
   const [tasksDetached, setTasksDetached] = useState<boolean>(() => readPersistedTasksDetached())
   const [automationDetached, setAutomationDetached] = useState<boolean>(() => readPersistedAutomationDetached())
@@ -627,6 +701,7 @@ export function MainPage() {
   useEffect(() => {
     if (!user || isGuest) {
       setShellView('vcs')
+      resetVisited('vcs', false)
       setPrManagerDetached(false)
       writePersistedPrManagerDetached(false)
       setTasksDetached(false)
@@ -663,6 +738,7 @@ export function MainPage() {
       next = 'vcs'
     }
     setShellView(next)
+    resetVisited(next, true)
     if (stored === null && isTaskShellRole(user.role)) {
       try {
         localStorage.setItem(MAIN_SHELL_VIEW_KEY, 'tasks')
@@ -670,7 +746,13 @@ export function MainPage() {
         /* ignore */
       }
     }
-  }, [user, isGuest])
+  }, [user, isGuest, resetVisited])
+
+  useEffect(() => {
+    if (!enableShellSwitcher) return
+    markVisited('editor')
+    markVisited(shellView)
+  }, [enableShellSwitcher, shellView, markVisited])
 
   const handlePrManagerDetach = useCallback(() => {
     persistPrManagerDetached(true)
@@ -868,19 +950,9 @@ export function MainPage() {
       devPipelines: devPipelinesDetached,
       showLog: showLogDetached,
     }
-    const fallback = SHELL_TAB_ORDER.find(view => !hiddenShellTabs.includes(view) && !detachedByView[view])
+    const fallback = normalizeShellTabOrder(shellTabOrder).find(view => !hiddenShellTabs.includes(view) && !detachedByView[view])
     if (fallback) persistShellView(fallback)
-  }, [
-    enableShellSwitcher,
-    hiddenShellTabs,
-    shellView,
-    persistShellView,
-    tasksDetached,
-    prManagerDetached,
-    automationDetached,
-    devPipelinesDetached,
-    showLogDetached,
-  ])
+  }, [enableShellSwitcher, hiddenShellTabs, shellTabOrder, shellView, persistShellView, tasksDetached, prManagerDetached, automationDetached, devPipelinesDetached, showLogDetached])
 
   // Show Log: giữ context khi đổi tab; seed mặc định khi vào tab lần đầu
   useEffect(() => {
@@ -905,41 +977,86 @@ export function MainPage() {
     )
   }, [shellView, showLogDetached, enableShellSwitcher, showLogOpenPayload, isConfigLoaded, sourceFolder, versionControlSystem])
 
-  const reloadGitWorkspaceData = useCallback(() => {
-    if (versionControlSystem !== 'git') return
-    const paths = effectivePathsRef.current
-    const multi = !!multiRepoEnabled && paths.length >= 1
-    if (multi) {
-      paths.forEach(path => {
-        gitMultiTableRefs.current[path]?.reloadData?.()
-      })
-    } else {
-      gitDualTableRef.current?.reloadData?.()
-    }
-  }, [versionControlSystem, multiRepoEnabled])
-
-  // Khi quay lại tab Workspace sau khi unmount bảng file, Git cần reload (SVN tự load khi mount).
-  useEffect(() => {
-    const prev = prevShellViewRef.current
-    prevShellViewRef.current = shellView
-
-    if (!enableShellSwitcher || !isConfigLoaded) return
-    if (shellView !== 'vcs') return
-    if (prev === null || prev === 'vcs') return
-
-    const timer = setTimeout(() => {
-      logger.info('Returned to Workspace tab, reloading file list...')
-      reloadGitWorkspaceData()
-    }, 0)
-    return () => clearTimeout(timer)
-  }, [shellView, enableShellSwitcher, isConfigLoaded, reloadGitWorkspaceData])
-
   const showEmbeddedEditor = enableShellSwitcher && shellView === 'editor'
   const showEmbeddedTasks = enableShellSwitcher && shellView === 'tasks' && !tasksDetached
   const showEmbeddedPrManager = enableShellSwitcher && shellView === 'prManager' && !prManagerDetached
   const showEmbeddedAutomation = enableShellSwitcher && shellView === 'automation' && !automationDetached
   const showEmbeddedDevPipelines = enableShellSwitcher && shellView === 'devPipelines' && !devPipelinesDetached
   const showEmbeddedShowLog = enableShellSwitcher && shellView === 'showLog' && !showLogDetached
+  const anyEmbeddedShellView = showEmbeddedEditor || showEmbeddedTasks || showEmbeddedPrManager || showEmbeddedAutomation || showEmbeddedDevPipelines || showEmbeddedShowLog
+  /** Workspace VCS luôn mounted; chỉ ẩn bằng CSS khi tab embedded khác đang hiển thị. */
+  const vcsWorkspaceVisible = !enableShellSwitcher || !anyEmbeddedShellView
+  vcsShellTabActiveRef.current = vcsWorkspaceVisible
+
+  const reloadGitWorkspaceData = useCallback(
+    (options?: { silent?: boolean }) => {
+      if (versionControlSystem !== 'git') return
+      const paths = effectivePathsRef.current
+      const multi = !!multiRepoEnabled && paths.length >= 1
+      if (multi) {
+        paths.forEach(path => {
+          gitMultiTableRefs.current[path]?.reloadData?.(options)
+        })
+      } else {
+        gitDualTableRef.current?.reloadData?.(options)
+      }
+    },
+    [versionControlSystem, multiRepoEnabled]
+  )
+
+  useEffect(() => {
+    if (!vcsWorkspaceVisible || !isConfigLoaded) return
+    const action = pendingVcsActionRef.current
+    if (!action) return
+    pendingVcsActionRef.current = null
+    const timer = setTimeout(() => {
+      if (action === 'clear') {
+        logger.info('Returned to Workspace tab, clearing stale file list...')
+        gitDualTableRef.current?.clearData?.()
+        Object.values(gitMultiTableRefs.current).forEach(ref => {
+          ref?.clearData?.()
+        })
+        tableRef.current?.clearData?.()
+        return
+      }
+      logger.info('Returned to Workspace tab with pending changes, refreshing silently...')
+      if (useConfigurationStore.getState().versionControlSystem === 'svn') {
+        tableRef.current?.reloadData?.(true)
+        return
+      }
+      reloadGitWorkspaceData({ silent: true })
+    }, 0)
+    return () => clearTimeout(timer)
+  }, [vcsWorkspaceVisible, isConfigLoaded, reloadGitWorkspaceData])
+
+  const handleUnloadLazyShellTab = useCallback(
+    (view: LazyShellView) => {
+      logger.info(`Idle unload shell tab: ${view}`)
+      unmarkVisited(view)
+    },
+    [unmarkVisited]
+  )
+
+  const handleUnloadEditorShellTab = useCallback(() => {
+    logger.info('Idle unload shell tab: editor')
+    unmarkVisited('editor')
+  }, [unmarkVisited])
+
+  useShellTabIdleUnload({
+    enabled: enableShellSwitcher,
+    activeView: shellView,
+    visitedShellTabs,
+    shellTabLastActiveAtRef,
+    onUnloadLazy: handleUnloadLazyShellTab,
+    onUnloadEditor: handleUnloadEditorShellTab,
+  })
+
+  const shellTabLoader = (
+    <div className="flex min-h-0 flex-1 items-center justify-center">
+      <GlowLoader className="w-10 h-10" />
+    </div>
+  )
+
   const [taskToolbarHostEl, setTaskToolbarHostEl] = useState<HTMLDivElement | null>(null)
   const taskToolbarHostRef = useCallback((node: HTMLDivElement | null) => {
     setTaskToolbarHostEl(prev => (prev === node ? prev : node))
@@ -990,15 +1107,20 @@ export function MainPage() {
   const isApplyingMainPanelLayoutRef = useRef(false)
   const hasLoadedPanelSizesRef = useRef(false)
 
-  const applyMainPanelLayout = useCallback((layout: Record<string, number>) => {
-    const group = panelGroupRef.current
-    if (!group?.setLayout) return
-    isApplyingMainPanelLayoutRef.current = true
-    group.setLayout(layout)
-    queueMicrotask(() => {
-      isApplyingMainPanelLayoutRef.current = false
-    })
-  }, [])
+  const applyMainPanelLayout = useCallback(
+    (layout: Record<string, number>) => {
+      const group = panelGroupRef.current
+      if (!group?.setLayout) return
+      // Vertical git staging collapses to a single panel; a two-panel layout throws at runtime.
+      const effectiveLayout = gitCommitMessageInTree ? { 'changed-files-table': layout['changed-files-table'] ?? 100 } : layout
+      isApplyingMainPanelLayoutRef.current = true
+      group.setLayout(effectiveLayout)
+      queueMicrotask(() => {
+        isApplyingMainPanelLayoutRef.current = false
+      })
+    },
+    [gitCommitMessageInTree]
+  )
 
   const persistTablePanelSizes = useCallback((top: number, bottom: number) => {
     const next: MainPanelSizes = {
@@ -1020,6 +1142,10 @@ export function MainPage() {
         tablePanelSizesRef.current = normalized
         setPanelSizes(normalized)
         setTimeout(() => {
+          if (gitCommitMessageInTree) {
+            applyMainPanelLayout({ 'changed-files-table': 100 })
+            return
+          }
           applyMainPanelLayout({
             'changed-files-table': top,
             'commit-message-panel': bottom,
@@ -1031,7 +1157,7 @@ export function MainPage() {
     } finally {
       hasLoadedPanelSizesRef.current = true
     }
-  }, [applyMainPanelLayout])
+  }, [applyMainPanelLayout, gitCommitMessageInTree])
 
   useEffect(() => {
     if (!hasLoadedPanelSizesRef.current) return
@@ -1061,6 +1187,22 @@ export function MainPage() {
     }, 0)
     return () => window.clearTimeout(id)
   }, [gitCommitMessageInTree, applyMainPanelLayout])
+
+  useEffect(() => {
+    if (!vcsWorkspaceVisible) return
+    const id = window.setTimeout(() => {
+      if (gitCommitMessageInTree) {
+        applyMainPanelLayout({ 'changed-files-table': 100 })
+        return
+      }
+      const saved = tablePanelSizesRef.current
+      applyMainPanelLayout({
+        'changed-files-table': saved.topPanelSize,
+        'commit-message-panel': saved.bottomPanelSize,
+      })
+    }, 0)
+    return () => window.clearTimeout(id)
+  }, [vcsWorkspaceVisible, gitCommitMessageInTree, applyMainPanelLayout])
 
   const handleReferenceId = (e: React.ChangeEvent<HTMLInputElement>) => {
     referenceId.current = e.target.value
@@ -1673,8 +1815,7 @@ export function MainPage() {
   }, [terminalPrefs.keepSessionsWhenPanelClosed, terminalOpen])
 
   const canUseTerminal = terminalPrefs.cwdMode === 'home' || Boolean(terminalCwd)
-  const shouldMountTerminal =
-    canUseTerminal && (terminalOpen || (terminalPrefs.keepSessionsWhenPanelClosed && terminalEverOpened))
+  const shouldMountTerminal = canUseTerminal && (terminalOpen || (terminalPrefs.keepSessionsWhenPanelClosed && terminalEverOpened))
 
   const handleTerminalToggle = useCallback(() => {
     if (!canUseTerminal) {
@@ -1702,13 +1843,7 @@ export function MainPage() {
 
   const renderCommitGenerateButton = useCallback(
     (compact: boolean) => (
-      <CommitGenerateButton
-        compact={compact}
-        variant={variant}
-        isAnyLoading={isAnyLoading}
-        isLoadingGenerate={isLoadingGenerate}
-        onGenerate={generateCommitMessage}
-      />
+      <CommitGenerateButton compact={compact} variant={variant} isAnyLoading={isAnyLoading} isLoadingGenerate={isLoadingGenerate} onGenerate={generateCommitMessage} />
     ),
     [variant, isAnyLoading, isLoadingGenerate, generateCommitMessage]
   )
@@ -1806,6 +1941,7 @@ export function MainPage() {
                     }}
                     cwd={path}
                     label={effectiveLabels[i]}
+                    shellTabActive={vcsWorkspaceVisible}
                     onLoadingChange={setIsTableLoading}
                     commitMessagePanel={embeddedCommitMessagePanel}
                     onLayoutDirectionChange={dir => {
@@ -1830,6 +1966,7 @@ export function MainPage() {
           content = (
             <GitStagingTable
               ref={gitDualTableRef}
+              shellTabActive={vcsWorkspaceVisible}
               onLoadingChange={setIsTableLoading}
               commitMessagePanel={embeddedCommitMessagePanel}
               onLayoutDirectionChange={setGitStagingLayoutDirectionIfChanged}
@@ -1935,25 +2072,14 @@ export function MainPage() {
               [integratedTerminalPanelId]: terminalPanelExpanded ? terminalPanelSize : 0,
             }}
             onLayoutChanged={handleTerminalLayoutChanged}
-            resizeTargetMinimumSize={{ coarse: 37, fine: 27 }}
           >
             <ResizablePanel id={mainShellContentPanelId} minSize={terminalPanelExpanded ? 100 - maxTerminalPanelSize : 25} className="min-h-0 overflow-hidden">
               {/* Content */}
-              <div
-                className={cn(
-                  'h-full flex flex-col min-h-0',
-                  showEmbeddedEditor || showEmbeddedTasks || showEmbeddedPrManager || showEmbeddedAutomation || showEmbeddedDevPipelines || showEmbeddedShowLog ? 'p-0 overflow-hidden' : 'p-4'
-                )}
-              >
-                {enableShellSwitcher && showEmbeddedEditor ? (
-                  <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
-                    <Suspense
-                      fallback={
-                        <div className="flex min-h-0 flex-1 items-center justify-center">
-                          <GlowLoader className="w-10 h-10" />
-                        </div>
-                      }
-                    >
+              <div className="h-full flex flex-col min-h-0 p-0 overflow-hidden">
+                {/* Shell tabs: siblings + CSS hidden (never Activity at shell level — Monaco dispose race). */}
+                {enableShellSwitcher ? (
+                  <ShellTabPanel visible={showEmbeddedEditor} mounted={visitedShellTabs.has('editor')}>
+                    <Suspense fallback={shellTabLoader}>
                       <EditorPage
                         repoCwd={editorRepoCwd}
                         workspaceFolders={editorWorkspaceFolders}
@@ -1963,134 +2089,106 @@ export function MainPage() {
                         workspaceEmptyMessage={editorEmptyMessage}
                         onRegisterLayoutLeave={registerEditorLayoutLeave}
                         onOpenInTerminal={handleOpenInTerminal}
-                        terminalOpen={terminalOpen}
+                        shellTabActive={showEmbeddedEditor}
                       />
                     </Suspense>
-                  </div>
-                ) : enableShellSwitcher && showEmbeddedTasks ? (
-                  <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
-                    <Suspense
-                      fallback={
-                        <div className="flex min-h-0 flex-1 items-center justify-center">
-                          <GlowLoader className="w-10 h-10" />
-                        </div>
-                      }
-                    >
+                  </ShellTabPanel>
+                ) : null}
+                {enableShellSwitcher ? (
+                  <ShellTabPanel visible={showEmbeddedTasks} mounted={visitedShellTabs.has('tasks') && !tasksDetached}>
+                    <Suspense fallback={shellTabLoader}>
                       <TaskToolbarPortalContext.Provider value={{ center: taskToolbarHostEl, actions: taskToolbarActionsEl }}>
-                        <TaskManagement embedded />
+                        <TaskManagement embedded shellTabActive={showEmbeddedTasks} />
                       </TaskToolbarPortalContext.Provider>
                     </Suspense>
-                  </div>
-                ) : enableShellSwitcher && showEmbeddedPrManager ? (
-                  <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
-                    <Suspense
-                      fallback={
-                        <div className="flex min-h-0 flex-1 items-center justify-center">
-                          <GlowLoader className="w-10 h-10" />
-                        </div>
-                      }
-                    >
+                  </ShellTabPanel>
+                ) : null}
+                {enableShellSwitcher ? (
+                  <ShellTabPanel visible={showEmbeddedPrManager} mounted={visitedShellTabs.has('prManager') && !prManagerDetached}>
+                    <Suspense fallback={shellTabLoader}>
                       <PrManagerToolbarPortalContext.Provider value={{ host: prManagerToolbarHostEl }}>
                         <PrManager embedded />
                       </PrManagerToolbarPortalContext.Provider>
                     </Suspense>
-                  </div>
-                ) : enableShellSwitcher && showEmbeddedAutomation ? (
-                  <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
-                    <Suspense
-                      fallback={
-                        <div className="flex min-h-0 flex-1 items-center justify-center">
-                          <GlowLoader className="w-10 h-10" />
-                        </div>
-                      }
-                    >
+                  </ShellTabPanel>
+                ) : null}
+                {enableShellSwitcher ? (
+                  <ShellTabPanel visible={showEmbeddedAutomation} mounted={visitedShellTabs.has('automation') && !automationDetached}>
+                    <Suspense fallback={shellTabLoader}>
                       <AutomationToolbarPortalContext.Provider value={{ host: automationToolbarHostEl }}>
                         <AutomationPage mode="embedded" />
                       </AutomationToolbarPortalContext.Provider>
                     </Suspense>
-                  </div>
-                ) : enableShellSwitcher && showEmbeddedDevPipelines ? (
-                  <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
-                    <Suspense
-                      fallback={
-                        <div className="flex min-h-0 flex-1 items-center justify-center">
-                          <GlowLoader className="w-10 h-10" />
-                        </div>
-                      }
-                    >
+                  </ShellTabPanel>
+                ) : null}
+                {enableShellSwitcher ? (
+                  <ShellTabPanel visible={showEmbeddedDevPipelines} mounted={visitedShellTabs.has('devPipelines') && !devPipelinesDetached}>
+                    <Suspense fallback={shellTabLoader}>
                       <DevPipelinesToolbarPortalContext.Provider value={{ host: devPipelinesToolbarHostEl }}>
                         <DevPipelinesPage mode="embedded" />
                       </DevPipelinesToolbarPortalContext.Provider>
                     </Suspense>
-                  </div>
-                ) : enableShellSwitcher && showEmbeddedShowLog ? (
-                  <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
-                    <Suspense
-                      fallback={
-                        <div className="flex min-h-0 flex-1 items-center justify-center">
-                          <GlowLoader className="w-10 h-10" />
-                        </div>
-                      }
-                    >
+                  </ShellTabPanel>
+                ) : null}
+                {enableShellSwitcher ? (
+                  <ShellTabPanel visible={showEmbeddedShowLog} mounted={visitedShellTabs.has('showLog') && !showLogDetached}>
+                    <Suspense fallback={shellTabLoader}>
                       <ShowLogToolbarPortalContext.Provider value={{ host: showLogToolbarHostEl }}>
                         <ShowLogPage mode="embedded" pendingOpenPayload={showLogOpenPayload} handoffGetterRef={showLogHandoffGetterRef} />
                       </ShowLogToolbarPortalContext.Provider>
                     </Suspense>
-                  </div>
-                ) : (
-                  <div className="flex min-h-0 flex-1 flex-col">
-                    <ResizablePanelGroup
-                      groupRef={panelGroupRef}
-                      direction="vertical"
-                      className="min-h-0 flex-1 rounded-sm border"
-                      defaultLayout={
-                        gitCommitMessageInTree
-                          ? { 'changed-files-table': 100 }
-                          : { 'changed-files-table': panelSizes.topPanelSize, 'commit-message-panel': panelSizes.bottomPanelSize }
-                      }
-                      onLayoutChanged={layout => {
-                        if (gitCommitMessageInTree || isApplyingMainPanelLayoutRef.current) return
-                        const top = layout['changed-files-table']
-                        const bottom = layout['commit-message-panel']
-                        if (typeof top !== 'number' || typeof bottom !== 'number') return
-                        if (bottom <= 0) return
-                        persistTablePanelSizes(top, bottom)
-                      }}
-                      resizeTargetMinimumSize={{ coarse: 37, fine: 27 }}
-                    >
-                      <ResizablePanel
-                        id="changed-files-table"
-                        minSize={gitCommitMessageInTree ? 100 : 25}
-                        className="min-h-0 overflow-hidden"
-                        ref={topPanelRef}
-                      >
-                        {renderStagingWorkspace()}
-                      </ResizablePanel>
-                      {!gitCommitMessageInTree ? (
-                        <>
-                          <ResizableHandle />
-                          <ResizablePanel id="commit-message-panel" className="flex min-h-0 flex-col p-2" minSize={25} ref={bottomPanelRef}>
-                            <CommitMessagePanel
-                              isLoadingGenerate={isLoadingGenerate}
-                              isAnyLoading={isAnyLoading}
-                              commitMessageRef={commitMessageRef}
-                              commitMessageSeed={commitMessageSeed}
-                              referenceIdRef={referenceIdRef}
-                              onReferenceIdChange={handleReferenceId}
-                              generateAction={renderCommitGenerateButton(false)}
-                              actions={renderCommitFooterActions(false)}
-                              actionsPlacement="header"
-                              className="h-full"
-                            />
-                          </ResizablePanel>
-                        </>
-                      ) : null}
-                    </ResizablePanelGroup>
-                  </div>
-                )}
+                  </ShellTabPanel>
+                ) : null}
+                {/* Workspace VCS: luôn mounted (CSS hidden) — giữ state + Monaco embedded diff khi chuyển tab */}
+                <ShellTabPanel visible={vcsWorkspaceVisible} mounted={!enableShellSwitcher || visitedShellTabs.has('vcs')}>
+                  <ResizablePanelGroup
+                    groupRef={panelGroupRef}
+                    direction="vertical"
+                    className="min-h-0 flex-1 border-t"
+                    defaultLayout={
+                      gitCommitMessageInTree
+                        ? { 'changed-files-table': 100 }
+                        : { 'changed-files-table': panelSizes.topPanelSize, 'commit-message-panel': panelSizes.bottomPanelSize }
+                    }
+                    onLayoutChanged={layout => {
+                      if (gitCommitMessageInTree || isApplyingMainPanelLayoutRef.current) return
+                      const top = layout['changed-files-table']
+                      const bottom = layout['commit-message-panel']
+                      if (typeof top !== 'number' || typeof bottom !== 'number') return
+                      if (bottom <= 0) return
+                      persistTablePanelSizes(top, bottom)
+                    }}
+                  >
+                    <ResizablePanel id="changed-files-table" minSize={gitCommitMessageInTree ? 100 : 25} className="min-h-0 overflow-hidden" ref={topPanelRef}>
+                      {renderStagingWorkspace()}
+                    </ResizablePanel>
+                    {!gitCommitMessageInTree ? (
+                      <>
+                        <ResizableHandle showGrip={false} className="bg-transparent" />
+                        <ResizablePanel id="commit-message-panel" className="flex min-h-0 flex-col p-2" minSize={25} ref={bottomPanelRef}>
+                          <CommitMessagePanel
+                            isLoadingGenerate={isLoadingGenerate}
+                            isAnyLoading={isAnyLoading}
+                            commitMessageRef={commitMessageRef}
+                            commitMessageSeed={commitMessageSeed}
+                            referenceIdRef={referenceIdRef}
+                            onReferenceIdChange={handleReferenceId}
+                            generateAction={renderCommitGenerateButton(false)}
+                            actions={renderCommitFooterActions(false)}
+                            actionsPlacement="header"
+                            className="h-full"
+                          />
+                        </ResizablePanel>
+                      </>
+                    ) : null}
+                  </ResizablePanelGroup>
+                </ShellTabPanel>
               </div>
             </ResizablePanel>
-            <ResizableHandle className={terminalPanelExpanded ? undefined : 'pointer-events-none opacity-0'} />
+            <ResizableHandle
+              showGrip={false}
+              className={terminalPanelExpanded ? 'bg-transparent' : 'bg-transparent pointer-events-none opacity-0'}
+            />
             <ResizablePanel
               id={integratedTerminalPanelId}
               minSize={0}
@@ -2098,9 +2196,7 @@ export function MainPage() {
               defaultSize={terminalPanelExpanded ? `${terminalPanelSize}%` : '0%'}
               className="min-h-0 overflow-hidden"
             >
-              {shouldMountTerminal ? (
-                <IntegratedTerminalPanel repoCwd={terminalCwd} panelVisible={terminalPanelExpanded} onClose={closeTerminal} />
-              ) : null}
+              {shouldMountTerminal ? <IntegratedTerminalPanel repoCwd={terminalCwd} panelVisible={terminalPanelExpanded} onClose={closeTerminal} /> : null}
             </ResizablePanel>
           </ResizablePanelGroup>
         </div>

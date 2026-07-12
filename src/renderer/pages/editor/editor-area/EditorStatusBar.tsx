@@ -2,12 +2,11 @@
 
 import { getEditorLanguageDisplayName, getLanguageDisplayName } from '@/lib/monacoLanguage'
 import { cn } from '@/lib/utils'
-import type { EditorCursorPosition } from '@/pages/editor/lib/editorCommandBridge'
+import { useEditorCursor } from '@/pages/editor/lib/editorCursorStore'
 
 type EditorStatusBarProps = {
   relativePath?: string
   languageId?: string
-  cursor?: EditorCursorPosition | null
   insertSpaces: boolean
   tabSize: number
   lspStatus?: string
@@ -17,12 +16,12 @@ type EditorStatusBarProps = {
 export function EditorStatusBar({
   relativePath,
   languageId,
-  cursor,
   insertSpaces,
   tabSize,
   lspStatus,
   className,
 }: EditorStatusBarProps) {
+  const cursor = useEditorCursor(s => s.cursor)
   const indentLabel = insertSpaces ? `Spaces: ${tabSize}` : `Tab Size: ${tabSize}`
   const languageLabel = relativePath
     ? getEditorLanguageDisplayName(relativePath)

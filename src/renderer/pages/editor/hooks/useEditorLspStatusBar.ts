@@ -1,8 +1,8 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
+import type { LspServerId, LspServerState } from 'shared/lsp/types'
 import { languageIdForLsp } from '@/lib/monacoLanguage'
 import { uriRootsMatch, workspaceRootUri } from '@/pages/editor/lsp/documentUri'
-import type { LspServerId, LspServerState } from 'shared/lsp/types'
 
 type TrackedServerState = {
   state: LspServerState
@@ -151,16 +151,7 @@ export function useEditorLspStatusBar(repoCwd: string, activeLanguageId?: string
       clearReadyTimer()
       clearStartingTimer()
     }
-  }, [
-    applyStatusForActiveServer,
-    clearReadyTimer,
-    clearStartingTimer,
-    repoCwd,
-    resolveActiveServerId,
-    scheduleReadyClear,
-    scheduleStartingTimeout,
-    t,
-  ])
+  }, [applyStatusForActiveServer, clearReadyTimer, clearStartingTimer, repoCwd, resolveActiveServerId, scheduleReadyClear, scheduleStartingTimeout, t])
 
   useEffect(() => {
     applyStatusForActiveServer()

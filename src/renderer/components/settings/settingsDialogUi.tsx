@@ -160,7 +160,7 @@ export function SettingsDialogSplitLayout({
           <div className={cn('flex min-h-0 flex-col', SETTINGS_PREVIEW_MIN_HEIGHT)}>{preview}</div>
         </aside>
       </ResizablePanel>
-      <ResizableHandle className={SETTINGS_RESIZE_HANDLE_CLASS} />
+      <ResizableHandle showGrip={false} className={SETTINGS_RESIZE_HANDLE_CLASS} />
       <ResizablePanel id={contentPanelId} defaultSize={SETTINGS_CONTENT_PANEL_DEFAULT_SIZE} minSize={SETTINGS_CONTENT_PANEL_MIN_SIZE} className="min-h-0 min-w-0">
         <div className="flex h-full min-h-0 flex-col overflow-hidden">{children}</div>
       </ResizablePanel>

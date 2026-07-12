@@ -39,13 +39,6 @@ export function monacoPositionToLsp(position: Monaco.IPosition): LspPosition {
   return { line: position.lineNumber - 1, character: position.column - 1 }
 }
 
-export function lspTextEditToMonaco(edit: LspTextEdit): Monaco.editor.IIdentifiedSingleEditOperation {
-  return {
-    range: lspRangeToMonaco(edit.range),
-    text: edit.newText,
-  }
-}
-
 export function markerSeverityToLsp(severity: number): number {
   // Monaco MarkerSeverity: Hint=1, Info=2, Warning=4, Error=8
   if (severity === 8) return 1

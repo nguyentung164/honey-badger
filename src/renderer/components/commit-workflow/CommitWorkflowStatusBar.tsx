@@ -1,20 +1,16 @@
 'use client'
 
-import { AlertCircle, Ban, CheckCircle2, Loader2, Workflow, X } from 'lucide-react'
 import type { LucideIcon } from 'lucide-react'
+import { AlertCircle, Ban, CheckCircle2, Loader2, Workflow, X } from 'lucide-react'
 import { memo, useEffect, useMemo, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
+import { nodeById } from 'shared/commitWorkflow/defaultWorkflow'
+import type { CommitWorkflowRunStatus, CommitWorkflowRunStreamPayload } from 'shared/commitWorkflow/types'
 import { Button } from '@/components/ui/button'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import toast from '@/components/ui-elements/Toast'
+import { countCompletedSteps, triggerCommitWorkflowAfterCommit, useCommitWorkflowStore } from '@/lib/commitWorkflow/commitWorkflowUtils'
 import { cn } from '@/lib/utils'
-import { nodeById } from 'shared/commitWorkflow/defaultWorkflow'
-import {
-  countCompletedSteps,
-  triggerCommitWorkflowAfterCommit,
-  useCommitWorkflowStore,
-} from '@/lib/commitWorkflow/commitWorkflowUtils'
-import type { CommitWorkflowRunStatus, CommitWorkflowRunStreamPayload } from 'shared/commitWorkflow/types'
 
 function activeStepLabel(stream: CommitWorkflowRunStreamPayload | null): string | null {
   if (!stream?.activeStepKey) return null
@@ -117,8 +113,7 @@ export const CommitWorkflowStatusBar = memo(function CommitWorkflowStatusBar({
     isRunning && activeLabel
       ? t('commitWorkflow.statusRunning', { step: activeLabel, done: summary.done, total: summary.total })
       : t('commitWorkflow.statusSummary', { pass: summary.pass, total: summary.total })
-  const statusTextWithElapsed =
-    elapsedSec != null && isRunning ? `${statusText} · ${elapsedSec}s` : statusText
+  const statusTextWithElapsed = elapsedSec != null && isRunning ? `${statusText} · ${elapsedSec}s` : statusText
 
   useEffect(() => {
     if (!stream) {
@@ -149,14 +144,7 @@ export const CommitWorkflowStatusBar = memo(function CommitWorkflowStatusBar({
   const openDetail = () => setDetailDialogOpen(true)
 
   const dismissButton = isRunning ? (
-    <Button
-      type="button"
-      variant="ghost"
-      size="icon"
-      className={cn(compactBtnClass, !compact && 'h-8 w-8')}
-      onClick={handleCancel}
-      aria-label={t('commitWorkflow.cancelRun')}
-    >
+    <Button type="button" variant="ghost" size="icon" className={cn(compactBtnClass, !compact && 'h-8 w-8')} onClick={handleCancel} aria-label={t('commitWorkflow.cancelRun')}>
       <X className="h-3.5 w-3.5" />
     </Button>
   ) : (
@@ -177,14 +165,7 @@ export const CommitWorkflowStatusBar = memo(function CommitWorkflowStatusBar({
       <div className={cn('flex items-center gap-0.5 text-xs text-muted-foreground', className)}>
         <Tooltip>
           <TooltipTrigger asChild>
-            <Button
-              type="button"
-              variant="ghost"
-              size="icon"
-              className={compactBtnClass}
-              onClick={openDetail}
-              aria-label={statusTextWithElapsed}
-            >
+            <Button type="button" variant="ghost" size="icon" className={compactBtnClass} onClick={openDetail} aria-label={statusTextWithElapsed}>
               <Icon className={cn('h-3.5 w-3.5', isRunning && 'animate-spin')} />
             </Button>
           </TooltipTrigger>
