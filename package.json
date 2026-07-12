@@ -10,7 +10,7 @@
     "email": "nguyentung164@gmail.com"
   },
   "license": "MIT",
-  "packageManager": "pnpm@11.10.0",
+  "packageManager": "pnpm@11.12.0",
   "engines": {
     "node": ">=22"
   },
@@ -21,7 +21,7 @@
     "compile:app": "electron-vite build",
     "compile:packageJSON": "tsx ./src/lib/electron-app/release/modules/prebuild.ts",
     "prebuild": "run-s clean:dev compile:app compile:packageJSON install:deps",
-    "build": "pnpm electron-builder --publish always",
+    "build": "pnpm electron-builder --publish never",
     "postinstall": "run-s copy:material-icons copy:sarasa-fonts prebuild install:deps install:electron",
     "copy:material-icons": "node scripts/copy-material-icons.mjs",
     "copy:sarasa-fonts": "node scripts/copy-sarasa-fonts.mjs",

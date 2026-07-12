@@ -22,14 +22,12 @@ export default {
   npmRebuild: false,
   beforeBuild: 'scripts/beforeBuild.cjs',
 
-  publish: [
-    {
-      provider: 'github',
-      owner: 'nguyentung164',
-      repo: 'honey-badger',
-      releaseType: 'release',
-    },
-  ],
+  publish: {
+    provider: 'github',
+    owner: 'nguyentung164',
+    repo: 'honey-badger',
+    releaseType: 'draft',
+  },
 
   releaseInfo: {
     releaseNotesFile: 'release-notes.md',
