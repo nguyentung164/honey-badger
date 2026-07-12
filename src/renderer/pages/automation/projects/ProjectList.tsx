@@ -117,7 +117,7 @@ function projectRailShellClass(railOpen: boolean) {
 
 /** Fixed width on lg; padding stays constant so close animation only clips, no layout jump. */
 function projectRailInnerClass(railOpen: boolean) {
-  return cn('flex h-full min-h-0 w-full shrink-0 flex-col gap-2 p-3 lg:w-[380px]', !railOpen && 'pointer-events-none')
+  return cn('flex h-full min-h-0 w-full shrink-0 flex-col gap-2 pr-3 lg:w-[380px]', !railOpen && 'pointer-events-none')
 }
 
 type ProjectDetailTab = 'dashboard' | 'pageMap' | 'information'
@@ -406,7 +406,7 @@ export function ProjectList({ selectedId, onSelect, railOpen, onOpenRuns, onOpen
 
           <main className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden bg-background/50">
             {selected ? (
-              <Tabs value={detailTab} onValueChange={v => setDetailTab(v as ProjectDetailTab)} className="flex min-h-0 flex-1 flex-col px-4 pb-4 pt-4 sm:px-6 sm:pb-6 sm:pt-6">
+              <Tabs value={detailTab} onValueChange={v => setDetailTab(v as ProjectDetailTab)} className="flex min-h-0 flex-1 flex-col">
                 <div className="shrink-0 space-y-4">
                   <header className="space-y-1">
                     <div className="flex items-start justify-between gap-3">

@@ -1,6 +1,6 @@
 ---
 description: 
-alwaysApply: true
+alwaysApply: false
 ---
 
 When writing or modifying code, always prioritize:
