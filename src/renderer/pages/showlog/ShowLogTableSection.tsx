@@ -39,6 +39,18 @@ function LogRowTooltipContent({ entry, versionControlSystem }: { entry: LogEntry
   return (
     <div className="flex flex-col gap-2.5 min-w-[200px] max-w-[560px] text-popover-foreground">
       <div className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-1.5 text-xs">
+        {entry.syncStatus === 'incoming' && (
+          <>
+            <span className="font-medium shrink-0 text-muted-foreground">{t('showlog.syncStatus')}</span>
+            <span className="text-sky-600 dark:text-sky-400 font-medium">{t('showlog.incomingCommit')}</span>
+          </>
+        )}
+        {entry.syncStatus === 'outgoing' && (
+          <>
+            <span className="font-medium shrink-0 text-muted-foreground">{t('showlog.syncStatus')}</span>
+            <span className="text-emerald-600 dark:text-emerald-400 font-medium">{t('showlog.outgoingCommit')}</span>
+          </>
+        )}
         <span className="font-medium shrink-0 text-muted-foreground">{t('dialog.showLogs.author')}</span>
         <span className="text-popover-foreground break-words">{entry.author}</span>
         {entry.email && (
@@ -105,6 +117,9 @@ interface ShowLogTableSectionProps {
   onOpenStatistic?: () => void
   onOpenAIAnalysis?: () => void
   onOpenAnalysisHistory?: () => void
+  logSyncUpstream?: string | null
+  incomingCommitCount?: number
+  logSyncUpstreamSource?: 'tracking' | 'origin_branch' | 'origin_head' | 'none' | null
 }
 
 export const ShowLogTableSection = memo(function ShowLogTableSection({
@@ -138,6 +153,9 @@ export const ShowLogTableSection = memo(function ShowLogTableSection({
   onOpenStatistic,
   onOpenAIAnalysis,
   onOpenAnalysisHistory,
+  logSyncUpstream,
+  incomingCommitCount = 0,
+  logSyncUpstreamSource,
 }: ShowLogTableSectionProps) {
   const { t } = useTranslation()
   const [datePickerOpen, setDatePickerOpen] = useState(false)
@@ -264,6 +282,45 @@ export const ShowLogTableSection = memo(function ShowLogTableSection({
               <span>{t('common.refresh')}</span>
             </Button>
           ) : null}
+
+          {versionControlSystem === 'git' && logSyncUpstreamSource === 'none' && !isLoading ? (
+            <span
+              className="inline-flex max-w-[280px] shrink-0 items-center rounded border border-amber-500/40 bg-amber-500/10 px-2 py-1 text-[11px] text-amber-800 dark:text-amber-300"
+              title={t('showlog.noUpstreamHint')}
+            >
+              {t('showlog.noUpstreamHint')}
+            </span>
+          ) : null}
+
+          {versionControlSystem === 'git' && logSyncUpstream && logSyncUpstreamSource && logSyncUpstreamSource !== 'none' ? (
+            <div className="flex items-center gap-2 shrink-0 text-[11px] text-muted-foreground">
+              {incomingCommitCount > 0 ? (
+                <span className="inline-flex items-center gap-1 rounded border border-sky-500/40 bg-sky-500/10 px-2 py-1 text-sky-700 dark:text-sky-300">
+                  <span className="font-semibold">↓</span>
+                  {t('showlog.incomingCommit')}
+                  {` (${incomingCommitCount})`}
+                </span>
+              ) : null}
+              <span
+                className="truncate max-w-[160px]"
+                title={
+                  logSyncUpstreamSource === 'tracking'
+                    ? t('showlog.incomingCommitHint', { upstream: logSyncUpstream })
+                    : t('showlog.inferredUpstreamHint', { upstream: logSyncUpstream })
+                }
+              >
+                {logSyncUpstream}
+              </span>
+              {logSyncUpstreamSource !== 'tracking' ? (
+                <span
+                  className="inline-flex shrink-0 items-center rounded border border-amber-500/40 bg-amber-500/10 px-1.5 py-0.5 text-amber-800 dark:text-amber-300"
+                  title={t('showlog.inferredUpstreamHint', { upstream: logSyncUpstream })}
+                >
+                  {t('showlog.inferredUpstream')}
+                </span>
+              ) : null}
+            </div>
+          ) : null}
         </div>
 
         <div className="ml-auto flex shrink-0 flex-wrap items-center justify-end gap-2">
@@ -332,6 +389,9 @@ export const ShowLogTableSection = memo(function ShowLogTableSection({
                   const isHead = versionControlSystem === 'git' && headCommitId && (commitId === headCommitId || entry.revision === headCommitId?.substring(0, 8))
                   const showGitActions = versionControlSystem === 'git' && (onCherryPick || onReset)
 
+                  const isIncoming = entry.syncStatus === 'incoming'
+                  const isOutgoing = entry.syncStatus === 'outgoing'
+
                   const rowContent = (
                     <TableRow
                       key={row.id}
@@ -342,7 +402,12 @@ export const ShowLogTableSection = memo(function ShowLogTableSection({
                           selectRevision(row.original.revision)
                         }
                       }}
-                      className="cursor-pointer data-[state=selected]:!bg-primary/15 data-[state=selected]:hover:!bg-primary/10 absolute top-0 left-0 w-full flex"
+                      className={cn(
+                        'cursor-pointer data-[state=selected]:!bg-primary/15 data-[state=selected]:hover:!bg-primary/10 absolute top-0 left-0 w-full flex border-l-2',
+                        isIncoming && 'bg-sky-500/12 border-sky-500 hover:bg-sky-500/18 dark:bg-sky-400/10 dark:border-sky-400',
+                        isOutgoing && 'bg-emerald-500/8 border-emerald-500/50 hover:bg-emerald-500/12',
+                        !isIncoming && !isOutgoing && 'border-transparent'
+                      )}
                       style={{
                         transform: `translateY(${virtualRow.start}px)`,
                         height: `${ROW_HEIGHT}px`,

@@ -39,6 +39,8 @@ import { useShowLogToolbarPortalTarget } from '@/pages/main/ShowLogToolbarPortal
 import logger from '@/services/logger'
 import { useButtonVariant } from '@/stores/useAppearanceStore'
 import { getConfigDataRelevantSnapshot, useConfigurationStore } from '@/stores/useConfigurationStore'
+import { useSelectedProjectStore } from '@/stores/useSelectedProjectStore'
+import { useShowLogSessionStore } from '@/stores/useShowLogSessionStore'
 import { ShowLogTableSection } from './ShowLogTableSection'
 import { ShowlogToolbar } from './ShowlogToolbar'
 
@@ -53,6 +55,8 @@ export interface LogEntry {
   referenceId: string
   action: string[]
   changedFiles: LogFile[]
+  /** Git: commit on upstream not yet merged into checked-out branch */
+  syncStatus?: 'incoming' | 'outgoing'
 }
 
 interface LogFile {
@@ -158,6 +162,13 @@ export type ShowLogProps = {
   pendingOpenPayload?: ShowLogOpenPayload | null
   /** Main shell embedded: đọc context hiện tại khi detach. */
   handoffGetterRef?: MutableRefObject<(() => ShowLogOpenPayload) | null>
+  /** Main shell: TitleBar refresh gọi qua ref. */
+  refreshRef?: MutableRefObject<(() => void) | null>
+  onRefreshingChange?: (loading: boolean) => void
+  activeRepoPath?: string
+  isMultiRepo?: boolean
+  /** Embedded: gọi sau khi đã consume payload autoLoad để MainPage xóa state. */
+  onPendingOpenPayloadConsumed?: () => void
 }
 
 function applyOpenPayload(
@@ -183,19 +194,31 @@ function applyOpenPayload(
   resetLists()
 }
 
-export default function ShowLog({ mode = 'standalone', pendingOpenPayload, handoffGetterRef }: ShowLogProps) {
+export default function ShowLog({
+  mode = 'standalone',
+  pendingOpenPayload,
+  handoffGetterRef,
+  refreshRef,
+  onRefreshingChange,
+  activeRepoPath,
+  isMultiRepo = false,
+  onPendingOpenPayloadConsumed,
+}: ShowLogProps) {
   const embedded = mode === 'embedded'
   const portal = useShowLogToolbarPortalTarget()
   const { t } = useTranslation()
   const variant = useButtonVariant()
   const { versionControlSystem, loadConfigurationConfig, isConfigLoaded, sourceFolder } = useConfigurationStore()
+  const selectedProjectId = useSelectedProjectStore(s => s.selectedProjectId)
   const [windowContext, setWindowContext] = useState<ShowLogWindowContext | null>(null)
   const [layoutDirection, setLayoutDirection] = useState<'horizontal' | 'vertical'>('horizontal')
-  /** Git: hiển thị log theo ref này (không checkout). null = mặc định theo HEAD hiện tại. */
-  const [gitLogRevision, setGitLogRevision] = useState<string | null>(null)
+  const gitLogRevision = useShowLogSessionStore(s => s.gitLogRevision)
+  const setGitLogRevision = useShowLogSessionStore(s => s.setGitLogRevision)
+  const resetLogSession = useShowLogSessionStore(s => s.resetLogSession)
 
-  const effectiveSourceFolder = windowContext?.sourceFolder ?? sourceFolder
-  const effectiveVersionControlSystem = windowContext?.versionControlSystem ?? versionControlSystem
+  const workspaceSourceFolder = isMultiRepo && activeRepoPath ? activeRepoPath : sourceFolder
+  const effectiveSourceFolder = embedded ? workspaceSourceFolder : (windowContext?.sourceFolder ?? sourceFolder)
+  const effectiveVersionControlSystem = embedded ? versionControlSystem : (windowContext?.versionControlSystem ?? versionControlSystem)
   // For Git, always use graph view; for SVN, use list view
   // const viewMode = versionControlSystem === 'git' ? 'graph' : 'list'
 
@@ -259,12 +282,25 @@ export default function ShowLog({ mode = 'standalone', pendingOpenPayload, hando
   const [filteredLogData, setFilteredLogData] = useState<LogEntry[]>([])
   const [dataForCurrentPage, setDataForCurrentPage] = useState<LogEntry[]>([])
   const [totalEntriesFromBackend, setTotalEntriesFromBackend] = useState(0)
+  const [logSyncUpstream, setLogSyncUpstream] = useState<string | null>(null)
+  const [logSyncUpstreamSource, setLogSyncUpstreamSource] = useState<'tracking' | 'origin_branch' | 'origin_head' | 'none' | null>(null)
+  const [incomingCommitCount, setIncomingCommitCount] = useState(0)
 
   // Refs to avoid "before initialization" errors
-  const loadLogDataRef = useRef<((path: string | string[], override?: { cwd?: string; versionControlSystem?: 'git' | 'svn' }) => Promise<void>) | null>(null)
+  const loadLogDataRef = useRef<
+    | ((
+        path: string | string[],
+        override?: { cwd?: string; versionControlSystem?: 'git' | 'svn'; gitLogRevision?: string | null; forceFetch?: boolean }
+      ) => Promise<void>)
+    | null
+  >(null)
   const dataSnapshotRef = useRef<string | null>(null)
   const lastLoadKeyRef = useRef<{ key: string; timestamp: number }>({ key: '', timestamp: 0 })
   const lastErrorToastRef = useRef<{ message: string; timestamp: number }>({ message: '', timestamp: 0 })
+  const embeddedGitLogRevisionLoadRef = useRef<string | null | undefined>(undefined)
+  const loadSeqRef = useRef(0)
+  const lastShowLogFetchRef = useRef<{ cwd: string; at: number } | null>(null)
+  const SHOWLOG_FETCH_DEBOUNCE_MS = 15_000
 
   const getHandoffPayload = useCallback(
     (): ShowLogOpenPayload =>
@@ -314,10 +350,16 @@ export default function ShowLog({ mode = 'standalone', pendingOpenPayload, hando
   }, [loadConfigurationConfig])
 
   const loadLogData = useCallback(
-    async (path: string | string[], override?: { cwd?: string; versionControlSystem?: 'git' | 'svn' }) => {
+    async (
+      path: string | string[],
+      override?: { cwd?: string; versionControlSystem?: 'git' | 'svn'; gitLogRevision?: string | null; forceFetch?: boolean }
+    ) => {
+      const loadId = ++loadSeqRef.current
+      const isStale = () => loadId !== loadSeqRef.current
+
       try {
         const language = i18n.language
-        const useCwd = override?.cwd ?? windowContext?.sourceFolder
+        const useCwd = override?.cwd ?? (embedded ? effectiveSourceFolder : windowContext?.sourceFolder) ?? effectiveSourceFolder
         const useVcs = override?.versionControlSystem ?? effectiveVersionControlSystem
 
         setCommitMessage('')
@@ -328,6 +370,9 @@ export default function ShowLog({ mode = 'standalone', pendingOpenPayload, hando
         setFilteredLogData([])
         setDataForCurrentPage([])
         setTotalEntriesFromBackend(0)
+        setLogSyncUpstream(null)
+        setLogSyncUpstreamSource(null)
+        setIncomingCommitCount(0)
         setCurrentPage(1)
 
         const options: any = {}
@@ -340,17 +385,54 @@ export default function ShowLog({ mode = 'standalone', pendingOpenPayload, hando
         if (useCwd) {
           options.cwd = useCwd
         }
-        if (useVcs === 'git' && gitLogRevision) {
-          options.revision = gitLogRevision
-        }
-
         let result: any
+        let incomingHashSet = new Set<string>()
+        let outgoingHashSet = new Set<string>()
 
         if (useVcs === 'git') {
+          const shouldFetch =
+            !!useCwd &&
+            (override?.forceFetch ||
+              !lastShowLogFetchRef.current ||
+              lastShowLogFetchRef.current.cwd !== useCwd ||
+              Date.now() - lastShowLogFetchRef.current.at > SHOWLOG_FETCH_DEBOUNCE_MS)
+
+          if (shouldFetch) {
+            const fetchResult = await window.api.git.fetch('origin', { skipUpdateCheck: true }, useCwd)
+            if (isStale()) return
+            if (fetchResult.status === 'success') {
+              lastShowLogFetchRef.current = { cwd: useCwd, at: Date.now() }
+            } else {
+              logger.warning('ShowLog fetch before log skipped or failed:', fetchResult.message)
+            }
+          }
+
+          const markersResult = await window.api.git.get_log_sync_markers(useCwd)
+          if (isStale()) return
+          if (markersResult.status === 'success' && markersResult.data) {
+            const { upstream, upstreamSource, incomingHashes, outgoingHashes } = markersResult.data
+            incomingHashSet = new Set(incomingHashes)
+            outgoingHashSet = new Set(outgoingHashes)
+            setLogSyncUpstream(upstream ?? null)
+            setLogSyncUpstreamSource(upstreamSource ?? 'none')
+          } else {
+            setLogSyncUpstream(null)
+            setLogSyncUpstreamSource(null)
+          }
+
+          const logRevision = override?.gitLogRevision !== undefined ? override.gitLogRevision : gitLogRevision
+          if (logRevision) {
+            options.revision = logRevision
+          } else if (markersResult.status === 'success' && markersResult.data?.upstream) {
+            options.logRefs = ['HEAD', markersResult.data.upstream]
+          }
+
           result = await window.api.git.log(path, options)
         } else {
           result = await window.api.svn.log(path, options)
         }
+
+        if (isStale()) return
 
         if (result.status === 'success') {
           const sourceFolderPrefix = result.sourceFolderPrefix
@@ -395,6 +477,11 @@ export default function ShowLog({ mode = 'standalone', pendingOpenPayload, hando
                     action: file.status as SvnStatusCode | GitStatusCode,
                     filePath: file.file,
                   })) || [],
+                syncStatus: incomingHashSet.has(entry.hash)
+                  ? 'incoming'
+                  : outgoingHashSet.has(entry.hash)
+                    ? 'outgoing'
+                    : undefined,
               }
             })
 
@@ -475,6 +562,10 @@ export default function ShowLog({ mode = 'standalone', pendingOpenPayload, hando
           // Git: giữ nguyên thứ tự từ backend (giống git log). SVN: sort theo số revision giảm dần.
           const finalEntries = useVcs === 'git' ? parsedEntries : [...parsedEntries].sort((a, b) => parseInt(b.revision, 10) - parseInt(a.revision, 10))
 
+          if (useVcs === 'git') {
+            setIncomingCommitCount(finalEntries.filter(entry => entry.syncStatus === 'incoming').length)
+          }
+
           // Set all state in one batch to avoid extra render cycle - UI shows data immediately
           setAllLogData(finalEntries)
           setFilteredLogData(finalEntries)
@@ -503,10 +594,12 @@ export default function ShowLog({ mode = 'standalone', pendingOpenPayload, hando
             lastErrorToastRef.current = { message: msg, timestamp: now }
             toast.error(msg)
           }
+          if (isStale()) return
           setAllLogData([])
           setFilteredLogData([])
           setDataForCurrentPage([])
           setTotalEntriesFromBackend(0)
+          setIncomingCommitCount(0)
         }
       } catch (_error) {
         const msg = 'Error loading log data'
@@ -515,34 +608,74 @@ export default function ShowLog({ mode = 'standalone', pendingOpenPayload, hando
           lastErrorToastRef.current = { message: msg, timestamp: now }
           toast.error(msg)
         }
+        if (isStale()) return
         setAllLogData([])
         setFilteredLogData([])
         setDataForCurrentPage([])
         setTotalEntriesFromBackend(0)
+        setIncomingCommitCount(0)
       } finally {
-        setIsLoading(false)
+        if (!isStale()) setIsLoading(false)
       }
     },
-    [effectiveVersionControlSystem, dateRange, loadConfigurationConfig, windowContext, gitLogRevision]
+    [effectiveVersionControlSystem, dateRange, loadConfigurationConfig, windowContext, gitLogRevision, embedded, effectiveSourceFolder]
   )
 
   // Assign loadLogData to ref after it's declared
   loadLogDataRef.current = loadLogData
 
+  const clearLogLists = useCallback(() => {
+    setCurrentPage(1)
+    setAllLogData([])
+    setFilteredLogData([])
+    setDataForCurrentPage([])
+    setTotalEntriesFromBackend(0)
+    setCommitMessage('')
+    setChangedFiles([])
+    setStatusSummary({} as Record<SvnStatusCode, number>)
+    setSelectedRevision(null)
+    setRowSelection({})
+  }, [])
+
+  useEffect(() => {
+    if (!embedded) return
+    resetLogSession()
+    clearLogLists()
+    embeddedGitLogRevisionLoadRef.current = undefined
+    lastShowLogFetchRef.current = null
+  }, [embedded, selectedProjectId, workspaceSourceFolder, activeRepoPath, resetLogSession, clearLogLists])
+
   const handleFolderChange = useCallback(
-    (sourceFolder: string, vcs: 'git' | 'svn') => {
-      setGitLogRevision(null)
-      setWindowContext({ sourceFolder, versionControlSystem: vcs })
+    (folderPath: string, vcs: 'git' | 'svn') => {
+      if (embedded) return
+      resetLogSession()
+      setWindowContext({ sourceFolder: folderPath, versionControlSystem: vcs })
       if (loadLogDataRef.current) {
         const path = Array.isArray(filePath) ? filePath : filePath || '.'
-        loadLogDataRef.current(path, { cwd: sourceFolder, versionControlSystem: vcs })
+        loadLogDataRef.current(path, { cwd: folderPath, versionControlSystem: vcs })
       }
     },
-    [filePath]
+    [embedded, filePath, resetLogSession]
   )
 
-  // Load log data khi filePath/config/vcs thay đổi - CHỈ MỘT useEffect để tránh gọi svn.log 2 lần
   useEffect(() => {
+    if (!embedded) return
+    const path = Array.isArray(filePath) ? filePath : filePath
+    if (!path || !loadLogDataRef.current) return
+
+    const revKey = gitLogRevision ?? ''
+    if (embeddedGitLogRevisionLoadRef.current === undefined) {
+      embeddedGitLogRevisionLoadRef.current = revKey
+      return
+    }
+    if (embeddedGitLogRevisionLoadRef.current === revKey) return
+    embeddedGitLogRevisionLoadRef.current = revKey
+    void loadLogDataRef.current(path, { gitLogRevision })
+  }, [embedded, gitLogRevision, filePath])
+
+  // Load log data khi filePath/config/vcs thay đổi
+  useEffect(() => {
+    if (embedded) return
     if (!isConfigLoaded && !windowContext) {
       logger.info('Waiting for config to load in ShowLog before loading data...')
       return
@@ -562,7 +695,7 @@ export default function ShowLog({ mode = 'standalone', pendingOpenPayload, hando
     setDataForCurrentPage([])
     setTotalEntriesFromBackend(0)
     loadLogDataRef.current(filePath)
-  }, [effectiveVersionControlSystem, filePath, isConfigLoaded, windowContext, effectiveSourceFolder, gitLogRevision])
+  }, [embedded, effectiveVersionControlSystem, filePath, isConfigLoaded, windowContext, effectiveSourceFolder, gitLogRevision])
 
   useEffect(() => {
     return () => {
@@ -851,10 +984,45 @@ export default function ShowLog({ mode = 'standalone', pendingOpenPayload, hando
   )
 
   const handleRefresh = useCallback(() => {
-    if (filePath && loadLogDataRef.current) {
-      loadLogDataRef.current(filePath)
+    const path = Array.isArray(filePath) ? filePath : filePath || '.'
+    if (!filePath) setFilePath(path)
+    if (loadLogDataRef.current) {
+      void loadLogDataRef.current(path, { forceFetch: true })
     }
   }, [filePath])
+
+  useLayoutEffect(() => {
+    if (!refreshRef) return
+    refreshRef.current = handleRefresh
+    return () => {
+      refreshRef.current = null
+    }
+  }, [refreshRef, handleRefresh])
+
+  useEffect(() => {
+    onRefreshingChange?.(isLoading)
+  }, [isLoading, onRefreshingChange])
+
+  const handleGitLogRevisionChange = useCallback(
+    (rev: string | null) => {
+      setGitLogRevision(rev)
+      const path = Array.isArray(filePath) ? filePath : filePath
+      if (!path || !loadLogDataRef.current) return
+      void loadLogDataRef.current(path, { gitLogRevision: rev })
+    },
+    [filePath, setGitLogRevision]
+  )
+
+  useEffect(() => {
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'F5' || (event.ctrlKey && event.key === 'r')) {
+        event.preventDefault()
+        handleRefresh()
+      }
+    }
+    window.addEventListener('keydown', onKeyDown)
+    return () => window.removeEventListener('keydown', onKeyDown)
+  }, [handleRefresh])
 
   const handleCherryPick = useCallback((entry: LogEntry) => {
     setCherryPickEntry(entry)
@@ -991,7 +1159,7 @@ export default function ShowLog({ mode = 'standalone', pendingOpenPayload, hando
   }, [pageSize])
 
   useEffect(() => {
-    if (!pendingOpenPayload) return
+    if (!pendingOpenPayload?.autoLoad) return
     applyOpenPayload(pendingOpenPayload, setWindowContext, setFilePath, setCurrentRevision, () => {
       setCurrentPage(1)
       setAllLogData([])
@@ -999,7 +1167,15 @@ export default function ShowLog({ mode = 'standalone', pendingOpenPayload, hando
       setDataForCurrentPage([])
       setTotalEntriesFromBackend(0)
     })
-  }, [pendingOpenPayload])
+    const path =
+      typeof pendingOpenPayload === 'string'
+        ? pendingOpenPayload
+        : pendingOpenPayload.path || '.'
+    if (loadLogDataRef.current) {
+      void loadLogDataRef.current(path, { forceFetch: true })
+    }
+    onPendingOpenPayloadConsumed?.()
+  }, [pendingOpenPayload, onPendingOpenPayloadConsumed])
 
   useEffect(() => {
     const handler = (_event: unknown, data: ShowLogOpenPayload | Record<string, unknown>) => {
@@ -1047,6 +1223,8 @@ export default function ShowLog({ mode = 'standalone', pendingOpenPayload, hando
         }
         dataSnapshotRef.current = newSnapshot
         logger.info('Configuration reloaded, versionControlSystem:', state.versionControlSystem)
+        // Embedded: clear log via context effect; user refreshes manually (F5 / TitleBar).
+        if (embedded) return
         if (filePath && loadLogDataRef.current) {
           logger.info('Reloading log data with new configuration...')
           loadLogDataRef.current(filePath)
@@ -1058,7 +1236,7 @@ export default function ShowLog({ mode = 'standalone', pendingOpenPayload, hando
     return () => {
       window.removeEventListener('configuration-changed', handleConfigurationChange as unknown as EventListener)
     }
-  }, [filePath, windowContext, loadConfigurationConfig])
+  }, [embedded, filePath, windowContext, loadConfigurationConfig])
 
   useEffect(() => {
     try {
@@ -1166,9 +1344,9 @@ export default function ShowLog({ mode = 'standalone', pendingOpenPayload, hando
       onToggleLayout={() => setLayoutDirection(prev => (prev === 'horizontal' ? 'vertical' : 'horizontal'))}
       versionControlSystem={effectiveVersionControlSystem}
       contextSourceFolder={effectiveSourceFolder || undefined}
-      onFolderChange={handleFolderChange}
+      onFolderChange={embedded ? undefined : handleFolderChange}
       gitLogRevision={effectiveVersionControlSystem === 'git' ? gitLogRevision : null}
-      onGitLogRevisionChange={setGitLogRevision}
+      onGitLogRevisionChange={embedded ? undefined : handleGitLogRevisionChange}
       embedded={embedded}
       onStandaloneDock={!embedded && canOpenShowLogEmbedded() ? handleStandaloneDock : undefined}
     />
@@ -1301,6 +1479,9 @@ export default function ShowLog({ mode = 'standalone', pendingOpenPayload, hando
                         onCherryPick={handleCherryPick}
                         onReset={handleReset}
                         onInteractiveRebase={effectiveVersionControlSystem === 'git' ? handleInteractiveRebase : undefined}
+                        logSyncUpstream={logSyncUpstream}
+                        logSyncUpstreamSource={logSyncUpstreamSource}
+                        incomingCommitCount={incomingCommitCount}
                         {...logTableFilterProps}
                       />
                     </div>
@@ -1432,6 +1613,9 @@ export default function ShowLog({ mode = 'standalone', pendingOpenPayload, hando
                         onCherryPick={handleCherryPick}
                         onReset={handleReset}
                         onInteractiveRebase={effectiveVersionControlSystem === 'git' ? handleInteractiveRebase : undefined}
+                        logSyncUpstream={logSyncUpstream}
+                        logSyncUpstreamSource={logSyncUpstreamSource}
+                        incomingCommitCount={incomingCommitCount}
                         {...logTableFilterProps}
                       />
                     </div>

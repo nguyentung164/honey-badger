@@ -34,7 +34,7 @@ export {
   type InteractiveRebaseTodoItem,
   startInteractiveRebase,
 } from './interactive-rebase'
-export { type GitLogOptions, getCommitFiles, getLogGraph, log } from './log'
+export { type GitLogOptions, type GitLogSyncMarkers, type GitLogSyncUpstreamSource, getCommitFiles, getLogGraph, getLogSyncMarkers, log } from './log'
 export { abortMerge, getMergeStatus, merge, readConflictWorkingContent, resolveConflict } from './merge'
 export { fetch, fetchUpdateLocalBranch, getRemotes, pull, push } from './push-pull'
 export { abortRebase, continueRebase, getRebaseStatus, rebase } from './rebase'

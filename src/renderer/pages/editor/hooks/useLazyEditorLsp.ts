@@ -3,7 +3,6 @@
 import type * as Monaco from 'monaco-editor'
 import { useCallback, useEffect, useRef } from 'react'
 import { getLspLanguageId, languageIdForLsp } from '@/lib/monacoLanguage'
-import { disableMonacoTypeScriptValidation } from '@/pages/editor/lib/configureMonacoTypeScriptService'
 import { registerEditorNavigation, setEditorNavigationRepo } from '@/pages/editor/lib/registerEditorNavigation'
 import { editorLanguageService } from '@/pages/editor/lsp/EditorLanguageService'
 
@@ -25,7 +24,6 @@ export function useLazyEditorLsp(repoCwd: string, tab: TabLspMeta | null, shellT
 
   const onEditorMount = useCallback(
     (editor: Monaco.editor.IStandaloneCodeEditor, monaco: typeof Monaco) => {
-      disableMonacoTypeScriptValidation(monaco)
       editorLanguageService.bind(repoCwd, monaco)
       editorLanguageService.registerLspEditorActions(editor)
       registerEditorNavigation(monaco, repoCwd)

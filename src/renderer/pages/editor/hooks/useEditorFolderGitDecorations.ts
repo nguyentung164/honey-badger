@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import type { GitFileStatusCode } from '@/components/git/GitFileStatusBadge'
 import { buildExplorerFileStatusMap, type GitStatusPayload, resolveExplorerGitStatus } from '@/pages/editor/explorer/explorerGitDecorations'
+import type { GitStatusUpdatedDetail } from 'shared/gitStatusUpdated'
 
 function gitStatusMapsEqual(left: Map<string, GitFileStatusCode>, right: Map<string, GitFileStatusCode>): boolean {
   if (left.size !== right.size) return false
@@ -51,8 +52,15 @@ export function useEditorFolderGitDecorations(repoCwd: string, enabled: boolean)
     void refresh()
 
     const onGitStatusUpdated = (event: Event) => {
-      const detail = (event as CustomEvent<{ cwd?: string }>).detail
+      const detail = (event as CustomEvent<GitStatusUpdatedDetail>).detail
       if (detail?.cwd && detail.cwd !== repoCwd) return
+      if (detail?.fromTable) {
+        if (detail.statusData) {
+          const next = buildExplorerFileStatusMap(detail.statusData as GitStatusPayload)
+          if (!gitStatusMapsEqual(fileStatusesRef.current, next)) setFileStatuses(next)
+        }
+        return
+      }
       scheduleRefresh()
     }
     const onBranchChanged = () => scheduleRefresh()

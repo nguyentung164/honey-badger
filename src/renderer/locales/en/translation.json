@@ -2706,6 +2706,10 @@
       "deleteConfirm": "Delete this hook?"
     }
   },
+  "workspaceChrome": {
+    "refreshShowLog": "Refresh log",
+    "logRefActive": "Viewing log for another branch"
+  },
   "showlog": {
     "allProjects": "All",
     "checkoutBranchIs": "Checked-out branch",
@@ -2714,7 +2718,14 @@
     "dock": "Dock Show Log to main window",
     "aiAnalysis": "AI analysis",
     "analysisHistory": "Analysis history",
-    "statistics": "Statistics"
+    "statistics": "Statistics",
+    "syncStatus": "Sync",
+    "incomingCommit": "Not pulled",
+    "incomingCommitHint": "On {{upstream}} but not merged into checked-out branch",
+    "outgoingCommit": "Local only (not pushed)",
+    "inferredUpstream": "Estimated",
+    "inferredUpstreamHint": "No upstream configured — comparing with {{upstream}}",
+    "noUpstreamHint": "Branch not linked to remote — unpulled commits hidden"
   },
   "dialog": {
     "mergeSvn": {

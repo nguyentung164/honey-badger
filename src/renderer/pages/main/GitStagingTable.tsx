@@ -40,6 +40,11 @@ import {
   readGitStagingLayoutDirection,
   writeGitStagingLayoutDirection,
 } from '@/lib/diffViewer/openDiffViewer'
+import {
+  pathMatchesLocalIgnore,
+  readLocalIgnoreRegexMap,
+  writeLocalIgnorePatternsForRepo,
+} from '@/lib/diffViewer/gitStagingLocalIgnore'
 import { requestOpenEditor } from '@/lib/openEditor'
 import { requestOpenShowLog } from '@/lib/openShowLog'
 import { cn } from '@/lib/utils'
@@ -57,6 +62,14 @@ export type GitFile = {
   status: 'modified' | 'added' | 'deleted' | 'renamed' | 'staged' | 'untracked' | 'conflicted'
   isFile: boolean
   fileType?: string
+}
+
+function gitFileListsEqual(left: GitFile[], right: GitFile[]): boolean {
+  if (left.length !== right.length) return false
+  for (let i = 0; i < left.length; i++) {
+    if (left[i].filePath !== right[i].filePath || left[i].status !== right[i].status) return false
+  }
+  return true
 }
 
 export type FileData = GitFile
@@ -206,33 +219,6 @@ const Table = forwardRef<HTMLTableElement, React.HTMLAttributes<HTMLTableElement
 ))
 Table.displayName = 'Table'
 
-const GIT_CHANGES_LOCAL_IGNORE_STORAGE_KEY = 'git-changes-local-ignore-regexes'
-
-function readLocalIgnoreRegexMap(): Record<string, string[]> {
-  try {
-    const raw = localStorage.getItem(GIT_CHANGES_LOCAL_IGNORE_STORAGE_KEY)
-    if (!raw) return {}
-    const parsed = JSON.parse(raw) as unknown
-    if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
-      const out: Record<string, string[]> = {}
-      for (const [k, v] of Object.entries(parsed as Record<string, unknown>)) {
-        if (Array.isArray(v) && v.every(x => typeof x === 'string')) out[k] = v as string[]
-      }
-      return out
-    }
-  } catch {
-    /* ignore */
-  }
-  return {}
-}
-
-function writeLocalIgnorePatternsForRepo(repoKey: string, patterns: string[]): void {
-  const map = readLocalIgnoreRegexMap()
-  if (patterns.length === 0) delete map[repoKey]
-  else map[repoKey] = patterns
-  localStorage.setItem(GIT_CHANGES_LOCAL_IGNORE_STORAGE_KEY, JSON.stringify(map))
-}
-
 function escapeRegExpSegment(s: string): string {
   return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
 }
@@ -265,17 +251,6 @@ function tryCompileRegex(p: string): RegExp | null {
   } catch {
     return null
   }
-}
-
-/** Each pattern is tested against basename and against normalized path (forward slashes). */
-function pathMatchesLocalIgnore(filePath: string, patterns: string[]): boolean {
-  const norm = normalizeGitPath(filePath)
-  const basename = basenameFromFilePath(filePath)
-  for (const p of patterns) {
-    const re = tryCompileRegex(p)
-    if (re && (re.test(basename) || re.test(norm))) return true
-  }
-  return false
 }
 
 /** When the row is a directory: hide everything under this path (not the parent). */
@@ -349,6 +324,9 @@ export const GitStagingTable = forwardRef(({ onLoadingChange, cwd, label, commit
     setEmbeddedToolbarHost(prev => (prev === node ? prev : node))
   }, [])
   const embeddedDiffViewerRef = useRef<CodeDiffViewerHandle>(null)
+  const loadGitStatusInFlightRef = useRef(false)
+  const loadGitStatusPendingRef = useRef<{ silent: boolean } | null>(null)
+  const lastGitStatusSnapshotRef = useRef('')
   const [discardConfirmOpen, setDiscardConfirmOpen] = useState(false)
   const [discardConfirmPayload, setDiscardConfirmPayload] = useState<string[] | null>(null)
   const [changesAnchorRowIndex, setChangesAnchorRowIndex] = useState<number | null>(null)
@@ -363,6 +341,7 @@ export const GitStagingTable = forwardRef(({ onLoadingChange, cwd, label, commit
 
   useEffect(() => {
     lastReportedLayoutRef.current = null
+    lastGitStatusSnapshotRef.current = ''
     setLayoutDirection(readGitStagingLayoutDirection(repoRootKey))
     setEmbeddedDiffAnchor(null)
   }, [repoRootKey])
@@ -530,9 +509,14 @@ export const GitStagingTable = forwardRef(({ onLoadingChange, cwd, label, commit
   const lastChangesClickRef = useRef({ time: 0, rowId: '' })
   const lastStagedClickRef = useRef({ time: 0, rowId: '' })
 
-  const loadGitStatus = useCallback(async (options?: { silent?: boolean }) => {
+  const loadGitStatus = useCallback(async (options?: { silent?: boolean; force?: boolean }) => {
     if (shellTabActive === false) return
     const silent = options?.silent === true
+    if (loadGitStatusInFlightRef.current) {
+      loadGitStatusPendingRef.current = { silent }
+      return
+    }
+    loadGitStatusInFlightRef.current = true
     if (!silent) {
       setIsTableLoading(true)
       onLoadingChange?.(true)
@@ -631,14 +615,51 @@ export const GitStagingTable = forwardRef(({ onLoadingChange, cwd, label, commit
         })
       }
 
-      setChangesData(changes)
-      setStagedData(staged)
-      logger.info(`Git status: Found ${changes.length} changes and ${staged.length} staged files`)
+      setChangesData(prev => (gitFileListsEqual(prev, changes) ? prev : changes))
+      setStagedData(prev => (gitFileListsEqual(prev, staged) ? prev : staged))
       const statusCwd = cwd ?? sourceFolder
-      window.dispatchEvent(new CustomEvent('git-status-updated', { detail: { cwd: statusCwd } }))
+      const conflictCount = data?.conflicted?.length ?? seenConflictPaths.size
+      const snapshot = JSON.stringify({
+        changes: changes.map(f => `${f.filePath}\0${f.status}`),
+        staged: staged.map(f => `${f.filePath}\0${f.status}`),
+        ahead: data?.ahead ?? 0,
+        behind: data?.behind ?? 0,
+        branch: data?.current ?? '',
+        conflictCount,
+      })
+      if (!options?.force && snapshot === lastGitStatusSnapshotRef.current) {
+        logger.debug('Git status unchanged, skip UI refresh')
+        return
+      }
+      lastGitStatusSnapshotRef.current = snapshot
+      logger.info(`Git status: Found ${changes.length} changes and ${staged.length} staged files`)
+      window.dispatchEvent(
+        new CustomEvent('git-status-updated', {
+          detail: {
+            cwd: statusCwd,
+            fromTable: true,
+            conflictCount,
+            ahead: data?.ahead ?? 0,
+            behind: data?.behind ?? 0,
+            currentBranch: data?.current ?? '',
+            statusData: data?.files
+              ? {
+                  files: data.files,
+                  conflicted: data.conflicted,
+                }
+              : undefined,
+          },
+        })
+      )
     } catch (error) {
       logger.error('Error loading git status:', error)
     } finally {
+      loadGitStatusInFlightRef.current = false
+      const pending = loadGitStatusPendingRef.current
+      if (pending) {
+        loadGitStatusPendingRef.current = null
+        void loadGitStatus({ silent: pending.silent })
+      }
       if (!silent) {
         setIsTableLoading(false)
         onLoadingChange?.(false)
@@ -646,12 +667,17 @@ export const GitStagingTable = forwardRef(({ onLoadingChange, cwd, label, commit
     }
   }, [onLoadingChange, cwd, sourceFolder, t, shellTabActive])
 
-  const reloadData = useCallback(async (options?: { silent?: boolean }) => {
+  const reloadData = useCallback(async (options?: { silent?: boolean; force?: boolean }) => {
     await loadGitStatus(options)
   }, [loadGitStatus])
 
+  const handleEmbeddedReloadFileList = useCallback(() => {
+    void reloadData({ silent: true })
+  }, [reloadData])
+
   const clearData = useCallback(() => {
     logger.info('Clearing GitStagingTable data...')
+    lastGitStatusSnapshotRef.current = ''
     setChangesData([])
     setStagedData([])
     setChangesRowSelection({})
@@ -676,7 +702,7 @@ export const GitStagingTable = forwardRef(({ onLoadingChange, cwd, label, commit
       if (event.key === 'F5' || (event.ctrlKey && event.key === 'r')) {
         event.preventDefault()
         logger.info('F5 or Ctrl+R pressed, reloading data...')
-        void reloadData().finally(() => {
+        void reloadData({ force: true }).finally(() => {
           ; (document.activeElement as HTMLElement | null)?.blur?.()
         })
         toast.info(t('toast.getListSuccess'))
@@ -1407,7 +1433,7 @@ export const GitStagingTable = forwardRef(({ onLoadingChange, cwd, label, commit
                   embeddedPayload={embeddedDiffPayload}
                   embeddedToolbarHost={embeddedToolbarHost}
                   embeddedStagingFooter={commitMessagePanel}
-                  embeddedOnReloadFileList={reloadData}
+                  embeddedOnReloadFileList={handleEmbeddedReloadFileList}
                   embeddedOnOpenLocalIgnorePatterns={() => setChangesIgnoreListOpen(true)}
                   embeddedOnAddToLocalIgnore={addChangesIgnorePatternsForPaths}
                   embeddedOnAddFolderToLocalIgnore={addChangesIgnoreFolderForPaths}
@@ -1420,7 +1446,7 @@ export const GitStagingTable = forwardRef(({ onLoadingChange, cwd, label, commit
             <ResizablePanel defaultSize={50} minSize={30}>
               <div className="h-full overflow-hidden rounded-l-md">{renderTableContent(changesTable, t('git.changes'), false)}</div>
             </ResizablePanel>
-            <ResizableHandle showGrip={false} className="bg-transparent" />
+            <ResizableHandle />
             <ResizablePanel defaultSize={50} minSize={30}>
               <div className="h-full overflow-hidden rounded-r-md">{renderTableContent(stagedTable, t('git.stagedChanges'), true)}</div>
             </ResizablePanel>

@@ -45,7 +45,7 @@ import { triggerCommitWorkflowAfterCommit } from '@/lib/commitWorkflow/commitWor
 import { gitStagingRepoRootKey, readGitStagingLayoutDirection } from '@/lib/diffViewer/openDiffViewer'
 import { buildEditorWorkspaceFolders, resolveEditorRepoCwd } from '@/lib/multiRepoUtils'
 import { MAIN_SHELL_OPEN_EDITOR_EVENT } from '@/lib/openEditor'
-import { buildShowLogOpenPayload, MAIN_SHELL_OPEN_SHOW_LOG_EVENT, type ShowLogOpenPayload } from '@/lib/openShowLog'
+import { MAIN_SHELL_OPEN_SHOW_LOG_EVENT, type ShowLogOpenPayload } from '@/lib/openShowLog'
 import { requestTerminalAtPath } from '@/lib/terminal/terminalLaunchBridge'
 import { isTerminalToggleShortcut, shouldBlockTerminalToggleShortcut } from '@/lib/terminal/terminalToggleShortcut'
 import { validateCommitMessage } from '@/lib/validateCommitMessage'
@@ -201,6 +201,9 @@ export function MainPage() {
   /** VCS tab đang hiển thị — dùng trong IPC handlers để defer reload khi tab ẩn. */
   const vcsShellTabActiveRef = useRef(true)
   const pendingVcsActionRef = useRef<'reload' | 'clear' | null>(null)
+  const filesChangedDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const lastWatcherReloadAtRef = useRef(0)
+  const WATCHER_RELOAD_MIN_MS = 2500
   const isMultiRepo = versionControlSystem === 'git' && !!multiRepoEnabled && effectivePaths.length >= 1
 
   useEffect(() => {
@@ -410,7 +413,15 @@ export function MainPage() {
 
   // Listen for file changes (auto-refresh when files change in source folder)
   useEffect(() => {
-    const handleFilesChanged = (_event: unknown, detail?: FilesChangedPayload) => {
+    const runFilesChangedReload = (detail?: FilesChangedPayload) => {
+      if (detail?.source === 'watcher') {
+        const now = Date.now()
+        if (now - lastWatcherReloadAtRef.current < WATCHER_RELOAD_MIN_MS) {
+          logger.debug('Files watcher reload throttled')
+          return
+        }
+        lastWatcherReloadAtRef.current = now
+      }
       logger.info('Files changed in source folder, reloading data...', detail)
       if (!vcsShellTabActiveRef.current) {
         pendingVcsActionRef.current = 'reload'
@@ -450,8 +461,24 @@ export function MainPage() {
         void tableRef.current.reloadData(detail?.source === 'watcher')
       }
     }
+
+    const handleFilesChanged = (_event: unknown, detail?: FilesChangedPayload) => {
+      if (filesChangedDebounceRef.current) {
+        clearTimeout(filesChangedDebounceRef.current)
+      }
+      filesChangedDebounceRef.current = setTimeout(() => {
+        filesChangedDebounceRef.current = null
+        runFilesChangedReload(detail)
+      }, detail?.source === 'watcher' ? 800 : 300)
+    }
     window.api.on(IPC.FILES_CHANGED, handleFilesChanged)
-    return () => window.api.removeAllListeners(IPC.FILES_CHANGED)
+    return () => {
+      if (filesChangedDebounceRef.current) {
+        clearTimeout(filesChangedDebounceRef.current)
+        filesChangedDebounceRef.current = null
+      }
+      window.api.removeAllListeners(IPC.FILES_CHANGED)
+    }
   }, [])
 
   // Listen for configuration changes
@@ -617,7 +644,8 @@ export function MainPage() {
   const [showLogDetached, setShowLogDetached] = useState<boolean>(() => readPersistedShowLogDetached())
   const [showLogOpenPayload, setShowLogOpenPayload] = useState<ShowLogOpenPayload | null>(null)
   const showLogHandoffGetterRef = useRef<(() => ShowLogOpenPayload) | null>(null)
-  const prevShellForShowLogRef = useRef<MainShellView | null>(null)
+  const showLogRefreshRef = useRef<(() => void) | null>(null)
+  const [showLogRefreshing, setShowLogRefreshing] = useState(false)
 
   /** TitleBar dock chỉ gỡ trạng thái tách; dock từ cửa sổ riêng vẫn chuyển shell sang tab tương ứng. */
   const dockFromTitleBarRef = useRef({ pr: false, tasks: false, automation: false, devPipelines: false, showLog: false })
@@ -630,10 +658,6 @@ export function MainPage() {
 
   const guardEditorWorkspaceChange = useCallback(
     (proceed: () => void) => {
-      if (shellView !== 'editor') {
-        proceed()
-        return
-      }
       if (!useEditorWorkspace.getState().hasDirtyTabs()) {
         proceed()
         return
@@ -645,7 +669,7 @@ export function MainPage() {
       }
       toast.warning(t('editor.unsavedWait', 'Editor is still loading. Try again in a moment.'))
     },
-    [shellView, t]
+    [t]
   )
 
   const applyShellView = useCallback((v: MainShellView) => {
@@ -798,6 +822,10 @@ export function MainPage() {
     window.api.devPipelines.requestDock()
   }, [])
 
+  const handleShowLogRefresh = useCallback(() => {
+    showLogRefreshRef.current?.()
+  }, [])
+
   const handleShowLogDetach = useCallback(() => {
     const payload = showLogHandoffGetterRef.current?.() ?? showLogOpenPayload ?? { path: '.' }
     persistShowLogDetached(true)
@@ -898,7 +926,7 @@ export function MainPage() {
     const onDocked = (_event: unknown, payload?: ShowLogOpenPayload) => {
       persistShowLogDetached(false)
       if (payload && typeof payload === 'object' && 'path' in payload) {
-        setShowLogOpenPayload(payload)
+        setShowLogOpenPayload({ ...payload, autoLoad: true })
       }
       if (dockFromTitleBarRef.current.showLog) {
         dockFromTitleBarRef.current.showLog = false
@@ -922,7 +950,7 @@ export function MainPage() {
     const handler = (event: Event) => {
       const detail = (event as CustomEvent<ShowLogOpenPayload>).detail
       if (!detail) return
-      setShowLogOpenPayload(detail)
+      setShowLogOpenPayload({ ...detail, autoLoad: true })
       persistShellView('showLog')
     }
     window.addEventListener(MAIN_SHELL_OPEN_SHOW_LOG_EVENT, handler)
@@ -953,29 +981,6 @@ export function MainPage() {
     const fallback = normalizeShellTabOrder(shellTabOrder).find(view => !hiddenShellTabs.includes(view) && !detachedByView[view])
     if (fallback) persistShellView(fallback)
   }, [enableShellSwitcher, hiddenShellTabs, shellTabOrder, shellView, persistShellView, tasksDetached, prManagerDetached, automationDetached, devPipelinesDetached, showLogDetached])
-
-  // Show Log: giữ context khi đổi tab; seed mặc định khi vào tab lần đầu
-  useEffect(() => {
-    const prev = prevShellForShowLogRef.current
-    prevShellForShowLogRef.current = shellView
-    if (prev === 'showLog' && shellView !== 'showLog') {
-      const snap = showLogHandoffGetterRef.current?.()
-      if (snap) setShowLogOpenPayload(snap)
-    }
-  }, [shellView])
-
-  useEffect(() => {
-    if (shellView !== 'showLog' || showLogDetached || !enableShellSwitcher) return
-    if (showLogOpenPayload) return
-    if (!isConfigLoaded) return
-    setShowLogOpenPayload(
-      buildShowLogOpenPayload({
-        filePath: '.',
-        sourceFolder: sourceFolder || undefined,
-        versionControlSystem,
-      })
-    )
-  }, [shellView, showLogDetached, enableShellSwitcher, showLogOpenPayload, isConfigLoaded, sourceFolder, versionControlSystem])
 
   const showEmbeddedEditor = enableShellSwitcher && shellView === 'editor'
   const showEmbeddedTasks = enableShellSwitcher && shellView === 'tasks' && !tasksDetached
@@ -2061,6 +2066,8 @@ export function MainPage() {
           onEditorWorkspaceGuard={guardEditorWorkspaceChange}
           multiRepoActiveTab={multiRepoActiveTab}
           onMultiRepoActiveChange={setMultiRepoActiveTab}
+          onShowLogRefresh={handleShowLogRefresh}
+          showLogRefreshing={showLogRefreshing}
         />
         <div className="flex min-h-0 flex-1 flex-col">
           <ResizablePanelGroup
@@ -2134,7 +2141,16 @@ export function MainPage() {
                   <ShellTabPanel visible={showEmbeddedShowLog} mounted={visitedShellTabs.has('showLog') && !showLogDetached}>
                     <Suspense fallback={shellTabLoader}>
                       <ShowLogToolbarPortalContext.Provider value={{ host: showLogToolbarHostEl }}>
-                        <ShowLogPage mode="embedded" pendingOpenPayload={showLogOpenPayload} handoffGetterRef={showLogHandoffGetterRef} />
+                        <ShowLogPage
+                          mode="embedded"
+                          pendingOpenPayload={showLogOpenPayload}
+                          onPendingOpenPayloadConsumed={() => setShowLogOpenPayload(null)}
+                          handoffGetterRef={showLogHandoffGetterRef}
+                          refreshRef={showLogRefreshRef}
+                          onRefreshingChange={setShowLogRefreshing}
+                          activeRepoPath={activeRepoPath}
+                          isMultiRepo={isMultiRepo}
+                        />
                       </ShowLogToolbarPortalContext.Provider>
                     </Suspense>
                   </ShellTabPanel>
@@ -2164,7 +2180,7 @@ export function MainPage() {
                     </ResizablePanel>
                     {!gitCommitMessageInTree ? (
                       <>
-                        <ResizableHandle showGrip={false} className="bg-transparent" />
+                        <ResizableHandle />
                         <ResizablePanel id="commit-message-panel" className="flex min-h-0 flex-col p-2" minSize={25} ref={bottomPanelRef}>
                           <CommitMessagePanel
                             isLoadingGenerate={isLoadingGenerate}

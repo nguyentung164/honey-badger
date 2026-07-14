@@ -28,6 +28,8 @@ export interface GitLogOptions {
    * Example: `main`, `origin/feature/x`. Mutually exclusive with --all and commitFrom/commitTo in the underlying command.
    */
   revision?: string
+  /** Multiple refs for git log (e.g. HEAD + origin/main). Takes precedence over revision when set. */
+  logRefs?: string[]
   /** Skip first N commits (git log --skip). Use with maxCount for pagination. */
   skip?: number
   /** Skip per-commit file stats (no git show per entry). Faster when only subject/body are needed. */
@@ -68,6 +70,55 @@ function parseBranchFromRefs(refs: string): string {
   return first.replace(/^origin\//, '').trim()
 }
 
+export type GitLogSyncUpstreamSource = 'tracking' | 'origin_branch' | 'origin_head' | 'none'
+
+export interface GitLogSyncMarkers {
+  currentBranch: string
+  upstream?: string
+  upstreamSource: GitLogSyncUpstreamSource
+  incomingHashes: string[]
+  outgoingHashes: string[]
+}
+
+async function gitRefExists(git: NonNullable<Awaited<ReturnType<typeof getGitInstance>>>, ref: string): Promise<boolean> {
+  try {
+    await git.raw(['rev-parse', '--verify', ref])
+    return true
+  } catch {
+    return false
+  }
+}
+
+async function resolveUpstreamRef(
+  git: NonNullable<Awaited<ReturnType<typeof getGitInstance>>>,
+  currentBranch: string
+): Promise<{ upstream: string; upstreamSource: GitLogSyncUpstreamSource }> {
+  try {
+    const tracking = (await git.raw(['rev-parse', '--abbrev-ref', `${currentBranch}@{upstream}`])).trim()
+    if (tracking && tracking !== 'HEAD') {
+      return { upstream: tracking, upstreamSource: 'tracking' }
+    }
+  } catch {
+    // no configured upstream
+  }
+
+  const originBranch = `origin/${currentBranch}`
+  if (await gitRefExists(git, originBranch)) {
+    return { upstream: originBranch, upstreamSource: 'origin_branch' }
+  }
+
+  try {
+    const originHead = (await git.raw(['rev-parse', '--abbrev-ref', 'origin/HEAD'])).trim()
+    if (originHead && originHead !== 'HEAD' && (await gitRefExists(git, originHead))) {
+      return { upstream: originHead, upstreamSource: 'origin_head' }
+    }
+  } catch {
+    // origin/HEAD not configured
+  }
+
+  return { upstream: '', upstreamSource: 'none' }
+}
+
 async function fetchAllLogData(
   filePath: string,
   startDate: string | undefined,
@@ -80,7 +131,8 @@ async function fetchAllLogData(
   allBranches?: boolean,
   revision?: string,
   skip?: number,
-  messagesOnly?: boolean
+  messagesOnly?: boolean,
+  logRefs?: string[]
 ): Promise<{
   status: 'success' | 'error'
   totalEntries?: number
@@ -109,8 +161,9 @@ async function fetchAllLogData(
       `--format=${commitSeparator}hash:%H${fieldSeparator}author:%an${fieldSeparator}authorEmail:%ae${fieldSeparator}date:%aI${fieldSeparator}refs:%D${fieldSeparator}message:%B${commitSeparator}`,
     ]
 
-    const rev = revision?.trim()
-    if (!rev) {
+    const refs = logRefs?.map(r => r.trim()).filter(Boolean) ?? []
+    const rev = refs.length > 0 ? '' : revision?.trim()
+    if (refs.length === 0 && !rev) {
       if (allBranches) {
         rawCommand.push('--all')
       }
@@ -151,7 +204,9 @@ async function fetchAllLogData(
       rawCommand.push(`--author=${author}`)
     }
 
-    if (rev) {
+    if (refs.length > 0) {
+      rawCommand.push(...refs)
+    } else if (rev) {
       rawCommand.push(rev)
     }
 
@@ -399,7 +454,8 @@ export async function log(filePath: string | string[] = '.', options?: GitLogOpt
       options?.allBranches,
       options?.revision,
       options?.skip,
-      options?.messagesOnly
+      options?.messagesOnly,
+      options?.logRefs
     )
 
     if (result.status === 'error') {
@@ -421,6 +477,61 @@ export async function log(filePath: string | string[] = '.', options?: GitLogOpt
     return {
       status: 'error',
       message: `Error in git log function: ${formatGitError(error)}`,
+    }
+  }
+}
+
+export async function getLogSyncMarkers(cwd?: string): Promise<GitResponse & { data?: GitLogSyncMarkers }> {
+  try {
+    const git = await getGitInstance(cwd)
+    if (!git) {
+      return { status: 'error', message: 'Not a git repository or error initializing git' }
+    }
+
+    const branchSummary = await git.branchLocal()
+    const currentBranch = branchSummary.current
+    if (!currentBranch) {
+      return {
+        status: 'success',
+        data: { currentBranch: '', upstreamSource: 'none', incomingHashes: [], outgoingHashes: [] },
+      }
+    }
+
+    const { upstream, upstreamSource } = await resolveUpstreamRef(git, currentBranch)
+
+    if (!upstream) {
+      return {
+        status: 'success',
+        data: { currentBranch, upstreamSource: 'none', incomingHashes: [], outgoingHashes: [] },
+      }
+    }
+
+    const [incomingRaw, outgoingRaw] = await Promise.all([
+      git.raw(['rev-list', '--format=%H', `HEAD..${upstream}`]),
+      git.raw(['rev-list', '--format=%H', `${upstream}..HEAD`]),
+    ])
+
+    const parseRevListHashes = (raw: string) =>
+      raw
+        .split('\n')
+        .map(line => line.trim())
+        .filter(hash => /^[0-9a-f]{40}$/i.test(hash))
+
+    return {
+      status: 'success',
+      data: {
+        currentBranch,
+        upstream,
+        upstreamSource,
+        incomingHashes: parseRevListHashes(incomingRaw),
+        outgoingHashes: parseRevListHashes(outgoingRaw),
+      },
+    }
+  } catch (error) {
+    l.error('Error getting git log sync markers:', error)
+    return {
+      status: 'error',
+      message: `Error getting git log sync markers: ${formatGitError(error)}`,
     }
   }
 }

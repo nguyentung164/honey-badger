@@ -6,6 +6,8 @@ export type ShowLogOpenPayload = {
   sourceFolder?: string
   versionControlSystem?: 'git' | 'svn'
   isGit?: boolean
+  /** Embedded tab: chỉ load log khi mở tường minh (context menu, dock…), không khi chỉ click tab. */
+  autoLoad?: boolean
 }
 
 export const MAIN_SHELL_OPEN_SHOW_LOG_EVENT = 'main-shell:open-show-log'
@@ -33,9 +35,10 @@ export function canOpenShowLogEmbedded(): boolean {
 
 /** Mở Show Log embedded (tab) khi đã đăng nhập và chưa tách; ngược lại mở cửa sổ riêng. */
 export function requestOpenShowLog(data: ShowLogOpenPayload): void {
+  const payload: ShowLogOpenPayload = { ...data, autoLoad: true }
   if (canOpenShowLogEmbedded()) {
-    window.dispatchEvent(new CustomEvent(MAIN_SHELL_OPEN_SHOW_LOG_EVENT, { detail: data }))
+    window.dispatchEvent(new CustomEvent(MAIN_SHELL_OPEN_SHOW_LOG_EVENT, { detail: payload }))
     return
   }
-  window.api.showLog.openWindow(data)
+  window.api.showLog.openWindow(payload)
 }

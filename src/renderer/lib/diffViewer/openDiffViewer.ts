@@ -87,7 +87,11 @@ export function writeGitStagingLayoutDirection(repoRootKey: string, direction: '
 }
 export function buildEmbeddedGitStagingPayloadSyncKey(payload: DiffViewerLoadPayload | null | undefined): string {
   if (!payload) return ''
-  const files = payload.files?.map(f => `${f.stagingState ?? ''}:${f.filePath}:${f.fileStatus ?? ''}`).join('|') ?? ''
+  const files =
+    payload.files
+      ?.map(f => `${f.stagingState ?? ''}:${f.filePath}:${f.fileStatus ?? ''}`)
+      .sort()
+      .join('|') ?? ''
   return `${payload.filePath}\0${payload.stagingState ?? ''}\0${payload.cwd ?? ''}\0${files}`
 }
 

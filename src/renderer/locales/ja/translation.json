@@ -2705,6 +2705,10 @@
       "deleteConfirm": "このフックを削除しますか？"
     }
   },
+  "workspaceChrome": {
+    "refreshShowLog": "ログを更新",
+    "logRefActive": "別ブランチのログを表示中"
+  },
   "showlog": {
     "allProjects": "すべて",
     "checkoutBranchIs": "チェックアウト中のブランチ",
@@ -2713,7 +2717,14 @@
     "dock": "Show Log をメインウィンドウに戻す",
     "aiAnalysis": "AI分析",
     "analysisHistory": "分析履歴",
-    "statistics": "統計"
+    "statistics": "統計",
+    "syncStatus": "同期",
+    "incomingCommit": "未プル",
+    "incomingCommitHint": "{{upstream}} にあり、チェックアウト中のブランチには未マージ",
+    "outgoingCommit": "ローカルのみ（未プッシュ）",
+    "inferredUpstream": "推定",
+    "inferredUpstreamHint": "upstream 未設定 — {{upstream}} と比較中",
+    "noUpstreamHint": "リモート未連携 — 未プルのコミットは表示されません"
   },
   "dialog": {
     "mergeSvn": {

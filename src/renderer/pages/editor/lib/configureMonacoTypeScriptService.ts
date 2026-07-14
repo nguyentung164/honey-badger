@@ -17,10 +17,29 @@ type MonacoWithTypeScript = typeof Monaco & {
   }
 }
 
+/** Monaco TS worker features we turn off — LSP/tsserver owns these in the Editor tab. */
+const MONACO_TS_LSP_ONLY_MODE_CONFIGURATION = {
+  completionItems: false,
+  hovers: false,
+  documentSymbols: false,
+  definitions: false,
+  references: false,
+  documentHighlights: false,
+  rename: false,
+  diagnostics: false,
+  documentRangeFormattingEdits: false,
+  signatureHelp: false,
+  onTypeFormattingEdits: false,
+  codeActions: false,
+  inlayHints: false,
+} as const
+
 /**
- * Monaco ships its own TypeScript worker (CDN) without the workspace tsconfig `paths`.
- * VS Code uses only tsserver via LSP — disable Monaco validation to avoid false errors
- * like "Cannot find module '@/…'" when aliases are defined in tsconfig.json.
+ * Monaco ships its own TypeScript worker without the workspace tsconfig `paths`.
+ * VS Code uses only tsserver via LSP — disable Monaco worker features to avoid false errors
+ * like "Cannot find module '@/…'" and worker errors when we stub ts.worker with editor.worker.
+ *
+ * Must run before the first typescript/javascript model is created (see onAppMonacoBeforeMount).
  */
 export function disableMonacoTypeScriptValidation(monaco: typeof Monaco): void {
   const root = monaco as MonacoWithTypeScript
@@ -36,17 +55,11 @@ export function disableMonacoTypeScriptValidation(monaco: typeof Monaco): void {
   ts.typescriptDefaults.setDiagnosticsOptions(diagnostics)
   ts.javascriptDefaults.setDiagnosticsOptions(diagnostics)
 
-  // VS Code uses tsserver/LSP only — Monaco's CDN worker lacks project tsconfig and can win
-  // definition races (import bindings) or return stale results for closed files.
-  const navigationOff = (defaults: TsDefaults) => {
-    defaults.setModeConfiguration({
-      ...defaults.modeConfiguration,
-      definitions: false,
-      references: false,
-    })
+  const disableWorkerFeatures = (defaults: TsDefaults) => {
+    defaults.setModeConfiguration(MONACO_TS_LSP_ONLY_MODE_CONFIGURATION)
   }
-  navigationOff(ts.typescriptDefaults)
-  navigationOff(ts.javascriptDefaults)
+  disableWorkerFeatures(ts.typescriptDefaults)
+  disableWorkerFeatures(ts.javascriptDefaults)
 
   for (const model of monaco.editor.getModels()) {
     monaco.editor.setModelMarkers(model, 'typescript', [])

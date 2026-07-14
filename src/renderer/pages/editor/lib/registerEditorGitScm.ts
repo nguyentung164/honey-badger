@@ -1,4 +1,5 @@
 import type * as Monaco from 'monaco-editor'
+import { IPC } from 'main/constants'
 import { isLargeFileByMetrics } from 'shared/fileUri'
 import type { GitFileStatusCode } from '@/components/git/GitFileStatusBadge'
 import {
@@ -116,7 +117,7 @@ export function registerEditorGitScm(
     const stageFile = async () => {
       const path = ctx.relativePath.replace(/\\/g, '/')
       await window.api.git.add([path], { cwd: ctx.repoCwd })
-      window.dispatchEvent(new Event('git-status-updated'))
+      window.api.electron.send(IPC.WINDOW.NOTIFY_STAGING_CHANGED, { cwd: ctx.repoCwd })
       closePeek()
     }
 
@@ -327,7 +328,9 @@ export function registerEditorGitScm(
     renderPeek(index)
   })
 
-  const onGitStatusUpdated = () => {
+  const onGitStatusUpdated = (event: Event) => {
+    const detail = (event as CustomEvent<{ fromTable?: boolean }>).detail
+    if (detail?.fromTable) return
     invalidateHeadCache()
     scheduleRefresh()
   }

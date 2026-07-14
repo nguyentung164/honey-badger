@@ -1,4 +1,5 @@
-import type { DiffViewerFileEntry, DiffViewerLoadPayload } from './diffViewerPayload'
+import { filterDiffViewerFilesByLocalIgnore } from '@/lib/diffViewer/gitStagingLocalIgnore'
+import type { DiffViewerFileEntry } from './diffViewerPayload'
 
 export function normalizeGitPath(filePath: string): string {
   return filePath.replace(/\\/g, '/').replace(/\/+$/, '')
@@ -10,7 +11,8 @@ export function resolveDiffViewerRepoCwd(
   stateCwd?: string,
   sourceFolder?: string
 ): string | undefined {
-  const candidate = (stateCwd ?? payloadCwd ?? sourceFolder ?? '').trim()
+  // Prefer explicit payload cwd (e.g. embedded repo switch) over stale React state.
+  const candidate = (payloadCwd ?? stateCwd ?? sourceFolder ?? '').trim()
   return candidate || undefined
 }
 
@@ -122,11 +124,49 @@ export function buildDiffViewerFilesFromGitStatus(data: GitStatusPayload): DiffV
   return [...changes, ...staged]
 }
 
-export async function fetchDiffViewerFilesFromGit(cwd: string): Promise<DiffViewerFileEntry[] | null> {
+export type GitActionOptimisticKind = 'stage' | 'unstage' | 'revert'
+
+/** Optimistic file-list update for embedded diff viewer — keeps local-hide filtering (no full git status flash). */
+export function buildOptimisticFilesAfterGitAction(
+  files: DiffViewerFileEntry[],
+  action: GitActionOptimisticKind,
+  actedPaths: string[]
+): DiffViewerFileEntry[] {
+  const acted = new Set(actedPaths.map(normalizeGitPath))
+  if (acted.size === 0) return files
+
+  if (action === 'revert') {
+    return files.filter(f => !acted.has(normalizeGitPath(f.filePath)))
+  }
+
+  if (action === 'stage') {
+    return files.map(f => {
+      const path = normalizeGitPath(f.filePath)
+      if (acted.has(path) && f.stagingState === 'unstaged') {
+        return { ...f, stagingState: 'staged' as const }
+      }
+      return f
+    })
+  }
+
+  return files.map(f => {
+    const path = normalizeGitPath(f.filePath)
+    if (acted.has(path) && f.stagingState === 'staged') {
+      return { ...f, stagingState: 'unstaged' as const }
+    }
+    return f
+  })
+}
+
+export async function fetchDiffViewerFilesFromGit(
+  cwd: string,
+  options?: { applyLocalIgnore?: boolean }
+): Promise<DiffViewerFileEntry[] | null> {
   try {
     const result = await window.api.git.status({ cwd })
     if (result?.status !== 'success' || !result.data) return null
-    return buildDiffViewerFilesFromGitStatus(result.data)
+    const files = buildDiffViewerFilesFromGitStatus(result.data)
+    return options?.applyLocalIgnore ? filterDiffViewerFilesByLocalIgnore(files, cwd) : files
   } catch {
     return null
   }

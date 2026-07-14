@@ -22,16 +22,27 @@ import { DiffFooterBar } from './DiffFooterBar'
 import { DiffToolbar } from './DiffToolbar'
 import { DiffViewerCloseConfirm } from './DiffViewerCloseConfirm'
 import { DiffViewerDiscardConfirm } from './DiffViewerDiscardConfirm'
+import { EditorDirtyWriteDialog } from '@/pages/editor/EditorDirtyWriteDialog'
+import { checkDirtyWriteOnSaveWithBaseline } from '@/pages/editor/lib/editorDirtyWrite'
+import {
+  type DirtyWritePromptPayload,
+  EDITOR_DIRTY_WRITE_EVENT,
+  requestDirtyWriteChoice,
+  resolveDirtyWriteChoice,
+} from '@/pages/editor/lib/editorDirtyWritePrompt'
 import { type DiffViewerFileTreeBulkAction, DiffViewerFileTreePanel } from './DiffViewerFileTreePanel'
 import { DiffViewerLoadState } from './DiffViewerLoadState'
 import {
+  buildOptimisticFilesAfterGitAction,
   type DiffViewerFilesRefreshResult,
+  type GitActionOptimisticKind,
   isGitEntryStaged,
   isGitEntryUnstaged,
   mergeGitFilesRefreshIntoContext,
   normalizeGitPath,
   pathsEqual,
   resolveAutoAdvanceTargetIndex,
+  resolveDiffViewerFilesRefresh,
   resolveDiffViewerRepoCwd,
   resolveDisplayedFileEntry,
   wrapFileNavIndex,
@@ -238,7 +249,7 @@ function formatLoadError(error: unknown): string {
 }
 
 export const CodeDiffViewer = forwardRef<CodeDiffViewerHandle, CodeDiffViewerProps>(function CodeDiffViewer(
-  { embedded = false, embeddedRepoCwd, embeddedPayload = null, embeddedToolbarHost = null, embeddedStagingFooter = null, embeddedOnOpenLocalIgnorePatterns, embeddedOnAddToLocalIgnore, embeddedOnAddFolderToLocalIgnore, shellTabActive = true },
+  { embedded = false, embeddedRepoCwd, embeddedPayload = null, embeddedToolbarHost = null, embeddedStagingFooter = null, embeddedOnReloadFileList, embeddedOnOpenLocalIgnorePatterns, embeddedOnAddToLocalIgnore, embeddedOnAddFolderToLocalIgnore, shellTabActive = true },
   ref
 ) {
   const monaco = useMonaco()
@@ -262,7 +273,12 @@ export const CodeDiffViewer = forwardRef<CodeDiffViewerHandle, CodeDiffViewerPro
   const [cwd, setCwd] = useState<string | undefined>(undefined)
   const sourceFolder = useConfigurationStore(s => s.sourceFolder)
   const getRepoCwd = useCallback(
-    (payloadCwd?: string) => resolveDiffViewerRepoCwd(payloadCwd ?? loadContextRef.current?.cwd, cwd ?? embeddedRepoCwd, embedded ? undefined : sourceFolder),
+    (payloadCwd?: string) =>
+      resolveDiffViewerRepoCwd(
+        payloadCwd ?? (embedded ? embeddedRepoCwd : undefined) ?? loadContextRef.current?.cwd,
+        cwd,
+        embedded ? undefined : sourceFolder
+      ),
     [cwd, embeddedRepoCwd, sourceFolder, embedded]
   )
   const notifyStagingChanged = useCallback(() => {
@@ -295,6 +311,7 @@ export const CodeDiffViewer = forwardRef<CodeDiffViewerHandle, CodeDiffViewerPro
   const [editorMountEpoch, setEditorMountEpoch] = useState(0)
   const [pendingNavIndex, setPendingNavIndex] = useState<number | null>(null)
   const [showCloseConfirm, setShowCloseConfirm] = useState(false)
+  const [dirtyWritePrompt, setDirtyWritePrompt] = useState<DirtyWritePromptPayload | null>(null)
 
   const activeIndexRef = useRef(0)
   const pendingNavIndexRef = useRef<number | null>(null)
@@ -321,8 +338,12 @@ export const CodeDiffViewer = forwardRef<CodeDiffViewerHandle, CodeDiffViewerPro
   const { autoAdvance, toggleAutoAdvance } = useDiffViewerAutoAdvance()
   const { panelGroupRef, initialLayout, handleLayoutChanged } = useDiffViewerTreePanelWidth()
 
-  const notifyContentChangeRef = useRef<((event: { isFlush?: boolean }) => void) | null>(null)
-  const { files, activeIndex, activeFile, initFiles, goToFile, refreshFilesFromGit, refreshFromContext, hasMultipleFiles, setActiveEntryStagingState } = useDiffViewerFileNav()
+  const notifyContentChangeRef = useRef<((model: import('monaco-editor').editor.ITextModel | null) => void) | null>(null)
+  const { files, activeIndex, activeFile, initFiles, goToFile, refreshFilesFromGit, refreshFromContext, hasMultipleFiles } = useDiffViewerFileNav()
+  const filesRef = useRef(files)
+  useEffect(() => {
+    filesRef.current = files
+  }, [files])
   activeIndexRef.current = activeIndex
 
   const displayedFileEntry = useMemo(() => {
@@ -374,7 +395,20 @@ export const CodeDiffViewer = forwardRef<CodeDiffViewerHandle, CodeDiffViewerPro
     [editorViewOptions.collapseUnchangedRegions, editorViewOptions.diffOnly]
   )
 
-  const { isDirty, setBaseline, notifyContentChange, beginProgrammaticUpdate, endProgrammaticUpdate } = useDiffViewerDirty(editable)
+  const {
+    isDirty,
+    isDirtyRef,
+    markClean,
+    resetBaseline,
+    notifyContentChange,
+    beginProgrammaticUpdate,
+    endProgrammaticUpdate,
+    revertToBaseline,
+    captureBaselineIfMissing,
+    getBaselineForDirtyWrite,
+    commitCleanAfterSave,
+  } = useDiffViewerDirty(editable)
+  const pendingEmbeddedPayloadRef = useRef<DiffViewerLoadPayload | null>(null)
   notifyContentChangeRef.current = notifyContentChange
 
   const stagingHintRef = useRef(stagingHintForRefresh)
@@ -575,33 +609,43 @@ export const CodeDiffViewer = forwardRef<CodeDiffViewerHandle, CodeDiffViewerPro
     [loadImageDataUrl]
   )
 
+  const getModifiedModel = useCallback(() => editorRef.current?.getModifiedEditor().getModel() ?? null, [])
+
+  const resolveWorkingFileMtime = useCallback(async (path: string, catOpts?: { cwd?: string }) => {
+    try {
+      const meta = await window.api.system.detect_file_kind(path, catOpts)
+      return meta.mtimeMs ?? null
+    } catch {
+      return null
+    }
+  }, [])
+
   const applyLoadedTextContent = useCallback(
-    (nextOriginal: string, nextModified: string) => {
+    (nextOriginal: string, nextModified: string, diskMtimeMs?: number | null) => {
       const programmaticEpoch = beginProgrammaticUpdate()
       resetDiffEditorCursors(editorRef.current)
       const diffEditor = editorRef.current
+      let modifiedModel: ReturnType<typeof getModifiedModel> = null
       if (diffEditor) {
         const originalModel = diffEditor.getOriginalEditor().getModel()
-        const modifiedModel = diffEditor.getModifiedEditor().getModel()
+        modifiedModel = diffEditor.getModifiedEditor().getModel()
         if (originalModel && originalModel.getValue() !== nextOriginal) {
           originalModel.setValue(nextOriginal)
         }
         if (modifiedModel && modifiedModel.getValue() !== nextModified) {
           modifiedModel.setValue(nextModified)
         }
+        endProgrammaticUpdate(programmaticEpoch, modifiedModel, nextModified, diskMtimeMs)
+      } else {
+        endProgrammaticUpdate(programmaticEpoch)
       }
       setCursorPosition({ line: 1, column: 1 })
       setOriginalCode(nextOriginal)
       setModifiedCode(nextModified)
-      setBaseline(nextModified)
+      modifiedCodeRef.current = nextModified
       setContentEpoch(e => e + 1)
-      requestAnimationFrame(() => {
-        requestAnimationFrame(() => {
-          endProgrammaticUpdate(programmaticEpoch)
-        })
-      })
     },
-    [beginProgrammaticUpdate, endProgrammaticUpdate, setBaseline]
+    [beginProgrammaticUpdate, endProgrammaticUpdate]
   )
 
   const handleRefresh = useCallback(
@@ -612,6 +656,7 @@ export const CodeDiffViewer = forwardRef<CodeDiffViewerHandle, CodeDiffViewerPro
       try {
         setLoadError(null)
         const switchingTextFile = fileKindRef.current === 'text' && Boolean(filePathRef.current)
+        isLoadingRef.current = true
         if (!switchingTextFile) {
           setIsLoading(true)
         }
@@ -627,7 +672,7 @@ export const CodeDiffViewer = forwardRef<CodeDiffViewerHandle, CodeDiffViewerPro
           setFileTooLarge(false)
           setOriginalCode('')
           setModifiedCode('')
-          setBaseline('')
+          resetBaseline()
           return
         }
 
@@ -640,7 +685,7 @@ export const CodeDiffViewer = forwardRef<CodeDiffViewerHandle, CodeDiffViewerPro
           if (isStale()) return
           setOriginalCode('')
           setModifiedCode('')
-          setBaseline('')
+          resetBaseline()
           return
         }
 
@@ -667,7 +712,9 @@ export const CodeDiffViewer = forwardRef<CodeDiffViewerHandle, CodeDiffViewerPro
           nextModified = originalResult.data
         }
 
-        applyLoadedTextContent(nextOriginal, nextModified)
+        const diskMtimeMs = !curRev ? await resolveWorkingFileMtime(path, catOpts) : null
+        if (isStale()) return
+        applyLoadedTextContent(nextOriginal, nextModified, diskMtimeMs)
       } catch (error) {
         if (isStale()) return
         const message = formatLoadError(error)
@@ -675,11 +722,12 @@ export const CodeDiffViewer = forwardRef<CodeDiffViewerHandle, CodeDiffViewerPro
         logger.error('Error loading file for diff:', error)
       } finally {
         if (generation === loadGenerationRef.current) {
+          isLoadingRef.current = false
           setIsLoading(false)
         }
       }
     },
-    [applyLoadedTextContent, loadImageSides, setBaseline]
+    [applyLoadedTextContent, loadImageSides, resetBaseline, resolveWorkingFileMtime]
   )
 
   const handleRefreshGit = useCallback(
@@ -690,6 +738,7 @@ export const CodeDiffViewer = forwardRef<CodeDiffViewerHandle, CodeDiffViewerPro
       try {
         setLoadError(null)
         const switchingTextFile = fileKindRef.current === 'text' && Boolean(filePathRef.current)
+        isLoadingRef.current = true
         if (!switchingTextFile) {
           setIsLoading(true)
         }
@@ -705,7 +754,7 @@ export const CodeDiffViewer = forwardRef<CodeDiffViewerHandle, CodeDiffViewerPro
           setFileTooLarge(false)
           setOriginalCode('')
           setModifiedCode('')
-          setBaseline('')
+          resetBaseline()
           return
         }
 
@@ -719,7 +768,7 @@ export const CodeDiffViewer = forwardRef<CodeDiffViewerHandle, CodeDiffViewerPro
           if (isStale()) return
           setOriginalCode('')
           setModifiedCode('')
-          setBaseline('')
+          resetBaseline()
           return
         }
 
@@ -757,7 +806,10 @@ export const CodeDiffViewer = forwardRef<CodeDiffViewerHandle, CodeDiffViewerPro
           if (isStale()) return
         }
 
-        applyLoadedTextContent(nextOriginal, nextModified)
+        const shouldTrackDiskMtime = !(rootCommit && hash) && !curHash
+        const diskMtimeMs = shouldTrackDiskMtime ? await resolveWorkingFileMtime(path, catOpts) : null
+        if (isStale()) return
+        applyLoadedTextContent(nextOriginal, nextModified, diskMtimeMs)
       } catch (error) {
         if (isStale()) return
         const message = formatLoadError(error)
@@ -765,11 +817,12 @@ export const CodeDiffViewer = forwardRef<CodeDiffViewerHandle, CodeDiffViewerPro
         logger.error('Error loading file for Git diff:', error)
       } finally {
         if (generation === loadGenerationRef.current) {
+          isLoadingRef.current = false
           setIsLoading(false)
         }
       }
     },
-    [applyLoadedTextContent, loadImageSides, setBaseline]
+    [applyLoadedTextContent, loadImageSides, resetBaseline, resolveWorkingFileMtime]
   )
 
   const handleRefreshWorkspaceCompare = useCallback(
@@ -789,7 +842,10 @@ export const CodeDiffViewer = forwardRef<CodeDiffViewerHandle, CodeDiffViewerPro
         setLoadError(formatLoadError(error))
         logger.error('Error loading workspace compare:', error)
       } finally {
-        if (generation === loadGenerationRef.current) setIsLoading(false)
+        if (generation === loadGenerationRef.current) {
+          isLoadingRef.current = false
+          setIsLoading(false)
+        }
       }
     },
     [applyLoadedTextContent]
@@ -797,6 +853,7 @@ export const CodeDiffViewer = forwardRef<CodeDiffViewerHandle, CodeDiffViewerPro
 
   const runLoad = useCallback(
     (ctx: DiffViewerLoadPayload) => {
+      isLoadingRef.current = true
       const enriched = enrichDiffViewerPayload({
         ...ctx,
         filePath: ctx.filePath ? normalizeGitPath(ctx.filePath) : ctx.filePath,
@@ -806,7 +863,10 @@ export const CodeDiffViewer = forwardRef<CodeDiffViewerHandle, CodeDiffViewerPro
       })
       loadContextRef.current = enriched
       const path = enriched.filePath ?? ''
-      if (!path) return
+      if (!path) {
+        isLoadingRef.current = false
+        return
+      }
       setIsSwapped(false)
       const mode = deriveDiffViewerMode(enriched)
       if (mode === 'workspace-compare' && enriched.compareWithPath) {
@@ -829,6 +889,12 @@ export const CodeDiffViewer = forwardRef<CodeDiffViewerHandle, CodeDiffViewerPro
     },
     [handleRefresh, handleRefreshGit, handleRefreshWorkspaceCompare, getRepoCwd, isGit]
   )
+
+  const reloadCurrentFileFromDisk = useCallback(() => {
+    const ctx = loadContextRef.current
+    if (!ctx?.filePath) return
+    runLoad(ctx)
+  }, [runLoad])
 
   const applyPayload = useCallback(
     (data: DiffViewerLoadPayload) => {
@@ -929,7 +995,7 @@ export const CodeDiffViewer = forwardRef<CodeDiffViewerHandle, CodeDiffViewerPro
   const requestNavigateToFile = useCallback(
     (index: number) => {
       if (index === activeIndexRef.current) return
-      if (isDirty) {
+      if (isDirtyRef.current) {
         pendingNavIndexRef.current = index
         setPendingNavIndex(index)
         setShowCloseConfirm(true)
@@ -939,7 +1005,54 @@ export const CodeDiffViewer = forwardRef<CodeDiffViewerHandle, CodeDiffViewerPro
       goToFile(index)
       navigateToFile(index)
     },
-    [isDirty, goToFile, navigateToFile]
+    [goToFile, navigateToFile]
+  )
+
+  const requestApplyEmbeddedPayload = useCallback(
+    (payload: DiffViewerLoadPayload) => {
+      if (isDirtyRef.current) {
+        pendingEmbeddedPayloadRef.current = payload
+        setShowCloseConfirm(true)
+        return
+      }
+
+      const filesList = payload.files ?? []
+      const payloadPath = payload.filePath ? normalizeGitPath(payload.filePath) : ''
+      const staging = payload.stagingState
+      if (payloadPath && filesList.length > 0) {
+        let idx = filesList.findIndex(
+          f => pathsEqual(f.filePath, payloadPath) && (staging ? f.stagingState === staging : true)
+        )
+        if (idx < 0) idx = filesList.findIndex(f => pathsEqual(f.filePath, payloadPath))
+        if (idx >= 0) {
+          const entry = filesList[idx]!
+          const nextCtx = enrichDiffViewerPayload({
+            ...(loadContextRef.current ?? {}),
+            ...payload,
+            filePath: entry.filePath,
+            fileStatus: entry.fileStatus ?? payload.fileStatus ?? '',
+            stagingState: entry.stagingState ?? staging,
+            files: filesList,
+            currentFileIndex: idx,
+          })
+          loadContextRef.current = nextCtx
+          initFiles(filesList, idx)
+          activeIndexRef.current = idx
+          setFilePath(entry.filePath)
+          setLanguage(detectLanguage(entry.filePath))
+          setIsSwapped(false)
+          setGitConflictPayload(null)
+          setDiffViewerMode(deriveDiffViewerMode(nextCtx))
+          setIsGit(nextCtx.isGit ?? true)
+          setCwd(getRepoCwd(nextCtx.cwd))
+          runLoad(nextCtx)
+          return
+        }
+      }
+
+      applyPayload(payload)
+    },
+    [applyPayload, getRepoCwd, initFiles, runLoad]
   )
 
   const handlePrevFile = useCallback(() => {
@@ -955,6 +1068,13 @@ export const CodeDiffViewer = forwardRef<CodeDiffViewerHandle, CodeDiffViewerPro
   }, [activeIndex, files.length, requestNavigateToFile])
 
   const embeddedPayloadSyncKeyRef = useRef('')
+  const embeddedPayloadRef = useRef(embeddedPayload)
+  embeddedPayloadRef.current = embeddedPayload
+
+  const embeddedStagingSyncKey = useMemo(() => {
+    if (!embedded || !embeddedPayload || embeddedPayload.mode === 'git-conflict') return ''
+    return buildEmbeddedGitStagingPayloadSyncKey(embeddedPayload)
+  }, [embedded, embeddedPayload])
 
   const clearEmbeddedViewerState = useCallback(() => {
     embeddedPayloadSyncKeyRef.current = ''
@@ -964,7 +1084,7 @@ export const CodeDiffViewer = forwardRef<CodeDiffViewerHandle, CodeDiffViewerPro
     setFilePath('')
     setOriginalCode('')
     setModifiedCode('')
-    setBaseline('')
+    resetBaseline()
     setLoadError(null)
     setFileKind('text')
     setOriginalDataUrl(null)
@@ -972,23 +1092,29 @@ export const CodeDiffViewer = forwardRef<CodeDiffViewerHandle, CodeDiffViewerPro
     setIsSwapped(false)
     initFiles([], 0)
     setContentEpoch(e => e + 1)
-  }, [initFiles, setBaseline])
+  }, [initFiles, resetBaseline])
 
   const requestLayoutLeave = useCallback(
     (onProceed: () => void) => {
-      if (!isDirty) {
+      if (!isDirtyRef.current) {
         onProceed()
         return
       }
       pendingLayoutLeaveRef.current = onProceed
       setShowCloseConfirm(true)
     },
-    [isDirty]
+    []
   )
 
   useImperativeHandle(ref, () => ({ requestLayoutLeave }), [requestLayoutLeave])
 
   const completePendingLeaveAction = useCallback(() => {
+    if (pendingEmbeddedPayloadRef.current) {
+      const payload = pendingEmbeddedPayloadRef.current
+      pendingEmbeddedPayloadRef.current = null
+      applyPayload(payload)
+      return true
+    }
     const pendingIdx = pendingNavIndexRef.current ?? pendingNavIndex
     if (pendingIdx != null) {
       pendingNavIndexRef.current = null
@@ -1012,7 +1138,7 @@ export const CodeDiffViewer = forwardRef<CodeDiffViewerHandle, CodeDiffViewerPro
       return true
     }
     return false
-  }, [embedded, pendingNavIndex, goToFile, navigateToFile])
+  }, [applyPayload, embedded, pendingNavIndex, goToFile, navigateToFile])
 
   const handleCloseRequest = useCallback(() => {
     if (embedded) return
@@ -1025,9 +1151,13 @@ export const CodeDiffViewer = forwardRef<CodeDiffViewerHandle, CodeDiffViewerPro
   }, [embedded, isDirty])
 
   const handleDiscardAndClose = useCallback(() => {
+    revertToBaseline(getModifiedModel(), content => {
+      setModifiedCode(content)
+      modifiedCodeRef.current = content
+    })
     setShowCloseConfirm(false)
     completePendingLeaveAction()
-  }, [completePendingLeaveAction])
+  }, [completePendingLeaveAction, getModifiedModel, revertToBaseline])
 
   useEffect(() => {
     modifiedCodeRef.current = modifiedCode
@@ -1045,22 +1175,119 @@ export const CodeDiffViewer = forwardRef<CodeDiffViewerHandle, CodeDiffViewerPro
       if (isLoadingRef.current) return false
       const path = filePathRef.current
       if (!path) return false
+      const model = getModifiedModel()
+      if (!model) return false
+
+      const repoCwd = getRepoCwd(loadContextRef.current?.cwd)
+      const writeOpts = repoCwd ? { cwd: repoCwd } : undefined
+      const content = model.getValue()
+      const snapshotVersionId = model.getAlternativeVersionId()
+      const { content: baselineContent, diskMtimeMs: baselineMtimeMs } = getBaselineForDirtyWrite()
+
+      if (repoCwd) {
+        let dirtyWriteCheck = await checkDirtyWriteOnSaveWithBaseline(
+          repoCwd,
+          path,
+          content,
+          baselineContent,
+          baselineMtimeMs
+        )
+
+        if (dirtyWriteCheck.action === 'confirm') {
+          const fileName = path.split(/[/\\]/).pop() ?? path
+          while (dirtyWriteCheck.action === 'confirm') {
+            const shownDiskContent = dirtyWriteCheck.diskContent
+            const choice = await requestDirtyWriteChoice({
+              relativePath: path,
+              fileName,
+              diskContent: dirtyWriteCheck.diskContent,
+              editorContent: dirtyWriteCheck.editorContent,
+            })
+            if (choice === 'cancel') return false
+            if (choice === 'revert') {
+              reloadCurrentFileFromDisk()
+              return false
+            }
+            if (choice === 'compare') {
+              const diskLabel = `${path} (disk)`
+              const editorLabel = `${path} (editor)`
+              const { useEditorWorkspace } = await import('@/pages/editor/hooks/useEditorWorkspace')
+              await useEditorWorkspace.getState().openCompareSnapshots(
+                diskLabel,
+                editorLabel,
+                dirtyWriteCheck.diskContent,
+                dirtyWriteCheck.editorContent
+              )
+              return false
+            }
+            dirtyWriteCheck = await checkDirtyWriteOnSaveWithBaseline(
+              repoCwd,
+              path,
+              model.getValue(),
+              baselineContent,
+              baselineMtimeMs
+            )
+            if (dirtyWriteCheck.action === 'confirm' && dirtyWriteCheck.diskContent !== shownDiskContent) {
+              continue
+            }
+            break
+          }
+        }
+
+        if (dirtyWriteCheck.action === 'noop') {
+          let savedMtimeMs = dirtyWriteCheck.diskMtimeMs ?? null
+          if (savedMtimeMs == null) {
+            try {
+              const meta = await window.api.system.detect_file_kind(path, writeOpts)
+              savedMtimeMs = meta.mtimeMs ?? null
+            } catch {
+              savedMtimeMs = null
+            }
+          }
+          const markedClean = commitCleanAfterSave(model, content, snapshotVersionId, savedMtimeMs)
+          if (markedClean) {
+            toast.success(t('toast.fileSaved', { filePath: path }))
+          }
+          return markedClean
+        }
+      }
+
       setIsSaving(true)
-      const writeOpts = cwd ? { cwd } : undefined
-      const result = await window.api.system.write_file(path, modifiedCodeRef.current, writeOpts)
-      if (result.success) {
-        setBaseline()
+      const result = await window.api.system.write_file(path, content, writeOpts)
+      if (!result.success) {
+        throw new Error(result.error || 'Unknown error')
+      }
+
+      let savedMtimeMs: number | null = null
+      try {
+        const meta = await window.api.system.detect_file_kind(path, writeOpts)
+        savedMtimeMs = meta.mtimeMs ?? null
+      } catch {
+        savedMtimeMs = null
+      }
+
+      const markedClean = commitCleanAfterSave(model, content, snapshotVersionId, savedMtimeMs)
+      if (markedClean) {
         toast.success(t('toast.fileSaved', { filePath: path }))
         return true
       }
-      throw new Error(result.error || 'Unknown error')
+      return false
     } catch (_error) {
       toast.error(t('toast.errorSavingFile'))
       return false
     } finally {
       setIsSaving(false)
     }
-  }, [currentRevision, currentCommitHash, cwd, setBaseline, t])
+  }, [
+    currentRevision,
+    currentCommitHash,
+    getModifiedModel,
+    getRepoCwd,
+    getBaselineForDirtyWrite,
+    commitCleanAfterSave,
+    reloadCurrentFileFromDisk,
+    t,
+  ])
 
   const handleSaveAndClose = useCallback(async () => {
     const saved = await handleSaveFile()
@@ -1133,6 +1360,54 @@ export const CodeDiffViewer = forwardRef<CodeDiffViewerHandle, CodeDiffViewerPro
     [autoAdvance, filePath, goToFile, runLoad]
   )
 
+  const refreshAfterGitAction = useCallback(
+    async (params: {
+      advanceFromIndex: number
+      actedFilePath: string
+      action: GitActionOptimisticKind
+      actedPaths?: string[]
+      lookupStagingState?: 'staged' | 'unstaged'
+      stagingStateHint?: 'staged' | 'unstaged'
+    }) => {
+      const ctx = loadContextRef.current
+      if (!ctx) return
+
+      const paths = params.actedPaths ?? [params.actedFilePath]
+      let refreshed: DiffViewerFilesRefreshResult | null = null
+
+      if (embedded) {
+        const optimisticFiles = buildOptimisticFilesAfterGitAction(filesRef.current, params.action, paths)
+        refreshed = resolveDiffViewerFilesRefresh(
+          optimisticFiles,
+          normalizeGitPath(params.actedFilePath),
+          params.advanceFromIndex,
+          params.lookupStagingState ?? params.stagingStateHint
+        )
+        initFiles(optimisticFiles, refreshed.activeIndex)
+        await embeddedOnReloadFileList?.()
+      } else {
+        const repoCwd = getRepoCwd()
+        if (repoCwd) {
+          refreshed = await refreshFilesFromGit(repoCwd, params.actedFilePath, params.lookupStagingState)
+        }
+        notifyStagingChanged()
+      }
+
+      applyGitActionRefresh(params.advanceFromIndex, params.actedFilePath, refreshed, ctx, {
+        stagingStateHint: params.stagingStateHint,
+      })
+    },
+    [
+      embedded,
+      embeddedOnReloadFileList,
+      initFiles,
+      getRepoCwd,
+      refreshFilesFromGit,
+      notifyStagingChanged,
+      applyGitActionRefresh,
+    ]
+  )
+
   const handleStageToggle = useCallback(async () => {
     if (!filePath || !diffViewerSupportsStageActions(diffViewerMode)) return
     const isStaged = stagingHintForRefresh === 'staged'
@@ -1145,14 +1420,15 @@ export const CodeDiffViewer = forwardRef<CodeDiffViewerHandle, CodeDiffViewerPro
       const opts = repoCwd ? { cwd: repoCwd } : undefined
       const result = isStaged ? await window.api.git.reset_staged([filePath], opts) : await window.api.git.add([filePath], opts)
       if (result.status === 'success') {
-        setActiveEntryStagingState(activeIndex, filePath, nextStagingState)
         toast.success(isStaged ? t('dialog.diffViewer.unstageSuccess') : t('dialog.diffViewer.stageSuccess'))
         const lookupStagingState = isStaged ? 'staged' : nextStagingState
-        const refreshed = repoCwd ? await refreshFilesFromGit(repoCwd, filePath, lookupStagingState) : null
-        const ctx = loadContextRef.current
-        if (!ctx) return
-        applyGitActionRefresh(advanceFromIndex, filePath, refreshed, ctx, { stagingStateHint: nextStagingState })
-        notifyStagingChanged()
+        await refreshAfterGitAction({
+          advanceFromIndex,
+          actedFilePath: filePath,
+          action: isStaged ? 'unstage' : 'stage',
+          lookupStagingState,
+          stagingStateHint: nextStagingState,
+        })
       } else {
         toast.error(result.message || t('toast.gitAddError'))
       }
@@ -1162,7 +1438,7 @@ export const CodeDiffViewer = forwardRef<CodeDiffViewerHandle, CodeDiffViewerPro
       isGitActionInProgressRef.current = false
       setIsStaging(false)
     }
-  }, [filePath, diffViewerMode, stagingHintForRefresh, activeIndex, getRepoCwd, t, setActiveEntryStagingState, refreshFilesFromGit, applyGitActionRefresh, notifyStagingChanged])
+  }, [filePath, diffViewerMode, stagingHintForRefresh, activeIndex, getRepoCwd, t, refreshAfterGitAction])
 
   const handleRevertRequest = useCallback(() => {
     if (!filePath || !diffViewerSupportsStageActions(diffViewerMode)) return
@@ -1185,11 +1461,13 @@ export const CodeDiffViewer = forwardRef<CodeDiffViewerHandle, CodeDiffViewerPro
       const result = await window.api.git.discardChanges(pathsToRevert, repoCwd)
       if (result.status === 'success') {
         toast.success(t('toast.revertSuccess'))
-        const refreshed = repoCwd ? await refreshFilesFromGit(repoCwd, actedFilePath, 'unstaged') : null
-        const ctx = loadContextRef.current
-        if (!ctx) return
-        applyGitActionRefresh(advanceFromIndex, actedFilePath, refreshed, ctx)
-        notifyStagingChanged()
+        await refreshAfterGitAction({
+          advanceFromIndex,
+          actedFilePath,
+          action: 'revert',
+          actedPaths: pathsToRevert,
+          lookupStagingState: 'unstaged',
+        })
       } else {
         toast.error(result.message || t('toast.revertError'))
       }
@@ -1199,21 +1477,26 @@ export const CodeDiffViewer = forwardRef<CodeDiffViewerHandle, CodeDiffViewerPro
       isGitActionInProgressRef.current = false
       setIsReverting(false)
     }
-  }, [discardConfirmPaths, filePath, diffViewerMode, activeIndex, getRepoCwd, t, refreshFilesFromGit, applyGitActionRefresh, notifyStagingChanged])
+  }, [discardConfirmPaths, filePath, diffViewerMode, activeIndex, getRepoCwd, t, refreshAfterGitAction])
 
   const refreshAfterTreeBulkGitAction = useCallback(
-    async (actedFilePath: string, lookupStagingState?: 'staged' | 'unstaged', stagingStateHint?: 'staged' | 'unstaged') => {
-      const repoCwd = getRepoCwd()
-      if (!repoCwd) return
-      const refreshed = await refreshFilesFromGit(repoCwd, actedFilePath, lookupStagingState)
-      const ctx = loadContextRef.current
-      if (!ctx) return
-      applyGitActionRefresh(activeIndex, actedFilePath, refreshed, ctx, {
-        stagingStateHint: stagingStateHint ?? lookupStagingState,
+    async (
+      actedFilePath: string,
+      action: GitActionOptimisticKind,
+      actedPaths: string[],
+      lookupStagingState?: 'staged' | 'unstaged',
+      stagingStateHint?: 'staged' | 'unstaged'
+    ) => {
+      await refreshAfterGitAction({
+        advanceFromIndex: activeIndex,
+        actedFilePath,
+        action,
+        actedPaths,
+        lookupStagingState,
+        stagingStateHint,
       })
-      notifyStagingChanged()
     },
-    [activeIndex, applyGitActionRefresh, getRepoCwd, refreshFilesFromGit, notifyStagingChanged]
+    [activeIndex, refreshAfterGitAction]
   )
 
   const handleTreeBulkAction = useCallback(
@@ -1346,7 +1629,7 @@ export const CodeDiffViewer = forwardRef<CodeDiffViewerHandle, CodeDiffViewerPro
           const result = await window.api.git.add(unstagedPaths, gitCwdOpts)
           if (result.status === 'success') {
             toast.success(t('dialog.diffViewer.stageSuccess'))
-            await refreshAfterTreeBulkGitAction(actedFilePath, 'staged', 'staged')
+            await refreshAfterTreeBulkGitAction(actedFilePath, 'stage', unstagedPaths, 'staged', 'staged')
           } else {
             toast.error(result.message || t('toast.gitAddError'))
           }
@@ -1357,7 +1640,7 @@ export const CodeDiffViewer = forwardRef<CodeDiffViewerHandle, CodeDiffViewerPro
           const result = await window.api.git.reset_staged(stagedPaths, gitCwdOpts)
           if (result.status === 'success') {
             toast.success(t('dialog.diffViewer.unstageSuccess'))
-            await refreshAfterTreeBulkGitAction(actedFilePath, 'unstaged', 'unstaged')
+            await refreshAfterTreeBulkGitAction(actedFilePath, 'unstage', stagedPaths, 'unstaged', 'unstaged')
           } else {
             toast.error(result.message || t('toast.gitUnstageError'))
           }
@@ -1513,9 +1796,9 @@ export const CodeDiffViewer = forwardRef<CodeDiffViewerHandle, CodeDiffViewerPro
     const nextModified = diffEditor.getModifiedEditor().getModel()?.getValue() ?? ''
     setOriginalCode(nextOriginal)
     setModifiedCode(nextModified)
-    if (editable) setBaseline()
+    if (editable) markClean(diffEditor.getModifiedEditor().getModel())
     requestAnimationFrame(refreshDiffState)
-  }, [editable, refreshDiffState, setBaseline])
+  }, [editable, markClean, refreshDiffState])
 
   const handleOpenInEditor = useCallback(() => {
     if (!filePath) return
@@ -1551,10 +1834,12 @@ export const CodeDiffViewer = forwardRef<CodeDiffViewerHandle, CodeDiffViewerPro
       }
     })
 
-    modifiedEditor.onDidChangeModelContent(event => {
-      const newModifiedCode = modifiedEditor.getModel()?.getValue() || ''
+    modifiedEditor.onDidChangeModelContent(() => {
+      const model = modifiedEditor.getModel()
+      const newModifiedCode = model?.getValue() || ''
+      modifiedCodeRef.current = newModifiedCode
       setModifiedCode(newModifiedCode)
-      notifyContentChangeRef.current?.(event)
+      notifyContentChangeRef.current?.(model)
       requestAnimationFrame(() => {
         clampEditorPosition(modifiedEditor)
         refreshDiffState()
@@ -1586,6 +1871,8 @@ export const CodeDiffViewer = forwardRef<CodeDiffViewerHandle, CodeDiffViewerPro
       void refreshDiffStateAfterCompute()
     })
 
+    captureBaselineIfMissing(modifiedEditor.getModel(), modifiedEditor.getModel()?.getValue())
+
     hiddenLinesIconObserverCleanupRef.current?.()
     hiddenLinesIconObserverCleanupRef.current = observeDiffHiddenLinesIcons(editor.getContainerDomNode())
   }
@@ -1610,6 +1897,20 @@ export const CodeDiffViewer = forwardRef<CodeDiffViewerHandle, CodeDiffViewerPro
   }, [embedded, embeddedPayload, clearEmbeddedViewerState])
 
   useEffect(() => {
+    if (!embedded || !embeddedRepoCwd) return
+    const normalized = normalizeGitPath(embeddedRepoCwd)
+    const ctxCwd = loadContextRef.current?.cwd
+    if (ctxCwd && normalizeGitPath(ctxCwd) !== normalized) {
+      embeddedPayloadSyncKeyRef.current = ''
+    }
+    setCwd(prev => {
+      if (!prev) return embeddedRepoCwd
+      return normalizeGitPath(prev) === normalized ? prev : embeddedRepoCwd
+    })
+  }, [embedded, embeddedRepoCwd])
+
+  useEffect(() => {
+    const embeddedPayload = embeddedPayloadRef.current
     if (!embedded || !embeddedPayload) return
 
     if (embeddedRepoCwd && embeddedPayload.cwd) {
@@ -1629,13 +1930,25 @@ export const CodeDiffViewer = forwardRef<CodeDiffViewerHandle, CodeDiffViewerPro
 
     setGitConflictPayload(null)
 
-    const syncKey = buildEmbeddedGitStagingPayloadSyncKey(embeddedPayload)
-    if (syncKey === embeddedPayloadSyncKeyRef.current) return
+    const syncKey = embeddedStagingSyncKey
+    if (!syncKey || syncKey === embeddedPayloadSyncKeyRef.current) return
 
     const hadPriorSync = embeddedPayloadSyncKeyRef.current.length > 0
     embeddedPayloadSyncKeyRef.current = syncKey
 
     const currentPath = loadContextRef.current?.filePath || filePathRef.current
+    const payloadPath = embeddedPayload.filePath ? normalizeGitPath(embeddedPayload.filePath) : ''
+    const payloadCwdNorm = embeddedPayload.cwd ? normalizeGitPath(embeddedPayload.cwd) : ''
+    const ctxCwdNorm = loadContextRef.current?.cwd ? normalizeGitPath(loadContextRef.current.cwd) : ''
+    const cwdChanged = Boolean(payloadCwdNorm && ctxCwdNorm && payloadCwdNorm !== ctxCwdNorm)
+    const pathChanged = Boolean(payloadPath && currentPath && !pathsEqual(payloadPath, currentPath))
+    const needsFullLoad = cwdChanged || pathChanged || Boolean(payloadPath && !currentPath)
+
+    if (needsFullLoad) {
+      requestApplyEmbeddedPayload(embeddedPayload)
+      return
+    }
+
     const files = embeddedPayload.files ?? []
     const hasActiveFile = Boolean(currentPath) && files.some(f => pathsEqual(f.filePath, currentPath))
 
@@ -1657,6 +1970,7 @@ export const CodeDiffViewer = forwardRef<CodeDiffViewerHandle, CodeDiffViewerPro
         })
         loadContextRef.current = nextCtx
         initFiles(files, activeIndex)
+        setDiffViewerMode(deriveDiffViewerMode(nextCtx))
         if (stagingChanged) {
           runLoad({
             ...nextCtx,
@@ -1669,8 +1983,23 @@ export const CodeDiffViewer = forwardRef<CodeDiffViewerHandle, CodeDiffViewerPro
       }
     }
 
+    if (isDirtyRef.current) {
+      pendingEmbeddedPayloadRef.current = embeddedPayload
+      setShowCloseConfirm(true)
+      return
+    }
     applyPayload(embeddedPayload)
-  }, [embedded, embeddedRepoCwd, embeddedPayload, applyPayload, initFiles, runLoad])
+  }, [embedded, embeddedRepoCwd, embeddedStagingSyncKey, requestApplyEmbeddedPayload, applyPayload, initFiles, runLoad])
+
+  useEffect(() => {
+    const onDirtyWriteRequest = (event: Event) => {
+      const detail = (event as CustomEvent<DirtyWritePromptPayload>).detail
+      if (!detail) return
+      setDirtyWritePrompt(detail)
+    }
+    window.addEventListener(EDITOR_DIRTY_WRITE_EVENT, onDirtyWriteRequest)
+    return () => window.removeEventListener(EDITOR_DIRTY_WRITE_EVENT, onDirtyWriteRequest)
+  }, [])
 
   useEffect(() => {
     if (embedded) return
@@ -1741,10 +2070,7 @@ export const CodeDiffViewer = forwardRef<CodeDiffViewerHandle, CodeDiffViewerPro
 
   useEffect(() => {
     isLoadingRef.current = isLoading
-    if (!isLoading && editable && fileKind === 'text') {
-      setBaseline()
-    }
-  }, [isLoading, editable, fileKind, setBaseline])
+  }, [isLoading])
 
   useEffect(() => {
     if (!shellTabActive) return
@@ -2011,10 +2337,34 @@ export const CodeDiffViewer = forwardRef<CodeDiffViewerHandle, CodeDiffViewerPro
             setPendingNavIndex(null)
             pendingCloseRef.current = false
             pendingLayoutLeaveRef.current = null
+            pendingEmbeddedPayloadRef.current = null
           }
         }}
         onSaveAndClose={handleSaveAndClose}
         onDiscard={handleDiscardAndClose}
+      />
+
+      <EditorDirtyWriteDialog
+        open={dirtyWritePrompt != null}
+        fileName={dirtyWritePrompt?.fileName ?? ''}
+        onOpenChange={open => {
+          if (!open) {
+            resolveDirtyWriteChoice('cancel')
+            setDirtyWritePrompt(null)
+          }
+        }}
+        onOverwrite={() => {
+          resolveDirtyWriteChoice('overwrite')
+          setDirtyWritePrompt(null)
+        }}
+        onRevert={() => {
+          resolveDirtyWriteChoice('revert')
+          setDirtyWritePrompt(null)
+        }}
+        onCompare={() => {
+          resolveDirtyWriteChoice('compare')
+          setDirtyWritePrompt(null)
+        }}
       />
 
       <DiffViewerDiscardConfirm

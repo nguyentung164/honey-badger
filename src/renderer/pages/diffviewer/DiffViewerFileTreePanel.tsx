@@ -1277,7 +1277,7 @@ export function DiffViewerFileTreePanel({
   const renderTreeSections = () => {
     const accordionList = renderAccordionVirtualList(panelRows, collapsibleScrollRef, stagingTreeScrollClass)
 
-    if (!splitSections || !stagingFooter) {
+    if (!stagingFooter) {
       return accordionList
     }
 
@@ -1295,7 +1295,7 @@ export function DiffViewerFileTreePanel({
           {accordionList}
         </ResizablePanel>
 
-        <ResizableHandle showGrip={false} className="bg-transparent" onPointerUp={flushTreePanelPersist} />
+        <ResizableHandle onPointerUp={flushTreePanelPersist} />
 
         <ResizablePanel
           id={STAGING_COMMIT_PANEL_ID}

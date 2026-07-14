@@ -82,7 +82,7 @@ export async function refreshDiffViewerFileList(
   switch (mode) {
     case 'git-staging': {
       if (!repoCwd) return null
-      nextFiles = await fetchDiffViewerFilesFromGit(repoCwd)
+      nextFiles = await fetchDiffViewerFilesFromGit(repoCwd, { applyLocalIgnore: true })
       break
     }
     case 'git-history': {

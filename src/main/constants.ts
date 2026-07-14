@@ -114,6 +114,7 @@ export const IPC = {
   GIT: {
     LOG: 'git:log',
     LOG_GRAPH: 'git:log-graph',
+    GET_LOG_SYNC_MARKERS: 'git:get-log-sync-markers',
     GET_COMMIT_FILES: 'git:get-commit-files',
     STATUS: 'git:status',
     COMMIT: 'git:commit',

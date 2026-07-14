@@ -73,7 +73,7 @@ export function useDiffViewerFileNav(initialFiles?: DiffViewerFileEntry[], initi
       currentFilePath: string,
       currentStagingState?: 'staged' | 'unstaged'
     ): Promise<DiffViewerFilesRefreshResult | null> => {
-      const nextFiles = await fetchDiffViewerFilesFromGit(cwd)
+      const nextFiles = await fetchDiffViewerFilesFromGit(cwd, { applyLocalIgnore: true })
       if (nextFiles === null) return null
 
       const resolved = resolveDiffViewerFilesRefresh(

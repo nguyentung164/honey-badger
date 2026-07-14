@@ -2697,6 +2697,10 @@
       "deleteConfirm": "Xóa hook này?"
     }
   },
+  "workspaceChrome": {
+    "refreshShowLog": "Làm mới log",
+    "logRefActive": "Đang xem log nhánh khác"
+  },
   "showlog": {
     "allProjects": "Tất cả",
     "checkoutBranchIs": "branch đang checkout",
@@ -2705,7 +2709,14 @@
     "dock": "Gộp Show Log vào cửa sổ chính",
     "aiAnalysis": "AI phân tích",
     "analysisHistory": "Lịch sử phân tích",
-    "statistics": "Thống kê"
+    "statistics": "Thống kê",
+    "syncStatus": "Đồng bộ",
+    "incomingCommit": "Chưa pull",
+    "incomingCommitHint": "Có trên {{upstream}} nhưng chưa merge vào branch đang checkout",
+    "outgoingCommit": "Chỉ có local (chưa push)",
+    "inferredUpstream": "Ước lượng",
+    "inferredUpstreamHint": "Chưa cấu hình upstream — đang so với {{upstream}}",
+    "noUpstreamHint": "Branch chưa liên kết remote — không hiển thị commit chưa pull"
   },
   "dialog": {
     "mergeSvn": {

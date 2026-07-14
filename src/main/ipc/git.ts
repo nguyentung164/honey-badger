@@ -30,6 +30,7 @@ import {
   fetchUpdateLocalBranch as gitFetchUpdateLocalBranch,
   getBranches as gitGetBranches,
   getCommitFiles as gitGetCommitFiles,
+  getLogSyncMarkers as gitGetLogSyncMarkers,
   getGitConflictStatus as gitGetConflictStatus,
   getDiff as gitGetDiff,
   getFileContent as gitGetFileContent,
@@ -95,6 +96,8 @@ export function registerGitIpcHandlers() {
 
   // Git log
   ipcMain.handle(IPC.GIT.LOG, async (_event, filePath: string | string[], options?: GitLogOptions) => await gitLog(filePath, options))
+
+  ipcMain.handle(IPC.GIT.GET_LOG_SYNC_MARKERS, async (_event, cwd?: string) => await gitGetLogSyncMarkers(cwd))
 
   // Git log graph
   ipcMain.handle(IPC.GIT.LOG_GRAPH, async (_event, filePath: string | string[], options?: GitLogOptions) => await gitGetLogGraph(filePath, options))

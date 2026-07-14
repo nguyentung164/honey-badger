@@ -13,15 +13,12 @@ import {
   Check,
   CheckSquare,
   ChevronDown,
-  ChevronRight,
   CircleArrowDown,
   ClipboardList,
   Crown,
   Database,
   Eraser,
   FileWarning,
-  Folder,
-  GitBranch,
   GitBranchPlus,
   GitMerge,
   GitPullRequest,
@@ -33,7 +30,6 @@ import {
   LogOut,
   Minus,
   RefreshCcw,
-  RefreshCw,
   Rocket,
   Settings2,
   Sparkles,
@@ -41,7 +37,6 @@ import {
   SquareArrowDown,
   SquareArrowOutUpRight,
   Terminal,
-  Turtle,
   Undo2,
   UserCircle,
   Users,
@@ -104,12 +99,15 @@ import { Progress } from '@/components/ui/progress'
 import { Separator } from '@/components/ui/separator'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import toast from '@/components/ui-elements/Toast'
-import { emitAchievementToast } from '@/hooks/useAchievementNotification'
+import type { GitStatusUpdatedDetail } from 'shared/gitStatusUpdated'
 import { useCommitWorkflowStore } from '@/lib/commitWorkflow/commitWorkflowUtils'
 import { openGitConflictDiffFromStatus } from '@/lib/diffViewer/openDiffViewer'
 import { requestOpenShowLog } from '@/lib/openShowLog'
+import { WorkspaceRepoChrome } from '@/components/workspace/WorkspaceRepoChrome'
 import { cn, normalizePathForCompare } from '@/lib/utils'
+import { getBranchMode } from '@/lib/workspaceChromeHandlers'
 import { ShellTabSwitcher } from '@/pages/main/ShellTabSwitcher'
+import { useShowLogSessionStore } from '@/stores/useShowLogSessionStore'
 import { shellTabDockButtonClass } from '@/pages/main/shellTabStyles'
 import logger from '@/services/logger'
 import { useAchievementStore } from '@/stores/useAchievementStore'
@@ -163,6 +161,8 @@ interface TitleBarProps {
   onEditorWorkspaceGuard?: (proceed: () => void) => void
   multiRepoActiveTab?: string
   onMultiRepoActiveChange?: (tabId: string) => void
+  onShowLogRefresh?: () => void
+  showLogRefreshing?: boolean
 }
 
 function TitleBarClockFlagVn({ size = 16 }: { size?: number }) {
@@ -242,6 +242,8 @@ export const TitleBar = ({
   onEditorWorkspaceGuard,
   multiRepoActiveTab = '0',
   onMultiRepoActiveChange,
+  onShowLogRefresh,
+  showLogRefreshing = false,
 }: TitleBarProps) => {
   const navigate = useNavigate()
   const { t } = useTranslation()
@@ -396,118 +398,6 @@ export const TitleBar = ({
   const [showReminderDialog, setShowReminderDialog] = useState(false)
   const [reminderCount, setReminderCount] = useState(0)
 
-  const multiRepoBadgeScrollRef = useRef<HTMLSpanElement>(null)
-  const multiRepoDragRef = useRef({ isDragging: false, startX: 0, scrollLeft: 0 })
-  const [marqueeDuplicate, setMarqueeDuplicate] = useState(false)
-  const singleCopyScrollWidthRef = useRef(0)
-
-  const handleMultiRepoBadgeWheel = useCallback((e: React.WheelEvent) => {
-    const el = multiRepoBadgeScrollRef.current
-    if (!el) return
-    e.preventDefault()
-    el.scrollLeft += e.deltaY + e.deltaX
-  }, [])
-
-  const handleMultiRepoBadgeMouseDown = useCallback((e: React.MouseEvent) => {
-    const el = multiRepoBadgeScrollRef.current
-    if (!el) return
-    multiRepoDragRef.current = { isDragging: true, startX: e.pageX - el.offsetLeft, scrollLeft: el.scrollLeft }
-    el.style.cursor = 'grabbing'
-  }, [])
-
-  const handleMultiRepoBadgeMouseMove = useCallback((e: React.MouseEvent) => {
-    if (!multiRepoDragRef.current.isDragging) return
-    const el = multiRepoBadgeScrollRef.current
-    if (!el) return
-    e.preventDefault()
-    const x = e.pageX - el.offsetLeft
-    const walk = x - multiRepoDragRef.current.startX
-    el.scrollLeft = multiRepoDragRef.current.scrollLeft - walk
-  }, [])
-
-  const handleMultiRepoBadgeMouseUp = useCallback(() => {
-    multiRepoDragRef.current.isDragging = false
-    if (multiRepoBadgeScrollRef.current) {
-      multiRepoBadgeScrollRef.current.style.cursor = 'grab'
-    }
-  }, [])
-
-  // Effect 1: check if single copy overflows → enable duplicate for marquee
-  useEffect(() => {
-    const el = multiRepoBadgeScrollRef.current
-    if (!el) return
-    const t = setTimeout(() => {
-      singleCopyScrollWidthRef.current = el.scrollWidth
-      const shouldDuplicate = el.scrollWidth > el.clientWidth
-      setMarqueeDuplicate(prev => (prev === shouldDuplicate ? prev : shouldDuplicate))
-    }, 80)
-    return () => clearTimeout(t)
-  }, [multiRepoLabels])
-
-  // Effect 3: re-evaluate marquee when container is resized
-  useEffect(() => {
-    const el = multiRepoBadgeScrollRef.current
-    if (!el) return
-    const observer = new ResizeObserver(() => {
-      const storedSingle = singleCopyScrollWidthRef.current
-      if (storedSingle === 0) return
-      const shouldDuplicate = storedSingle > el.clientWidth
-      setMarqueeDuplicate(prev => (prev === shouldDuplicate ? prev : shouldDuplicate))
-    })
-    observer.observe(el)
-    return () => observer.disconnect()
-  }, [])
-
-  // Effect 2: run marquee animation only when duplicate content is rendered
-  useEffect(() => {
-    if (!marqueeDuplicate) return
-    const el = multiRepoBadgeScrollRef.current
-    if (!el) return
-
-    el.scrollLeft = 0
-    let rafId: number
-    let paused = false
-
-    const pauseScroll = () => {
-      paused = true
-    }
-    const resumeScroll = () => {
-      paused = false
-    }
-    el.addEventListener('mouseenter', pauseScroll)
-    el.addEventListener('mouseleave', resumeScroll)
-
-    let lastTime = performance.now()
-    const SPEED = 0.05 // px per ms
-    let accumulated = 0
-
-    const tick = (now: number) => {
-      const dt = Math.min(now - lastTime, 50)
-      lastTime = now
-
-      if (!paused && !multiRepoDragRef.current.isDragging) {
-        accumulated += SPEED * dt
-        const halfWidth = el.scrollWidth / 2
-        if (accumulated >= halfWidth) {
-          accumulated -= halfWidth
-        }
-        el.scrollLeft = accumulated
-      } else {
-        accumulated = el.scrollLeft
-      }
-
-      rafId = requestAnimationFrame(tick)
-    }
-
-    rafId = requestAnimationFrame(tick)
-
-    return () => {
-      cancelAnimationFrame(rafId)
-      el.removeEventListener('mouseenter', pauseScroll)
-      el.removeEventListener('mouseleave', resumeScroll)
-    }
-  }, [marqueeDuplicate])
-
   const handleWindow = (action: string) => {
     window.api.electron.send('window:action', action)
   }
@@ -605,7 +495,7 @@ export const TitleBar = ({
 
   const runWithEditorGuard = useCallback(
     (action: () => void | Promise<void>) => {
-      if (enableShellSwitcher && shellView === 'editor' && onEditorWorkspaceGuard) {
+      if (onEditorWorkspaceGuard) {
         onEditorWorkspaceGuard(() => {
           void action()
         })
@@ -613,7 +503,19 @@ export const TitleBar = ({
       }
       void action()
     },
-    [enableShellSwitcher, onEditorWorkspaceGuard, shellView]
+    [onEditorWorkspaceGuard]
+  )
+
+  const gitLogRevision = useShowLogSessionStore(s => s.gitLogRevision)
+  const setGitLogRevision = useShowLogSessionStore(s => s.setGitLogRevision)
+  const branchMode = getBranchMode(shellView)
+
+  const handleLogRefSelect = useCallback(
+    (branchName: string) => {
+      const next = branchName === currentBranch ? null : branchName
+      setGitLogRevision(next)
+    },
+    [currentBranch, setGitLogRevision]
   )
 
   const loadSourceFoldersRequestIdRef = useRef<string | null>(null)
@@ -1107,8 +1009,23 @@ export const TitleBar = ({
   useEffect(() => {
     if (versionControlSystem !== 'git') return
     const onGitStatusUpdated = (ev: Event) => {
-      const d = (ev as CustomEvent<{ cwd?: string }>).detail
+      const d = (ev as CustomEvent<GitStatusUpdatedDetail>).detail
       if (d?.cwd && gitContextPath && d.cwd !== gitContextPath) return
+      if (d?.fromTable) {
+        if (typeof d.conflictCount === 'number') {
+          setGitConflictCount(d.conflictCount)
+          setHasGitConflict(d.conflictCount > 0)
+        }
+        if (d.currentBranch) {
+          setCurrentBranch(d.currentBranch)
+          if (!previousBranchRef.current) {
+            previousBranchRef.current = d.currentBranch
+          }
+        }
+        if (typeof d.ahead === 'number') setGitAhead(d.ahead)
+        if (typeof d.behind === 'number') setGitBehind(d.behind)
+        return
+      }
       void checkGitStatusRef.current?.()
     }
     window.addEventListener('git-status-updated', onGitStatusUpdated as EventListener)
@@ -1371,7 +1288,8 @@ export const TitleBar = ({
 
   const canOpenEvmTool = Boolean(user && !isGuest && ['admin', 'pl', 'pm'].includes(user.role))
   const showVcsChrome = !hideVcsToolbar && (!enableShellSwitcher || shellView === 'vcs')
-  const showWorkspaceRepoChrome = !hideVcsToolbar && (!enableShellSwitcher || shellView === 'vcs' || shellView === 'editor')
+  const showWorkspaceRepoChrome = !hideVcsToolbar && (!enableShellSwitcher || shellView === 'vcs' || shellView === 'editor' || shellView === 'showLog')
+  const showWorkspaceVcsActions = showWorkspaceRepoChrome && shellView !== 'showLog'
   const showTerminalToggle =
     Boolean(onTerminalToggle) &&
     (!enableShellSwitcher || shellView === 'editor') &&
@@ -1998,26 +1916,6 @@ export const TitleBar = ({
     setHasSvnUpdate(false)
   }
 
-  // Helper function để lấy icon VCS
-  const getVCSIcon = (folderName: string) => {
-    const vcsType = folderVCSTypes[folderName]
-    if (vcsType === 'git') {
-      return <GitBranch className="h-3 w-3" />
-    }
-    if (vcsType === 'svn') {
-      return <Turtle className="h-3 w-3" />
-    }
-    return <Folder className="h-3 w-3 opacity-50" />
-  }
-
-  // Helper function để lấy text VCS
-  const getVCSText = (folderName: string) => {
-    const vcsType = folderVCSTypes[folderName]
-    if (vcsType === 'git') return 'Git'
-    if (vcsType === 'svn') return 'SVN'
-    return ''
-  }
-
   // Function để refresh VCS info (với log realtime trong VcsOperationLogDialog)
   const handleRefreshVCS = async () => {
     if (isRefreshing || !currentFolder) return
@@ -2129,7 +2027,7 @@ export const TitleBar = ({
   )
 
   const gitBranchLeftToolbarControls =
-    showGitRepoChrome && currentBranch ? (
+    showGitRepoChrome && currentBranch && (!enableShellSwitcher || shellView === 'vcs') ? (
       <>
         <Separator orientation="vertical" className="h-4 w-px bg-muted mx-0.5 shrink-0" />
         <Tooltip>
@@ -2689,299 +2587,51 @@ export const TitleBar = ({
           )}
 
           {showWorkspaceRepoChrome && (
-            <div className="flex gap-1 items-center justify-center h-full px-2" style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties}>
-              {/* Refresh VCS Info Button - chỉ hiện với SVN (Git đã có Fetch trong dropdown Pull/Sync) */}
-              {sourceFolders.length > 0 && currentFolder && versionControlSystem === 'svn' && (
-                <Tooltip>
-                  <TooltipTrigger asChild>
-                    <Button
-                      variant="link"
-                      size="sm"
-                      onClick={handleRefreshVCS}
-                      disabled={isRefreshing}
-                      className="shadow-none focus-visible:ring-0 focus-visible:ring-offset-0 hover:bg-muted transition-colors rounded-sm h-[25px] w-[25px]"
-                    >
-                      <RefreshCw strokeWidth={1.25} absoluteStrokeWidth size={15} className={`h-4 w-4 ${isRefreshing ? 'animate-spin' : ''}`} />
-                    </Button>
-                  </TooltipTrigger>
-                  <TooltipContent>{isRefreshing ? 'Đang làm mới...' : 'Làm mới thông tin SVN'}</TooltipContent>
-                </Tooltip>
-              )}
-
-              {/* Cụm Project + Source Folder / Multi-repo badges — multi-repo workspace: luôn có dropdown Project (không option "Tất cả") */}
-              {(user || sourceFolders.length > 0) && (
-                <div className="flex items-center h-7 rounded-md overflow-hidden">
-                  {user &&
-                    (!isMultiRepo || isMultiRepoWorkspace) &&
-                    (() => {
-                      const projectBarHasRight = (isMultiRepo && multiRepoLabels.length > 0) || (!isMultiRepo && sourceFolders.length > 0 && !isMultiRepoWorkspace)
-                      const projectTriggerRounded = projectBarHasRight ? 'rounded-l-md' : 'rounded-md'
-                      const projectLabel = isMultiRepoWorkspace
-                        ? selectedProjectId
-                          ? (projects.find(p => p.id === selectedProjectId)?.name ?? t('settings.versioncontrol.multiRepoSelectProject', 'Chọn Project'))
-                          : t('settings.versioncontrol.multiRepoSelectProject', 'Chọn Project')
-                        : selectedProjectId
-                          ? (projects.find(p => p.id === selectedProjectId)?.name ?? t('dailyReport.all'))
-                          : t('showlog.allProjects', 'Tất cả')
-                      const projectTooltip = isProjectsLoading || isSourceFoldersLoading ? t('common.loading', 'Đang tải ...') : projectLabel
-                      return (
-                        <DropdownMenu onOpenChange={open => open && loadProjects()}>
-                          <Tooltip>
-                            <TooltipTrigger asChild>
-                              <DropdownMenuTrigger asChild>
-                                <Button
-                                  variant="ghost"
-                                  size="sm"
-                                  disabled={isProjectsLoading || isSourceFoldersLoading}
-                                  className={`flex items-center gap-1 px-2 py-1 h-7 text-xs font-medium rounded-none border-0 bg-transparent text-pink-800 dark:text-pink-400 hover:bg-muted hover:text-pink-900! dark:hover:text-pink-300! ${projectTriggerRounded}`}
-                                >
-                                  {isProjectsLoading || isSourceFoldersLoading ? <Loader2 className="h-3 w-3 animate-spin" /> : null}
-                                  <span className="font-medium">{projectLabel}</span>
-                                  <ChevronDown className={cn('h-3 w-3', (isProjectsLoading || isSourceFoldersLoading) && 'opacity-50')} />
-                                </Button>
-                              </DropdownMenuTrigger>
-                            </TooltipTrigger>
-                            <TooltipContent>{projectTooltip}</TooltipContent>
-                          </Tooltip>
-                          <DropdownMenuContent align="start">
-                            {isProjectsLoading ? (
-                              <div className="flex items-center justify-center p-2">
-                                <Loader2 className="h-4 w-4 animate-spin" />
-                                <span className="ml-2 text-xs">Đang tải projects...</span>
-                              </div>
-                            ) : (
-                              <>
-                                {!isMultiRepoWorkspace && (
-                                  <DropdownMenuItem onClick={() => runWithEditorGuard(() => handleProjectSelect(null))} className={!selectedProjectId ? 'bg-muted' : ''}>
-                                    {t('showlog.allProjects', 'Tất cả')}
-                                  </DropdownMenuItem>
-                                )}
-                                {projects.map(p => (
-                                  <DropdownMenuItem
-                                    key={p.id}
-                                    onClick={() => runWithEditorGuard(() => handleProjectSelect(p.id))}
-                                    className={selectedProjectId === p.id ? 'bg-muted' : ''}
-                                  >
-                                    {p.name}
-                                  </DropdownMenuItem>
-                                ))}
-                              </>
-                            )}
-                          </DropdownMenuContent>
-                        </DropdownMenu>
-                      )
-                    })()}
-                  {user &&
-                    (!isMultiRepo || isMultiRepoWorkspace) &&
-                    ((isMultiRepo && multiRepoLabels.length > 0) || (!isMultiRepo && sourceFolders.length > 0 && !isMultiRepoWorkspace)) && (
-                      <ChevronRight className="h-3.5 w-3.5 text-pink-600 dark:text-pink-400 shrink-0" aria-hidden />
-                    )}
-                  {isMultiRepo && multiRepoLabels.length > 0 ? (
-                    enableShellSwitcher && shellView === 'editor' && onMultiRepoActiveChange && multiRepoLabels.length > 1 ? (
-                      <DropdownMenu>
-                        <Tooltip>
-                          <TooltipTrigger asChild>
-                            <DropdownMenuTrigger asChild>
-                              <Button
-                                variant="ghost"
-                                size="sm"
-                                className="flex items-center gap-1 px-2 py-1 h-7 text-xs font-medium rounded-r-md border-0 bg-transparent text-pink-800 dark:text-pink-400 hover:bg-muted hover:text-pink-900! dark:hover:text-pink-300!"
-                              >
-                                <GitBranch className="h-3 w-3 shrink-0" />
-                                <span className="font-medium max-w-[10rem] truncate">{multiRepoLabels[Number(multiRepoActiveTab)] ?? multiRepoLabels[0]}</span>
-                                <ChevronDown className="h-3 w-3" />
-                              </Button>
-                            </DropdownMenuTrigger>
-                          </TooltipTrigger>
-                          <TooltipContent>{t('editor.titleBar.activeRepo', 'Repo đang mở')}</TooltipContent>
-                        </Tooltip>
-                        <DropdownMenuContent align="center">
-                          {multiRepoLabels.map((label, i) => (
-                            <DropdownMenuItem
-                              key={multiRepoPaths[i] ?? label}
-                              onClick={() =>
-                                runWithEditorGuard(() => {
-                                  onMultiRepoActiveChange(String(i))
-                                })
-                              }
-                              className={multiRepoActiveTab === String(i) ? 'bg-muted' : ''}
-                            >
-                              {label}
-                            </DropdownMenuItem>
-                          ))}
-                        </DropdownMenuContent>
-                      </DropdownMenu>
-                    ) : (
-                      <span
-                        className="flex items-center gap-1.5 px-2 py-1 text-xs font-medium rounded-md bg-muted/50 text-pink-800 dark:text-pink-400"
-                        style={{ maxWidth: 'clamp(120px, 30vw, 600px)' }}
-                      >
-                        <GitBranch className="h-3 w-3 shrink-0" />
-                        <span className="shrink-0">Multi-repo:</span>
-                        {/* biome-ignore lint/a11y/noStaticElementInteractions: drag-to-scroll interaction on a presentational container */}
-                        <span
-                          ref={multiRepoBadgeScrollRef}
-                          role="presentation"
-                          className="text-foreground font-normal flex items-center gap-1 overflow-x-auto select-none"
-                          style={{ scrollbarWidth: 'none', cursor: 'grab' }}
-                          onWheel={handleMultiRepoBadgeWheel}
-                          onMouseDown={handleMultiRepoBadgeMouseDown}
-                          onMouseMove={handleMultiRepoBadgeMouseMove}
-                          onMouseUp={handleMultiRepoBadgeMouseUp}
-                          onMouseLeave={handleMultiRepoBadgeMouseUp}
-                        >
-                          {(marqueeDuplicate ? [...multiRepoLabels, ...multiRepoLabels] : multiRepoLabels).map((label, i) => {
-                            const repoColors = [
-                              'bg-blue-50 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300',
-                              'bg-amber-50 dark:bg-amber-900/30 text-amber-700 dark:text-amber-300',
-                              'bg-emerald-50 dark:bg-emerald-900/30 text-emerald-700 dark:text-emerald-300',
-                              'bg-violet-50 dark:bg-violet-900/30 text-violet-700 dark:text-violet-300',
-                              'bg-rose-50 dark:bg-rose-900/30 text-rose-700 dark:text-rose-300',
-                            ] as const
-                            const originalIdx = i % multiRepoLabels.length
-                            return (
-                              <span key={i} className="flex items-center gap-1 shrink-0">
-                                <span className={cn('px-1.5 rounded', repoColors[originalIdx % 5])}>{label}</span>
-                              </span>
-                            )
-                          })}
-                        </span>
-                      </span>
-                    )
-                  ) : isMultiRepoWorkspace ? null : sourceFolders.length > 0 ? (
-                    <DropdownMenu onOpenChange={open => open && refreshSourceFoldersList()}>
-                      <Tooltip>
-                        <TooltipTrigger asChild>
-                          <DropdownMenuTrigger asChild>
-                            <Button
-                              variant="ghost"
-                              size="sm"
-                              disabled={isChangingFolder || isLoading || isSourceFoldersLoading}
-                              className={`flex items-center gap-1 px-2 py-1 h-7 text-xs font-medium rounded-none border-0 bg-transparent text-pink-800 dark:text-pink-400 hover:bg-muted hover:text-pink-900! dark:hover:text-pink-300! ${user ? 'rounded-r-md' : 'rounded-md'}`}
-                            >
-                              {isChangingFolder || isLoading || isSourceFoldersLoading ? <Loader2 className="h-3 w-3 animate-spin" /> : getVCSIcon(currentFolder)}
-                              <span className="font-medium">{currentFolder || ''}</span>
-                              {!isChangingFolder && !isLoading && !isSourceFoldersLoading && getVCSText(currentFolder) && (
-                                <span className="text-[10px] text-muted-foreground bg-muted px-1 rounded">{getVCSText(currentFolder)}</span>
-                              )}
-                              <ChevronDown className={cn('h-3 w-3', (isChangingFolder || isLoading || isSourceFoldersLoading) && 'opacity-50')} />
-                            </Button>
-                          </DropdownMenuTrigger>
-                        </TooltipTrigger>
-                        <TooltipContent>
-                          {isChangingFolder || isLoading || isSourceFoldersLoading
-                            ? isChangingFolder
-                              ? t('title.switchingFolder')
-                              : t('common.loading', 'Đang tải ...')
-                            : currentFolder}
-                        </TooltipContent>
-                      </Tooltip>
-                      <DropdownMenuContent align="center">
-                        {sourceFolders.map(folder => (
-                          <DropdownMenuItem
-                            key={folder.name}
-                            onClick={() => setTimeout(() => handleFolderChange(folder.name), 0)}
-                            className={currentFolder === folder.name ? 'bg-muted' : ''}
-                          >
-                            {getVCSIcon(folder.name)}
-                            <span className="ml-2">{folder.name}</span>
-                            {getVCSText(folder.name) && <span className="ml-auto text-[10px] text-muted-foreground bg-muted px-1 rounded">{getVCSText(folder.name)}</span>}
-                          </DropdownMenuItem>
-                        ))}
-                      </DropdownMenuContent>
-                    </DropdownMenu>
-                  ) : null}
-                </div>
-              )}
-
-              {/* Git Branch Selector - theo tab active khi multi-repo */}
-              {showGitRepoChrome && currentBranch && (
-                <DropdownMenu
-                  onOpenChange={open => {
-                    if (open) void loadBranches()
-                  }}
-                >
-                  <Tooltip>
-                    <TooltipTrigger asChild>
-                      <DropdownMenuTrigger asChild>
-                        <Button variant="ghost" size="sm" className="flex items-center gap-1 px-1 py-1 h-7 text-xs" onMouseEnter={prefetchBranchList}>
-                          <span className="text-[10px] text-blue-600 dark:text-blue-400 bg-blue-50 dark:bg-blue-900/30 px-1.5 rounded flex items-center gap-0.5">
-                            <GitBranch className="h-2.5 w-2.5" />
-                            {currentBranch}
-                          </span>
-                          {gitAhead > 0 && <span className="text-green-600 dark:text-green-400"> ↑{gitAhead}</span>}
-                          {gitBehind > 0 && <span className="text-red-600 dark:text-red-400"> ↓{gitBehind}</span>}
-                          <ChevronDown className="h-3 w-3" />
-                        </Button>
-                      </DropdownMenuTrigger>
-                    </TooltipTrigger>
-                    <TooltipContent>{activeRepoLabel ? t('git.branchForRepo', { repo: activeRepoLabel }) : currentBranch}</TooltipContent>
-                  </Tooltip>
-                  <DropdownMenuContent align="center" className="max-h-[300px] overflow-y-auto">
-                    {isRefreshingBranchesRemote && (
-                      <div className="flex items-center gap-2 border-b px-2 py-1.5 text-xs text-muted-foreground">
-                        <Loader2 className="h-3 w-3 animate-spin shrink-0" />
-                        <span>{t('git.branchListRefreshing')}</span>
-                      </div>
-                    )}
-                    {isLoadingBranches && !branches ? (
-                      <div className="flex items-center justify-center p-2">
-                        <Loader2 className="h-4 w-4 animate-spin" />
-                        <span className="ml-2 text-xs">{t('common.loading', 'Đang tải...')}</span>
-                      </div>
-                    ) : branches ? (
-                      <>
-                        {branches.local?.all && branches.local.all.length > 0 && (
-                          <>
-                            <div className="px-2 py-1 text-xs font-semibold text-muted-foreground">Local Branches</div>
-                            {branches.local.all.map((branch: string) => {
-                              const branchInfo = branches.local.branches[branch]
-                              const ahead = branchInfo?.ahead || 0
-                              const behind = branchInfo?.behind || 0
-
-                              const isCurrent = currentBranch === branch
-                              return (
-                                <DropdownMenuItem key={branch} onClick={() => setTimeout(() => switchBranch(branch), 0)} className={isCurrent ? 'bg-muted/60' : ''}>
-                                  <GitBranch className={`h-3 w-3 mr-2 shrink-0 ${isCurrent ? 'text-green-600 dark:text-green-400' : ''}`} />
-                                  <span className={`flex-1 truncate ${isCurrent ? 'font-medium text-green-600 dark:text-green-400' : ''}`}>{branch}</span>
-                                  <div className="ml-2 flex shrink-0 items-center gap-1">
-                                    {ahead > 0 && <span className="flex items-center text-[10px] text-green-600 dark:text-green-400">↑{ahead}</span>}
-                                    {behind > 0 && <span className="flex items-center text-[10px] text-red-600 dark:text-red-400">↓{behind}</span>}
-                                  </div>
-                                </DropdownMenuItem>
-                              )
-                            })}
-                          </>
-                        )}
-                        {branches.remote?.all && branches.remote.all.length > 0 && (
-                          <>
-                            <DropdownMenuSeparator />
-                            <div className="px-2 py-1 text-xs font-semibold text-muted-foreground">Remote Branches</div>
-                            {branches.remote.all.map((branch: string) => (
-                              <DropdownMenuItem
-                                key={branch}
-                                onClick={() =>
-                                  setTimeout(() => {
-                                    const branchName = branch.includes('/') ? branch.split('/').slice(1).join('/') : branch
-                                    switchBranch(branchName)
-                                  }, 0)
-                                }
-                                className="text-muted-foreground"
-                              >
-                                <GitBranch className="h-3 w-3 mr-2" />
-                                {branch}
-                              </DropdownMenuItem>
-                            ))}
-                          </>
-                        )}
-                      </>
-                    ) : (
-                      <div className="px-2 py-1 text-xs text-muted-foreground">{t('git.branchListEmpty')}</div>
-                    )}
-                  </DropdownMenuContent>
-                </DropdownMenu>
-              )}
-
+            <WorkspaceRepoChrome
+              shellView={shellView}
+              branchMode={branchMode}
+              onShowLogRefresh={onShowLogRefresh}
+              showLogRefreshing={showLogRefreshing}
+              sourceFolders={sourceFolders}
+              currentFolder={currentFolder}
+              versionControlSystem={versionControlSystem}
+              onRefreshVCS={handleRefreshVCS}
+              isRefreshing={isRefreshing}
+              user={user}
+              isMultiRepo={isMultiRepo}
+              isMultiRepoWorkspace={isMultiRepoWorkspace}
+              projects={projects}
+              selectedProjectId={selectedProjectId}
+              isProjectsLoading={isProjectsLoading}
+              isSourceFoldersLoading={isSourceFoldersLoading}
+              loadProjects={loadProjects}
+              onProjectSelect={handleProjectSelect}
+              runWithEditorGuard={runWithEditorGuard}
+              multiRepoLabels={multiRepoLabels}
+              multiRepoPaths={multiRepoPaths}
+              enableShellSwitcher={enableShellSwitcher}
+              onMultiRepoActiveChange={onMultiRepoActiveChange}
+              multiRepoActiveTab={multiRepoActiveTab}
+              refreshSourceFoldersList={refreshSourceFoldersList}
+              isChangingFolder={isChangingFolder}
+              isLoading={isLoading}
+              onFolderChange={handleFolderChange}
+              folderVCSTypes={folderVCSTypes}
+              showGitRepoChrome={showGitRepoChrome}
+              currentBranch={currentBranch}
+              gitLogRevision={gitLogRevision}
+              gitAhead={gitAhead}
+              gitBehind={gitBehind}
+              activeRepoLabel={activeRepoLabel}
+              loadBranches={loadBranches}
+              prefetchBranchList={prefetchBranchList}
+              isRefreshingBranchesRemote={isRefreshingBranchesRemote}
+              isLoadingBranches={isLoadingBranches}
+              branches={branches}
+              onLogRefSelect={handleLogRefSelect}
+              onSwitchBranch={switchBranch}
+            >
+              {showWorkspaceVcsActions ? (
               <div className="flex items-center gap-1 pt-0.5">
                 {versionControlSystem === 'svn' && (
                   <Tooltip>
@@ -3198,7 +2848,8 @@ export const TitleBar = ({
                   </>
                 ) : null}
               </div>
-            </div>
+              ) : null}
+            </WorkspaceRepoChrome>
           )}
 
           {enableShellSwitcher && shellView === 'tasks' && !tasksDetached && taskToolbarActionsHostRef ? (
