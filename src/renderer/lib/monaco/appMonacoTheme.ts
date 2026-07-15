@@ -1,5 +1,5 @@
 import type * as Monaco from 'monaco-editor'
-import { configureMonacoWorkers } from '@/lib/monaco/configureMonacoWorkers'
+import { configureMonacoWorkers, enableMonacoTypeScriptWorker } from '@/lib/monaco/configureMonacoWorkers'
 import { disableMonacoTypeScriptValidation } from '@/pages/editor/lib/configureMonacoTypeScriptService'
 import { readCssVarAsHexColor, resolveCssColorToHexWithAlpha } from '@/lib/terminal/cssColorResolver'
 import {
@@ -135,9 +135,15 @@ export function applyAppMonacoTheme(monaco: typeof Monaco, appIsDark: boolean, t
 
 export function onAppMonacoBeforeMount(monaco: typeof Monaco): void {
   configureMonacoWorkers()
-  // Before any TS/JS model activates monaco's language service (uses editor.worker stub).
+  // Before any TS/JS model activates — LSP owns IntelliSense; turn off Monaco TS diagnostics.
   disableMonacoTypeScriptValidation(monaco)
   registerAppMonacoThemes(monaco, { includeDiff: true, includeEditorRules: true })
+}
+
+/** Diff / stash / conflict viewers — enable ts.worker before the first TS/JS model. */
+export function onAppMonacoDiffBeforeMount(monaco: typeof Monaco): void {
+  enableMonacoTypeScriptWorker()
+  onAppMonacoBeforeMount(monaco)
 }
 
 export function readAppMonacoPreviewColors(appIsDark: boolean): EditorSyntaxPreviewColors {

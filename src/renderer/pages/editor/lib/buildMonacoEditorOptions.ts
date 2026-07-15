@@ -33,6 +33,7 @@ export function buildMonacoEditorOptions(
     padding: { top: 8, bottom: 8 },
     lineNumbers: settings.lineNumbers,
     lineNumbersMinChars: 3,
+    glyphMargin: true,
     rulers: settings.rulers.length > 0 ? settings.rulers : undefined,
     scrollBeyondLastLine: settings.scrollBeyondLastLine,
     wordWrap: settings.wordWrap,

@@ -6,7 +6,7 @@ import {
   normalizeGitRepoRelativePath,
   resolveGitBlobShowSpec,
 } from '../../shared/git/revisionSpecs'
-import { formatGitError, getGitInstance, isGitNewFileStatus, isGitPathMissingAtRevisionError } from './utils'
+import { formatGitError, getGitInstance, isGitPathMissingAtRevisionError } from './utils'
 
 interface GitDiffResponse {
   status: 'success' | 'error'
@@ -336,15 +336,6 @@ export async function getFileContent(filePath: string, fileStatus: string, commi
     // Deleted from working tree — empty only when reading the working copy (not a revision like HEAD).
     if (!commitHash && (fileStatus === 'D' || fileStatus === 'deleted')) {
       l.info('File is deleted from working tree, returning empty content')
-      return {
-        status: 'success',
-        data: '',
-      }
-    }
-
-    // New/untracked files have no content at HEAD — diff vs empty baseline
-    if (commitHash && !isGitIndexRef(commitHash) && isGitNewFileStatus(fileStatus)) {
-      l.info('File is new/untracked; returning empty content for commit side')
       return {
         status: 'success',
         data: '',

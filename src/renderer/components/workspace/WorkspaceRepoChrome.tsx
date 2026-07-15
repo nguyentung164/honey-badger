@@ -17,8 +17,6 @@ export interface WorkspaceRepoChromeProps {
   shellView: MainShellView
   branchMode: BranchMode
 
-  onShowLogRefresh?: () => void
-  showLogRefreshing?: boolean
   sourceFolders: { name: string; path: string }[]
   currentFolder: string
   versionControlSystem?: 'svn' | 'git'
@@ -94,8 +92,6 @@ function getVCSText(folderName: string, folderVCSTypes: Record<string, FolderVCS
 export function WorkspaceRepoChrome({
   shellView,
   branchMode,
-  onShowLogRefresh,
-  showLogRefreshing = false,
   sourceFolders,
   currentFolder,
   versionControlSystem = 'svn',
@@ -275,40 +271,21 @@ export function WorkspaceRepoChrome({
 
   return (
     <div className={cn('flex gap-1 items-center justify-center h-full px-2', className)} style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties}>
-      {shellView === 'showLog' && onShowLogRefresh ? (
+      {shellView !== 'showLog' && sourceFolders.length > 0 && currentFolder && versionControlSystem === 'svn' && (
         <Tooltip>
           <TooltipTrigger asChild>
             <Button
               variant="link"
               size="sm"
-              onClick={onShowLogRefresh}
-              disabled={showLogRefreshing}
+              onClick={onRefreshVCS}
+              disabled={isRefreshing}
               className="shadow-none focus-visible:ring-0 focus-visible:ring-offset-0 hover:bg-muted transition-colors rounded-sm h-[25px] w-[25px]"
             >
-              <RefreshCw strokeWidth={1.25} absoluteStrokeWidth size={15} className={`h-4 w-4 ${showLogRefreshing ? 'animate-spin' : ''}`} />
+              <RefreshCw strokeWidth={1.25} absoluteStrokeWidth size={15} className={`h-4 w-4 ${isRefreshing ? 'animate-spin' : ''}`} />
             </Button>
           </TooltipTrigger>
-          <TooltipContent>{t('workspaceChrome.refreshShowLog', 'Làm mới log')}</TooltipContent>
+          <TooltipContent>{isRefreshing ? 'Đang làm mới...' : 'Làm mới thông tin SVN'}</TooltipContent>
         </Tooltip>
-      ) : (
-        sourceFolders.length > 0 &&
-        currentFolder &&
-        versionControlSystem === 'svn' && (
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <Button
-                variant="link"
-                size="sm"
-                onClick={onRefreshVCS}
-                disabled={isRefreshing}
-                className="shadow-none focus-visible:ring-0 focus-visible:ring-offset-0 hover:bg-muted transition-colors rounded-sm h-[25px] w-[25px]"
-              >
-                <RefreshCw strokeWidth={1.25} absoluteStrokeWidth size={15} className={`h-4 w-4 ${isRefreshing ? 'animate-spin' : ''}`} />
-              </Button>
-            </TooltipTrigger>
-            <TooltipContent>{isRefreshing ? 'Đang làm mới...' : 'Làm mới thông tin SVN'}</TooltipContent>
-          </Tooltip>
-        )
       )}
 
       {(user || sourceFolders.length > 0) && (

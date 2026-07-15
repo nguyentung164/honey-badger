@@ -38,15 +38,48 @@ export function editorGitHeadCacheKey(
   return `${repoCwd}\0${normalizeEditorGitRepoPath(relativePath)}\0${gitStatus ?? ''}`
 }
 
+const gitHeadContentCache = new Map<string, string>()
+
+type LineChangesCacheEntry = {
+  versionId: number
+  originalText: string
+  changes: Monaco.editor.ILineChange[]
+}
+
+const lineChangesByModelUri = new Map<string, LineChangesCacheEntry>()
+
+export function invalidateEditorGitCaches(): void {
+  gitHeadContentCache.clear()
+  lineChangesByModelUri.clear()
+}
+
 export async function loadEditorGitHeadContent(
   repoCwd: string,
   relativePath: string,
   gitStatus: GitFileStatusCode | null
 ): Promise<string | null> {
+  const cacheKey = editorGitHeadCacheKey(repoCwd, relativePath, gitStatus)
+  const cached = gitHeadContentCache.get(cacheKey)
+  if (cached !== undefined) return cached
+
   const pathForGit = normalizeEditorGitRepoPath(relativePath)
   const result = await window.api.git.cat(pathForGit, gitCatStatus(gitStatus), 'HEAD', { cwd: repoCwd })
-  if (result?.status === 'success' && typeof result.data === 'string') return result.data
+  if (result?.status === 'success' && typeof result.data === 'string') {
+    gitHeadContentCache.set(cacheKey, result.data)
+    return result.data
+  }
   return null
+}
+
+export function peekCachedEditorGitLineChanges(
+  model: Monaco.editor.ITextModel,
+  originalText: string
+): Monaco.editor.ILineChange[] | null {
+  const entry = lineChangesByModelUri.get(model.uri.toString())
+  if (!entry) return null
+  if (entry.versionId !== model.getAlternativeVersionId()) return null
+  if (entry.originalText !== normalizeEditorGitDiffText(originalText)) return null
+  return entry.changes
 }
 
 const SHARED_DIFF_LAYOUT = { width: 800, height: 600 } as const
@@ -56,7 +89,10 @@ type SharedGitDiffComputer = {
   editor: Monaco.editor.IStandaloneDiffEditor
   /** Persistent original-side model — setValue only when the HEAD snapshot changes. */
   originalModel: Monaco.editor.ITextModel
+  /** Snapshot of the live buffer — never attach the visible editor model to the hidden diff editor. */
+  modifiedSnapshot: Monaco.editor.ITextModel
   originalText: string
+  modifiedText: string
 }
 
 let sharedGitDiffComputer: SharedGitDiffComputer | null = null
@@ -83,17 +119,24 @@ function getSharedGitDiffComputer(monaco: typeof Monaco): SharedGitDiffComputer 
     folding: false,
   })
 
-  // Plaintext: diff compute does not need tokenization on the hidden original side.
+  // Plaintext: diff compute does not need tokenization on the hidden side.
   const originalModel = monaco.editor.createModel('', 'plaintext')
+  const modifiedSnapshot = monaco.editor.createModel('', 'plaintext')
 
-  sharedGitDiffComputer = { container, editor, originalModel, originalText: '' }
+  sharedGitDiffComputer = {
+    container,
+    editor,
+    originalModel,
+    modifiedSnapshot,
+    originalText: '',
+    modifiedText: '',
+  }
   return sharedGitDiffComputer
 }
 
 /**
- * Diff HEAD snapshot against the live editor model.
- * Reuses one hidden diff editor + persistent original model; the modified side
- * is the live ITextModel itself — no full-buffer string copy per refresh.
+ * Diff HEAD snapshot against the live editor buffer.
+ * Uses a hidden diff editor with snapshot models so the visible editor keeps its ITextModel.
  */
 export async function computeEditorGitLineChanges(
   monaco: typeof Monaco,
@@ -101,25 +144,49 @@ export async function computeEditorGitLineChanges(
   modifiedModel: Monaco.editor.ITextModel
 ): Promise<Monaco.editor.ILineChange[]> {
   const original = normalizeEditorGitDiffText(originalText)
-  // Cheap unchanged fast path: only pay for getValue() when lengths already match (LF-normalized).
   const lf = monaco.editor.EndOfLinePreference.LF
-  if (original.length === modifiedModel.getValueLength(lf) && original === modifiedModel.getValue(lf)) return []
+  const modified = normalizeEditorGitDiffText(modifiedModel.getValue(lf))
+
+  const cached = peekCachedEditorGitLineChanges(modifiedModel, original)
+  if (cached) return cached
+
+  if (original === modified) {
+    lineChangesByModelUri.set(modifiedModel.uri.toString(), {
+      versionId: modifiedModel.getAlternativeVersionId(),
+      originalText: original,
+      changes: [],
+    })
+    return []
+  }
 
   const computer = getSharedGitDiffComputer(monaco)
-  const { editor: diffEditor, originalModel } = computer
+  const { editor: diffEditor, originalModel, modifiedSnapshot } = computer
   if (computer.originalText !== original) {
     originalModel.setValue(original)
     computer.originalText = original
   }
+  if (computer.modifiedText !== modified) {
+    modifiedSnapshot.setValue(modified)
+    computer.modifiedText = modified
+  }
+  const languageId = modifiedModel.getLanguageId()
+  if (modifiedSnapshot.getLanguageId() !== languageId) {
+    monaco.editor.setModelLanguage(modifiedSnapshot, languageId)
+  }
 
   try {
     const diffReady = waitForDiffCompute(diffEditor)
-    diffEditor.setModel({ original: originalModel, modified: modifiedModel })
+    diffEditor.setModel({ original: originalModel, modified: modifiedSnapshot })
     diffEditor.layout(SHARED_DIFF_LAYOUT)
     await diffReady
-    return diffEditor.getLineChanges() ?? []
+    const changes = diffEditor.getLineChanges() ?? []
+    lineChangesByModelUri.set(modifiedModel.uri.toString(), {
+      versionId: modifiedModel.getAlternativeVersionId(),
+      originalText: original,
+      changes,
+    })
+    return changes
   } finally {
-    // Detach so the hidden diff editor stops recomputing on every keystroke.
     diffEditor.setModel(null)
   }
 }

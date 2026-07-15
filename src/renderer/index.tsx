@@ -4,9 +4,11 @@ import './lib/i18n'
 import { setupElectronLogFormat } from './lib/electronLogSetup'
 import { bootstrapPersistedState } from './lib/bootstrapPersistedState'
 import { initSyncUiSettings } from './lib/syncUiSettings'
+import { configureMonacoWorkers } from './lib/monaco/configureMonacoWorkers'
 
 setupElectronLogFormat()
 initSyncUiSettings()
+configureMonacoWorkers()
 
 import { ThemeProvider } from '@/components/provider/ThemeProvider'
 import { Toaster } from '@/components/ui/sonner'

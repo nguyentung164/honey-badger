@@ -161,8 +161,6 @@ interface TitleBarProps {
   onEditorWorkspaceGuard?: (proceed: () => void) => void
   multiRepoActiveTab?: string
   onMultiRepoActiveChange?: (tabId: string) => void
-  onShowLogRefresh?: () => void
-  showLogRefreshing?: boolean
 }
 
 function TitleBarClockFlagVn({ size = 16 }: { size?: number }) {
@@ -242,8 +240,6 @@ export const TitleBar = ({
   onEditorWorkspaceGuard,
   multiRepoActiveTab = '0',
   onMultiRepoActiveChange,
-  onShowLogRefresh,
-  showLogRefreshing = false,
 }: TitleBarProps) => {
   const navigate = useNavigate()
   const { t } = useTranslation()
@@ -1289,7 +1285,7 @@ export const TitleBar = ({
   const canOpenEvmTool = Boolean(user && !isGuest && ['admin', 'pl', 'pm'].includes(user.role))
   const showVcsChrome = !hideVcsToolbar && (!enableShellSwitcher || shellView === 'vcs')
   const showWorkspaceRepoChrome = !hideVcsToolbar && (!enableShellSwitcher || shellView === 'vcs' || shellView === 'editor' || shellView === 'showLog')
-  const showWorkspaceVcsActions = showWorkspaceRepoChrome && shellView !== 'showLog'
+  const showWorkspaceVcsActions = showWorkspaceRepoChrome && (shellView !== 'showLog' || versionControlSystem === 'git')
   const showTerminalToggle =
     Boolean(onTerminalToggle) &&
     (!enableShellSwitcher || shellView === 'editor') &&
@@ -2590,8 +2586,6 @@ export const TitleBar = ({
             <WorkspaceRepoChrome
               shellView={shellView}
               branchMode={branchMode}
-              onShowLogRefresh={onShowLogRefresh}
-              showLogRefreshing={showLogRefreshing}
               sourceFolders={sourceFolders}
               currentFolder={currentFolder}
               versionControlSystem={versionControlSystem}

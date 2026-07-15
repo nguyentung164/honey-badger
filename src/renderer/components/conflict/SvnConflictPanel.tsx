@@ -1,7 +1,7 @@
 'use client'
 
 import { DiffEditor, Editor, useMonaco } from '@monaco-editor/react'
-import { useAppMonacoThemeId, useSyncAppMonacoTheme } from '@/hooks/useAppMonacoTheme'
+import { onAppMonacoDiffBeforeMount, useAppMonacoThemeId, useSyncAppMonacoTheme } from '@/hooks/useAppMonacoTheme'
 import { ChevronLeft, ChevronRight, FileWarning, FolderOpen, Loader2, Pencil, RefreshCw } from 'lucide-react'
 import { IPC } from 'main/constants'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
@@ -574,14 +574,15 @@ export function SvnConflictPanel({
                   </TabsContent>
                 )}
                 <TabsContent value="base" className="flex-1 min-h-0 mt-2">
-                  <Editor height="100%" language={editorLang} theme={editorTheme} value={conflictDetail.content.base} options={editorOptions} />
+                  <Editor beforeMount={onAppMonacoDiffBeforeMount} height="100%" language={editorLang} theme={editorTheme} value={conflictDetail.content.base} options={editorOptions} />
                 </TabsContent>
                 <TabsContent value="working" className="flex-1 min-h-0 mt-2">
-                  <Editor height="100%" language={editorLang} theme={editorTheme} value={conflictDetail.content.working} options={editorOptions} />
+                  <Editor beforeMount={onAppMonacoDiffBeforeMount} height="100%" language={editorLang} theme={editorTheme} value={conflictDetail.content.working} options={editorOptions} />
                 </TabsContent>
                 <TabsContent value="diff" className="flex-1 min-h-0 mt-2">
                   <div className="h-full rounded border overflow-hidden">
                     <DiffEditor
+                      beforeMount={onAppMonacoDiffBeforeMount}
                       height="100%"
                       language={editorLang}
                       theme={editorTheme}

@@ -74,6 +74,8 @@ export type GitLogSyncUpstreamSource = 'tracking' | 'origin_branch' | 'origin_he
 
 export interface GitLogSyncMarkers {
   currentBranch: string
+  /** Ref used for incoming/outgoing comparison (HEAD or explicit log branch). */
+  compareRef: string
   upstream?: string
   upstreamSource: GitLogSyncUpstreamSource
   incomingHashes: string[]
@@ -481,7 +483,7 @@ export async function log(filePath: string | string[] = '.', options?: GitLogOpt
   }
 }
 
-export async function getLogSyncMarkers(cwd?: string): Promise<GitResponse & { data?: GitLogSyncMarkers }> {
+export async function getLogSyncMarkers(cwd?: string, logRef?: string): Promise<GitResponse & { data?: GitLogSyncMarkers }> {
   try {
     const git = await getGitInstance(cwd)
     if (!git) {
@@ -490,25 +492,31 @@ export async function getLogSyncMarkers(cwd?: string): Promise<GitResponse & { d
 
     const branchSummary = await git.branchLocal()
     const currentBranch = branchSummary.current
-    if (!currentBranch) {
+    const trimmedLogRef = logRef?.trim()
+    const compareRef = trimmedLogRef || 'HEAD'
+    const branchForUpstream = trimmedLogRef || currentBranch || ''
+
+    if (!currentBranch && !trimmedLogRef) {
       return {
         status: 'success',
-        data: { currentBranch: '', upstreamSource: 'none', incomingHashes: [], outgoingHashes: [] },
+        data: { currentBranch: '', compareRef: 'HEAD', upstreamSource: 'none', incomingHashes: [], outgoingHashes: [] },
       }
     }
 
-    const { upstream, upstreamSource } = await resolveUpstreamRef(git, currentBranch)
+    const { upstream, upstreamSource } = branchForUpstream
+      ? await resolveUpstreamRef(git, branchForUpstream)
+      : { upstream: '', upstreamSource: 'none' as GitLogSyncUpstreamSource }
 
     if (!upstream) {
       return {
         status: 'success',
-        data: { currentBranch, upstreamSource: 'none', incomingHashes: [], outgoingHashes: [] },
+        data: { currentBranch: currentBranch || '', compareRef, upstreamSource: 'none', incomingHashes: [], outgoingHashes: [] },
       }
     }
 
     const [incomingRaw, outgoingRaw] = await Promise.all([
-      git.raw(['rev-list', '--format=%H', `HEAD..${upstream}`]),
-      git.raw(['rev-list', '--format=%H', `${upstream}..HEAD`]),
+      git.raw(['rev-list', '--format=%H', `${compareRef}..${upstream}`]),
+      git.raw(['rev-list', '--format=%H', `${upstream}..${compareRef}`]),
     ])
 
     const parseRevListHashes = (raw: string) =>
@@ -520,7 +528,8 @@ export async function getLogSyncMarkers(cwd?: string): Promise<GitResponse & { d
     return {
       status: 'success',
       data: {
-        currentBranch,
+        currentBranch: currentBranch || '',
+        compareRef,
         upstream,
         upstreamSource,
         incomingHashes: parseRevListHashes(incomingRaw),

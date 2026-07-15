@@ -239,6 +239,8 @@ export function buildDiffEditorOptions(
     },
     diffAlgorithm: viewOptions.diffAlgorithm,
     renderValidationDecorations: 'off' as const,
+    stickyScroll: { enabled: false },
+    inlayHints: { enabled: 'off' as const },
   }
 }
 

@@ -5,6 +5,7 @@ import { useTranslation } from 'react-i18next'
 import type { ShellTabActiveProps } from 'shared/shellTabTypes'
 import { ResizableHandle, ResizablePanel, ResizablePanelGroup } from '@/components/ui/resizable'
 import { GlowLoader } from '@/components/ui-elements/GlowLoader'
+import { onAppMonacoBeforeMount } from '@/hooks/useAppMonacoTheme'
 import toast from '@/components/ui-elements/Toast'
 import type { EditorWorkspaceFolder } from '@/lib/multiRepoUtils'
 import { EditorCloseConfirm } from '@/pages/editor/EditorCloseConfirm'
@@ -197,13 +198,15 @@ export function EditorWorkbench({
   }, [tabSummaries])
 
   useEffect(() => {
+    if (!shellTabActive) return
     scheduleBackgroundWork(
       () => {
+        void import('monaco-editor').then(onAppMonacoBeforeMount)
         void import('@/components/code/CodeEditor')
       },
-      { timeout: 4000 }
+      { timeout: 300 }
     )
-  }, [])
+  }, [shellTabActive])
 
   const { panelGroupRef, initialLayout, onLayoutChanged } = useEditorSidebarWidth()
   const activeTabId = useEditorWorkspace(s => s.activeTabId)
@@ -225,6 +228,7 @@ export function EditorWorkbench({
   const markTabOutOfSyncWithDisk = useEditorWorkspace(s => s.markTabOutOfSyncWithDisk)
   const revertDirtyTabs = useEditorWorkspace(s => s.revertDirtyTabs)
   const pinTab = useEditorWorkspace(s => s.pinTab)
+  const reorderTabs = useEditorWorkspace(s => s.reorderTabs)
 
   useEffect(() => {
     if (useMultiRootExplorer && workspaceSessionKey && workspaceFolders?.length) {
@@ -585,6 +589,7 @@ export function EditorWorkbench({
                 onSelectTab={setActiveTab}
                 onCloseTab={requestCloseTab}
                 onPinTab={pinTab}
+                onReorderTabs={reorderTabs}
                 getGitStatus={getTabGitStatus}
                 getTabMenuActions={getTabMenuActions}
               />

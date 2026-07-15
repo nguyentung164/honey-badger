@@ -6,7 +6,7 @@ import type { AiRepairProposal } from 'shared/automation/types'
 import { Button } from '@/components/ui/button'
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import toast from '@/components/ui-elements/Toast'
-import { onAppMonacoBeforeMount, useGlobalAppMonacoThemeSync } from '@/hooks/useAppMonacoTheme'
+import { onAppMonacoDiffBeforeMount, useGlobalAppMonacoThemeSync } from '@/hooks/useAppMonacoTheme'
 
 interface Props {
   caseResultId: string | null
@@ -89,7 +89,7 @@ export function AiRepairDialog({ caseResultId, open, onOpenChange, onApplied }: 
                 modified={proposal.proposedSpec}
                 language="typescript"
                 theme={monacoTheme}
-                beforeMount={onAppMonacoBeforeMount}
+                beforeMount={onAppMonacoDiffBeforeMount}
                 options={{ renderSideBySide: true, readOnly: true, minimap: { enabled: false } }}
               />
             </div>

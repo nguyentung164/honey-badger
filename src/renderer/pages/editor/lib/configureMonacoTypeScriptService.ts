@@ -37,7 +37,7 @@ const MONACO_TS_LSP_ONLY_MODE_CONFIGURATION = {
 /**
  * Monaco ships its own TypeScript worker without the workspace tsconfig `paths`.
  * VS Code uses only tsserver via LSP — disable Monaco worker features to avoid false errors
- * like "Cannot find module '@/…'" and worker errors when we stub ts.worker with editor.worker.
+ * like "Cannot find module '@/…'" while LSP/tsserver provides the real diagnostics.
  *
  * Must run before the first typescript/javascript model is created (see onAppMonacoBeforeMount).
  */

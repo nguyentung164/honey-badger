@@ -51,3 +51,24 @@ export function formatDateTime(date: Date | string, language: string): string {
   if (Number.isNaN(dateObj.getTime())) return ''
   return `${formatDate(dateObj, language)} ${formatTime(dateObj, language)}`
 }
+
+function formatLocalDateYmd(date: Date): string {
+  const y = date.getFullYear()
+  const m = String(date.getMonth() + 1).padStart(2, '0')
+  const d = String(date.getDate()).padStart(2, '0')
+  return `${y}-${m}-${d}`
+}
+
+/** git log --since: đầu ngày theo timezone local của máy user. */
+export function toGitLogSinceParam(date: Date): string {
+  return formatLocalDateYmd(date)
+}
+
+/**
+ * git log --until là exclusive (trước mốc thời điểm).
+ * Trả về ngày kế tiếp để bao trọn cả ngày `date` user chọn trên calendar.
+ */
+export function toGitLogUntilParam(date: Date): string {
+  const nextDay = new Date(date.getFullYear(), date.getMonth(), date.getDate() + 1)
+  return formatLocalDateYmd(nextDay)
+}

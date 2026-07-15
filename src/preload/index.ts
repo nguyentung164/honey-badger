@@ -121,11 +121,12 @@ declare global {
         status: (options?: { cwd?: string }) => Promise<any>
         log: (filePath: string | string[], options?: any) => Promise<any>
         log_graph: (filePath: string | string[], options?: any) => Promise<any>
-        get_log_sync_markers: (cwd?: string) => Promise<{
+        get_log_sync_markers: (cwd?: string, logRef?: string) => Promise<{
           status: string
           message?: string
           data?: {
             currentBranch: string
+            compareRef: string
             upstream?: string
             upstreamSource?: 'tracking' | 'origin_branch' | 'origin_head' | 'none'
             incomingHashes: string[]
@@ -1584,7 +1585,7 @@ contextBridge.exposeInMainWorld('api', {
     status: (options?: { cwd?: string }) => ipcRenderer.invoke(IPC.GIT.STATUS, options),
     log: (filePath: string | string[], options?: any) => ipcRenderer.invoke(IPC.GIT.LOG, filePath, options),
     log_graph: (filePath: string | string[], options?: any) => ipcRenderer.invoke(IPC.GIT.LOG_GRAPH, filePath, options),
-    get_log_sync_markers: (cwd?: string) => ipcRenderer.invoke(IPC.GIT.GET_LOG_SYNC_MARKERS, cwd),
+    get_log_sync_markers: (cwd?: string, logRef?: string) => ipcRenderer.invoke(IPC.GIT.GET_LOG_SYNC_MARKERS, cwd, logRef),
     getCommitFiles: (commitHash: string, options?: { cwd?: string }) => ipcRenderer.invoke(IPC.GIT.GET_COMMIT_FILES, commitHash, options),
     commit: (
       commitMessage: string,

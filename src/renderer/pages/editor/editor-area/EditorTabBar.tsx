@@ -1,7 +1,10 @@
 'use client'
 
-import { EditorTabItem } from '@/pages/editor/editor-area/EditorTabItem'
-import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
+import { closestCenter, DndContext, type DragEndEvent, MouseSensor, PointerSensor, useSensor, useSensors } from '@dnd-kit/core'
+import { restrictToHorizontalAxis } from '@dnd-kit/modifiers'
+import { horizontalListSortingStrategy, SortableContext } from '@dnd-kit/sortable'
+import { EditorSortableTabItem, EditorTabItem } from '@/pages/editor/editor-area/EditorTabItem'
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import type { GitFileStatusCode } from '@/components/git/GitFileStatusBadge'
 import type { EditorTabMenuActions } from '@/pages/editor/editor-area/EditorTabContextMenu'
 import type { EditorTabSummary } from '@/pages/editor/hooks/useEditorTabSelectors'
@@ -12,6 +15,7 @@ type EditorTabBarProps = {
   onSelectTab: (tabId: string) => void
   onCloseTab: (tabId: string) => void
   onPinTab?: (tabId: string) => void
+  onReorderTabs?: (activeTabId: string, overTabId: string) => void
   getGitStatus?: (relativePath: string) => GitFileStatusCode | null
   getTabMenuActions: (tab: EditorTabSummary, tabIndex: number) => EditorTabMenuActions
 }
@@ -30,7 +34,7 @@ function readScrollMetrics(el: HTMLDivElement): TabBarScrollMetrics {
   }
 }
 
-export function EditorTabBar({ tabs, activeTabId, onSelectTab, onCloseTab, onPinTab, getGitStatus, getTabMenuActions }: EditorTabBarProps) {
+export function EditorTabBar({ tabs, activeTabId, onSelectTab, onCloseTab, onPinTab, onReorderTabs, getGitStatus, getTabMenuActions }: EditorTabBarProps) {
   const hostRef = useRef<HTMLDivElement>(null)
   const scrollRef = useRef<HTMLDivElement>(null)
   const tabItemRefs = useRef(new Map<string, HTMLDivElement>())
@@ -50,6 +54,26 @@ export function EditorTabBar({ tabs, activeTabId, onSelectTab, onCloseTab, onPin
 
   const onSelectTabRef = useRef(onSelectTab)
   onSelectTabRef.current = onSelectTab
+  const onReorderTabsRef = useRef(onReorderTabs)
+  onReorderTabsRef.current = onReorderTabs
+
+  const tabIds = useMemo(() => tabs.map(tab => tab.id), [tabs])
+  const sortableEnabled = Boolean(onReorderTabs) && tabs.length > 1
+
+  const sensors = useSensors(
+    useSensor(PointerSensor, {
+      activationConstraint: { distance: 6 },
+    }),
+    useSensor(MouseSensor, {
+      activationConstraint: { distance: 6 },
+    })
+  )
+
+  const handleDragEnd = useCallback((event: DragEndEvent) => {
+    const { active, over } = event
+    if (!over || active.id === over.id) return
+    onReorderTabsRef.current?.(String(active.id), String(over.id))
+  }, [])
 
   const updateScrollMetrics = useCallback(() => {
     const el = scrollRef.current
@@ -91,7 +115,6 @@ export function EditorTabBar({ tabs, activeTabId, onSelectTab, onCloseTab, onPin
       const currentTabs = tabsRef.current
       const currentActiveId = activeTabIdRef.current
 
-      // Shift + wheel — switch open tabs; explorer auto-reveal follows activeRelativePath
       if (e.shiftKey && currentTabs.length > 1) {
         const idx = currentTabs.findIndex(t => t.id === currentActiveId)
         if (idx < 0) return
@@ -107,7 +130,6 @@ export function EditorTabBar({ tabs, activeTabId, onSelectTab, onCloseTab, onPin
         return
       }
 
-      // Normal wheel — horizontal scroll on tab strip when overflowing
       const delta = e.deltaY !== 0 ? e.deltaY : e.deltaX
       if (delta === 0 || el.scrollWidth <= el.clientWidth) return
 
@@ -130,26 +152,44 @@ export function EditorTabBar({ tabs, activeTabId, onSelectTab, onCloseTab, onPin
   const stickyCount = tabs.findIndex(t => !t.isSticky)
   const stickyEnd = stickyCount === -1 ? tabs.length : stickyCount
 
+  const tabItems = tabs.map((tab, tabIndex) => {
+    const itemProps = {
+      tab,
+      tabIndex,
+      tabCount: tabs.length,
+      active: tab.id === activeTabId,
+      showStickySeparator: tabIndex === stickyEnd && stickyEnd > 0 && stickyEnd < tabs.length,
+      gitStatus: !tab.isCompare ? (getGitStatus?.(tab.relativePath) ?? null) : null,
+      getTabMenuActions,
+      onSelectTab,
+      onCloseTab,
+      onPinTab,
+      setTabRef,
+    }
+    return sortableEnabled ? <EditorSortableTabItem key={tab.id} {...itemProps} /> : <EditorTabItem key={tab.id} {...itemProps} />
+  })
+
+  const tabStrip = (
+    <div ref={scrollRef} className="editor-tab-bar flex h-[var(--editor-chrome-row-height)] min-w-0 items-stretch overflow-x-auto overflow-y-hidden">
+      {sortableEnabled ? (
+        <SortableContext items={tabIds} strategy={horizontalListSortingStrategy}>
+          {tabItems}
+        </SortableContext>
+      ) : (
+        tabItems
+      )}
+    </div>
+  )
+
   return (
     <div ref={hostRef} className="editor-tab-bar-host flex shrink-0 flex-col border-b bg-muted/20">
-      <div ref={scrollRef} className="editor-tab-bar flex h-[var(--editor-chrome-row-height)] items-stretch overflow-x-auto overflow-y-hidden">
-        {tabs.map((tab, tabIndex) => (
-          <EditorTabItem
-            key={tab.id}
-            tab={tab}
-            tabIndex={tabIndex}
-            tabCount={tabs.length}
-            active={tab.id === activeTabId}
-            showStickySeparator={tabIndex === stickyEnd && stickyEnd > 0 && stickyEnd < tabs.length}
-            gitStatus={!tab.isCompare ? (getGitStatus?.(tab.relativePath) ?? null) : null}
-            getTabMenuActions={getTabMenuActions}
-            onSelectTab={onSelectTab}
-            onCloseTab={onCloseTab}
-            onPinTab={onPinTab}
-            setTabRef={setTabRef}
-          />
-        ))}
-      </div>
+      {sortableEnabled ? (
+        <DndContext sensors={sensors} collisionDetection={closestCenter} modifiers={[restrictToHorizontalAxis]} onDragEnd={handleDragEnd}>
+          {tabStrip}
+        </DndContext>
+      ) : (
+        tabStrip
+      )}
       {(() => {
         const scrollRange = Math.max(0, scrollMetrics.scrollWidth - scrollMetrics.clientWidth)
         const hasOverflow = scrollRange > 1

@@ -1,7 +1,7 @@
 'use client'
 
 import { DiffEditor, useMonaco } from '@monaco-editor/react'
-import { useAppMonacoThemeId, useSyncAppMonacoTheme } from '@/hooks/useAppMonacoTheme'
+import { onAppMonacoDiffBeforeMount, useAppMonacoThemeId, useSyncAppMonacoTheme } from '@/hooks/useAppMonacoTheme'
 import { Archive, Eye, GitBranch, Loader2, Pencil, Trash2 } from 'lucide-react'
 import { useEffect, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
@@ -760,6 +760,7 @@ export function GitStashDialog({ open, onOpenChange, onStashApplied, cwd }: GitS
                       modified={viewStashFileModified}
                       keepCurrentOriginalModel
                       keepCurrentModifiedModel
+                      beforeMount={onAppMonacoDiffBeforeMount}
                       options={{
                         ...stashEditorOptions,
                         renderSideBySide: false,

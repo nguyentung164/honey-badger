@@ -1,5 +1,11 @@
 import type { EditorTab } from '@/pages/editor/lib/editorWorkspaceTypes'
 
+function arrayMove<T>(items: readonly T[], fromIndex: number, toIndex: number): T[] {
+  const next = [...items]
+  next.splice(toIndex, 0, ...next.splice(fromIndex, 1))
+  return next
+}
+
 /** VS Code: editor group sticky tab count at the front of the tab strip. */
 export function countStickyTabs(tabs: readonly Pick<EditorTab, 'isSticky'>[]): number {
   let count = 0
@@ -59,4 +65,27 @@ export function moveTabToStickyEnd(tabs: readonly EditorTab[], tabId: string): E
   const next = [...without]
   next.splice(stickyCount, 0, tab)
   return next
+}
+
+/** VS Code: reorder tabs within sticky / non-sticky zones — pinned tabs cannot cross the separator. */
+export function reorderEditorTabs(tabs: readonly EditorTab[], activeTabId: string, overTabId: string): EditorTab[] | null {
+  const fromIndex = tabs.findIndex(t => t.id === activeTabId)
+  const toIndex = tabs.findIndex(t => t.id === overTabId)
+  if (fromIndex < 0 || toIndex < 0 || fromIndex === toIndex) return null
+
+  const tab = tabs[fromIndex]
+  const stickyCount = countStickyTabs(tabs)
+  const maxIndex = tabs.length - 1
+
+  let targetIndex = toIndex
+  if (tab.isSticky) {
+    if (stickyCount === 0) return null
+    targetIndex = Math.min(targetIndex, stickyCount - 1)
+  } else {
+    targetIndex = Math.max(targetIndex, stickyCount)
+  }
+  targetIndex = Math.min(maxIndex, Math.max(0, targetIndex))
+  if (fromIndex === targetIndex) return null
+
+  return arrayMove([...tabs], fromIndex, targetIndex)
 }

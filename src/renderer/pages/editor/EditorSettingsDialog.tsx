@@ -6,6 +6,7 @@ import { useTranslation } from 'react-i18next'
 import {
   SETTINGS_CONTROL_CLASS,
   SETTINGS_FONT_MICRO,
+  SETTINGS_PREVIEW_MIN_HEIGHT,
   SettingsAccordion,
   SettingsAccordionSection,
   SettingsDialogFrame,
@@ -31,6 +32,7 @@ import {
   type TerminalFontWeightId,
 } from '@/lib/terminal/terminalPrefs'
 import { cn } from '@/lib/utils'
+import { GlowLoader } from '@/components/ui-elements/GlowLoader'
 import { EditorSettingsPreview } from '@/pages/editor/EditorSettingsPreview'
 import {
   EDITOR_TAB_SIZE_OPTIONS,
@@ -128,9 +130,27 @@ export function EditorSettingsDialog({ open, onOpenChange }: EditorSettingsDialo
   const patchSettings = useEditorSettings(s => s.patchSettings)
   const resetSettings = useEditorSettings(s => s.resetSettings)
   const [searchQuery, setSearchQuery] = useState('')
+  const [previewMountReady, setPreviewMountReady] = useState(false)
 
   useEffect(() => {
-    if (!open) setSearchQuery('')
+    if (!open) {
+      setSearchQuery('')
+      setPreviewMountReady(false)
+      return
+    }
+    // Wait for dialog layout/animation so Monaco automaticLayout does not spin on zero-size panels.
+    let cancelled = false
+    let outerFrame = 0
+    const innerFrame = requestAnimationFrame(() => {
+      outerFrame = requestAnimationFrame(() => {
+        if (!cancelled) setPreviewMountReady(true)
+      })
+    })
+    return () => {
+      cancelled = true
+      cancelAnimationFrame(innerFrame)
+      if (outerFrame) cancelAnimationFrame(outerFrame)
+    }
   }, [open])
 
   const patch = (partial: Partial<EditorSettings>) => patchSettings(partial)
@@ -161,7 +181,15 @@ export function EditorSettingsDialog({ open, onOpenChange }: EditorSettingsDialo
           <SettingsDialogSplitLayout
             previewPanelId="editor-settings-preview"
             contentPanelId="editor-settings-content"
-            preview={<EditorSettingsPreview variant="monaco" dialogOpen={open} className="h-full" />}
+            preview={
+              open && !previewMountReady ? (
+                <div className={cn('flex h-full min-h-[18rem] items-center justify-center rounded-md border border-border/60 bg-muted/10', SETTINGS_PREVIEW_MIN_HEIGHT)}>
+                  <GlowLoader className="h-8 w-8" />
+                </div>
+              ) : (
+                <EditorSettingsPreview variant="monaco" dialogOpen={open && previewMountReady} className="h-full" />
+              )
+            }
           >
             <SettingsTabPanel>
               <SettingsAccordion>

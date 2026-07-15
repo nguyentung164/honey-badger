@@ -97,7 +97,7 @@ export function registerGitIpcHandlers() {
   // Git log
   ipcMain.handle(IPC.GIT.LOG, async (_event, filePath: string | string[], options?: GitLogOptions) => await gitLog(filePath, options))
 
-  ipcMain.handle(IPC.GIT.GET_LOG_SYNC_MARKERS, async (_event, cwd?: string) => await gitGetLogSyncMarkers(cwd))
+  ipcMain.handle(IPC.GIT.GET_LOG_SYNC_MARKERS, async (_event, cwd?: string, logRef?: string) => await gitGetLogSyncMarkers(cwd, logRef))
 
   // Git log graph
   ipcMain.handle(IPC.GIT.LOG_GRAPH, async (_event, filePath: string | string[], options?: GitLogOptions) => await gitGetLogGraph(filePath, options))

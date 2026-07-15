@@ -190,10 +190,14 @@ export const EditorMonacoHost = forwardRef<CodeEditorHandle, EditorMonacoHostPro
     prevTabIdRef.current = tabId
 
     if (revealAt || tabChanged) {
-      applyEditorMonacoSettings(editor, editorSettings, false)
+      if (tabChanged) {
+        applyEditorMonacoSettings(editor, editorSettings, false)
+      }
       attachModelToEditor(editor, monaco, repoCwd, relativePath, tabId, revealAt)
       scheduleEditorLayout()
-      refreshEditorMonacoAfterSettings(editor)
+      if (revealAt) {
+        refreshEditorMonacoAfterSettings(editor)
+      }
     }
   }, [tabId, relativePath, contentLoaded, revealAt, repoCwd, editorSettings, settingsKey, scheduleEditorLayout])
 

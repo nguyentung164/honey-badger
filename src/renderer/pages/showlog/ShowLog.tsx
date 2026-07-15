@@ -2,11 +2,11 @@
 import type { ColumnDef, SortingState } from '@tanstack/react-table'
 import chalk from 'chalk'
 import { IPC } from 'main/constants'
-import { forwardRef, type MutableRefObject, memo, startTransition, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
+import { forwardRef, type MutableRefObject, memo, startTransition, useCallback, useDeferredValue, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import type { DateRange } from 'react-day-picker'
 import { createPortal } from 'react-dom'
 import { useTranslation } from 'react-i18next'
-import { formatDateTime } from 'shared/utils'
+import { formatDateTime, toGitLogSinceParam, toGitLogUntilParam } from 'shared/utils'
 import { GitConflictDialog } from '@/components/dialogs/git/GitConflictDialog'
 import { GitInteractiveRebaseDialog } from '@/components/dialogs/git/GitInteractiveRebaseDialog'
 import { AIAnalysisDialog } from '@/components/dialogs/showlog/AIAnalysisDialog'
@@ -34,6 +34,7 @@ import toast from '@/components/ui-elements/Toast'
 import { openGitHistoryDiff, openSvnRevisionDiff, openSvnWorkingDiff } from '@/lib/diffViewer/openDiffViewer'
 import i18n from '@/lib/i18n'
 import { buildShowLogOpenPayload, canOpenShowLogEmbedded, type ShowLogOpenPayload } from '@/lib/openShowLog'
+import { buildGitCommitWebUrl, resolveOriginRemoteUrl } from '@/lib/gitCommitWebUrl'
 import { cn } from '@/lib/utils'
 import { useShowLogToolbarPortalTarget } from '@/pages/main/ShowLogToolbarPortalContext'
 import logger from '@/services/logger'
@@ -53,7 +54,6 @@ export interface LogEntry {
   isoDate: string
   message: string
   referenceId: string
-  action: string[]
   changedFiles: LogFile[]
   /** Git: commit on upstream not yet merged into checked-out branch */
   syncStatus?: 'incoming' | 'outgoing'
@@ -83,6 +83,77 @@ interface GitLogFile {
   deletions: number
 }
 
+const GIT_LOG_PAGE_SIZE = 100
+
+function isGitWorkingTreeDirty(data: {
+  conflicted?: string[]
+  not_added?: string[]
+  created?: string[]
+  deleted?: string[]
+  modified?: string[]
+  renamed?: string[]
+  staged?: string[]
+}): boolean {
+  return (
+    (data.conflicted?.length ?? 0) > 0 ||
+    (data.not_added?.length ?? 0) > 0 ||
+    (data.created?.length ?? 0) > 0 ||
+    (data.deleted?.length ?? 0) > 0 ||
+    (data.modified?.length ?? 0) > 0 ||
+    (data.renamed?.length ?? 0) > 0 ||
+    (data.staged?.length ?? 0) > 0
+  )
+}
+
+type GitLogQueryContext = {
+  path: string | string[]
+  cwd?: string
+  logRefs?: string[]
+  revision?: string
+  /** Ref used for incoming/outgoing sync markers (null = HEAD). */
+  compareLogRef?: string | null
+  incomingHashes: string[]
+  outgoingHashes: string[]
+}
+
+function parseGitLogEntries(
+  gitLogData: GitLogEntry[],
+  incomingHashSet: Set<string>,
+  outgoingHashSet: Set<string>,
+  language: string
+): LogEntry[] {
+  return gitLogData
+    .filter(entry => typeof entry?.hash === 'string' && /^[0-9a-f]{40}$/i.test(entry.hash))
+    .map(entry => {
+      const originalDate = new Date(entry.date)
+      const fullMessage = entry.body ? `${entry.subject}\n\n${entry.body}`.trim() : entry.subject
+      return {
+        revision: entry.hash.substring(0, 8),
+        fullCommitId: entry.hash,
+        author: entry.author,
+        email: entry.authorEmail,
+        date: formatDateTime(originalDate, language),
+        isoDate: originalDate.toISOString(),
+        message: fullMessage,
+        referenceId: entry.subject,
+        changedFiles: [],
+        syncStatus: incomingHashSet.has(entry.hash) ? 'incoming' : outgoingHashSet.has(entry.hash) ? 'outgoing' : undefined,
+      }
+    })
+}
+
+function applySyncMarkersToEntries(
+  entries: LogEntry[],
+  incomingHashSet: Set<string>,
+  outgoingHashSet: Set<string>
+): LogEntry[] {
+  return entries.map(entry => {
+    const hash = entry.fullCommitId || entry.revision
+    const syncStatus = incomingHashSet.has(hash) ? 'incoming' : outgoingHashSet.has(hash) ? 'outgoing' : undefined
+    return entry.syncStatus === syncStatus ? entry : { ...entry, syncStatus }
+  })
+}
+
 const SHOWLOG_LAYOUT_KEY = 'showlog-layout-config'
 const SHOWLOG_PANEL_SIZES_KEY = 'showlog-panel-sizes-config'
 
@@ -95,6 +166,50 @@ interface ShowlogPanelSizes {
   secondPanelSize: number
   commitPanelSize: number
   filesPanelSize: number
+}
+
+const DEFAULT_SHOWLOG_PANEL_SIZES: ShowlogPanelSizes = {
+  mainPanelSize: 50,
+  secondPanelSize: 50,
+  commitPanelSize: 50,
+  filesPanelSize: 50,
+}
+
+const SHOWLOG_PANEL_MAIN_ID = 'showlog-main'
+const SHOWLOG_PANEL_SECOND_ID = 'showlog-second'
+const SHOWLOG_PANEL_COMMIT_ID = 'showlog-commit'
+const SHOWLOG_PANEL_FILES_ID = 'showlog-files'
+
+function clampPanelSize(size: number, min = 20, max = 80): number {
+  if (!Number.isFinite(size)) return 50
+  return Math.max(min, Math.min(max, size))
+}
+
+function readSavedShowlogPanelSizes(): ShowlogPanelSizes {
+  try {
+    const saved = localStorage.getItem(SHOWLOG_PANEL_SIZES_KEY)
+    if (!saved) return DEFAULT_SHOWLOG_PANEL_SIZES
+    const sizes = JSON.parse(saved) as Partial<ShowlogPanelSizes>
+    return {
+      mainPanelSize: clampPanelSize(sizes.mainPanelSize ?? DEFAULT_SHOWLOG_PANEL_SIZES.mainPanelSize),
+      secondPanelSize: clampPanelSize(sizes.secondPanelSize ?? DEFAULT_SHOWLOG_PANEL_SIZES.secondPanelSize),
+      commitPanelSize: clampPanelSize(sizes.commitPanelSize ?? DEFAULT_SHOWLOG_PANEL_SIZES.commitPanelSize),
+      filesPanelSize: clampPanelSize(sizes.filesPanelSize ?? DEFAULT_SHOWLOG_PANEL_SIZES.filesPanelSize),
+    }
+  } catch {
+    return DEFAULT_SHOWLOG_PANEL_SIZES
+  }
+}
+
+function readSavedShowlogLayoutDirection(): 'horizontal' | 'vertical' {
+  try {
+    const saved = localStorage.getItem(SHOWLOG_LAYOUT_KEY)
+    if (!saved) return 'horizontal'
+    const config = JSON.parse(saved) as ShowlogLayoutConfig
+    return config.direction === 'vertical' ? 'vertical' : 'horizontal'
+  } catch {
+    return 'horizontal'
+  }
 }
 
 const Table = forwardRef<HTMLTableElement, React.HTMLAttributes<HTMLTableElement> & { wrapperClassName?: string }>(({ className, wrapperClassName, ...props }, ref) => {
@@ -138,6 +253,29 @@ const MessageWithRedmineLinks = memo(function MessageWithRedmineLinks({ text, cl
   )
 })
 
+const CommitHashLink = memo(function CommitHashLink({
+  label,
+  webUrl,
+}: {
+  label: string
+  webUrl: string | null
+}) {
+  if (!webUrl) return <span>{label}</span>
+  return (
+    <button
+      type="button"
+      className="text-primary underline cursor-pointer hover:opacity-80 focus:outline-none focus:ring-1 focus:ring-primary rounded px-0.5"
+      title={webUrl}
+      onClick={e => {
+        e.stopPropagation()
+        void window.api.system.open_external_url(webUrl)
+      }}
+    >
+      {label}
+    </button>
+  )
+})
+
 const StatusSummary = memo(({ statusSummary }: { statusSummary: Record<string, number> }) => (
   <div className="flex gap-2">
     {Object.entries(statusSummary).map(([code, count]) =>
@@ -169,6 +307,8 @@ export type ShowLogProps = {
   isMultiRepo?: boolean
   /** Embedded: gọi sau khi đã consume payload autoLoad để MainPage xóa state. */
   onPendingOpenPayloadConsumed?: () => void
+  /** Embedded: tab Show Log đang active (không bị CSS hidden). */
+  shellTabActive?: boolean
 }
 
 function applyOpenPayload(
@@ -203,6 +343,7 @@ export default function ShowLog({
   activeRepoPath,
   isMultiRepo = false,
   onPendingOpenPayloadConsumed,
+  shellTabActive = true,
 }: ShowLogProps) {
   const embedded = mode === 'embedded'
   const portal = useShowLogToolbarPortalTarget()
@@ -211,7 +352,7 @@ export default function ShowLog({
   const { versionControlSystem, loadConfigurationConfig, isConfigLoaded, sourceFolder } = useConfigurationStore()
   const selectedProjectId = useSelectedProjectStore(s => s.selectedProjectId)
   const [windowContext, setWindowContext] = useState<ShowLogWindowContext | null>(null)
-  const [layoutDirection, setLayoutDirection] = useState<'horizontal' | 'vertical'>('horizontal')
+  const [layoutDirection, setLayoutDirection] = useState<'horizontal' | 'vertical'>(readSavedShowlogLayoutDirection)
   const gitLogRevision = useShowLogSessionStore(s => s.gitLogRevision)
   const setGitLogRevision = useShowLogSessionStore(s => s.setGitLogRevision)
   const resetLogSession = useShowLogSessionStore(s => s.resetLogSession)
@@ -239,6 +380,7 @@ export default function ShowLog({
   const [changedFiles, setChangedFiles] = useState<LogFile[]>([])
   const [statusSummary, setStatusSummary] = useState<Record<string, number>>({})
   const [searchTerm, setSearchTerm] = useState('')
+  const deferredSearchTerm = useDeferredValue(searchTerm)
 
   const [dateRange, setDateRange] = useState<DateRange | undefined>(() => {
     const today = new Date()
@@ -261,30 +403,33 @@ export default function ShowLog({
   const [resetConfirmOpen, setResetConfirmOpen] = useState(false)
   const [resetPending, setResetPending] = useState<{ entry: LogEntry; mode: 'soft' | 'mixed' | 'hard' } | null>(null)
 
-  const [panelSizes, setPanelSizes] = useState<ShowlogPanelSizes>({
-    mainPanelSize: 50,
-    secondPanelSize: 50,
-    commitPanelSize: 50,
-    filesPanelSize: 50,
-  })
+  const [panelSizes, setPanelSizes] = useState<ShowlogPanelSizes>(() => readSavedShowlogPanelSizes())
 
-  const mainPanelRef = useRef<any>(null)
-  const secondPanelRef = useRef<any>(null)
-  const commitPanelRef = useRef<any>(null)
-  const filesPanelRef = useRef<any>(null)
-
-  const [currentPage, setCurrentPage] = useState(1)
-  const [pageSize, setPageSize] = useState(25)
-  const [sorting, setSorting] = useState<SortingState>([])
-  const [rowSelection, setRowSelection] = useState<Record<string, boolean>>({})
+  const outerPanelGroupRef = useRef<any>(null)
+  const innerPanelGroupRef = useRef<any>(null)
+  const panelSizesRef = useRef<ShowlogPanelSizes>(panelSizes)
+  panelSizesRef.current = panelSizes
+  const hasLoadedPanelSizesRef = useRef(true)
+  const isApplyingPanelLayoutRef = useRef(false)
 
   const [allLogData, setAllLogData] = useState<LogEntry[]>([])
   const [filteredLogData, setFilteredLogData] = useState<LogEntry[]>([])
-  const [dataForCurrentPage, setDataForCurrentPage] = useState<LogEntry[]>([])
   const [totalEntriesFromBackend, setTotalEntriesFromBackend] = useState(0)
+  const [sorting, setSorting] = useState<SortingState>([])
+  const [rowSelection, setRowSelection] = useState<Record<string, boolean>>({})
+  const selectedRevisionRef = useRef<string | null>(null)
   const [logSyncUpstream, setLogSyncUpstream] = useState<string | null>(null)
+  const [logSyncCompareRef, setLogSyncCompareRef] = useState<string | null>(null)
   const [logSyncUpstreamSource, setLogSyncUpstreamSource] = useState<'tracking' | 'origin_branch' | 'origin_head' | 'none' | null>(null)
   const [incomingCommitCount, setIncomingCommitCount] = useState(0)
+  const [outgoingCommitCount, setOutgoingCommitCount] = useState(0)
+  const [gitCommitRemoteUrl, setGitCommitRemoteUrl] = useState<string | null>(null)
+  const [hasMoreGitLog, setHasMoreGitLog] = useState(false)
+  const [isLoadingMore, setIsLoadingMore] = useState(false)
+  const [isGitPulling, setIsGitPulling] = useState(false)
+  const [isGitPushing, setIsGitPushing] = useState(false)
+  const gitLogQueryRef = useRef<GitLogQueryContext | null>(null)
+  const loadMoreInFlightRef = useRef(false)
 
   // Refs to avoid "before initialization" errors
   const loadLogDataRef = useRef<
@@ -300,6 +445,7 @@ export default function ShowLog({
   const embeddedGitLogRevisionLoadRef = useRef<string | null | undefined>(undefined)
   const loadSeqRef = useRef(0)
   const lastShowLogFetchRef = useRef<{ cwd: string; at: number } | null>(null)
+  const skipNextBranchReloadRef = useRef(false)
   const SHOWLOG_FETCH_DEBOUNCE_MS = 15_000
 
   const getHandoffPayload = useCallback(
@@ -342,6 +488,76 @@ export default function ShowLog({
     }
   }, [])
 
+  const applyShowLogPanelLayout = useCallback(() => {
+    const sizes = panelSizesRef.current
+    isApplyingPanelLayoutRef.current = true
+    outerPanelGroupRef.current?.setLayout?.({
+      [SHOWLOG_PANEL_MAIN_ID]: sizes.mainPanelSize,
+      [SHOWLOG_PANEL_SECOND_ID]: sizes.secondPanelSize,
+    })
+    innerPanelGroupRef.current?.setLayout?.({
+      [SHOWLOG_PANEL_COMMIT_ID]: sizes.commitPanelSize,
+      [SHOWLOG_PANEL_FILES_ID]: sizes.filesPanelSize,
+    })
+    queueMicrotask(() => {
+      isApplyingPanelLayoutRef.current = false
+    })
+  }, [])
+
+  const panelResizeDebounceRef = useRef<{ timer: ReturnType<typeof setTimeout> | null; pending: Partial<ShowlogPanelSizes> }>({ timer: null, pending: {} })
+
+  const persistPanelSizes = useCallback((partial: Partial<ShowlogPanelSizes>) => {
+    if (isApplyingPanelLayoutRef.current) return
+    const ref = panelResizeDebounceRef.current
+    Object.assign(ref.pending, partial)
+    if (ref.timer) clearTimeout(ref.timer)
+    ref.timer = setTimeout(() => {
+      const next = { ...panelSizesRef.current, ...ref.pending }
+      panelSizesRef.current = next
+      setPanelSizes(next)
+      ref.pending = {}
+      ref.timer = null
+    }, 150)
+  }, [])
+
+  useEffect(() => {
+    if (!hasLoadedPanelSizesRef.current) return
+    const timer = setTimeout(() => {
+      try {
+        localStorage.setItem(SHOWLOG_PANEL_SIZES_KEY, JSON.stringify(panelSizes))
+      } catch (error) {
+        logger.error('Lỗi khi lưu kích thước panel vào localStorage:', error)
+      }
+    }, 300)
+    return () => clearTimeout(timer)
+  }, [panelSizes])
+
+  useEffect(() => {
+    return () => {
+      const ref = panelResizeDebounceRef.current
+      if (ref.timer) clearTimeout(ref.timer)
+      try {
+        localStorage.setItem(SHOWLOG_PANEL_SIZES_KEY, JSON.stringify(panelSizesRef.current))
+      } catch (error) {
+        logger.error('Lỗi khi lưu kích thước panel vào localStorage:', error)
+      }
+    }
+  }, [])
+
+  useEffect(() => {
+    if (embedded && !shellTabActive) return
+    if (!isConfigLoaded) return
+    const id = window.setTimeout(() => applyShowLogPanelLayout(), 0)
+    return () => window.clearTimeout(id)
+  }, [embedded, shellTabActive, isConfigLoaded, layoutDirection, applyShowLogPanelLayout])
+
+  useEffect(() => {
+    if (embedded && !shellTabActive) return
+    if (!isConfigLoaded || isLoading) return
+    const id = window.setTimeout(() => applyShowLogPanelLayout(), 0)
+    return () => window.clearTimeout(id)
+  }, [embedded, shellTabActive, isConfigLoaded, isLoading, applyShowLogPanelLayout])
+
   // Load configuration when component mounts
   useEffect(() => {
     loadConfigurationConfig().catch(error => {
@@ -368,23 +584,27 @@ export default function ShowLog({
         setIsLoading(true)
         setAllLogData([])
         setFilteredLogData([])
-        setDataForCurrentPage([])
         setTotalEntriesFromBackend(0)
         setLogSyncUpstream(null)
+        setLogSyncCompareRef(null)
         setLogSyncUpstreamSource(null)
         setIncomingCommitCount(0)
-        setCurrentPage(1)
+        setOutgoingCommitCount(0)
+        setGitCommitRemoteUrl(null)
+        setHasMoreGitLog(false)
+        gitLogQueryRef.current = null
 
         const options: any = {}
-        if (dateRange?.from) {
-          options.dateFrom = dateRange.from.toISOString()
+        if (useVcs !== 'git' && dateRange?.from) {
+          options.dateFrom = toGitLogSinceParam(dateRange.from)
           if (dateRange.to) {
-            options.dateTo = dateRange.to.toISOString()
+            options.dateTo = toGitLogUntilParam(dateRange.to)
           }
         }
         if (useCwd) {
           options.cwd = useCwd
         }
+        const activeLogRevision = override?.gitLogRevision !== undefined ? override.gitLogRevision : gitLogRevision
         let result: any
         let incomingHashSet = new Set<string>()
         let outgoingHashSet = new Set<string>()
@@ -407,27 +627,49 @@ export default function ShowLog({
             }
           }
 
-          const markersResult = await window.api.git.get_log_sync_markers(useCwd)
+          const [markersResult, remotesResult] = await Promise.all([
+            window.api.git.get_log_sync_markers(useCwd, activeLogRevision ?? undefined),
+            window.api.git.get_remotes(useCwd),
+          ])
           if (isStale()) return
+          if (remotesResult.status === 'success' && remotesResult.data) {
+            setGitCommitRemoteUrl(resolveOriginRemoteUrl(remotesResult.data))
+          } else {
+            setGitCommitRemoteUrl(null)
+          }
           if (markersResult.status === 'success' && markersResult.data) {
-            const { upstream, upstreamSource, incomingHashes, outgoingHashes } = markersResult.data
+            const { upstream, upstreamSource, incomingHashes, outgoingHashes, compareRef } = markersResult.data
             incomingHashSet = new Set(incomingHashes)
             outgoingHashSet = new Set(outgoingHashes)
             setLogSyncUpstream(upstream ?? null)
+            setLogSyncCompareRef(compareRef ?? null)
             setLogSyncUpstreamSource(upstreamSource ?? 'none')
           } else {
             setLogSyncUpstream(null)
+            setLogSyncCompareRef(null)
             setLogSyncUpstreamSource(null)
           }
 
-          const logRevision = override?.gitLogRevision !== undefined ? override.gitLogRevision : gitLogRevision
-          if (logRevision) {
-            options.revision = logRevision
-          } else if (markersResult.status === 'success' && markersResult.data?.upstream) {
-            options.logRefs = ['HEAD', markersResult.data.upstream]
+          const logBase = activeLogRevision || 'HEAD'
+          const upstreamRef = markersResult.status === 'success' ? markersResult.data?.upstream?.trim() : ''
+          if (upstreamRef && upstreamRef !== logBase) {
+            options.logRefs = [logBase, upstreamRef]
+          } else if (activeLogRevision) {
+            options.revision = activeLogRevision
           }
+          options.messagesOnly = true
+          options.maxCount = GIT_LOG_PAGE_SIZE
+          options.skip = 0
 
           result = await window.api.git.log(path, options)
+          if (result.status !== 'success' && options.logRefs) {
+            const retryOptions = { ...options }
+            delete retryOptions.logRefs
+            if (activeLogRevision) {
+              retryOptions.revision = activeLogRevision
+            }
+            result = await window.api.git.log(path, retryOptions)
+          }
         } else {
           result = await window.api.svn.log(path, options)
         }
@@ -442,7 +684,14 @@ export default function ShowLog({
           let parsedEntries: LogEntry[] = []
 
           if (useVcs === 'git') {
-            const gitLogData = JSON.parse(result.data as string) as GitLogEntry[]
+            let gitLogData: GitLogEntry[] = []
+            try {
+              const parsed = JSON.parse(result.data as string)
+              gitLogData = Array.isArray(parsed) ? (parsed as GitLogEntry[]) : []
+            } catch (parseError) {
+              logger.error('Failed to parse git log JSON:', parseError)
+              throw parseError
+            }
             if (gitLogData.length > 0) {
               const firstEntry = gitLogData[0]
               logger.info('First Git log entry:')
@@ -452,38 +701,18 @@ export default function ShowLog({
               logger.info('  Body preview:', firstEntry.body?.substring(0, 100))
             }
 
-            parsedEntries = gitLogData.map(entry => {
-              const originalDate = new Date(entry.date)
-              const fullMessage = entry.body ? `${entry.subject}\n\n${entry.body}`.trim() : entry.subject
-              const actions = new Set<string>()
-              if (entry.files && entry.files.length > 0) {
-                for (const file of entry.files) {
-                  actions.add(file.status)
-                }
-              }
+            parsedEntries = parseGitLogEntries(gitLogData, incomingHashSet, outgoingHashSet, language)
 
-              return {
-                revision: entry.hash.substring(0, 8), // Use short hash
-                fullCommitId: entry.hash,
-                author: entry.author,
-                email: entry.authorEmail,
-                date: formatDateTime(originalDate, language),
-                isoDate: originalDate.toISOString(),
-                message: fullMessage,
-                referenceId: entry.subject,
-                action: Array.from(actions),
-                changedFiles:
-                  entry.files?.map(file => ({
-                    action: file.status as SvnStatusCode | GitStatusCode,
-                    filePath: file.file,
-                  })) || [],
-                syncStatus: incomingHashSet.has(entry.hash)
-                  ? 'incoming'
-                  : outgoingHashSet.has(entry.hash)
-                    ? 'outgoing'
-                    : undefined,
-              }
-            })
+            gitLogQueryRef.current = {
+              path,
+              cwd: useCwd,
+              logRefs: options.logRefs,
+              revision: options.revision,
+              compareLogRef: activeLogRevision ?? null,
+              incomingHashes: [...incomingHashSet],
+              outgoingHashes: [...outgoingHashSet],
+            }
+            setHasMoreGitLog(parsedEntries.length >= GIT_LOG_PAGE_SIZE)
 
             // Debug: Log first parsed entry
             if (parsedEntries.length > 0) {
@@ -549,7 +778,6 @@ export default function ShowLog({
                   isoDate: originalDate.toISOString(),
                   message: fullMessage,
                   referenceId: referenceId,
-                  action: Array.from(new Set(changedFiles.map(f => f.action))),
                   changedFiles,
                 })
                 addedRevisions.add(revisionStr)
@@ -564,14 +792,14 @@ export default function ShowLog({
 
           if (useVcs === 'git') {
             setIncomingCommitCount(finalEntries.filter(entry => entry.syncStatus === 'incoming').length)
+            setOutgoingCommitCount(finalEntries.filter(entry => entry.syncStatus === 'outgoing').length)
           }
 
           // Set all state in one batch to avoid extra render cycle - UI shows data immediately
           setAllLogData(finalEntries)
           setFilteredLogData(finalEntries)
-          setDataForCurrentPage(finalEntries.slice(0, pageSize))
 
-          if (result.suggestedStartDate) {
+          if (useVcs !== 'git' && result.suggestedStartDate) {
             const suggestedDate = new Date(result.suggestedStartDate)
             if (dateRange?.from?.getTime() !== suggestedDate.getTime()) {
               setDateRange(prevRange => ({
@@ -579,7 +807,7 @@ export default function ShowLog({
                 to: prevRange?.to,
               }))
             }
-          } else if (parsedEntries.length > 0 && !dateRange?.from) {
+          } else if (useVcs !== 'git' && parsedEntries.length > 0 && !dateRange?.from) {
             const earliestIsoDate = finalEntries[0].isoDate
             const earliestDate = new Date(earliestIsoDate)
             setDateRange(prevRange => ({
@@ -597,12 +825,13 @@ export default function ShowLog({
           if (isStale()) return
           setAllLogData([])
           setFilteredLogData([])
-          setDataForCurrentPage([])
           setTotalEntriesFromBackend(0)
           setIncomingCommitCount(0)
+        setOutgoingCommitCount(0)
         }
-      } catch (_error) {
-        const msg = 'Error loading log data'
+      } catch (error) {
+        logger.error('Error loading log data:', error)
+        const msg = error instanceof Error && error.message ? error.message : 'Error loading log data'
         const now = Date.now()
         if (now - lastErrorToastRef.current.timestamp > 500 || lastErrorToastRef.current.message !== msg) {
           lastErrorToastRef.current = { message: msg, timestamp: now }
@@ -611,29 +840,117 @@ export default function ShowLog({
         if (isStale()) return
         setAllLogData([])
         setFilteredLogData([])
-        setDataForCurrentPage([])
         setTotalEntriesFromBackend(0)
         setIncomingCommitCount(0)
+        setOutgoingCommitCount(0)
       } finally {
-        if (!isStale()) setIsLoading(false)
+        if (loadId === loadSeqRef.current) setIsLoading(false)
       }
     },
     [effectiveVersionControlSystem, dateRange, loadConfigurationConfig, windowContext, gitLogRevision, embedded, effectiveSourceFolder]
   )
 
+  const loadMoreGitLog = useCallback(async () => {
+    const ctx = gitLogQueryRef.current
+    if (!ctx || !hasMoreGitLog || loadMoreInFlightRef.current || effectiveVersionControlSystem !== 'git') {
+      return
+    }
+
+    loadMoreInFlightRef.current = true
+    setIsLoadingMore(true)
+
+    try {
+      const language = i18n.language
+      const skip = allLogData.length
+      const options: Record<string, unknown> = {
+        cwd: ctx.cwd,
+        messagesOnly: true,
+        maxCount: GIT_LOG_PAGE_SIZE,
+        skip,
+      }
+      if (ctx.logRefs?.length) {
+        options.logRefs = ctx.logRefs
+      } else if (ctx.revision) {
+        options.revision = ctx.revision
+      }
+
+      let incomingHashSet = new Set(ctx.incomingHashes)
+      let outgoingHashSet = new Set(ctx.outgoingHashes)
+      if (ctx.cwd) {
+        const markersResult = await window.api.git.get_log_sync_markers(ctx.cwd, ctx.compareLogRef ?? undefined)
+        if (markersResult.status === 'success' && markersResult.data) {
+          const { upstream, upstreamSource, incomingHashes, outgoingHashes, compareRef } = markersResult.data
+          incomingHashSet = new Set(incomingHashes)
+          outgoingHashSet = new Set(outgoingHashes)
+          setLogSyncUpstream(upstream ?? null)
+          setLogSyncCompareRef(compareRef ?? null)
+          setLogSyncUpstreamSource(upstreamSource ?? 'none')
+        }
+      }
+
+      const result = await window.api.git.log(ctx.path, options)
+
+      if (result.status !== 'success') {
+        logger.warning('Failed to load more git log:', result.message)
+        setHasMoreGitLog(false)
+        return
+      }
+
+      const gitLogData = JSON.parse(result.data as string) as GitLogEntry[]
+      const newEntries = parseGitLogEntries(gitLogData, incomingHashSet, outgoingHashSet, language)
+
+      if (newEntries.length === 0) {
+        setHasMoreGitLog(false)
+        return
+      }
+
+      let incomingCount = 0
+      let outgoingCount = 0
+      setAllLogData(prev => {
+        const resynced = applySyncMarkersToEntries(prev, incomingHashSet, outgoingHashSet)
+        const existingHashes = new Set(resynced.map(entry => entry.fullCommitId || entry.revision))
+        const merged = [...resynced]
+        for (const entry of newEntries) {
+          const id = entry.fullCommitId || entry.revision
+          if (!existingHashes.has(id)) {
+            merged.push(entry)
+            existingHashes.add(id)
+          }
+        }
+        incomingCount = merged.filter(entry => entry.syncStatus === 'incoming').length
+        outgoingCount = merged.filter(entry => entry.syncStatus === 'outgoing').length
+        return merged
+      })
+      setIncomingCommitCount(incomingCount)
+      setOutgoingCommitCount(outgoingCount)
+      if (ctx) {
+        gitLogQueryRef.current = {
+          ...ctx,
+          incomingHashes: [...incomingHashSet],
+          outgoingHashes: [...outgoingHashSet],
+        }
+      }
+      setHasMoreGitLog(newEntries.length >= GIT_LOG_PAGE_SIZE)
+    } catch (error) {
+      logger.error('Error loading more git log:', error)
+    } finally {
+      loadMoreInFlightRef.current = false
+      setIsLoadingMore(false)
+    }
+  }, [allLogData.length, effectiveVersionControlSystem, hasMoreGitLog])
+
   // Assign loadLogData to ref after it's declared
   loadLogDataRef.current = loadLogData
 
   const clearLogLists = useCallback(() => {
-    setCurrentPage(1)
     setAllLogData([])
     setFilteredLogData([])
-    setDataForCurrentPage([])
     setTotalEntriesFromBackend(0)
     setCommitMessage('')
     setChangedFiles([])
     setStatusSummary({} as Record<SvnStatusCode, number>)
     setSelectedRevision(null)
+    selectedRevisionRef.current = null
     setRowSelection({})
   }, [])
 
@@ -689,10 +1006,8 @@ export default function ShowLog({
     }
     lastLoadKeyRef.current = { key, timestamp: now }
 
-    setCurrentPage(1)
     setAllLogData([])
     setFilteredLogData([])
-    setDataForCurrentPage([])
     setTotalEntriesFromBackend(0)
     loadLogDataRef.current(filePath)
   }, [embedded, effectiveVersionControlSystem, filePath, isConfigLoaded, windowContext, effectiveSourceFolder, gitLogRevision])
@@ -737,7 +1052,15 @@ export default function ShowLog({
             </span>
           </Button>
         ),
-        cell: ({ row }) => <div>{row.getValue('revision')}</div>,
+        cell: ({ row }) => {
+          const revision = String(row.getValue('revision') ?? '')
+          if (effectiveVersionControlSystem !== 'git') {
+            return <div>{revision}</div>
+          }
+          const fullHash = row.original.fullCommitId || revision
+          const webUrl = buildGitCommitWebUrl(gitCommitRemoteUrl, fullHash)
+          return <CommitHashLink label={revision} webUrl={webUrl} />
+        },
       },
       {
         accessorKey: 'date',
@@ -800,48 +1123,6 @@ export default function ShowLog({
         ]
         : []),
       {
-        accessorKey: 'action',
-        size: 200,
-        minSize: 200,
-        header: ({ column }) => {
-          return (
-            <Button className="!p-0 !h-7 !bg-transparent !hover:bg-transparent" variant="ghost" onClick={() => column.toggleSorting()}>
-              {t('dialog.showLogs.action')}
-              <span className="pr-0.5">
-                {!column.getIsSorted()}
-                {column.getIsSorted() === 'asc' && '↑'}
-                {column.getIsSorted() === 'desc' && '↓'}
-              </span>
-            </Button>
-          )
-        },
-        cell: ({ row }) => {
-          const actions: (SvnStatusCode | GitStatusCode)[] = row.getValue('action')
-          const changedFiles: LogFile[] = row.original.changedFiles || []
-
-          // Count files by action
-          const actionCounts = new Map<string, number>()
-          for (const file of changedFiles) {
-            const count = actionCounts.get(file.action) || 0
-            actionCounts.set(file.action, count + 1)
-          }
-
-          return (
-            <div className="flex gap-1.5 flex-nowrap">
-              {actions.map(code => {
-                const count = actionCounts.get(code) || 0
-                return (
-                  <div className="relative group flex items-center gap-0.5" key={code}>
-                    <StatusIcon code={code} />
-                    {count > 0 && <span className="text-xs text-muted-foreground">({count})</span>}
-                  </div>
-                )
-              })}
-            </div>
-          )
-        },
-      },
-      {
         accessorKey: 'referenceId',
         size: 300,
         minSize: 180,
@@ -893,7 +1174,7 @@ export default function ShowLog({
         },
       },
     ],
-    [t, effectiveVersionControlSystem]
+    [t, effectiveVersionControlSystem, gitCommitRemoteUrl]
   )
 
   // Callbacks - moved up after state declarations
@@ -931,6 +1212,7 @@ export default function ShowLog({
     async (revision: string) => {
       if (revision === selectedRevision) return
 
+      selectedRevisionRef.current = revision
       const entry = allLogData.find(e => e.revision === revision)
       if (entry) {
         // For Git: if changedFiles is empty, load from API
@@ -991,6 +1273,110 @@ export default function ShowLog({
     }
   }, [filePath])
 
+  const reloadGitLogAfterRemoteSync = useCallback(async () => {
+    const path = Array.isArray(filePath) ? filePath : filePath || '.'
+    if (!path || !loadLogDataRef.current) return
+    const preserveLogRevision = useShowLogSessionStore.getState().gitLogRevision
+    lastShowLogFetchRef.current = null
+    skipNextBranchReloadRef.current = true
+    try {
+      await loadLogDataRef.current(path, { gitLogRevision: preserveLogRevision, forceFetch: true })
+      window.dispatchEvent(new CustomEvent('git-branch-changed'))
+    } finally {
+      skipNextBranchReloadRef.current = false
+    }
+  }, [filePath])
+
+  const handleGitPull = useCallback(async () => {
+    if (!effectiveSourceFolder || isGitPulling || isLoading || effectiveVersionControlSystem !== 'git') return
+    setIsGitPulling(true)
+    try {
+      const statusResult = await window.api.git.status({ cwd: effectiveSourceFolder })
+      if (statusResult.status !== 'success' || !statusResult.data) {
+        toast.error(t('git.sync.pullError'))
+        return
+      }
+      const currentBranch = statusResult.data.current?.trim() ?? ''
+      const targetBranch = gitLogRevision?.trim() || currentBranch
+      if (!targetBranch) {
+        toast.error(t('git.sync.pullError'))
+        return
+      }
+      if (currentBranch === targetBranch && isGitWorkingTreeDirty(statusResult.data)) {
+        toast.error(t('git.cherryPickBranches.dirtyTree'))
+        return
+      }
+
+      const result =
+        currentBranch === targetBranch
+          ? await window.api.git.pull('origin', targetBranch, undefined, effectiveSourceFolder)
+          : await window.api.git.fetch_update_local_branch('origin', targetBranch, effectiveSourceFolder)
+
+      if (result.status === 'success') {
+        toast.success(t('git.sync.pullSuccess'))
+        await reloadGitLogAfterRemoteSync()
+      } else {
+        toast.error(result.message || t('git.sync.pullError'))
+      }
+    } catch (error) {
+      logger.error('ShowLog git pull error:', error)
+      toast.error(t('git.sync.pullError'))
+    } finally {
+      setIsGitPulling(false)
+    }
+  }, [
+    effectiveSourceFolder,
+    effectiveVersionControlSystem,
+    gitLogRevision,
+    isGitPulling,
+    isLoading,
+    reloadGitLogAfterRemoteSync,
+    t,
+  ])
+
+  const handleGitPush = useCallback(async () => {
+    if (!effectiveSourceFolder || isGitPushing || isLoading || effectiveVersionControlSystem !== 'git') return
+    setIsGitPushing(true)
+    try {
+      const statusResult = await window.api.git.status({ cwd: effectiveSourceFolder })
+      if (statusResult.status !== 'success' || !statusResult.data) {
+        toast.error(t('git.sync.pushError'))
+        return
+      }
+      const currentBranch = statusResult.data.current?.trim() ?? ''
+      const targetBranch = gitLogRevision?.trim() || currentBranch
+      if (!targetBranch) {
+        toast.error(t('git.sync.pushError'))
+        return
+      }
+      if (currentBranch === targetBranch && isGitWorkingTreeDirty(statusResult.data)) {
+        toast.error(t('git.cherryPickBranches.dirtyTree'))
+        return
+      }
+
+      const result = await window.api.git.push('origin', targetBranch, undefined, effectiveSourceFolder, false)
+      if (result.status === 'success') {
+        toast.success(t('git.sync.pushSuccess'))
+        await reloadGitLogAfterRemoteSync()
+      } else {
+        toast.error(result.message || t('git.sync.pushError'))
+      }
+    } catch (error) {
+      logger.error('ShowLog git push error:', error)
+      toast.error(t('git.sync.pushError'))
+    } finally {
+      setIsGitPushing(false)
+    }
+  }, [
+    effectiveSourceFolder,
+    effectiveVersionControlSystem,
+    gitLogRevision,
+    isGitPushing,
+    isLoading,
+    reloadGitLogAfterRemoteSync,
+    t,
+  ])
+
   useLayoutEffect(() => {
     if (!refreshRef) return
     refreshRef.current = handleRefresh
@@ -1012,6 +1398,21 @@ export default function ShowLog({
     },
     [filePath, setGitLogRevision]
   )
+
+  useEffect(() => {
+    if (effectiveVersionControlSystem !== 'git') return
+
+    const onBranchChanged = () => {
+      if (skipNextBranchReloadRef.current) return
+      const path = Array.isArray(filePath) ? filePath : filePath || '.'
+      if (!path || !loadLogDataRef.current) return
+      const preserveLogRevision = useShowLogSessionStore.getState().gitLogRevision
+      void loadLogDataRef.current(path, { gitLogRevision: preserveLogRevision, forceFetch: true })
+    }
+
+    window.addEventListener('git-branch-changed', onBranchChanged)
+    return () => window.removeEventListener('git-branch-changed', onBranchChanged)
+  }, [effectiveVersionControlSystem, filePath])
 
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
@@ -1140,31 +1541,11 @@ export default function ShowLog({
     [effectiveVersionControlSystem, selectedRevision, allLogData, currentRevision, effectiveSourceFolder, changedFiles]
   )
 
-  const totalPages = useMemo(() => {
-    if (filteredLogData.length <= 0 || pageSize <= 0) return 1
-    const pages = Math.ceil(filteredLogData.length / pageSize)
-    return pages
-  }, [filteredLogData, pageSize])
-
-  const handlePageChange = useCallback(
-    (newPage: number) => {
-      const p = Math.min(Math.max(1, Math.floor(newPage)), totalPages)
-      if (p !== currentPage) setCurrentPage(p)
-    },
-    [currentPage, totalPages]
-  )
-
-  useEffect(() => {
-    setCurrentPage(1)
-  }, [pageSize])
-
   useEffect(() => {
     if (!pendingOpenPayload?.autoLoad) return
     applyOpenPayload(pendingOpenPayload, setWindowContext, setFilePath, setCurrentRevision, () => {
-      setCurrentPage(1)
       setAllLogData([])
       setFilteredLogData([])
-      setDataForCurrentPage([])
       setTotalEntriesFromBackend(0)
     })
     const path =
@@ -1180,10 +1561,8 @@ export default function ShowLog({
   useEffect(() => {
     const handler = (_event: unknown, data: ShowLogOpenPayload | Record<string, unknown>) => {
       applyOpenPayload(data, setWindowContext, setFilePath, setCurrentRevision, () => {
-        setCurrentPage(1)
         setAllLogData([])
         setFilteredLogData([])
-        setDataForCurrentPage([])
         setTotalEntriesFromBackend(0)
       })
     }
@@ -1206,7 +1585,6 @@ export default function ShowLog({
           logger.info('Clearing data - folder is not a valid Git/SVN repository')
           setAllLogData([])
           setFilteredLogData([])
-          setDataForCurrentPage([])
           setTotalEntriesFromBackend(0)
           setCommitMessage('')
           setChangedFiles([])
@@ -1239,58 +1617,6 @@ export default function ShowLog({
   }, [embedded, filePath, windowContext, loadConfigurationConfig])
 
   useEffect(() => {
-    try {
-      const savedPanelSizes = localStorage.getItem(SHOWLOG_PANEL_SIZES_KEY)
-      if (savedPanelSizes) {
-        const sizes: ShowlogPanelSizes = JSON.parse(savedPanelSizes)
-        setPanelSizes(sizes)
-        setTimeout(() => {
-          if (mainPanelRef.current?.resize) mainPanelRef.current.resize(sizes.mainPanelSize)
-          if (secondPanelRef.current?.resize) secondPanelRef.current.resize(sizes.secondPanelSize)
-          if (commitPanelRef.current?.resize) commitPanelRef.current.resize(sizes.commitPanelSize)
-          if (filesPanelRef.current?.resize) filesPanelRef.current.resize(sizes.filesPanelSize)
-        }, 0)
-      }
-    } catch (error) {
-      logger.error('Lỗi khi đọc kích thước panel từ localStorage:', error)
-    }
-  }, [])
-
-  const panelResizeDebounceRef = useRef<{ timer: ReturnType<typeof setTimeout> | null; pending: Partial<ShowlogPanelSizes> }>({ timer: null, pending: {} })
-  const panelSizesRef = useRef(panelSizes)
-  panelSizesRef.current = panelSizes
-
-  useEffect(() => {
-    try {
-      localStorage.setItem(SHOWLOG_PANEL_SIZES_KEY, JSON.stringify(panelSizes))
-    } catch (error) {
-      logger.error('Lỗi khi lưu kích thước panel vào localStorage:', error)
-    }
-  }, [panelSizes])
-
-  useEffect(() => {
-    return () => {
-      const ref = panelResizeDebounceRef.current
-      if (ref.timer) clearTimeout(ref.timer)
-      try {
-        localStorage.setItem(SHOWLOG_PANEL_SIZES_KEY, JSON.stringify(panelSizesRef.current))
-      } catch (error) {
-        logger.error('Lỗi khi lưu kích thước panel vào localStorage:', error)
-      }
-    }
-  }, [])
-  const handlePanelResize = useCallback((panelName: keyof ShowlogPanelSizes, size: number) => {
-    const ref = panelResizeDebounceRef.current
-    ref.pending[panelName] = size
-    if (ref.timer) clearTimeout(ref.timer)
-    ref.timer = setTimeout(() => {
-      setPanelSizes(prev => ({ ...prev, ...ref.pending }))
-      ref.pending = {}
-      ref.timer = null
-    }, 150)
-  }, [])
-
-  useEffect(() => {
     if (allLogData.length > 0) {
       const topRevision = allLogData[0].revision
       setRowSelection({ [topRevision]: true })
@@ -1299,11 +1625,11 @@ export default function ShowLog({
     // eslint-disable-next-line react-hooks/exhaustive-deps -- chỉ chạy khi allLogData thay đổi (load mới), không phụ thuộc selectRevision
   }, [allLogData])
 
-  // Filter effect: chỉ chạy khi filter inputs thay đổi, không phụ thuộc selectedRevision để tránh re-render không cần thiết khi click row
+  // Filter effect: debounced search via useDeferredValue; virtual table renders full filtered list
   useEffect(() => {
     let filtered = allLogData
-    if (searchTerm.trim()) {
-      const lowerSearchTerm = searchTerm.toLowerCase()
+    if (deferredSearchTerm.trim()) {
+      const lowerSearchTerm = deferredSearchTerm.toLowerCase()
       filtered = allLogData.filter(
         entry =>
           entry.revision.toLowerCase().includes(lowerSearchTerm) ||
@@ -1313,29 +1639,30 @@ export default function ShowLog({
           entry.date.toLowerCase().includes(lowerSearchTerm)
       )
     }
-    setFilteredLogData(filtered)
 
-    const startIndex = (currentPage - 1) * pageSize
-    const endIndex = startIndex + pageSize
-    const currentPageData = filtered.slice(startIndex, endIndex)
-    setDataForCurrentPage(currentPageData)
+    startTransition(() => {
+      setFilteredLogData(filtered)
+    })
 
-    if (currentPageData.length > 0) {
-      const isSelectedRowVisible = selectedRevision && currentPageData.some(entry => entry.revision === selectedRevision)
+    if (filtered.length > 0) {
+      const sel = selectedRevisionRef.current
+      const isSelectedRowVisible = sel && filtered.some(entry => entry.revision === sel)
 
-      if (!selectedRevision || !isSelectedRowVisible) {
-        setRowSelection({ [currentPageData[0].revision]: true })
-        selectRevision(currentPageData[0].revision)
+      if (!sel || !isSelectedRowVisible) {
+        const firstRevision = filtered[0].revision
+        setRowSelection({ [firstRevision]: true })
+        selectRevision(firstRevision)
       }
     } else {
       setCommitMessage('')
       setChangedFiles([])
       setStatusSummary({} as Record<SvnStatusCode, number>)
       setSelectedRevision(null)
+      selectedRevisionRef.current = null
       setRowSelection({})
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps -- selectedRevision excluded to avoid re-run on row click
-  }, [allLogData, searchTerm, currentPage, pageSize, selectRevision, effectiveVersionControlSystem])
+  }, [allLogData, deferredSearchTerm, selectRevision, effectiveVersionControlSystem])
 
   const toolbar = (
     <ShowlogToolbar
@@ -1353,12 +1680,24 @@ export default function ShowLog({
   )
 
   const logTableFilterProps = {
-    dateRange,
-    setDateRange,
+    ...(effectiveVersionControlSystem !== 'git' ? { dateRange, setDateRange } : {}),
     onRefresh: handleRefresh,
     onOpenStatistic: () => setIsStatisticOpen(true),
     onOpenAIAnalysis: () => setIsAIAnalysisOpen(true),
     onOpenAnalysisHistory: () => setShowHistoryDialog(true),
+    ...(effectiveVersionControlSystem === 'git'
+      ? {
+          hasMoreGitLog,
+          isLoadingMore,
+          onLoadMore: loadMoreGitLog,
+          loadedGitLogCount: allLogData.length,
+          onGitPull: handleGitPull,
+          isGitPulling,
+          onGitPush: handleGitPush,
+          isGitPushing,
+          outgoingCommitCount,
+        }
+      : {}),
   }
 
   return (
@@ -1436,26 +1775,38 @@ export default function ShowLog({
       <div className="flex flex-col flex-1 w-full min-h-0">
         {embedded && portal.host ? createPortal(toolbar, portal.host) : null}
         {!embedded ? toolbar : null}
-        {!isConfigLoaded || isLoading ? (
+        {!isConfigLoaded ? (
           <div className="flex items-center justify-center h-full">
             <GlowLoader className="w-10 h-10" />
           </div>
         ) : (
-          <div className="space-y-4 flex-1 h-full flex flex-col overflow-hidden border-t p-3">
+          <div className="relative flex-1 h-full flex flex-col overflow-hidden border-t p-3">
+            {isLoading ? (
+              <div className="absolute inset-0 z-20 flex items-center justify-center bg-background/70">
+                <GlowLoader className="w-10 h-10" />
+              </div>
+            ) : null}
             {layoutDirection === 'horizontal' ? (
-              <ResizablePanelGroup orientation="horizontal">
-                <ResizablePanel
-                  key={`main-panel-${layoutDirection}`}
-                  defaultSize={panelSizes.mainPanelSize}
-                  minSize={30}
-                  className="h-full"
-                  onResize={size => handlePanelResize('mainPanelSize', size)}
-                  ref={mainPanelRef}
-                >
+              <ResizablePanelGroup
+                groupRef={outerPanelGroupRef}
+                orientation="horizontal"
+                className="flex-1 min-h-0"
+                defaultLayout={{
+                  [SHOWLOG_PANEL_MAIN_ID]: panelSizes.mainPanelSize,
+                  [SHOWLOG_PANEL_SECOND_ID]: panelSizes.secondPanelSize,
+                }}
+                onLayoutChanged={layout => {
+                  const main = layout[SHOWLOG_PANEL_MAIN_ID]
+                  const second = layout[SHOWLOG_PANEL_SECOND_ID]
+                  if (typeof main !== 'number' || typeof second !== 'number') return
+                  persistPanelSizes({ mainPanelSize: main, secondPanelSize: second })
+                }}
+              >
+                <ResizablePanel id={SHOWLOG_PANEL_MAIN_ID} defaultSize={panelSizes.mainPanelSize} minSize={30} className="h-full">
                   <div className="h-full pr-2 flex flex-col overflow-scroll pb-0!">
                     <div className="flex flex-col h-full">
                       <ShowLogTableSection
-                        dataForCurrentPage={dataForCurrentPage}
+                        filteredLogData={filteredLogData}
                         columns={columns}
                         rowSelection={rowSelection}
                         setRowSelection={setRowSelection}
@@ -1465,14 +1816,8 @@ export default function ShowLog({
                         setSorting={setSorting}
                         searchTerm={searchTerm}
                         setSearchTerm={setSearchTerm}
-                        filteredLogData={filteredLogData}
                         isLoading={isLoading}
                         totalEntriesFromBackend={totalEntriesFromBackend}
-                        handlePageChange={handlePageChange}
-                        currentPage={currentPage}
-                        totalPages={totalPages}
-                        pageSize={pageSize}
-                        onPageSizeChange={setPageSize}
                         variant={variant}
                         versionControlSystem={effectiveVersionControlSystem}
                         headCommitId={effectiveVersionControlSystem === 'git' ? allLogData[0]?.fullCommitId : undefined}
@@ -1480,8 +1825,10 @@ export default function ShowLog({
                         onReset={handleReset}
                         onInteractiveRebase={effectiveVersionControlSystem === 'git' ? handleInteractiveRebase : undefined}
                         logSyncUpstream={logSyncUpstream}
+                        logSyncCompareRef={logSyncCompareRef}
                         logSyncUpstreamSource={logSyncUpstreamSource}
                         incomingCommitCount={incomingCommitCount}
+                        outgoingCommitCount={outgoingCommitCount}
                         {...logTableFilterProps}
                       />
                     </div>
@@ -1490,22 +1837,23 @@ export default function ShowLog({
 
                 <ResizableHandle showGrip={false} className="bg-transparent" />
 
-                <ResizablePanel
-                  key={`second-panel-${layoutDirection}`}
-                  defaultSize={panelSizes.secondPanelSize}
-                  minSize={layoutDirection === 'horizontal' ? 30 : 40}
-                  onResize={size => handlePanelResize('secondPanelSize', size)}
-                  ref={secondPanelRef}
-                >
-                  <ResizablePanelGroup orientation="vertical" className="h-full">
-                    <ResizablePanel
-                      key={`commit-panel-${layoutDirection}`}
-                      defaultSize={panelSizes.commitPanelSize}
-                      minSize={20}
-                      className="flex flex-col min-h-0"
-                      onResize={size => handlePanelResize('commitPanelSize', size)}
-                      ref={commitPanelRef}
-                    >
+                <ResizablePanel id={SHOWLOG_PANEL_SECOND_ID} defaultSize={panelSizes.secondPanelSize} minSize={layoutDirection === 'horizontal' ? 30 : 40} className="h-full w-full">
+                  <ResizablePanelGroup
+                    groupRef={innerPanelGroupRef}
+                    orientation="vertical"
+                    className="h-full"
+                    defaultLayout={{
+                      [SHOWLOG_PANEL_COMMIT_ID]: panelSizes.commitPanelSize,
+                      [SHOWLOG_PANEL_FILES_ID]: panelSizes.filesPanelSize,
+                    }}
+                    onLayoutChanged={layout => {
+                      const commit = layout[SHOWLOG_PANEL_COMMIT_ID]
+                      const files = layout[SHOWLOG_PANEL_FILES_ID]
+                      if (typeof commit !== 'number' || typeof files !== 'number') return
+                      persistPanelSizes({ commitPanelSize: commit, filesPanelSize: files })
+                    }}
+                  >
+                    <ResizablePanel id={SHOWLOG_PANEL_COMMIT_ID} defaultSize={panelSizes.commitPanelSize} minSize={20} className="flex flex-col min-h-0">
                       <TranslatePanel
                         text={commitMessage}
                         readOnly
@@ -1524,14 +1872,7 @@ export default function ShowLog({
 
                     <ResizableHandle showGrip={false} className="bg-transparent" />
 
-                    <ResizablePanel
-                      key={`files-panel-${layoutDirection}`}
-                      defaultSize={panelSizes.filesPanelSize}
-                      minSize={20}
-                      className="flex flex-col"
-                      onResize={size => handlePanelResize('filesPanelSize', size)}
-                      ref={filesPanelRef}
-                    >
+                    <ResizablePanel id={SHOWLOG_PANEL_FILES_ID} defaultSize={panelSizes.filesPanelSize} minSize={20} className="flex flex-col">
                       <div className="py-2 font-medium flex justify-between items-center">
                         <span>{t('dialog.showLogs.changedFiles')}</span>
                         <div className="flex items-center gap-2">
@@ -1577,19 +1918,26 @@ export default function ShowLog({
                 </ResizablePanel>
               </ResizablePanelGroup>
             ) : (
-              <ResizablePanelGroup orientation="vertical">
-                <ResizablePanel
-                  key={`main-panel-${layoutDirection}`}
-                  defaultSize={panelSizes.mainPanelSize}
-                  minSize={20}
-                  className="w-full"
-                  onResize={size => handlePanelResize('mainPanelSize', size)}
-                  ref={mainPanelRef}
-                >
+              <ResizablePanelGroup
+                groupRef={outerPanelGroupRef}
+                orientation="vertical"
+                className="flex-1 min-h-0"
+                defaultLayout={{
+                  [SHOWLOG_PANEL_MAIN_ID]: panelSizes.mainPanelSize,
+                  [SHOWLOG_PANEL_SECOND_ID]: panelSizes.secondPanelSize,
+                }}
+                onLayoutChanged={layout => {
+                  const main = layout[SHOWLOG_PANEL_MAIN_ID]
+                  const second = layout[SHOWLOG_PANEL_SECOND_ID]
+                  if (typeof main !== 'number' || typeof second !== 'number') return
+                  persistPanelSizes({ mainPanelSize: main, secondPanelSize: second })
+                }}
+              >
+                <ResizablePanel id={SHOWLOG_PANEL_MAIN_ID} defaultSize={panelSizes.mainPanelSize} minSize={20} className="w-full">
                   <div className="h-full pb-2">
                     <div className="flex flex-col h-full">
                       <ShowLogTableSection
-                        dataForCurrentPage={dataForCurrentPage}
+                        filteredLogData={filteredLogData}
                         columns={columns}
                         rowSelection={rowSelection}
                         setRowSelection={setRowSelection}
@@ -1599,14 +1947,8 @@ export default function ShowLog({
                         setSorting={setSorting}
                         searchTerm={searchTerm}
                         setSearchTerm={setSearchTerm}
-                        filteredLogData={filteredLogData}
                         isLoading={isLoading}
                         totalEntriesFromBackend={totalEntriesFromBackend}
-                        handlePageChange={handlePageChange}
-                        currentPage={currentPage}
-                        totalPages={totalPages}
-                        pageSize={pageSize}
-                        onPageSizeChange={setPageSize}
                         variant={variant}
                         versionControlSystem={effectiveVersionControlSystem}
                         headCommitId={effectiveVersionControlSystem === 'git' ? allLogData[0]?.fullCommitId : undefined}
@@ -1614,8 +1956,10 @@ export default function ShowLog({
                         onReset={handleReset}
                         onInteractiveRebase={effectiveVersionControlSystem === 'git' ? handleInteractiveRebase : undefined}
                         logSyncUpstream={logSyncUpstream}
+                        logSyncCompareRef={logSyncCompareRef}
                         logSyncUpstreamSource={logSyncUpstreamSource}
                         incomingCommitCount={incomingCommitCount}
+                        outgoingCommitCount={outgoingCommitCount}
                         {...logTableFilterProps}
                       />
                     </div>
@@ -1624,22 +1968,23 @@ export default function ShowLog({
 
                 <ResizableHandle showGrip={false} className="bg-transparent" />
 
-                <ResizablePanel
-                  key={`second-panel-${layoutDirection}`}
-                  defaultSize={panelSizes.secondPanelSize}
-                  minSize={40}
-                  onResize={size => handlePanelResize('secondPanelSize', size)}
-                  ref={secondPanelRef}
-                >
-                  <ResizablePanelGroup orientation="horizontal" className="h-full">
-                    <ResizablePanel
-                      key={`commit-panel-${layoutDirection}`}
-                      defaultSize={panelSizes.commitPanelSize}
-                      minSize={20}
-                      className="pr-2 flex flex-col min-h-0"
-                      onResize={size => handlePanelResize('commitPanelSize', size)}
-                      ref={commitPanelRef}
-                    >
+                <ResizablePanel id={SHOWLOG_PANEL_SECOND_ID} defaultSize={panelSizes.secondPanelSize} minSize={40} className="w-full">
+                  <ResizablePanelGroup
+                    groupRef={innerPanelGroupRef}
+                    orientation="horizontal"
+                    className="h-full"
+                    defaultLayout={{
+                      [SHOWLOG_PANEL_COMMIT_ID]: panelSizes.commitPanelSize,
+                      [SHOWLOG_PANEL_FILES_ID]: panelSizes.filesPanelSize,
+                    }}
+                    onLayoutChanged={layout => {
+                      const commit = layout[SHOWLOG_PANEL_COMMIT_ID]
+                      const files = layout[SHOWLOG_PANEL_FILES_ID]
+                      if (typeof commit !== 'number' || typeof files !== 'number') return
+                      persistPanelSizes({ commitPanelSize: commit, filesPanelSize: files })
+                    }}
+                  >
+                    <ResizablePanel id={SHOWLOG_PANEL_COMMIT_ID} defaultSize={panelSizes.commitPanelSize} minSize={20} className="pr-2 flex flex-col min-h-0">
                       <TranslatePanel
                         text={commitMessage}
                         readOnly
@@ -1658,14 +2003,7 @@ export default function ShowLog({
 
                     <ResizableHandle showGrip={false} className="bg-transparent" />
 
-                    <ResizablePanel
-                      key={`files-panel-${layoutDirection}`}
-                      defaultSize={panelSizes.filesPanelSize}
-                      minSize={20}
-                      className="flex flex-col pl-2"
-                      onResize={size => handlePanelResize('filesPanelSize', size)}
-                      ref={filesPanelRef}
-                    >
+                    <ResizablePanel id={SHOWLOG_PANEL_FILES_ID} defaultSize={panelSizes.filesPanelSize} minSize={20} className="flex flex-col pl-2">
                       <div className="py-2 font-medium flex justify-between items-center">
                         <span>{t('dialog.showLogs.changedFiles')}</span>
                         <div className="flex items-center gap-2">

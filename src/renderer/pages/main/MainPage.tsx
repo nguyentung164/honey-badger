@@ -645,7 +645,6 @@ export function MainPage() {
   const [showLogOpenPayload, setShowLogOpenPayload] = useState<ShowLogOpenPayload | null>(null)
   const showLogHandoffGetterRef = useRef<(() => ShowLogOpenPayload) | null>(null)
   const showLogRefreshRef = useRef<(() => void) | null>(null)
-  const [showLogRefreshing, setShowLogRefreshing] = useState(false)
 
   /** TitleBar dock chỉ gỡ trạng thái tách; dock từ cửa sổ riêng vẫn chuyển shell sang tab tương ứng. */
   const dockFromTitleBarRef = useRef({ pr: false, tasks: false, automation: false, devPipelines: false, showLog: false })
@@ -820,10 +819,6 @@ export function MainPage() {
   const handleDevPipelinesDockFromTitleBar = useCallback(() => {
     dockFromTitleBarRef.current.devPipelines = true
     window.api.devPipelines.requestDock()
-  }, [])
-
-  const handleShowLogRefresh = useCallback(() => {
-    showLogRefreshRef.current?.()
   }, [])
 
   const handleShowLogDetach = useCallback(() => {
@@ -2066,8 +2061,6 @@ export function MainPage() {
           onEditorWorkspaceGuard={guardEditorWorkspaceChange}
           multiRepoActiveTab={multiRepoActiveTab}
           onMultiRepoActiveChange={setMultiRepoActiveTab}
-          onShowLogRefresh={handleShowLogRefresh}
-          showLogRefreshing={showLogRefreshing}
         />
         <div className="flex min-h-0 flex-1 flex-col">
           <ResizablePanelGroup
@@ -2147,7 +2140,7 @@ export function MainPage() {
                           onPendingOpenPayloadConsumed={() => setShowLogOpenPayload(null)}
                           handoffGetterRef={showLogHandoffGetterRef}
                           refreshRef={showLogRefreshRef}
-                          onRefreshingChange={setShowLogRefreshing}
+                          shellTabActive={showEmbeddedShowLog}
                           activeRepoPath={activeRepoPath}
                           isMultiRepo={isMultiRepo}
                         />

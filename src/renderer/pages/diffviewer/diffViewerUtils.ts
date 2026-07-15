@@ -111,6 +111,19 @@ export async function waitForDiffCompute(diffEditor: MonacoEditor.IStandaloneDif
   await waitForDiffComputeViaEvent(diffEditor)
 }
 
+/** Wait for diff compute, then until `getLineChanges()` is non-null (Monaco may still return null right after the event). */
+export async function waitForDiffLineChanges(
+  diffEditor: MonacoEditor.IStandaloneDiffEditor
+): Promise<MonacoEditor.ILineChange[]> {
+  await waitForDiffCompute(diffEditor)
+  for (let attempt = 0; attempt < 30; attempt++) {
+    const changes = diffEditor.getLineChanges()
+    if (changes !== null) return changes
+    await new Promise<void>(resolve => setTimeout(resolve, 16))
+  }
+  return diffEditor.getLineChanges() ?? []
+}
+
 /** Monaco runtime API — not always present on IStandaloneDiffEditor typings. */
 export function collapseAllDiffUnchangedRegions(diffEditor: MonacoEditor.IStandaloneDiffEditor): void {
   const collapse = (diffEditor as MonacoEditor.IStandaloneDiffEditor & { collapseAllUnchangedRegions?: () => void })

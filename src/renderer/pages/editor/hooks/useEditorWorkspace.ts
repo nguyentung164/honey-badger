@@ -24,7 +24,7 @@ import {
   schedulePersistedMultiRootSession,
   schedulePersistedSession,
 } from '@/pages/editor/lib/editorSessionPersist'
-import { insertTabAtIndex, moveTabToStickyEnd, resolveReopenInsertIndex } from '@/pages/editor/lib/editorTabPlacement'
+import { insertTabAtIndex, moveTabToStickyEnd, reorderEditorTabs, resolveReopenInsertIndex } from '@/pages/editor/lib/editorTabPlacement'
 import { recordEditorTabActivation, removeEditorTabFromActivation, resolveNextActiveTabAfterClose, seedEditorTabActivation } from '@/pages/editor/lib/editorTabActivation'
 import {
   clearClosedEditorTabsHistory,
@@ -88,6 +88,7 @@ type EditorWorkspaceState = {
   closeTab: (tabId: string) => void
   setActiveTab: (tabId: string) => void
   pinTab: (tabId: string) => void
+  reorderTabs: (activeTabId: string, overTabId: string) => void
   syncTabDirty: (tabId: string, alternativeVersionId: number) => void
   saveTab: (tabId: string) => Promise<boolean>
   saveActiveTab: () => Promise<boolean>
@@ -821,6 +822,19 @@ export const useEditorWorkspace = create<EditorWorkspaceState>((set, get) => ({
       }
     })
     persistWorkspaceSession(get(), get().tabs, tabId)
+  },
+
+  reorderTabs: (activeTabId, overTabId) => {
+    set(state => {
+      const nextTabs = reorderEditorTabs(state.tabs, activeTabId, overTabId)
+      if (!nextTabs) return state
+      const nextState = {
+        tabs: nextTabs,
+        tabsMetaRevision: bumpMeta(state.tabsMetaRevision),
+      }
+      persistWorkspaceSession({ ...state, ...nextState }, nextTabs, state.activeTabId)
+      return nextState
+    })
   },
 
   syncTabDirty: (tabId, alternativeVersionId) => {

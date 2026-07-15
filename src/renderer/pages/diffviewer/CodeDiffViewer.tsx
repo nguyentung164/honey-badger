@@ -10,7 +10,7 @@ import { filesChangedTargetsRepo } from 'shared/filesChanged'
 import type { ShellTabActiveProps } from 'shared/shellTabTypes'
 import { ResizableHandle, ResizablePanel, ResizablePanelGroup } from '@/components/ui/resizable'
 import toast from '@/components/ui-elements/Toast'
-import { useAppMonacoThemeId, useSyncAppMonacoTheme } from '@/hooks/useAppMonacoTheme'
+import { onAppMonacoDiffBeforeMount, useAppMonacoThemeId, useSyncAppMonacoTheme } from '@/hooks/useAppMonacoTheme'
 import { buildEmbeddedGitConflictPayloadSyncKey, buildEmbeddedGitStagingPayloadSyncKey, gitStagingRepoRootKey } from '@/lib/diffViewer/openDiffViewer'
 import { requestOpenEditor } from '@/lib/openEditor'
 import { requestOpenShowLog } from '@/lib/openShowLog'
@@ -49,6 +49,21 @@ import {
 } from './diffViewerGitFiles'
 import type { DiffViewerFileKind, DiffViewerLoadPayload, DiffViewerMode, ImageLoadContext } from './diffViewerPayload'
 import { deriveDiffViewerMode, diffViewerIsGitConflictMode, diffViewerSupportsFileListRefresh, diffViewerSupportsStageActions, enrichDiffViewerPayload } from './diffViewerPayload'
+import {
+  attachDiffViewerModelsFromRegistry,
+  bindDiffViewerModelRegistry,
+  clearDiffViewerModelRegistry,
+  ensureDiffViewerModelPair,
+  gitCommitVsWorkingSideRefs,
+  gitHeadVsWorkingSideRefs,
+  gitHistoryDiffSideRefs,
+  gitRootCommitSideRefs,
+  gitStagingSideRefs,
+  type DiffViewerSideRefPair,
+  svnRevisionPairSideRefs,
+  svnRevisionVsWorkingSideRefs,
+  workspaceCompareSideRefs,
+} from './diffViewerModelRegistry'
 import { loadGitStagingDiffContent, resolveStagingDiffProfile, resolveStagingPaneLabels } from './diffViewerStagingDiff'
 import type { CharDiffStats, DiffStats } from './diffViewerTypes'
 import {
@@ -74,6 +89,7 @@ import {
   triggerFindReplaceWidget,
   triggerFindWidget,
   waitForDiffCompute,
+  waitForDiffLineChanges,
 } from './diffViewerUtils'
 import { GitConflictDiffView } from './GitConflictDiffView'
 import { useDiffViewerAutoAdvance } from './useDiffViewerAutoAdvance'
@@ -254,7 +270,12 @@ export const CodeDiffViewer = forwardRef<CodeDiffViewerHandle, CodeDiffViewerPro
 ) {
   const monaco = useMonaco()
   const monacoTheme = useAppMonacoThemeId()
-  useSyncAppMonacoTheme(monaco, { includeDiff: true, includeEditorRules: false })
+  useSyncAppMonacoTheme(monaco, { includeDiff: true, includeEditorRules: true })
+
+  useEffect(() => {
+    if (monaco) bindDiffViewerModelRegistry(monaco)
+    return () => clearDiffViewerModelRegistry(monaco)
+  }, [monaco])
   const { themeMode } = useAppearanceStore()
   const { resolvedTheme } = useTheme()
   const minimapThemeMode = useMemo((): 'light' | 'dark' => {
@@ -321,6 +342,7 @@ export const CodeDiffViewer = forwardRef<CodeDiffViewerHandle, CodeDiffViewerPro
   const rootRef = useRef<HTMLDivElement | null>(null)
   const originalEditableRef = useRef(false)
   const loadContextRef = useRef<DiffViewerLoadPayload | null>(null)
+  const diffSideRefsRef = useRef<DiffViewerSideRefPair | null>(null)
   const pendingCloseRef = useRef(false)
   const pendingLayoutLeaveRef = useRef<(() => void) | null>(null)
   const loadGenerationRef = useRef(0)
@@ -330,6 +352,7 @@ export const CodeDiffViewer = forwardRef<CodeDiffViewerHandle, CodeDiffViewerPro
   const filePathRef = useRef(filePath)
   const fileKindRef = useRef(fileKind)
   const modifiedCodeRef = useRef(modifiedCode)
+  const originalCodeRef = useRef(originalCode)
 
   const { viewOptions, setViewOption } = useDiffViewerOptions()
   const editorSettings = useEditorMonacoSettings()
@@ -463,7 +486,9 @@ export const CodeDiffViewer = forwardRef<CodeDiffViewerHandle, CodeDiffViewerPro
     if (!diffEditor) return
     clampEditorPosition(diffEditor.getModifiedEditor())
     clampEditorPosition(diffEditor.getOriginalEditor())
-    const changes = diffEditor.getLineChanges() ?? []
+    const changes = diffEditor.getLineChanges()
+    // null = diff still computing — do not treat as "no changes" (avoids false "No visible changes" badge).
+    if (changes === null) return
     setChangePosition(getChangePosition(diffEditor, changes))
     setDiffStats(computeDiffStats(changes))
     setCharDiffStats(computeCharDiffStats(changes))
@@ -473,7 +498,7 @@ export const CodeDiffViewer = forwardRef<CodeDiffViewerHandle, CodeDiffViewerPro
   const refreshDiffStateAfterCompute = useCallback(async () => {
     const diffEditor = editorRef.current
     if (!diffEditor) return
-    await waitForDiffCompute(diffEditor)
+    await waitForDiffLineChanges(diffEditor)
     refreshDiffState()
   }, [refreshDiffState])
 
@@ -508,11 +533,16 @@ export const CodeDiffViewer = forwardRef<CodeDiffViewerHandle, CodeDiffViewerPro
     const collapseActive = viewOpts.collapseUnchangedRegions || viewOpts.diffOnly
 
     void (async () => {
-      await waitForDiffCompute(diffEditor)
+      // Let @monaco-editor/react path/content effects attach models before diff compute.
+      await new Promise<void>(resolve => {
+        requestAnimationFrame(() => requestAnimationFrame(() => resolve()))
+      })
+      if (cancelled || generation !== loadGenerationRef.current) return
+
+      const changes = await waitForDiffLineChanges(diffEditor)
       if (cancelled || generation !== loadGenerationRef.current) return
 
       if (!skipAutoFocus && !collapseActive) {
-        const changes = diffEditor.getLineChanges() ?? []
         autoFocusFirstChangeKeyRef.current = focusKey
         if (changes.length > 0) {
           try {
@@ -527,7 +557,6 @@ export const CodeDiffViewer = forwardRef<CodeDiffViewerHandle, CodeDiffViewerPro
         diffEditor.layout()
 
         if (!skipAutoFocus && collapseActive) {
-          const changes = diffEditor.getLineChanges() ?? []
           autoFocusFirstChangeKeyRef.current = focusKey
           if (changes.length > 0) {
             goToFirstChange(diffEditor, { focus: false })
@@ -625,8 +654,42 @@ export const CodeDiffViewer = forwardRef<CodeDiffViewerHandle, CodeDiffViewerPro
       const programmaticEpoch = beginProgrammaticUpdate()
       resetDiffEditorCursors(editorRef.current)
       const diffEditor = editorRef.current
+      const sideRefs = diffSideRefsRef.current
+      const repoCwd = loadContextRef.current?.cwd ?? embeddedRepoCwd ?? ''
       let modifiedModel: ReturnType<typeof getModifiedModel> = null
-      if (diffEditor) {
+
+      if (sideRefs) {
+        if (monaco && diffEditor) {
+          const attached = attachDiffViewerModelsFromRegistry(
+            monaco,
+            diffEditor,
+            repoCwd,
+            sideRefs,
+            nextOriginal,
+            nextModified,
+            language
+          )
+          modifiedModel = attached.modifiedModel
+          syncDiffEditorModelLanguage(diffEditor, monaco, language, sideRefs.original.filePath)
+          void waitForDiffLineChanges(diffEditor).then(() => {
+            if (editorRef.current !== diffEditor) return
+            diffEditor.layout()
+            refreshDiffState()
+          })
+        } else if (monaco) {
+          const ensured = ensureDiffViewerModelPair(
+            monaco,
+            repoCwd,
+            sideRefs,
+            nextOriginal,
+            nextModified,
+            language
+          )
+          modifiedModel = ensured.modifiedModel
+        }
+      }
+
+      if (diffEditor && !sideRefs) {
         const originalModel = diffEditor.getOriginalEditor().getModel()
         modifiedModel = diffEditor.getModifiedEditor().getModel()
         if (originalModel && originalModel.getValue() !== nextOriginal) {
@@ -635,17 +698,29 @@ export const CodeDiffViewer = forwardRef<CodeDiffViewerHandle, CodeDiffViewerPro
         if (modifiedModel && modifiedModel.getValue() !== nextModified) {
           modifiedModel.setValue(nextModified)
         }
+      }
+
+      if (diffEditor) {
+        if (!sideRefs) {
+          void waitForDiffLineChanges(diffEditor).then(() => {
+            if (editorRef.current !== diffEditor) return
+            diffEditor.layout()
+            refreshDiffState()
+          })
+        }
         endProgrammaticUpdate(programmaticEpoch, modifiedModel, nextModified, diskMtimeMs)
       } else {
         endProgrammaticUpdate(programmaticEpoch)
       }
+
       setCursorPosition({ line: 1, column: 1 })
       setOriginalCode(nextOriginal)
       setModifiedCode(nextModified)
+      originalCodeRef.current = nextOriginal
       modifiedCodeRef.current = nextModified
       setContentEpoch(e => e + 1)
     },
-    [beginProgrammaticUpdate, endProgrammaticUpdate]
+    [beginProgrammaticUpdate, embeddedRepoCwd, endProgrammaticUpdate, language, monaco, refreshDiffState]
   )
 
   const handleRefresh = useCallback(
@@ -714,6 +789,11 @@ export const CodeDiffViewer = forwardRef<CodeDiffViewerHandle, CodeDiffViewerPro
 
         const diskMtimeMs = !curRev ? await resolveWorkingFileMtime(path, catOpts) : null
         if (isStale()) return
+        if (!curRev) {
+          diffSideRefsRef.current = svnRevisionVsWorkingSideRefs(path, rev)
+        } else {
+          diffSideRefsRef.current = svnRevisionPairSideRefs(path, rev!, curRev, swap)
+        }
         applyLoadedTextContent(nextOriginal, nextModified, diskMtimeMs)
       } catch (error) {
         if (isStale()) return
@@ -809,6 +889,17 @@ export const CodeDiffViewer = forwardRef<CodeDiffViewerHandle, CodeDiffViewerPro
         const shouldTrackDiskMtime = !(rootCommit && hash) && !curHash
         const diskMtimeMs = shouldTrackDiskMtime ? await resolveWorkingFileMtime(path, catOpts) : null
         if (isStale()) return
+        if (rootCommit && hash) {
+          diffSideRefsRef.current = gitRootCommitSideRefs(path, hash)
+        } else if (curHash) {
+          diffSideRefsRef.current = gitHistoryDiffSideRefs(path, curHash, hash)
+        } else if (hash) {
+          diffSideRefsRef.current = gitCommitVsWorkingSideRefs(path, hash)
+        } else if (stagingState) {
+          diffSideRefsRef.current = gitStagingSideRefs(path, stagingState)
+        } else {
+          diffSideRefsRef.current = gitHeadVsWorkingSideRefs(path)
+        }
         applyLoadedTextContent(nextOriginal, nextModified, diskMtimeMs)
       } catch (error) {
         if (isStale()) return
@@ -836,6 +927,7 @@ export const CodeDiffViewer = forwardRef<CodeDiffViewerHandle, CodeDiffViewerPro
         const [leftContent, rightContent] = await Promise.all([window.api.system.read_file(leftPath, catOpts), window.api.system.read_file(rightPath, catOpts)])
         if (isStale()) return
         setFileKind('text')
+        diffSideRefsRef.current = workspaceCompareSideRefs(leftPath, rightPath)
         applyLoadedTextContent(leftContent, rightContent)
       } catch (error) {
         if (isStale()) return
@@ -1080,6 +1172,8 @@ export const CodeDiffViewer = forwardRef<CodeDiffViewerHandle, CodeDiffViewerPro
     embeddedPayloadSyncKeyRef.current = ''
     autoFocusFirstChangeKeyRef.current = ''
     loadContextRef.current = null
+    diffSideRefsRef.current = null
+    clearDiffViewerModelRegistry(monaco)
     loadGenerationRef.current += 1
     setFilePath('')
     setOriginalCode('')
@@ -1092,7 +1186,7 @@ export const CodeDiffViewer = forwardRef<CodeDiffViewerHandle, CodeDiffViewerPro
     setIsSwapped(false)
     initFiles([], 0)
     setContentEpoch(e => e + 1)
-  }, [initFiles, resetBaseline])
+  }, [initFiles, monaco, resetBaseline])
 
   const requestLayoutLeave = useCallback(
     (onProceed: () => void) => {
@@ -1818,11 +1912,27 @@ export const CodeDiffViewer = forwardRef<CodeDiffViewerHandle, CodeDiffViewerPro
     window.api.system.reveal_in_file_explorer(resolveDiffViewerRevealPath(filePath, cwd))
   }, [filePath, cwd])
 
-  const handleEditorMount: DiffOnMount = (editor, _monaco) => {
+  const handleEditorMount: DiffOnMount = (editor, monacoInstance) => {
     editorRef.current = editor
     applyDiffViewerEditorOptions(editor, editorViewOptions, editorSettings, { readOnly: !editable })
     refreshEditorMonacoAfterSettings(editor.getOriginalEditor())
     refreshEditorMonacoAfterSettings(editor.getModifiedEditor())
+
+    const sideRefs = diffSideRefsRef.current
+    const repoCwd = loadContextRef.current?.cwd ?? embeddedRepoCwd ?? ''
+    if (monacoInstance && sideRefs) {
+      attachDiffViewerModelsFromRegistry(
+        monacoInstance,
+        editor,
+        repoCwd,
+        sideRefs,
+        originalCodeRef.current,
+        modifiedCodeRef.current,
+        language
+      )
+      syncDiffEditorModelLanguage(editor, monacoInstance, language, sideRefs.original.filePath)
+    }
+
     setEditorMountEpoch(e => e + 1)
     const modifiedEditor = editor.getModifiedEditor()
     const originalEditor = editor.getOriginalEditor()
@@ -2131,10 +2241,7 @@ export const CodeDiffViewer = forwardRef<CodeDiffViewerHandle, CodeDiffViewerPro
 
   useEffect(() => {
     if (!shellTabActive || isLoading || fileKind !== 'text') return
-    const timer = window.setTimeout(() => {
-      void refreshDiffStateAfterCompute()
-    }, 600)
-    return () => window.clearTimeout(timer)
+    void refreshDiffStateAfterCompute()
   }, [originalCode, modifiedCode, isLoading, fileKind, refreshDiffStateAfterCompute, shellTabActive])
 
   const originalLabel = useMemo(() => {
@@ -2207,11 +2314,12 @@ export const CodeDiffViewer = forwardRef<CodeDiffViewerHandle, CodeDiffViewerPro
           key={diffEditorRemountKey}
           height="100%"
           language={language}
-          original={originalCode}
-          modified={modifiedCode}
+          original=""
+          modified=""
           theme={monacoTheme}
           keepCurrentOriginalModel
           keepCurrentModifiedModel
+          beforeMount={onAppMonacoDiffBeforeMount}
           onMount={handleEditorMount}
           options={editorOptions}
         />

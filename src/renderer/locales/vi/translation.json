@@ -2714,6 +2714,8 @@
     "incomingCommit": "Chưa pull",
     "incomingCommitHint": "Có trên {{upstream}} nhưng chưa merge vào branch đang checkout",
     "outgoingCommit": "Chỉ có local (chưa push)",
+    "outgoingCommitAction": "Chưa push",
+    "outgoingCommitHint": "Có trên branch local nhưng chưa push lên {{upstream}}",
     "inferredUpstream": "Ước lượng",
     "inferredUpstreamHint": "Chưa cấu hình upstream — đang so với {{upstream}}",
     "noUpstreamHint": "Branch chưa liên kết remote — không hiển thị commit chưa pull"

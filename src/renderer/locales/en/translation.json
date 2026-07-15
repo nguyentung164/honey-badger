@@ -2723,6 +2723,8 @@
     "incomingCommit": "Not pulled",
     "incomingCommitHint": "On {{upstream}} but not merged into checked-out branch",
     "outgoingCommit": "Local only (not pushed)",
+    "outgoingCommitAction": "Not pushed",
+    "outgoingCommitHint": "On local branch but not yet on {{upstream}}",
     "inferredUpstream": "Estimated",
     "inferredUpstreamHint": "No upstream configured — comparing with {{upstream}}",
     "noUpstreamHint": "Branch not linked to remote — unpulled commits hidden"

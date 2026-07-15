@@ -1,11 +1,11 @@
 import type * as Monaco from 'monaco-editor'
 import { useEffect, useMemo } from 'react'
 import { useAppAppearanceThemeKey } from '@/hooks/useAppAppearanceThemeKey'
-import { type AppMonacoThemeRegisterOptions, applyAppMonacoTheme, onAppMonacoBeforeMount, registerAppMonacoThemes, resolveAppMonacoThemeId } from '@/lib/monaco/appMonacoTheme'
+import { type AppMonacoThemeRegisterOptions, applyAppMonacoTheme, onAppMonacoBeforeMount, onAppMonacoDiffBeforeMount, registerAppMonacoThemes, resolveAppMonacoThemeId } from '@/lib/monaco/appMonacoTheme'
 import { SYNCED_EVENT } from '@/lib/syncUiSettings'
 import { resolveAppIsDarkFromDocument } from '@/lib/theme/appThemeMode'
 
-export { onAppMonacoBeforeMount }
+export { onAppMonacoBeforeMount, onAppMonacoDiffBeforeMount }
 
 /** Theme id for `<Editor theme={...} />` — updates when app appearance changes. */
 export function useAppMonacoThemeId(): string {

@@ -94,6 +94,7 @@ export function SettingsDialogFrame({
       className={SETTINGS_DIALOG_CONTENT_CLASS}
       style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties}
       showCloseButton={showCloseButton}
+      onOpenAutoFocus={event => event.preventDefault()}
       onInteractOutside={event => event.preventDefault()}
       onPointerDownOutside={event => event.preventDefault()}
     >

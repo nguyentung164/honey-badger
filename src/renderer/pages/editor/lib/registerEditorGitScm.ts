@@ -7,8 +7,10 @@ import {
   computeEditorGitPeekHeightInLines,
   editorGitHeadCacheKey,
   getEditorGitModifiedEndLineNumber,
+  invalidateEditorGitCaches,
   lineIntersectsGitChange,
   loadEditorGitHeadContent,
+  peekCachedEditorGitLineChanges,
   resolveChangeIndexAtLine,
   revertGitChangeInEditor,
 } from '@/pages/editor/lib/computeEditorGitLineChanges'
@@ -19,7 +21,7 @@ import {
 import { EDITOR_GIT_SCM_COLORS } from '@/pages/editor/lib/editorGitScmColors'
 import { EditorGitPeekWidget } from '@/pages/editor/lib/editorGitPeekWidget'
 
-const REFRESH_DEBOUNCE_MS = 400
+const REFRESH_DEBOUNCE_MS = 150
 const WORKING_TREE_LABEL = 'Git local changes (working tree)'
 
 export type EditorGitScmContext = {
@@ -180,6 +182,17 @@ export function registerEditorGitScm(
     lastDecoratedVersionId = -1
   }
 
+  const tryApplyCachedDecorations = (): boolean => {
+    const model = editor.getModel()
+    if (!model || !headCacheKey) return false
+    const cached = peekCachedEditorGitLineChanges(model, headSnapshot)
+    if (!cached) return false
+    lastDecoratedVersionId = model.getAlternativeVersionId()
+    applyDecorations(cached)
+    if (peek.isOpen) peek.updateOriginalHead(headSnapshot)
+    return true
+  }
+
   const applyDecorations = (changes: Monaco.editor.ILineChange[]) => {
     const fingerprint = fingerprintEditorGitChanges(changes)
     if (fingerprint === lineChangesFingerprint && decorationIds.length > 0) return
@@ -239,6 +252,8 @@ export function registerEditorGitScm(
       return
     }
 
+    if (tryApplyCachedDecorations()) return
+
     try {
       const changes = await computeEditorGitLineChanges(monaco, headSnapshot, model)
       if (generation !== refreshGeneration) return
@@ -269,8 +284,7 @@ export function registerEditorGitScm(
   const contentDisposable = editor.onDidChangeModelContent(scheduleRefresh)
   const modelDisposable = editor.onDidChangeModel(() => {
     closePeek()
-    invalidateHeadCache()
-    scheduleRefresh()
+    void refresh()
   })
   const keydownDisposable = editor.onKeyDown(handleEditorEscape)
 
@@ -331,6 +345,7 @@ export function registerEditorGitScm(
   const onGitStatusUpdated = (event: Event) => {
     const detail = (event as CustomEvent<{ fromTable?: boolean }>).detail
     if (detail?.fromTable) return
+    invalidateEditorGitCaches()
     invalidateHeadCache()
     scheduleRefresh()
   }

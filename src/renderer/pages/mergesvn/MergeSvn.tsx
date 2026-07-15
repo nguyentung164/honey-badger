@@ -19,7 +19,7 @@ import toast from '@/components/ui-elements/Toast'
 import { cn } from '@/lib/utils'
 import logger from '@/services/logger'
 import { useButtonVariant } from '@/stores/useAppearanceStore'
-import { useAppMonacoThemeId, useSyncAppMonacoTheme } from '@/hooks/useAppMonacoTheme'
+import { onAppMonacoDiffBeforeMount, useAppMonacoThemeId, useSyncAppMonacoTheme } from '@/hooks/useAppMonacoTheme'
 import { SvnFileTable } from '../main/SvnFileTable'
 import { MergeSvnToolbar } from './MergeSvnToolbar'
 
@@ -625,6 +625,7 @@ export function MergeSvn() {
                               </TabsList>
                               <TabsContent value="working_copy" className="flex-1">
                                 <Editor
+                                  beforeMount={onAppMonacoDiffBeforeMount}
                                   height="100%"
                                   language="typescript"
                                   theme={monacoTheme}
@@ -651,6 +652,7 @@ export function MergeSvn() {
                               </TabsContent>
                               <TabsContent value="working_base" className="flex-1">
                                 <Editor
+                                  beforeMount={onAppMonacoDiffBeforeMount}
                                   height="100%"
                                   language="typescript"
                                   theme={monacoTheme}

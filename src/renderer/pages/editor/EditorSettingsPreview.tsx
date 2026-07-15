@@ -16,6 +16,8 @@ import { applyEditorSettingsPreview } from '@/pages/editor/lib/editorSettingsPre
 import { collectEditorSettingsPreviewBehaviorHints } from '@/pages/editor/lib/editorSettingsPreviewHints'
 import { EDITOR_SETTINGS_PREVIEW_MODEL_PATH, ensureEditorSettingsPreviewLanguageService } from '@/pages/editor/lib/editorSettingsPreviewLanguageService'
 
+const EDITOR_SETTINGS_PREVIEW_THEME_OPTS = { includeDiff: false, includeEditorRules: true } as const
+
 export type EditorSettingsPreviewVariant = 'monaco' | 'workbench'
 
 type EditorSettingsPreviewProps = {
@@ -31,12 +33,14 @@ function EditorSettingsMonacoPreview({ className, dialogOpen = true }: { classNa
   const settingsKey = useMemo(() => editorSettingsFingerprint(settings), [settings])
   const monaco = useMonaco()
   const theme = useAppMonacoThemeId()
-  useSyncAppMonacoTheme(monaco, { includeDiff: false, includeEditorRules: true })
+  useSyncAppMonacoTheme(monaco, EDITOR_SETTINGS_PREVIEW_THEME_OPTS)
   useEffect(() => {
     if (!monaco) return
     ensureEditorSettingsPreviewLanguageService(monaco)
   }, [monaco])
   const editorRef = useRef<Parameters<OnMount>[0] | null>(null)
+  const settingsRef = useRef(settings)
+  settingsRef.current = settings
   const fontStyle = useMemo(() => resolveEditorMonacoFontStyle(settings), [settings])
   const editorOptions = useMemo(() => buildEditorSettingsPreviewOptions(settings), [settings, settingsKey])
   const previewLanguage = useMemo(() => resolveEditorPreviewMonacoLanguage(settings.previewSampleLanguage), [settings.previewSampleLanguage, settingsKey])
@@ -45,14 +49,11 @@ function EditorSettingsMonacoPreview({ className, dialogOpen = true }: { classNa
     [settings.insertSpaces, settings.previewSampleLanguage, settings.tabSize, settingsKey]
   )
 
-  const handleMount: OnMount = useCallback(
-    editor => {
-      editorRef.current = editor
-      applyEditorSettingsPreview(editor, settings)
-      refreshEditorMonacoAfterSettings(editor)
-    },
-    [settings]
-  )
+  const handleMount: OnMount = useCallback(editor => {
+    editorRef.current = editor
+    applyEditorSettingsPreview(editor, settingsRef.current)
+    refreshEditorMonacoAfterSettings(editor)
+  }, [])
 
   useEffect(() => {
     if (!dialogOpen) {

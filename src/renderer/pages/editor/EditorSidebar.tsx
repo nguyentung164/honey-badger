@@ -77,7 +77,7 @@ export function EditorSidebar({ activeView, onViewChange, children }: EditorSide
         </div>
       </div>
       <div className="min-h-0 flex-1 overflow-hidden">{children}</div>
-      <EditorSettingsDialog open={showEditorSettings} onOpenChange={setShowEditorSettings} />
+      {showEditorSettings ? <EditorSettingsDialog open onOpenChange={setShowEditorSettings} /> : null}
     </div>
   )
 }
