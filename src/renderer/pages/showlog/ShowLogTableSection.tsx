@@ -360,7 +360,7 @@ export const ShowLogTableSection = memo(function ShowLogTableSection({
             </Button>
           ) : null}
 
-          {versionControlSystem === 'git' && onGitPull && incomingCommitCount > 0 ? (
+          {versionControlSystem === 'git' && onGitPull && !isLoading && incomingCommitCount > 0 ? (
             <Tooltip>
               <TooltipTrigger asChild>
                 <Button
@@ -383,7 +383,7 @@ export const ShowLogTableSection = memo(function ShowLogTableSection({
             </Tooltip>
           ) : null}
 
-          {versionControlSystem === 'git' && onGitPush && outgoingCommitCount > 0 ? (
+          {versionControlSystem === 'git' && onGitPush && !isLoading && outgoingCommitCount > 0 ? (
             <Tooltip>
               <TooltipTrigger asChild>
                 <Button

@@ -66,7 +66,7 @@ export function GitConflictDiffDialog({ open, onOpenChange, cwd, onResolved, onA
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent
-        className="flex h-[95vh]! w-[95vw]! flex-col gap-0 overflow-hidden p-0"
+        className="flex h-[95vh]! w-[95vw]! max-w-[95vw]! flex-col gap-0 overflow-hidden p-0"
         showCloseButton={false}
         onPointerDownOutside={e => e.preventDefault()}
         aria-describedby={undefined}

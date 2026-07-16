@@ -952,6 +952,16 @@ export default function ShowLog({
     setSelectedRevision(null)
     selectedRevisionRef.current = null
     setRowSelection({})
+    setLogSyncUpstream(null)
+    setLogSyncCompareRef(null)
+    setLogSyncUpstreamSource(null)
+    setIncomingCommitCount(0)
+    setOutgoingCommitCount(0)
+    setGitCommitRemoteUrl(null)
+    setHasMoreGitLog(false)
+    setIsGitPulling(false)
+    setIsGitPushing(false)
+    gitLogQueryRef.current = null
   }, [])
 
   useEffect(() => {
