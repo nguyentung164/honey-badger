@@ -12,6 +12,7 @@
 [![OpenAI](https://img.shields.io/badge/OpenAI-412991?logo=openai&logoColor=white)](https://openai.com/)
 
 Ứng dụng desktop quản lý SVN & Git cho Windows. Tải tại [Releases](https://github.com/nguyentung164/honey-badger/releases).
+<img width="1920" height="1032" alt="image" src="https://github.com/user-attachments/assets/43a9476e-a359-484c-9b8c-70a868d13f7e" />
 
 ## Tính năng
 
