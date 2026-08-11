@@ -13,6 +13,7 @@
 
 Ứng dụng desktop quản lý SVN & Git cho Windows. Tải tại [Releases](https://github.com/nguyentung164/honey-badger/releases).
 <img width="1920" height="1032" alt="image" src="https://github.com/user-attachments/assets/43a9476e-a359-484c-9b8c-70a868d13f7e" />
+<img width="1920" height="1032" alt="image" src="https://github.com/user-attachments/assets/6eaf0fd9-2a98-4341-adbf-aeb40828c9a8" />
 
 ## Tính năng
 
