@@ -193,6 +193,8 @@ declare global {
         pull: (remote: string, branch?: string, options?: { rebase?: boolean }, cwd?: string) => Promise<any>
         /** Chỉ cập nhật một nhánh local: git fetch remote branch:branch (một repo = cwd). */
         fetch_update_local_branch: (remote: string, branch: string, cwd?: string) => Promise<any>
+        /** Chỉ cập nhật remote-tracking ref refs/remotes/<remote>/<branch>. */
+        fetch_remote_branch: (remote: string, branch: string, cwd?: string) => Promise<any>
         onPullStream: (callback: (chunk: string) => void) => () => void
         onCommitStream: (callback: (chunk: string) => void) => () => void
         onPushStream: (callback: (chunk: string) => void) => () => void
@@ -1639,6 +1641,7 @@ contextBridge.exposeInMainWorld('api', {
       ipcRenderer.invoke(IPC.GIT.PUSH, remote, branch, commitQueueData, cwd, force),
     pull: (remote: string, branch?: string, options?: { rebase?: boolean }, cwd?: string) => ipcRenderer.invoke(IPC.GIT.PULL, remote, branch, options, cwd),
     fetch_update_local_branch: (remote: string, branch: string, cwd?: string) => ipcRenderer.invoke(IPC.GIT.FETCH_UPDATE_LOCAL_BRANCH, remote, branch, cwd),
+    fetch_remote_branch: (remote: string, branch: string, cwd?: string) => ipcRenderer.invoke(IPC.GIT.FETCH_REMOTE_BRANCH, remote, branch, cwd),
     onPullStream: (callback: (chunk: string) => void) => {
       const handler = (_e: Electron.IpcRendererEvent, chunk: string) => callback(chunk)
       ipcRenderer.on(IPC.GIT.PULL_STREAM, handler)

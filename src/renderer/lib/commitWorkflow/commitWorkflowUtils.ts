@@ -3,6 +3,7 @@ import { DEFAULT_COMMIT_WORKFLOW_GRAPH } from 'shared/commitWorkflow/defaultWork
 import type {
   CommitWorkflowRunRecord,
   CommitWorkflowRunStreamPayload,
+  CommitWorkflowStepRecord,
   CommitWorkflowStepStatusEntry,
 } from 'shared/commitWorkflow/types'
 import { create } from 'zustand'
@@ -43,6 +44,37 @@ export function formatStepElapsed(startedAt?: string, finishedAt?: string | null
   const sec = Math.max(0, Math.floor((end - new Date(startedAt).getTime()) / 1000))
   if (sec < 60) return `${sec}s`
   return `${Math.floor(sec / 60)}m ${sec % 60}s`
+}
+
+export function formatStepSummaryPreview(step: CommitWorkflowStepRecord, t: TFunction): string {
+  if (step.status === 'skipped') return t('commitWorkflow.runChoices.skipped')
+  if (step.status === 'not_run' || step.status === 'pending') return '—'
+  if (step.status === 'running') return t('commitWorkflow.stepStatus.running')
+
+  const summary = step.summary as Record<string, unknown> | null
+  if (!summary) return '—'
+
+  if (step.stepKind === 'coding-rules') {
+    const count = Number(summary.violationCount ?? 0)
+    return t('commitWorkflow.stepPreview.violations', { count })
+  }
+  if (step.stepKind === 'spotbugs') {
+    return t('commitWorkflow.stepPreview.bugs', {
+      total: Number(summary.totalBugs ?? 0),
+      high: Number(summary.high ?? 0),
+      medium: Number(summary.medium ?? 0),
+      low: Number(summary.low ?? 0),
+    })
+  }
+  if (step.stepKind === 'playwright') {
+    if (summary.needsBrowserInstall) return t('commitWorkflow.stepPreview.browserRequired')
+    return t('commitWorkflow.stepPreview.tests', {
+      passed: Number(summary.passed ?? 0),
+      failed: Number(summary.failed ?? 0),
+      skipped: Number(summary.skipped ?? 0),
+    })
+  }
+  return '—'
 }
 
 export function countCompletedSteps(stepStatus: Record<string, CommitWorkflowStepStatusEntry>): { done: number; total: number; pass: number } {

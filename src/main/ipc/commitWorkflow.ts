@@ -94,7 +94,9 @@ export function registerCommitWorkflowIpcHandlers(): void {
       }
       if (hasDbConfig()) {
         const rows = await listCommitWorkflowRuns({ ...filters, userIds, userId: undefined })
-        const local = getLocalCommitWorkflowRuns(filters.repoPath, filters.limit ?? 20)
+        const local = getLocalCommitWorkflowRuns(filters.repoPath, filters.limit ?? 20).filter(
+          lr => !filters.projectId || lr.projectId === filters.projectId
+        )
         const dbIds = new Set(rows.map(r => r.id))
         const merged = [...rows, ...local.filter(lr => !dbIds.has(lr.id))]
         merged.sort(compareCommitWorkflowRunsByStartedAtDesc)
@@ -107,7 +109,9 @@ export function registerCommitWorkflowIpcHandlers(): void {
         const set = new Set(visibleIds)
         return ok(limited.filter(r => set.has(r.userId)))
       }
-      const local = getLocalCommitWorkflowRuns(filters.repoPath, filters.limit ?? 10)
+      const local = getLocalCommitWorkflowRuns(filters.repoPath, filters.limit ?? 10).filter(
+        lr => !filters.projectId || lr.projectId === filters.projectId
+      )
       return ok(local)
     } catch (e) {
       return fail((e as Error).message)

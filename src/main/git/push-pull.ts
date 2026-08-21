@@ -354,6 +354,39 @@ export async function fetchUpdateLocalBranch(remote: string = 'origin', branch: 
   }
 }
 
+/**
+ * Chỉ cập nhật remote-tracking ref `refs/remotes/<remote>/<branch>` (vd. origin/feature).
+ * Không đụng nhánh local — dùng khi đọc log từ origin/xxx (cherry-pick source).
+ */
+export async function fetchRemoteBranch(remote: string = 'origin', branch: string, cwdOverride?: string): Promise<GitPushPullResponse> {
+  try {
+    const cwd = cwdOverride ?? configurationStore.store.sourceFolder
+    if (!cwd) {
+      return { status: 'error', message: 'Source folder not configured' }
+    }
+    const git = await getGitInstance(cwd)
+    if (!git) {
+      return { status: 'error', message: 'Not a git repository or error initializing git' }
+    }
+    const b = branch.trim()
+    if (!b) {
+      return { status: 'error', message: 'Branch name required' }
+    }
+    l.info(`fetchRemoteBranch: ${remote} ${b} (cwd: ${cwd})`)
+    await git.raw(['fetch', remote, b])
+    return {
+      status: 'success',
+      message: `Updated remote-tracking ref ${remote}/${b}`,
+    }
+  } catch (error) {
+    l.warn('Error in fetchRemoteBranch:', error)
+    return {
+      status: 'error',
+      message: `Error fetching remote branch: ${formatGitError(error)}`,
+    }
+  }
+}
+
 export interface FetchOptions {
   prune?: boolean
   all?: boolean

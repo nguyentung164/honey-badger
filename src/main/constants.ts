@@ -145,6 +145,8 @@ export const IPC = {
     FETCH_STREAM: 'git:fetch:stream',
     /** Chỉ fetch cập nhật một nhánh local từ remote (refspec branch:branch). */
     FETCH_UPDATE_LOCAL_BRANCH: 'git:fetch-update-local-branch',
+    /** Chỉ cập nhật remote-tracking ref refs/remotes/<remote>/<branch>. */
+    FETCH_REMOTE_BRANCH: 'git:fetch-remote-branch',
     GET_REMOTES: 'git:get-remotes',
     CHECK_FOR_UPDATES: 'git:check-for-updates',
     // Stash operations

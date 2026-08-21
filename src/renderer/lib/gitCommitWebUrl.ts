@@ -76,8 +76,27 @@ export function buildGitCommitWebUrl(remoteUrl: string | null | undefined, commi
   return `${web.webBase}/commit/${hash}`
 }
 
-export function resolveOriginRemoteUrl(remotes: Array<{ name?: string; refs?: { fetch?: string; push?: string } }> | undefined): string | null {
-  if (!remotes?.length) return null
-  const origin = remotes.find(r => r.name === 'origin') ?? remotes[0]
-  return origin?.refs?.fetch ?? origin?.refs?.push ?? null
+export function resolveOriginRemoteUrl(
+  remotes:
+    | Array<{ name?: string; refs?: { fetch?: string; push?: string } }>
+    | Record<string, { fetch?: string; push?: string }>
+    | undefined
+): string | null {
+  if (!remotes) return null
+
+  if (Array.isArray(remotes)) {
+    if (!remotes.length) return null
+    const origin = remotes.find(r => r.name === 'origin') ?? remotes[0]
+    return origin?.refs?.fetch ?? origin?.refs?.push ?? null
+  }
+
+  if (typeof remotes === 'object') {
+    const entries = Object.entries(remotes)
+    if (!entries.length) return null
+    const origin = remotes.origin ?? entries[0]?.[1]
+    if (!origin) return null
+    return origin.fetch?.trim() || origin.push?.trim() || null
+  }
+
+  return null
 }

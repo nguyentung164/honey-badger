@@ -117,6 +117,32 @@ function buildLocalBranchOptions(branches: { local?: { all?: string[] } } | null
   return (branches.local?.all || []).map(b => ({ value: b, label: `${b} (local)` }))
 }
 
+function parseRemoteBranch(ref: string): { remote: string; branch: string } | null {
+  const trimmed = ref.trim()
+  const slash = trimmed.indexOf('/')
+  if (slash <= 0 || slash >= trimmed.length - 1) return null
+  return { remote: trimmed.slice(0, slash), branch: trimmed.slice(slash + 1) }
+}
+
+/** Nhánh local `main` và remote-tracking `origin/main` được coi là cùng nhánh. */
+function isEquivalentBranch(target: string, source: string): boolean {
+  if (!target || !source) return false
+  if (target === source) return true
+  const parsed = parseRemoteBranch(source)
+  if (parsed && target === parsed.branch) return true
+  if (source === `origin/${target}` || target === `origin/${source}`) return true
+  return false
+}
+
+/** So sánh range cherry-pick: ưu tiên ref remote của nhánh đích nếu có. */
+function resolveCherryPickRangeBase(target: string, branches: { remote?: { all?: string[] } } | null): string {
+  const remoteRef = `origin/${target}`
+  if (branches?.remote?.all?.includes(remoteRef)) {
+    return remoteRef
+  }
+  return target
+}
+
 function formatLogDate(date: string | undefined, language: string): string {
   if (!date) return ''
   return formatDateTime(date, language)
@@ -139,10 +165,15 @@ export function GitCherryPickBranchesDialog({ open, onOpenChange, onComplete, se
   /** Sau cherry-pick thành công: hiện thêm nút push lên origin cho nhánh target. */
   const [showTargetPush, setShowTargetPush] = useState(false)
   const refreshRemoteInFlight = useRef(false)
+  const branchRemoteFetchRef = useRef<{ cwd: string; promise: Promise<boolean> } | null>(null)
+  const sourceRemoteFetchRef = useRef<{ key: string; promise: Promise<boolean> } | null>(null)
+  const branchListLoadIdRef = useRef(0)
 
   const [leftLog, setLeftLog] = useState<LogRow[]>([])
   const [rightLog, setRightLog] = useState<LogRow[]>([])
-  const [rightFullLog, setRightFullLog] = useState(false)
+  const [rightFullLog, setRightFullLog] = useState(true)
+  const [rightLogRangeEmpty, setRightLogRangeEmpty] = useState(false)
+  const [remoteBranchesSyncedAt, setRemoteBranchesSyncedAt] = useState(0)
   const [logLoadingLeft, setLogLoadingLeft] = useState(false)
   const [logLoadingRight, setLogLoadingRight] = useState(false)
   const [loadingMoreLeft, setLoadingMoreLeft] = useState(false)
@@ -185,11 +216,87 @@ export function GitCherryPickBranchesDialog({ open, onOpenChange, onComplete, se
   const targetBranchOptions = useMemo(() => buildLocalBranchOptions(branches), [branches])
   const sourceBranchOptions = useMemo(() => buildRemoteBranchOptions(branches), [branches])
 
+  const fetchOriginAll = useCallback(async (cwd: string): Promise<boolean> => {
+    const inflight = branchRemoteFetchRef.current
+    if (inflight?.cwd === cwd) {
+      return inflight.promise
+    }
+    const entry = { cwd, promise: Promise.resolve(false) as Promise<boolean> }
+    entry.promise = (async () => {
+      try {
+        const r = await window.api.git.fetch('origin', { prune: true, all: true, skipUpdateCheck: true }, cwd)
+        return r.status === 'success'
+      } catch (e) {
+        logger.error(e)
+        return false
+      } finally {
+        if (branchRemoteFetchRef.current === entry) {
+          branchRemoteFetchRef.current = null
+        }
+      }
+    })()
+    branchRemoteFetchRef.current = entry
+    return entry.promise
+  }, [])
+
+  const fetchSourceRemoteRef = useCallback(async (cwd: string, sourceRef: string): Promise<boolean> => {
+    const parsed = parseRemoteBranch(sourceRef)
+    if (!parsed) return true
+    const key = `${cwd}::${parsed.remote}/${parsed.branch}`
+    const inflight = sourceRemoteFetchRef.current
+    if (inflight?.key === key) {
+      return inflight.promise
+    }
+    const entry = { key, promise: Promise.resolve(false) as Promise<boolean> }
+    entry.promise = (async () => {
+      try {
+        const r = await window.api.git.fetch_remote_branch(parsed.remote, parsed.branch, cwd)
+        return r.status === 'success'
+      } catch (e) {
+        logger.error(e)
+        return false
+      } finally {
+        if (sourceRemoteFetchRef.current === entry) {
+          sourceRemoteFetchRef.current = null
+        }
+      }
+    })()
+    sourceRemoteFetchRef.current = entry
+    return entry.promise
+  }, [])
+
+  const refreshBranchesFromRemote = useCallback(
+    async (loadId: number) => {
+      if (!sourceFolder) return
+      const ok = await fetchOriginAll(sourceFolder)
+      if (!ok || loadId !== branchListLoadIdRef.current) return
+      try {
+        const brRes = await window.api.git.get_branches(sourceFolder)
+        if (loadId !== branchListLoadIdRef.current) return
+        if (brRes.status === 'success' && brRes.data) {
+          setBranches(brRes.data)
+          const sourceOpts = buildRemoteBranchOptions(brRes.data)
+          const targetOpts = buildLocalBranchOptions(brRes.data)
+          setSourceBranch(prev => (prev && sourceOpts.some(o => o.value === prev) ? prev : prev))
+          setTargetBranch(prev => (prev && targetOpts.some(o => o.value === prev) ? prev : prev))
+        }
+        if (loadId === branchListLoadIdRef.current) {
+          setRemoteBranchesSyncedAt(Date.now())
+        }
+      } catch (e) {
+        logger.error(e)
+      }
+    },
+    [sourceFolder, fetchOriginAll]
+  )
+
   const loadBranches = useCallback(async () => {
     if (!sourceFolder) return
+    const loadId = ++branchListLoadIdRef.current
     setBranchesLoading(true)
     try {
       const [brRes, stRes] = await Promise.all([window.api.git.get_branches(sourceFolder), window.api.git.status({ cwd: sourceFolder })])
+      if (loadId !== branchListLoadIdRef.current) return
       if (brRes.status === 'success' && brRes.data) {
         setBranches(brRes.data)
         const cur = brRes.data.current || (stRes.status === 'success' && stRes.data?.current ? stRes.data.current : '') || ''
@@ -230,9 +337,12 @@ export function GitCherryPickBranchesDialog({ open, onOpenChange, onComplete, se
       logger.error(e)
       toast.error(t('git.cherryPickBranches.loadBranchesError'))
     } finally {
-      setBranchesLoading(false)
+      if (loadId === branchListLoadIdRef.current) {
+        setBranchesLoading(false)
+      }
     }
-  }, [sourceFolder, t])
+    void refreshBranchesFromRemote(loadId)
+  }, [sourceFolder, t, refreshBranchesFromRemote])
 
   const loadLeftLog = useCallback(async () => {
     const target = targetBranch?.trim() ?? ''
@@ -297,23 +407,30 @@ export function GitCherryPickBranchesDialog({ open, onOpenChange, onComplete, se
     }
   }, [sourceFolder, targetBranch, hasMoreLeft, loadingMoreLeft, logLoadingLeft, leftLog.length])
 
-  const loadRightLog = useCallback(async () => {
+  const loadRightLog = useCallback(async (loadOptions?: { notifyFetchFailure?: boolean }) => {
     const target = targetBranch?.trim() ?? ''
     const source = sourceBranch?.trim() ?? ''
     if (!sourceFolder || !target || !source) {
       setRightLog([])
       setHasMoreRight(false)
+      setRightLogRangeEmpty(false)
       return
     }
-    if (target === source) {
+    if (isEquivalentBranch(target, source)) {
       setRightLog([])
       setHasMoreRight(false)
+      setRightLogRangeEmpty(false)
       return
     }
     setLogLoadingRight(true)
     setHasMoreRight(true)
+    setRightLogRangeEmpty(false)
     try {
-      const options: {
+      const fetched = await fetchSourceRemoteRef(sourceFolder, source)
+      if (!fetched && loadOptions?.notifyFetchFailure) {
+        toast.warning(t('git.cherryPickBranches.refreshFetchOfflineHint'))
+      }
+      const logOptions: {
         cwd: string
         maxCount: number
         skip?: number
@@ -326,41 +443,44 @@ export function GitCherryPickBranchesDialog({ open, onOpenChange, onComplete, se
         skip: 0,
       }
       if (rightFullLog) {
-        options.revision = source
+        logOptions.revision = source
       } else {
-        options.commitFrom = target
-        options.commitTo = source
+        logOptions.commitFrom = resolveCherryPickRangeBase(target, branches)
+        logOptions.commitTo = source
       }
-      const r = await window.api.git.log('.', options)
+      const r = await window.api.git.log('.', logOptions)
       if (r.status === 'success' && r.data) {
         const rows = parseGitLogJson(r.data as string)
         setRightLog(rows)
         setHasMoreRight(rows.length >= MAX_LOG_COUNT)
+        setRightLogRangeEmpty(!rightFullLog && rows.length === 0)
       } else {
         setRightLog([])
         setHasMoreRight(false)
+        setRightLogRangeEmpty(false)
         if (r.status === 'error') toast.error(r.message || t('git.cherryPickBranches.loadLogError'))
       }
     } catch (e) {
       logger.error(e)
       setRightLog([])
       setHasMoreRight(false)
+      setRightLogRangeEmpty(false)
       toast.error(t('git.cherryPickBranches.loadLogError'))
     } finally {
       setLogLoadingRight(false)
     }
-  }, [sourceFolder, targetBranch, sourceBranch, rightFullLog, t])
+  }, [sourceFolder, targetBranch, sourceBranch, rightFullLog, branches, t, fetchSourceRemoteRef])
 
   const loadMoreRight = useCallback(async () => {
     const target = targetBranch?.trim() ?? ''
     const source = sourceBranch?.trim() ?? ''
-    if (!sourceFolder || !target || !source || target === source || !hasMoreRight || loadingMoreRight || logLoadingRight || loadMoreRightInFlight.current) {
+    if (!sourceFolder || !target || !source || isEquivalentBranch(target, source) || !hasMoreRight || loadingMoreRight || logLoadingRight || loadMoreRightInFlight.current) {
       return
     }
     loadMoreRightInFlight.current = true
     setLoadingMoreRight(true)
     try {
-      const options: {
+      const logOptions: {
         cwd: string
         maxCount: number
         skip: number
@@ -373,12 +493,12 @@ export function GitCherryPickBranchesDialog({ open, onOpenChange, onComplete, se
         skip: rightLog.length,
       }
       if (rightFullLog) {
-        options.revision = source
+        logOptions.revision = source
       } else {
-        options.commitFrom = target
-        options.commitTo = source
+        logOptions.commitFrom = resolveCherryPickRangeBase(target, branches)
+        logOptions.commitTo = source
       }
-      const r = await window.api.git.log('.', options)
+      const r = await window.api.git.log('.', logOptions)
       if (r.status === 'success' && r.data) {
         const rows = parseGitLogJson(r.data as string)
         setRightLog(prev => mergeLogRows(prev, rows))
@@ -393,61 +513,89 @@ export function GitCherryPickBranchesDialog({ open, onOpenChange, onComplete, se
       setLoadingMoreRight(false)
       loadMoreRightInFlight.current = false
     }
-  }, [sourceFolder, targetBranch, sourceBranch, rightFullLog, hasMoreRight, loadingMoreRight, logLoadingRight, rightLog.length])
+  }, [sourceFolder, targetBranch, sourceBranch, rightFullLog, branches, hasMoreRight, loadingMoreRight, logLoadingRight, rightLog.length])
 
   /**
-   * Cùng ý nghĩa với icon load ở hai nhánh: tải lại list commit đang hiển thị
-   * (trái: nhánh đích; phải: nguồn / range — khi đủ điều kiện).
+   * Fetch origin rồi tải lại list commit đang hiển thị (cả hai panel).
    */
   const reloadRepoVisibleCommits = useCallback(async () => {
     if (!sourceFolder || branchesLoading || refreshRemoteInFlight.current) return
     refreshRemoteInFlight.current = true
     setRefreshSide('repo')
     try {
+      const ok = await fetchOriginAll(sourceFolder)
+      if (!ok) {
+        toast.warning(t('git.cherryPickBranches.refreshFetchOfflineHint'))
+      } else {
+        const brRes = await window.api.git.get_branches(sourceFolder)
+        if (brRes.status === 'success' && brRes.data) {
+          setBranches(brRes.data)
+        }
+      }
       const tasks: Promise<void>[] = []
-      if (targetBranch?.trim()) tasks.push(loadLeftLog())
-      if (targetBranch?.trim() && sourceBranch?.trim() && targetBranch !== sourceBranch) {
-        tasks.push(loadRightLog())
+      const target = targetBranch?.trim() ?? ''
+      if (target) {
+        if (ok) {
+          const fr = await window.api.git.fetch_update_local_branch('origin', target, sourceFolder)
+          if (fr.status !== 'success') {
+            logger.warning('fetch_update_local_branch before reload target log:', fr.message)
+          }
+        }
+        tasks.push(loadLeftLog())
+      }
+      if (target && sourceBranch?.trim() && !isEquivalentBranch(target, sourceBranch)) {
+        tasks.push(loadRightLog({ notifyFetchFailure: ok }))
       }
       await Promise.all(tasks)
     } catch (e) {
       logger.error(e)
+      toast.error(t('git.cherryPickBranches.refreshFetchError'))
     } finally {
       refreshRemoteInFlight.current = false
       setRefreshSide(null)
     }
-  }, [sourceFolder, branchesLoading, targetBranch, sourceBranch, loadLeftLog, loadRightLog])
+  }, [sourceFolder, branchesLoading, targetBranch, sourceBranch, fetchOriginAll, loadLeftLog, loadRightLog, t])
 
-  /** Tải lại danh sách commit của nhánh đích (panel trái). */
+  /** Fetch nhánh đích từ origin rồi tải lại danh sách commit panel trái. */
   const reloadTargetCommits = useCallback(async () => {
     if (!sourceFolder || !targetBranch?.trim() || branchesLoading || refreshRemoteInFlight.current) return
     refreshRemoteInFlight.current = true
     setRefreshSide('left')
     try {
+      const b = targetBranch.trim()
+      const fr = await window.api.git.fetch_update_local_branch('origin', b, sourceFolder)
+      if (fr.status !== 'success') {
+        toast.warning(t('git.cherryPickBranches.refreshFetchOfflineHint'))
+      }
       await loadLeftLog()
+      if (sourceBranch?.trim() && !isEquivalentBranch(b, sourceBranch)) {
+        await loadRightLog({ notifyFetchFailure: fr.status === 'success' })
+      }
     } catch (e) {
       logger.error(e)
+      toast.error(t('git.cherryPickBranches.refreshFetchError'))
     } finally {
       refreshRemoteInFlight.current = false
       setRefreshSide(null)
     }
-  }, [sourceFolder, branchesLoading, targetBranch, loadLeftLog])
+  }, [sourceFolder, branchesLoading, targetBranch, sourceBranch, loadLeftLog, loadRightLog, t])
 
-  /** Tải lại danh sách commit panel phải (theo target/source / full log). */
+  /** Fetch nhánh nguồn từ origin rồi tải lại danh sách commit panel phải. */
   const reloadSourceCommits = useCallback(async () => {
     if (!sourceFolder || branchesLoading || refreshRemoteInFlight.current) return
-    if (!targetBranch?.trim() || !sourceBranch?.trim() || targetBranch === sourceBranch) return
+    if (!targetBranch?.trim() || !sourceBranch?.trim() || isEquivalentBranch(targetBranch, sourceBranch)) return
     refreshRemoteInFlight.current = true
     setRefreshSide('right')
     try {
-      await loadRightLog()
+      await loadRightLog({ notifyFetchFailure: true })
     } catch (e) {
       logger.error(e)
+      toast.error(t('git.cherryPickBranches.refreshFetchError'))
     } finally {
       refreshRemoteInFlight.current = false
       setRefreshSide(null)
     }
-  }, [sourceFolder, branchesLoading, targetBranch, sourceBranch, loadRightLog])
+  }, [sourceFolder, branchesLoading, targetBranch, sourceBranch, loadRightLog, t])
 
   /**
    * Chỉ cập nhật **nhánh đích** trong **repo đang chọn** (một repo).
@@ -479,7 +627,7 @@ export function GitCherryPickBranchesDialog({ open, onOpenChange, onComplete, se
       }
       await loadBranches()
       await loadLeftLog()
-      if (b && sourceBranch?.trim() && b !== sourceBranch) {
+      if (b && sourceBranch?.trim() && !isEquivalentBranch(b, sourceBranch)) {
         await loadRightLog()
       }
       window.dispatchEvent(new CustomEvent('git-branch-changed'))
@@ -535,7 +683,7 @@ export function GitCherryPickBranchesDialog({ open, onOpenChange, onComplete, se
 
   const handleRightScroll = useCallback(() => {
     const el = rightScrollRef.current
-    if (!el || logLoadingRight || loadingMoreRight || !hasMoreRight || !targetBranch?.trim() || !sourceBranch?.trim() || targetBranch === sourceBranch) {
+    if (!el || logLoadingRight || loadingMoreRight || !hasMoreRight || !targetBranch?.trim() || !sourceBranch?.trim() || isEquivalentBranch(targetBranch, sourceBranch)) {
       return
     }
     if (el.scrollHeight - (el.scrollTop + el.clientHeight) <= 80) {
@@ -548,6 +696,7 @@ export function GitCherryPickBranchesDialog({ open, onOpenChange, onComplete, se
       if (running) return
       const next = repos.find(r => r.path === v) ?? null
       if (!next || (selectedRepo && normPath(next.path) === normPath(selectedRepo.path))) return
+      branchListLoadIdRef.current += 1
       setSelectedRepo(next)
       setBranchesLoading(false)
       clearBranchSelectionOnNextLoadRef.current = true
@@ -556,7 +705,8 @@ export function GitCherryPickBranchesDialog({ open, onOpenChange, onComplete, se
       setBranches(null)
       setLeftLog([])
       setRightLog([])
-      setRightFullLog(false)
+      setRightFullLog(true)
+      setRightLogRangeEmpty(false)
       setSelectedRight(new Set())
       setHighlightLeft(new Set())
       setHighlightRight(new Set())
@@ -580,13 +730,15 @@ export function GitCherryPickBranchesDialog({ open, onOpenChange, onComplete, se
   /** Mỗi lần mở dialog: không chọn repo mặc định; tải lại danh sách source folder. */
   useEffect(() => {
     if (!open) return
+    branchListLoadIdRef.current += 1
     setSelectedRepo(null)
     setBranches(null)
     setTargetBranch(null)
     setSourceBranch(null)
     setLeftLog([])
     setRightLog([])
-    setRightFullLog(false)
+    setRightFullLog(true)
+    setRightLogRangeEmpty(false)
     setHasMoreLeft(false)
     setHasMoreRight(false)
     setSelectedRight(new Set())
@@ -637,6 +789,13 @@ export function GitCherryPickBranchesDialog({ open, onOpenChange, onComplete, se
   loadLeftLogRef.current = loadLeftLog
   loadRightLogRef.current = loadRightLog
 
+  /** Sau fetch nền xong: reload log nhánh nguồn với ref mới nhất. */
+  useEffect(() => {
+    if (!open || !sourceFolder || !remoteBranchesSyncedAt || !targetBranch?.trim() || !sourceBranch?.trim()) return
+    if (isEquivalentBranch(targetBranch, sourceBranch)) return
+    void loadRightLogRef.current()
+  }, [open, sourceFolder, remoteBranchesSyncedAt, targetBranch, sourceBranch])
+
   /** Chỉ load log trái (target) khi đổi target / repo / mở dialog. Bỏ qua khi đang chạy cherry-pick. */
   useEffect(() => {
     if (!open || !sourceFolder || !targetBranch?.trim() || running) return
@@ -657,17 +816,22 @@ export function GitCherryPickBranchesDialog({ open, onOpenChange, onComplete, se
     const onlyTargetChanged = prev != null && prev.target !== target && prev.source === source && prev.full === rightFullLog
 
     if (onlyTargetChanged) {
-      if (target === source) {
+      if (isEquivalentBranch(target, source)) {
         setRightLog([])
         setHasMoreRight(false)
+        setRightLogRangeEmpty(false)
+      } else {
+        setSelectedRight(new Set())
+        void loadRightLogRef.current()
       }
       prevRightSeenRef.current = { target, source, full: rightFullLog }
       return
     }
 
-    if (target === source) {
+    if (isEquivalentBranch(target, source)) {
       setRightLog([])
       setHasMoreRight(false)
+      setRightLogRangeEmpty(false)
       prevRightSeenRef.current = { target, source, full: rightFullLog }
       return
     }
@@ -958,7 +1122,7 @@ export function GitCherryPickBranchesDialog({ open, onOpenChange, onComplete, se
   }
 
   const handleCherryPickClick = () => {
-    if (!sourceFolder || !targetBranch || !sourceBranch || targetBranch === sourceBranch) {
+    if (!sourceFolder || !targetBranch || !sourceBranch || isEquivalentBranch(targetBranch, sourceBranch)) {
       toast.warning(t('git.cherryPickBranches.selectBranches'))
       return
     }
@@ -1043,7 +1207,7 @@ export function GitCherryPickBranchesDialog({ open, onOpenChange, onComplete, se
     }
   }
 
-  const sameBranch = !!(targetBranch && sourceBranch && targetBranch === sourceBranch)
+  const sameBranch = !!(targetBranch && sourceBranch && isEquivalentBranch(targetBranch, sourceBranch))
   const newBranchNameTrimmed = newBranchName.trim()
   const canRun =
     !running &&
@@ -1075,7 +1239,20 @@ export function GitCherryPickBranchesDialog({ open, onOpenChange, onComplete, se
           variant="outline"
           size="icon"
           className="shrink-0"
-          disabled={!sourceFolder || branchesLoading || !!refreshSide || reposLoading || !targetBranch?.trim()}
+          disabled={!sourceFolder || branchesLoading || !!refreshSide || reposLoading || !targetBranch?.trim() || running || addingBranch}
+          title={t('git.cherryPickBranches.pullTargetTooltip')}
+          aria-label={t('git.cherryPickBranches.pullTargetTooltip')}
+          onClick={() => void handlePullTarget()}
+          aria-busy={refreshSide === 'leftPull'}
+        >
+          {refreshSide === 'leftPull' ? <Loader2 className="h-4 w-4 animate-spin" aria-hidden /> : <Download className="h-4 w-4" aria-hidden />}
+        </Button>
+        <Button
+          type="button"
+          variant="outline"
+          size="icon"
+          className="shrink-0"
+          disabled={!sourceFolder || branchesLoading || !!refreshSide || reposLoading || running}
           title={t('git.cherryPickBranches.refreshRepoTooltip')}
           aria-label={t('git.cherryPickBranches.refreshRepoTooltip')}
           onClick={() => void reloadRepoVisibleCommits()}
@@ -1088,19 +1265,6 @@ export function GitCherryPickBranchesDialog({ open, onOpenChange, onComplete, se
 
   const renderTargetActionButtons = () => (
     <div className="flex shrink-0 items-center gap-0.5">
-      <Button
-        type="button"
-        variant="outline"
-        size="icon"
-        className="h-9 w-9"
-        disabled={!sourceFolder || branchesLoading || !!refreshSide || !targetBranch?.trim() || running || addingBranch}
-        title={t('git.cherryPickBranches.pullTargetTooltip')}
-        aria-label={t('git.cherryPickBranches.pullTargetTooltip')}
-        onClick={() => void handlePullTarget()}
-        aria-busy={refreshSide === 'leftPull'}
-      >
-        {refreshSide === 'leftPull' ? <Loader2 className="h-4 w-4 animate-spin" aria-hidden /> : <Download className="h-4 w-4" aria-hidden />}
-      </Button>
       <Button
         type="button"
         variant="outline"
@@ -1310,7 +1474,7 @@ export function GitCherryPickBranchesDialog({ open, onOpenChange, onComplete, se
                       variant="outline"
                       size="icon"
                       className="h-9 w-9 shrink-0"
-                      disabled={!sourceFolder || branchesLoading || !!refreshSide || !targetBranch?.trim() || !sourceBranch?.trim() || targetBranch === sourceBranch}
+                      disabled={!sourceFolder || branchesLoading || !!refreshSide || !targetBranch?.trim() || !sourceBranch?.trim() || sameBranch}
                       title={t('git.cherryPickBranches.refreshFetchTooltipSource')}
                       aria-label={t('git.cherryPickBranches.refreshFetchTooltipSource')}
                       onClick={() => void reloadSourceCommits()}
@@ -1387,6 +1551,8 @@ export function GitCherryPickBranchesDialog({ open, onOpenChange, onComplete, se
                       </div>
                     ) : sameBranch ? (
                       <p className="p-4 text-sm text-muted-foreground">{t('git.cherryPickBranches.sameBranch')}</p>
+                    ) : rightLog.length === 0 && rightLogRangeEmpty ? (
+                      <p className="p-4 text-sm text-muted-foreground">{t('git.cherryPickBranches.rightLogRangeEmptyHint')}</p>
                     ) : (
                       <>
                         <Table>

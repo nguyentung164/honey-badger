@@ -2023,7 +2023,7 @@ export const TitleBar = ({
   )
 
   const gitBranchLeftToolbarControls =
-    showGitRepoChrome && currentBranch && (!enableShellSwitcher || shellView === 'vcs') ? (
+    showGitRepoChrome && currentBranch && (!enableShellSwitcher || shellView === 'vcs' || shellView === 'showLog') ? (
       <>
         <Separator orientation="vertical" className="h-4 w-px bg-muted mx-0.5 shrink-0" />
         <Tooltip>
@@ -2395,6 +2395,7 @@ export const TitleBar = ({
                 {gitBranchLeftToolbarControls}
               </>
             )}
+            {enableShellSwitcher && shellView === 'showLog' && user && !isGuest && gitBranchLeftToolbarControls}
             {/* Settings trên bar khi guest */}
             {isGuest && (
               <Tooltip>
