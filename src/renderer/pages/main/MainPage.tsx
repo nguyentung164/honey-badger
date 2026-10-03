@@ -61,6 +61,7 @@ import { IntegratedTerminalPanel } from '@/pages/main/IntegratedTerminalPanel'
 import { PrManagerToolbarPortalContext } from '@/pages/main/PrManagerToolbarPortalContext'
 import { QuickCreatePrDialog } from '@/pages/main/QuickCreatePrDialog'
 import { ShowLogToolbarPortalContext } from '@/pages/main/ShowLogToolbarPortalContext'
+import { SourceFolderWelcome } from '@/pages/main/SourceFolderWelcome'
 import { type FileData, SvnFileTable } from '@/pages/main/SvnFileTable'
 import { type LazyShellView, ShellTabPanel, useShellTabIdleUnload, useShellTabLastActiveAt, useShellTabVisited } from '@/pages/main/shellTabLifecycle'
 import { TaskToolbarPortalContext } from '@/pages/main/TaskToolbarPortalContext'
@@ -205,6 +206,7 @@ export function MainPage() {
   const lastWatcherReloadAtRef = useRef(0)
   const WATCHER_RELOAD_MIN_MS = 2500
   const isMultiRepo = versionControlSystem === 'git' && !!multiRepoEnabled && effectivePaths.length >= 1
+  const hasVcsWorkspace = !!sourceFolder.trim() || (versionControlSystem === 'git' && !!multiRepoEnabled)
 
   useEffect(() => {
     const init = async () => {
@@ -333,7 +335,7 @@ export function MainPage() {
 
   // Initial load: gọi reloadData() đúng 1 lần (chỉ single-repo). Multi-repo do effect bên dưới xử lý để tránh gọi trùng.
   useEffect(() => {
-    if (!isConfigLoaded || versionControlSystem !== 'git') return
+    if (!isConfigLoaded || !sourceFolder.trim() || versionControlSystem !== 'git') return
     if (isMultiRepo && effectivePaths.length > 0) return // Multi-repo: để effect "Reload khi effectivePaths thay đổi" xử lý
     if (_initialGitLoadDone) return
     _initialGitLoadDone = true
@@ -342,7 +344,7 @@ export function MainPage() {
       if (table) table.reloadData()
       else pendingVcsActionRef.current = 'reload'
     })
-  }, [isConfigLoaded, versionControlSystem, isMultiRepo, effectivePaths.length])
+  }, [isConfigLoaded, sourceFolder, versionControlSystem, isMultiRepo, effectivePaths.length])
 
   // Reload khi effectivePaths thay đổi (vd user vừa chọn Project trong Settings, hoặc link/unlink repo).
   // Cũng reload gitDualTableRef khi chuyển từ multi-repo về single-repo.
@@ -2028,7 +2030,7 @@ export function MainPage() {
           isMultiRepo={isMultiRepo}
           activeRepoPath={activeRepoPath}
           activeRepoLabel={activeRepoLabel}
-          hideVcsToolbar={versionControlSystem === 'git' && !!multiRepoEnabled && effectivePaths.length === 0 && !token}
+          hideVcsToolbar={!isConfigLoaded || !hasVcsWorkspace || (versionControlSystem === 'git' && !!multiRepoEnabled && effectivePaths.length === 0 && !token)}
           shellView={shellView}
           onShellViewChange={persistShellView}
           enableShellSwitcher={enableShellSwitcher}
@@ -2150,47 +2152,49 @@ export function MainPage() {
                 ) : null}
                 {/* Workspace VCS: luôn mounted (CSS hidden) — giữ state + Monaco embedded diff khi chuyển tab */}
                 <ShellTabPanel visible={vcsWorkspaceVisible} mounted={!enableShellSwitcher || visitedShellTabs.has('vcs')}>
-                  <ResizablePanelGroup
-                    groupRef={panelGroupRef}
-                    direction="vertical"
-                    className="min-h-0 flex-1 border-t"
-                    defaultLayout={
-                      gitCommitMessageInTree
-                        ? { 'changed-files-table': 100 }
-                        : { 'changed-files-table': panelSizes.topPanelSize, 'commit-message-panel': panelSizes.bottomPanelSize }
-                    }
-                    onLayoutChanged={layout => {
-                      if (gitCommitMessageInTree || isApplyingMainPanelLayoutRef.current) return
-                      const top = layout['changed-files-table']
-                      const bottom = layout['commit-message-panel']
-                      if (typeof top !== 'number' || typeof bottom !== 'number') return
-                      if (bottom <= 0) return
-                      persistTablePanelSizes(top, bottom)
-                    }}
-                  >
-                    <ResizablePanel id="changed-files-table" minSize={gitCommitMessageInTree ? 100 : 25} className="min-h-0 overflow-hidden" ref={topPanelRef}>
-                      {renderStagingWorkspace()}
-                    </ResizablePanel>
-                    {!gitCommitMessageInTree ? (
-                      <>
-                        <ResizableHandle />
-                        <ResizablePanel id="commit-message-panel" className="flex min-h-0 flex-col p-2" minSize={25} ref={bottomPanelRef}>
-                          <CommitMessagePanel
-                            isLoadingGenerate={isLoadingGenerate}
-                            isAnyLoading={isAnyLoading}
-                            commitMessageRef={commitMessageRef}
-                            commitMessageSeed={commitMessageSeed}
-                            referenceIdRef={referenceIdRef}
-                            onReferenceIdChange={handleReferenceId}
-                            generateAction={renderCommitGenerateButton(false)}
-                            actions={renderCommitFooterActions(false)}
-                            actionsPlacement="header"
-                            className="h-full"
-                          />
-                        </ResizablePanel>
-                      </>
-                    ) : null}
-                  </ResizablePanelGroup>
+                  {!isConfigLoaded ? shellTabLoader : !hasVcsWorkspace ? <SourceFolderWelcome /> : (
+                    <ResizablePanelGroup
+                      groupRef={panelGroupRef}
+                      direction="vertical"
+                      className="min-h-0 flex-1 border-t"
+                      defaultLayout={
+                        gitCommitMessageInTree
+                          ? { 'changed-files-table': 100 }
+                          : { 'changed-files-table': panelSizes.topPanelSize, 'commit-message-panel': panelSizes.bottomPanelSize }
+                      }
+                      onLayoutChanged={layout => {
+                        if (gitCommitMessageInTree || isApplyingMainPanelLayoutRef.current) return
+                        const top = layout['changed-files-table']
+                        const bottom = layout['commit-message-panel']
+                        if (typeof top !== 'number' || typeof bottom !== 'number') return
+                        if (bottom <= 0) return
+                        persistTablePanelSizes(top, bottom)
+                      }}
+                    >
+                      <ResizablePanel id="changed-files-table" minSize={gitCommitMessageInTree ? 100 : 25} className="min-h-0 overflow-hidden" ref={topPanelRef}>
+                        {renderStagingWorkspace()}
+                      </ResizablePanel>
+                      {!gitCommitMessageInTree ? (
+                        <>
+                          <ResizableHandle />
+                          <ResizablePanel id="commit-message-panel" className="flex min-h-0 flex-col p-2" minSize={25} ref={bottomPanelRef}>
+                            <CommitMessagePanel
+                              isLoadingGenerate={isLoadingGenerate}
+                              isAnyLoading={isAnyLoading}
+                              commitMessageRef={commitMessageRef}
+                              commitMessageSeed={commitMessageSeed}
+                              referenceIdRef={referenceIdRef}
+                              onReferenceIdChange={handleReferenceId}
+                              generateAction={renderCommitGenerateButton(false)}
+                              actions={renderCommitFooterActions(false)}
+                              actionsPlacement="header"
+                              className="h-full"
+                            />
+                          </ResizablePanel>
+                        </>
+                      ) : null}
+                    </ResizablePanelGroup>
+                  )}
                 </ShellTabPanel>
               </div>
             </ResizablePanel>

@@ -1,4 +1,13 @@
 {
+  "homepage": {
+    "sourceFolder": {
+      "title": "Chọn thư mục source để bắt đầu",
+      "description": "Mở thư mục Git trên máy, bao gồm repository đã clone từ GitHub, hoặc thư mục làm việc SVN để bắt đầu.",
+      "selectFolder": "Chọn thư mục source",
+      "invalidRepository": "Vui lòng chọn thư mục chứa repository Git hoặc thư mục làm việc SVN.",
+      "selectError": "Không thể mở thư mục source: {{message}}"
+    }
+  },
   "common": {
     "sessionExpired": "Phiên đăng nhập hết hạn. Vui lòng đăng nhập lại.",
     "close": "Đóng",

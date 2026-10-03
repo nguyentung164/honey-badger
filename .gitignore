@@ -39,3 +39,7 @@ dev-app-update.yml
 
 # Generated from sarasa-mono-web on postinstall (scripts/copy-sarasa-fonts.mjs)
 /src/resources/public/fonts/sarasa-mono-sc/
+
+.serena/
+output/
+.playwright-cli/

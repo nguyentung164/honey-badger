@@ -1,4 +1,13 @@
 {
+  "homepage": {
+    "sourceFolder": {
+      "title": "Choose your source folder",
+      "description": "Open a local Git repository, including one cloned from GitHub, or an SVN working copy to get started.",
+      "selectFolder": "Choose source folder",
+      "invalidRepository": "Choose a folder containing a Git repository or an SVN working copy.",
+      "selectError": "Could not open the source folder: {{message}}"
+    }
+  },
   "common": {
     "sessionExpired": "Session expired. Please log in again.",
     "close": "Close",

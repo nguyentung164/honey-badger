@@ -1,4 +1,13 @@
 {
+  "homepage": {
+    "sourceFolder": {
+      "title": "ソースフォルダーを選択して開始",
+      "description": "GitHubからクローンしたものを含むローカルのGitリポジトリ、またはSVNの作業コピーを開いて開始します。",
+      "selectFolder": "ソースフォルダーを選択",
+      "invalidRepository": "GitリポジトリまたはSVNの作業コピーを含むフォルダーを選択してください。",
+      "selectError": "ソースフォルダーを開けませんでした: {{message}}"
+    }
+  },
   "common": {
     "sessionExpired": "セッションの有効期限が切れました。再度ログインしてください。",
     "close": "閉じる",

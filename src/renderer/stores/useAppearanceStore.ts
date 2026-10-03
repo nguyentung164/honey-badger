@@ -3,6 +3,7 @@ import { useTheme } from 'next-themes'
 import { create } from 'zustand'
 import { createJSONStorage, persist } from 'zustand/middleware'
 import { DEFAULT_SHELL_TAB_ORDER, normalizeShellTabOrder } from '@/lib/shellTabDefs'
+import { applyThemeModeToDocument } from '@/lib/syncUiSettings'
 import type { MainShellView } from 'shared/mainShellView'
 
 function createDebouncedStorage<T>(baseStorage: ReturnType<typeof createJSONStorage<T>>, debounceMs: number) {
@@ -110,10 +111,7 @@ const useStore = create<AppearanceStore>()(
         debouncedAppearanceSet('theme', theme)
       },
       setThemeMode: mode => {
-        const html = document.documentElement
-        html.classList.remove('dark', 'light')
-        html.classList.add(mode)
-        document.documentElement.setAttribute('data-theme-mode', mode)
+        applyThemeModeToDocument(mode)
         set({ themeMode: mode })
         debouncedAppearanceSet('themeMode', mode)
       },

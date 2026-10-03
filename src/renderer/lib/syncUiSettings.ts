@@ -7,20 +7,29 @@ import i18n from '@/lib/i18n'
 
 const UI_SETTINGS_KEY = 'ui-settings'
 const SYNCED_EVENT = 'ui-settings-synced'
+const SYSTEM_THEME_QUERY = '(prefers-color-scheme: dark)'
+let currentThemeMode = 'light'
 
 export interface UiSettingsSyncedDetail {
   themeMode: string
   theme: string
 }
 
+/** Keep the saved preference (`system`) separate from the resolved CSS mode. */
+export function applyThemeModeToDocument(themeMode: string) {
+  const html = document.documentElement
+  currentThemeMode = themeMode
+  const resolvedMode = themeMode === 'system' ? (window.matchMedia(SYSTEM_THEME_QUERY).matches ? 'dark' : 'light') : themeMode
+
+  html.classList.remove('dark', 'light', 'system')
+  html.setAttribute('data-theme-mode', resolvedMode)
+  html.classList.add(resolvedMode)
+}
+
 export function applyThemeToDocument(state: { themeMode?: string; theme?: string }) {
   const html = document.documentElement
-  const themeMode = state.themeMode || 'light'
   const theme = state.theme || 'theme-default'
-
-  html.classList.remove('dark', 'light')
-  html.setAttribute('data-theme-mode', themeMode)
-  html.classList.add(themeMode)
+  applyThemeModeToDocument(state.themeMode || 'light')
 
   for (const cls of Array.from(html.classList)) {
     if (cls.startsWith('theme-')) html.classList.remove(cls)
@@ -87,6 +96,9 @@ export function initSyncUiSettings() {
   }
 
   window.addEventListener('storage', handleStorage)
+  window.matchMedia(SYSTEM_THEME_QUERY).addEventListener('change', () => {
+    if (currentThemeMode === 'system') applyThemeModeToDocument(currentThemeMode)
+  })
 }
 
 export { SYNCED_EVENT }

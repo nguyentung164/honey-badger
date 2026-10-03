@@ -1040,6 +1040,7 @@ export const TitleBar = ({
 
   // Function để check VCS updates dựa trên type
   const checkVCSUpdates = (vcsType: 'git' | 'svn' | 'none') => {
+    if (!useConfigurationStore.getState().sourceFolder.trim() && !isMultiRepo) return
     if (vcsType === 'git') {
       checkGitStatus()
     } else if (vcsType === 'svn') {
