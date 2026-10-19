@@ -35,7 +35,7 @@ export function normalizeWorkloadDay(raw: WorkloadDayCell & Record<string, unkno
   return { userId, date, derivedHours, actualWorkHours, overrideHours, taskCount, taskIds }
 }
 
-function effectiveHoursOfCell(cell: WorkloadDayCell | undefined, preferActual: boolean): number {
+export function effectiveHoursOfCell(cell: WorkloadDayCell | undefined, preferActual: boolean): number {
   if (!cell) return 0
   if (cell.overrideHours != null) return Number(cell.overrideHours) || 0
   if (preferActual && cell.actualWorkHours != null) return Number(cell.actualWorkHours) || 0

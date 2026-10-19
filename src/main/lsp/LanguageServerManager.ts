@@ -162,7 +162,7 @@ async function initializeServer(
   let initResult: { capabilities?: LspServerCapabilities & { experimental?: LspServerCapabilities } } | undefined
   try {
     initResult = await Promise.race([
-      managed.connection.sendRequest('initialize', initParams),
+      managed.connection.sendRequest<NonNullable<typeof initResult>>('initialize', initParams),
       new Promise<never>((_resolve, reject) => {
         initTimeout = setTimeout(() => reject(new Error('Language server initialize timed out')), INIT_REQUEST_TIMEOUT_MS)
       }),
@@ -231,7 +231,8 @@ function attachConnection(managed: ManagedServer, sender: WebContents) {
   void key
 }
 async function spawnServer(serverId: LspServerId, rootPath: string): Promise<ManagedServer> {
-  const spawnSpec = serverId === 'typescript' ? resolveTypeScriptLanguageServer(rootPath) : await resolveJavaCommand(rootPath)
+  const typescriptSpawn = serverId === 'typescript' ? resolveTypeScriptLanguageServer(rootPath) : undefined
+  const spawnSpec = serverId === 'typescript' ? typescriptSpawn : await resolveJavaCommand(rootPath)
   if (!spawnSpec) {
     throw new Error(serverId === 'java' ? 'JDT Language Server not installed or JDK 17+ not found' : 'Language server not found')
   }
@@ -251,7 +252,7 @@ async function spawnServer(serverId: LspServerId, rootPath: string): Promise<Man
     process: child,
     state: 'starting',
     initialized: false,
-    typescriptBackend: serverId === 'typescript' ? spawnSpec.backend : undefined,
+    typescriptBackend: typescriptSpawn?.backend,
   }
   child.stderr.on('data', chunk => {
     const text = String(chunk).trim()

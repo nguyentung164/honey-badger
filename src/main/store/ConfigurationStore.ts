@@ -1,6 +1,7 @@
 import os from 'node:os'
 import path from 'node:path'
 import Store from 'electron-store'
+import type { OpenAIConnectionMode } from '../../shared/openaiConnection'
 
 import type { TaskDbTlsMode } from '../types/types'
 
@@ -18,6 +19,9 @@ export type CommitMessageDetailLevel = 'detail' | 'normal' | 'simple'
 export type OpenAIReasoningEffort = 'low' | 'medium' | 'high' | 'xhigh'
 
 export type Schema = {
+  openaiConnectionMode: OpenAIConnectionMode
+  codexAuthPath: string
+  codexModel: string
   openaiApiKey: string
   openaiModel: string
   openaiReasoningEffort: OpenAIReasoningEffort
@@ -64,6 +68,9 @@ const config = new Store<Schema>({
   name: 'configuration',
   ...(!isElectronRuntime ? { cwd: path.join(os.tmpdir(), 'honey-badger-config-store') } : {}),
   defaults: {
+    openaiConnectionMode: 'api-key',
+    codexAuthPath: '',
+    codexModel: '',
     openaiApiKey: '',
     openaiModel: 'gpt-5.4',
     openaiReasoningEffort: 'low',

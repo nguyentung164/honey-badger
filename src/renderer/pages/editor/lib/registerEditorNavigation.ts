@@ -31,7 +31,7 @@ async function openNodeModuleSpecifier(specifier: string, repoCwd: string): Prom
   return true
 }
 
-async function openWorkspaceLocation(uri: string, line?: number, column?: number): Promise<boolean> {
+export async function openWorkspaceLocation(uri: string, line?: number, column?: number): Promise<boolean> {
   const repoCwd = navigationRepoCwd || useEditorWorkspace.getState().repoCwd
   if (!repoCwd) return false
 

@@ -10,6 +10,7 @@ import {
   type TerminalContextMenuActions,
 } from '@/lib/terminal/terminalInput'
 import { playTerminalBell } from '@/lib/terminal/terminalBell'
+import { attachTerminalFastScroll } from '@/lib/terminal/terminalFastScroll'
 import { buildTerminalClearCommand } from '@/lib/terminal/terminalClear'
 import {
   resolveTerminalFontFamily,
@@ -64,8 +65,6 @@ function applyTerminalOptions(term: Terminal, prefs: TerminalPrefs) {
   term.options.altClickMovesCursor = prefs.altClickMovesCursor
   term.options.scrollOnUserInput = prefs.scrollOnUserInput
   term.options.smoothScrollDuration = prefs.smoothScrolling ? SMOOTH_SCROLL_DURATION_MS : 0
-  term.options.fastScrollModifier = prefs.fastScrollModifier === 'none' ? undefined : prefs.fastScrollModifier
-  term.options.fastScrollSensitivity = prefs.fastScrollSensitivity
 }
 
 export function useIntegratedTerminal({
@@ -96,6 +95,7 @@ export function useIntegratedTerminal({
   const detachShortcutsRef = useRef<(() => void) | null>(null)
   const detachCopyOnSelectRef = useRef<(() => void) | null>(null)
   const detachRightClickRef = useRef<(() => void) | null>(null)
+  const detachFastScrollRef = useRef<(() => void) | null>(null)
   const prefsRef = useRef(prefs)
   const onContextMenuRef = useRef(onContextMenu)
   const confirmMultiLinePasteRef = useRef(confirmMultiLinePaste)
@@ -251,6 +251,8 @@ export function useIntegratedTerminal({
   }, [])
 
   const disposeTerminal = useCallback(() => {
+    detachFastScrollRef.current?.()
+    detachFastScrollRef.current = null
     onDataDisposableRef.current?.dispose()
     onDataDisposableRef.current = null
     onBellDisposableRef.current?.dispose()
@@ -417,6 +419,7 @@ export function useIntegratedTerminal({
       term.loadAddon(fitAddon)
 
       term.open(container)
+      detachFastScrollRef.current = attachTerminalFastScroll(term, () => prefsRef.current)
       fitAddon.fit()
 
       termRef.current = term

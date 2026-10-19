@@ -19,11 +19,12 @@ import { cn } from '@/lib/utils'
 import { GanttTimelineGridOverlay } from './GanttTimelineGridOverlay'
 import { HB_GANTT_GRID_V_VAR, HB_GANTT_TODAY_LINE_MARK, hbGantt } from './ganttLayoutCssVars'
 import { WORKLOAD_EXPANDED_MINI_MAX_SCROLL_PX } from './taskGanttWorkloadConstants'
-import { buildDisplayWorkloadSegments, normalizeWorkloadDay, workloadRowKey } from './taskGanttWorkloadSegmentUtils'
+import { buildDisplayWorkloadSegments, effectiveHoursOfCell, normalizeWorkloadDay, workloadRowKey } from './taskGanttWorkloadSegmentUtils'
 import type {
   WorkloadBoardSegment,
   WorkloadBucketAgg,
   WorkloadDayCell,
+  WorkloadData,
   WorkloadDisplayMode,
   WorkloadGanttScheduledTaskRef,
   WorkloadOverrideChoiceSnapshot,

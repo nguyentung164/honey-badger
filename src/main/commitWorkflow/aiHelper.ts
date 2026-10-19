@@ -1,9 +1,8 @@
 import Anthropic from '@anthropic-ai/sdk'
 import { GoogleGenAI } from '@google/genai'
-import l from 'electron-log'
-import OpenAI from 'openai'
 import { PROMPT } from 'main/constants'
 import { estimateCostUsd, type NormalizedUsage } from '../ai/aiPricing'
+import { createOpenAIResponse, isOpenAIConfigured } from '../ai/openaiConnection'
 import type { ApiProvider } from '../store/ConfigurationStore'
 import configurationStore from '../store/ConfigurationStore'
 import { appendAiUsageEvent } from '../task/aiUsageDb'
@@ -17,13 +16,15 @@ type AiCallSuccess = {
 }
 
 async function callOpenAI(prompt: string, apiKey: string, modelArg?: string): Promise<AiCallSuccess> {
-  const openai = new OpenAI({ apiKey })
   const model = modelArg?.trim() || 'gpt-5.4'
-  const response = await openai.responses.create({
-    model,
-    input: prompt,
-    reasoning: { effort: configurationStore.store.openaiReasoningEffort ?? 'low' },
-  })
+  const response = await createOpenAIResponse(
+    {
+      model,
+      input: prompt,
+      reasoning: { effort: configurationStore.store.openaiReasoningEffort ?? 'low' },
+    },
+    { ...configurationStore.store, openaiApiKey: apiKey }
+  )
   let usage: NormalizedUsage | null = null
   const u = response.usage as { input_tokens?: number; output_tokens?: number; input_tokens_details?: { cached_tokens?: number } } | undefined
   if (u && typeof u.input_tokens === 'number') {
@@ -33,7 +34,7 @@ async function callOpenAI(prompt: string, apiKey: string, modelArg?: string): Pr
       cachedInputTokens: u.input_tokens_details?.cached_tokens ?? 0,
     }
   }
-  return { text: response.output_text ?? '', usage, model, provider: 'openai' }
+  return { text: response.output_text ?? '', usage, model: response.model || model, provider: 'openai' }
 }
 
 async function callClaude(prompt: string, apiKey: string): Promise<AiCallSuccess> {
@@ -129,7 +130,7 @@ export async function sendCheckViolationsPrompt(
       result = await callGoogle(prompt, googleApiKey)
       break
     default:
-      if (!openaiApiKey) return 'Error: OpenAI API key is not configured.'
+      if (!isOpenAIConfigured(configurationStore.store)) return 'Error: OpenAI API key is not configured.'
       result = await callOpenAI(prompt, openaiApiKey, openaiModel)
   }
   if (typeof result === 'string') return result

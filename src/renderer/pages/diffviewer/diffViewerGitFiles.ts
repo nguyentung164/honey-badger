@@ -1,5 +1,5 @@
 import { filterDiffViewerFilesByLocalIgnore } from '@/lib/diffViewer/gitStagingLocalIgnore'
-import type { DiffViewerFileEntry } from './diffViewerPayload'
+import type { DiffViewerFileEntry, DiffViewerLoadPayload } from './diffViewerPayload'
 
 export function normalizeGitPath(filePath: string): string {
   return filePath.replace(/\\/g, '/').replace(/\/+$/, '')

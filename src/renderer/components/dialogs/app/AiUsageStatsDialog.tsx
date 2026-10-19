@@ -180,7 +180,7 @@ export function AiUsageStatsDialog({ open, onOpenChange, isAdmin = false, curren
   }, [summary, currency, fx.usdToJpy, fx.usdToVnd, t])
 
   const chartTooltipFormatter = useCallback(
-    (value: unknown, _name: string | number, item: { color?: string }) => {
+    (value: unknown, _name: string | number | undefined, item: { color?: string }) => {
       const n = value != null && typeof value === 'number' ? value : 0
       const formatted = formatMoneyDisplay(n, currency)
       return (

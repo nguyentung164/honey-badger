@@ -14,6 +14,7 @@ function getElectronAppIsPackaged(): boolean {
 
 import { AI_FEATURE_SPOTBUGS_CHAT, IPC, PROMPT } from 'main/constants'
 import type { Configuration, MailServerConfig, SupportFeedback, SVNResponse } from 'main/types/types'
+import type { OpenAIConnectionSettings, OpenAIConnectionTestResult } from 'shared/openaiConnection'
 import type {
   DevPipelineFlow,
   DevPipelineFlowSummary,
@@ -259,6 +260,7 @@ declare global {
       }
 
       openai: {
+        test_connection: (settings: OpenAIConnectionSettings) => Promise<OpenAIConnectionTestResult>
         send_message: (params: { type: keyof typeof PROMPT; values: Record<string, string> }) => Promise<string>
         chat: (prompt: string) => Promise<string>
       }
@@ -466,7 +468,7 @@ declare global {
       }
 
       lsp: {
-        start: (payload: import('shared/lsp/types').LspStartPayload) => Promise<{ success: boolean; error?: string }>
+        start: (payload: import('shared/lsp/types').LspStartPayload) => Promise<import('shared/lsp/types').LspStartResult>
         stop: (payload: import('shared/lsp/types').LspStopPayload) => Promise<{ success: boolean }>
         send: (payload: import('shared/lsp/types').LspSendPayload) => void
         onMessage: (cb: (event: import('shared/lsp/types').LspMessageEvent) => void) => () => void
@@ -1445,6 +1447,8 @@ contextBridge.exposeInMainWorld('api', {
   },
 
   openai: {
+    test_connection: (settings: OpenAIConnectionSettings): Promise<OpenAIConnectionTestResult> =>
+      ipcRenderer.invoke(IPC.OPENAI.TEST_CONNECTION, toStructuredCloneable(settings)),
     send_message: (data: { type: keyof typeof PROMPT; values: Record<string, string> }) => {
       const { type, values } = data
       let resolvedValues = { ...values }

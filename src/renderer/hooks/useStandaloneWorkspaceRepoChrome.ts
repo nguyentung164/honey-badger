@@ -51,6 +51,7 @@ export function useStandaloneWorkspaceRepoChrome({
   | 'enableShellSwitcher'
   | 'refreshSourceFoldersList'
   | 'isChangingFolder'
+  | 'isLoading'
   | 'onFolderChange'
   | 'folderVCSTypes'
   | 'showGitRepoChrome'

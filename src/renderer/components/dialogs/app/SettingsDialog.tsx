@@ -62,6 +62,9 @@ export function SettingsDialog({ open, onOpenChange }: SettingsDialogProps) {
   const { t, i18n } = useTranslation()
 
   const {
+    openaiConnectionMode,
+    codexAuthPath,
+    codexModel,
     openaiApiKey,
     openaiModel,
     openaiReasoningEffort,
@@ -201,6 +204,9 @@ export function SettingsDialog({ open, onOpenChange }: SettingsDialogProps) {
         const initProjectId = useSelectedProjectStore.getState().selectedProjectId
         setDraftSelectedProjectId(initProjectId)
         const configSnapshot = {
+          openaiConnectionMode: configState.openaiConnectionMode,
+          codexAuthPath: configState.codexAuthPath,
+          codexModel: configState.codexModel,
           openaiApiKey: configState.openaiApiKey,
           openaiModel: configState.openaiModel,
           openaiReasoningEffort: configState.openaiReasoningEffort,
@@ -282,6 +288,9 @@ export function SettingsDialog({ open, onOpenChange }: SettingsDialogProps) {
     if (!open || !initialConfigRef.current) return { configDirty: false, configDirtyTab: null as 'configuration' | 'apikeys' | 'versioncontrol' | 'rules' | null }
     const init = initialConfigRef.current
     const current = {
+      openaiConnectionMode,
+      codexAuthPath,
+      codexModel,
       openaiApiKey,
       openaiModel,
       openaiReasoningEffort,
@@ -341,7 +350,7 @@ export function SettingsDialog({ open, onOpenChange }: SettingsDialogProps) {
       'externalEditorPath',
       'developerMode',
     ]
-    const apikeysFields = ['openaiApiKey', 'openaiModel', 'openaiReasoningEffort', 'claudeApiKey', 'googleApiKey', 'activeApiProvider', 'commitMessageDetailLevel']
+    const apikeysFields = ['openaiConnectionMode', 'codexAuthPath', 'codexModel', 'openaiApiKey', 'openaiModel', 'openaiReasoningEffort', 'claudeApiKey', 'googleApiKey', 'activeApiProvider', 'commitMessageDetailLevel']
     const versioncontrolFields = ['sourceFolder', 'versionControlSystem', 'autoRefreshEnabled', 'multiRepoEnabled', 'selectedProjectId']
     const rulesFields = ['codingRule', 'codingRuleId', 'commitConventionEnabled', 'commitConventionMode', 'gitleaksEnabled', 'gitleaksMode', 'gitleaksConfigPath']
     const tabHasChanges = (fields: string[]) => fields.some(k => String((init as Record<string, unknown>)[k] ?? '') !== String((current as Record<string, unknown>)[k] ?? ''))
@@ -354,6 +363,9 @@ export function SettingsDialog({ open, onOpenChange }: SettingsDialogProps) {
   }, [
     dirtyCheckVersion,
     open,
+    openaiConnectionMode,
+    codexAuthPath,
+    codexModel,
     openaiApiKey,
     openaiModel,
     openaiReasoningEffort,
@@ -489,6 +501,9 @@ export function SettingsDialog({ open, onOpenChange }: SettingsDialogProps) {
       await saveConfigurationConfig({ omitIntegrationFieldsForDisk: true })
       const configState = useConfigurationStore.getState()
       initialConfigRef.current = {
+        openaiConnectionMode: configState.openaiConnectionMode,
+        codexAuthPath: configState.codexAuthPath,
+        codexModel: configState.codexModel,
         openaiApiKey: configState.openaiApiKey,
         openaiModel: configState.openaiModel,
         openaiReasoningEffort: configState.openaiReasoningEffort,
@@ -561,6 +576,9 @@ export function SettingsDialog({ open, onOpenChange }: SettingsDialogProps) {
       const configState = useConfigurationStore.getState()
       const mailState = useMailServerStore.getState()
       initialConfigRef.current = {
+        openaiConnectionMode: configState.openaiConnectionMode,
+        codexAuthPath: configState.codexAuthPath,
+        codexModel: configState.codexModel,
         openaiApiKey: configState.openaiApiKey,
         openaiModel: configState.openaiModel,
         openaiReasoningEffort: configState.openaiReasoningEffort,

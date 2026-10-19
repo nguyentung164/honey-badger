@@ -352,7 +352,7 @@ export const DeveloperRadar = memo(function DeveloperRadar({
                     <PolarGrid className="stroke-border" />
                     <PolarAngleAxis
                       dataKey="subject"
-                      tick={(props: { payload: { value: string }; x: number; y: number; textAnchor: string }) => {
+                      tick={props => {
                         const { payload, x, y, textAnchor } = props
                         const row = chartData.find(d => d.subject === payload.value)
                         const fill = row ? AXIS_COLOR_BY_KEY[row.key] : 'var(--muted-foreground)'

@@ -213,6 +213,7 @@ export function pickEditorSettings(state: EditorSettingsState): EditorSettings {
     detectIndentation: state.detectIndentation,
     rulers: state.rulers,
     links: state.links,
+    preferGoToSourceDefinition: state.preferGoToSourceDefinition,
   }
 }
 

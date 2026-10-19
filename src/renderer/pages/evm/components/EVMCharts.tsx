@@ -7,7 +7,7 @@ import { formatDateDisplay } from '@/lib/dateUtils'
 import type { EVMTimeSeriesPoint } from '@/lib/evmCalculations'
 import { cn } from '@/lib/utils'
 
-function tooltipFormatter(value: unknown, name: string | number, item: { color?: string }) {
+function tooltipFormatter(value: unknown, name: string | number | undefined, item: { color?: string }) {
   const formatted = value != null && typeof value === 'number' ? value.toFixed(2) : String(value ?? '')
   return (
     <>

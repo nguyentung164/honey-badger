@@ -69,7 +69,7 @@ type CommitByAuthorChartType = 'bar-vertical' | 'bar-horizontal'
 export function StatisticDialog({ isOpen, onOpenChange, filePath, sourceFolderPath, dateRange, versionControlSystem = 'svn' }: StatisticDialogProps) {
   const { t } = useTranslation()
   const formatChartDateTick = useCallback(
-    (value: string | number) => {
+    (value: unknown) => {
       const s = typeof value === 'number' ? String(value) : value
       if (typeof s !== 'string' || !/^\d{4}-\d{2}-\d{2}/.test(s)) return String(value)
       return formatDateDisplay(s.slice(0, 10), i18n.language)

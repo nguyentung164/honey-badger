@@ -29,6 +29,9 @@ export type CommitInfo = {
 export type TaskDbTlsMode = 'auto' | 'required' | 'disabled'
 
 export type Configuration = {
+  openaiConnectionMode?: 'api-key' | 'codex'
+  codexAuthPath?: string
+  codexModel?: string
   openaiApiKey?: string
   openaiModel?: string
   openaiReasoningEffort?: 'low' | 'medium' | 'high' | 'xhigh'

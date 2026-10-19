@@ -685,39 +685,9 @@ export class EditorLanguageService {
               newName,
             },
             token
-          )) as { documentChanges?: unknown[]; changes?: Record<string, unknown[]> } | null
+          )) as WorkspaceEditPayload | null
           if (!result) return null
-          const edits: Monaco.languages.IWorkspaceTextEdit[] = []
-          const changes = result.changes ?? {}
-          for (const [uri, items] of Object.entries(changes)) {
-            for (const item of items as Array<{ range: { start: { line: number; character: number }; end: { line: number; character: number } }; newText: string }>) {
-              edits.push({
-                resource: monaco.Uri.parse(uri),
-                textEdit: {
-                  range: new monaco.Range(item.range.start.line + 1, item.range.start.character + 1, item.range.end.line + 1, item.range.end.character + 1),
-                  text: item.newText,
-                },
-                versionId: undefined,
-              })
-            }
-          }
-          if (result.documentChanges) {
-            for (const change of result.documentChanges) {
-              if ('edits' in change && change.textDocument?.uri && Array.isArray(change.edits)) {
-                for (const item of change.edits as Array<{ range: { start: { line: number; character: number }; end: { line: number; character: number } }; newText: string }>) {
-                  edits.push({
-                    resource: monaco.Uri.parse(change.textDocument.uri),
-                    textEdit: {
-                      range: new monaco.Range(item.range.start.line + 1, item.range.start.character + 1, item.range.end.line + 1, item.range.end.character + 1),
-                      text: item.newText,
-                    },
-                    versionId: undefined,
-                  })
-                }
-              }
-            }
-          }
-          return { edits }
+          return lspWorkspaceEditToMonaco(monaco, result)
         },
       })
     )
@@ -1335,20 +1305,10 @@ export class EditorLanguageService {
     if (locations.length === 1) {
       const target = locations[0]
       if (!target) return
-      const range = target.range
-      await this.monaco?.editor.openCodeEditor(
-        {
-          resource: target.uri,
-          options: {
-            selection: range,
-            selectionStartLineNumber: range.startLineNumber,
-            selectionStartColumn: range.startColumn,
-            positionLineNumber: range.startLineNumber,
-            positionColumn: range.startColumn,
-          },
-        },
-        editor
-      )
+      // Load lazily: the workspace store also imports this language service.
+      const { openWorkspaceLocation } = await import('@/pages/editor/lib/registerEditorNavigation')
+      const opened = await openWorkspaceLocation(target.uri.toString(), target.range.startLineNumber, target.range.startColumn)
+      if (!opened) toast.info(noResultMessage)
       return
     }
 

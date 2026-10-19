@@ -2,8 +2,9 @@ import Anthropic from '@anthropic-ai/sdk'
 import type { ImageBlockParam, TextBlockParam } from '@anthropic-ai/sdk/resources/messages/messages'
 import { GoogleGenAI } from '@google/genai'
 import l from 'electron-log'
-import OpenAI from 'openai'
+import type { ResponseCreateParamsNonStreaming } from 'openai/resources/responses/responses'
 import { estimateCostUsd, type NormalizedUsage } from '../ai/aiPricing'
+import { createOpenAIResponse, isOpenAIConfigured } from '../ai/openaiConnection'
 import type { ApiProvider } from '../store/ConfigurationStore'
 import configurationStore from '../store/ConfigurationStore'
 import { appendAiUsageEvent } from '../task/aiUsageDb'
@@ -54,7 +55,8 @@ function sanitizeForGoogle(schema: Record<string, unknown>): Record<string, unkn
 }
 
 function pickProvider(): ApiProvider {
-  const { activeApiProvider, openaiApiKey, claudeApiKey, googleApiKey } = configurationStore.store
+  const { activeApiProvider, claudeApiKey, googleApiKey } = configurationStore.store
+  const openaiConfigured = isOpenAIConfigured(configurationStore.store)
   switch (activeApiProvider) {
     case 'claude':
       if (claudeApiKey) return 'claude'
@@ -63,10 +65,10 @@ function pickProvider(): ApiProvider {
       if (googleApiKey) return 'google'
       break
     default:
-      if (openaiApiKey) return 'openai'
+      if (openaiConfigured) return 'openai'
       break
   }
-  if (openaiApiKey) return 'openai'
+  if (openaiConfigured) return 'openai'
   if (claudeApiKey) return 'claude'
   if (googleApiKey) return 'google'
   throw new Error('No AI provider API key is configured.')
@@ -105,13 +107,11 @@ async function recordUsage(
 }
 
 async function callOpenAIStructured<T>(req: StructuredCall): Promise<StructuredResult<T>> {
-  const { openaiApiKey, openaiModel, openaiReasoningEffort } = configurationStore.store
-  if (!openaiApiKey) throw new Error('OpenAI API key is not configured.')
-  const openai = new OpenAI({ apiKey: openaiApiKey })
+  const settings = configurationStore.store
+  const { openaiModel, openaiReasoningEffort } = settings
   const model = openaiModel?.trim() || 'gpt-5.4'
-  const inputParam: Parameters<typeof openai.responses.create>[0]['input'] =
-    req.images?.length ?
-      [
+  const inputParam: ResponseCreateParamsNonStreaming['input'] = req.images?.length
+    ? [
         {
           role: 'user',
           type: 'message',
@@ -125,25 +125,30 @@ async function callOpenAIStructured<T>(req: StructuredCall): Promise<StructuredR
           ],
         },
       ]
-    : (req.prompt as Parameters<typeof openai.responses.create>[0]['input'])
-  const response = await openai.responses.create({
-    model,
-    input: inputParam,
-    reasoning: { effort: openaiReasoningEffort ?? 'low' },
-    text: {
-      format: {
-        type: 'json_schema',
-        name: req.schemaName,
-        strict: true,
-        schema: req.schema,
+    : req.prompt
+  const response = await createOpenAIResponse(
+    {
+      model,
+      input: inputParam,
+      reasoning: { effort: openaiReasoningEffort ?? 'low' },
+      text: {
+        format: {
+          type: 'json_schema',
+          name: req.schemaName,
+          strict: true,
+          schema: req.schema,
+        },
       },
     },
-  } as unknown as Parameters<typeof openai.responses.create>[0])
+    settings
+  )
   const raw = (response as unknown as { output_text?: string }).output_text ?? ''
   let usage: NormalizedUsage | null = null
-  const u = (response as unknown as {
-    usage?: { input_tokens?: number; output_tokens?: number; input_tokens_details?: { cached_tokens?: number } }
-  }).usage
+  const u = (
+    response as unknown as {
+      usage?: { input_tokens?: number; output_tokens?: number; input_tokens_details?: { cached_tokens?: number } }
+    }
+  ).usage
   if (u && typeof u.input_tokens === 'number') {
     usage = {
       inputTokens: u.input_tokens,
@@ -151,9 +156,9 @@ async function callOpenAIStructured<T>(req: StructuredCall): Promise<StructuredR
       cachedInputTokens: u.input_tokens_details?.cached_tokens ?? 0,
     }
   }
-  await recordUsage(req.feature, 'openai', model, usage)
+  await recordUsage(req.feature, 'openai', response.model || model, usage)
   const data = JSON.parse(raw) as T
-  return { data, raw, provider: 'openai', model }
+  return { data, raw, provider: 'openai', model: response.model || model }
 }
 
 async function callClaudeStructured<T>(req: StructuredCall): Promise<StructuredResult<T>> {

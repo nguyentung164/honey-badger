@@ -1,12 +1,14 @@
 'use client'
 
-import { KeyRound, Save } from 'lucide-react'
-import { memo } from 'react'
+import { KeyRound, Loader2, PlugZap, Save } from 'lucide-react'
+import { memo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
+import { CODEX_MODELS, type OpenAIConnectionMode, type OpenAIConnectionSettings, type OpenAIConnectionTestResult } from '../../../../shared/openaiConnection'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent } from '@/components/ui/card'
 import { Combobox } from '@/components/ui/combobox'
 import { Label } from '@/components/ui/label'
+import { Select, SelectContent, SelectGroup, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { useAppearanceStoreSelect } from '../../../stores/useAppearanceStore'
 import type { ApiProvider, CommitMessageDetailLevel, ConfigFieldKey, OpenAIReasoningEffort } from '../../../stores/useConfigurationStore'
 import { useConfigurationStore } from '../../../stores/useConfigurationStore'
@@ -26,10 +28,41 @@ export const ApiKeysTabContent = memo(function ApiKeysTabContent({ configDirty, 
   const activeApiProvider = useConfigurationStore(s => s.activeApiProvider)
   const commitMessageDetailLevel = useConfigurationStore(s => s.commitMessageDetailLevel)
   const openaiApiKey = useConfigurationStore(s => s.openaiApiKey)
+  const openaiConnectionMode = useConfigurationStore(s => s.openaiConnectionMode)
+  const codexAuthPath = useConfigurationStore(s => s.codexAuthPath)
+  const codexModel = useConfigurationStore(s => s.codexModel)
   const openaiModel = useConfigurationStore(s => s.openaiModel)
   const openaiReasoningEffort = useConfigurationStore(s => s.openaiReasoningEffort)
   const claudeApiKey = useConfigurationStore(s => s.claudeApiKey)
   const googleApiKey = useConfigurationStore(s => s.googleApiKey)
+  const [isTesting, setIsTesting] = useState(false)
+  const [testResult, setTestResult] = useState<{ key: string; result: OpenAIConnectionTestResult } | null>(null)
+  const connectionKey = JSON.stringify([openaiConnectionMode, codexAuthPath, codexModel, openaiApiKey, openaiModel, openaiReasoningEffort])
+  const visibleTestResult = testResult?.key === connectionKey ? testResult.result : null
+
+  const handleTestConnection = async () => {
+    // Read after input blur so a freshly edited value is tested without saving it first.
+    const state = useConfigurationStore.getState()
+    const settings: OpenAIConnectionSettings = {
+      openaiConnectionMode: state.openaiConnectionMode,
+      codexAuthPath: state.codexAuthPath,
+      codexModel: state.codexModel,
+      openaiApiKey: state.openaiApiKey,
+      openaiModel: state.openaiModel,
+      openaiReasoningEffort: state.openaiReasoningEffort,
+    }
+    const key = JSON.stringify([settings.openaiConnectionMode, settings.codexAuthPath, settings.codexModel, settings.openaiApiKey, settings.openaiModel, settings.openaiReasoningEffort])
+    setIsTesting(true)
+    setTestResult(null)
+    try {
+      const result = await window.api.openai.test_connection(settings)
+      setTestResult({ key, result })
+    } catch {
+      setTestResult({ key, result: { ok: false, error: t('settings.apikeys.connectionTestFailed') } })
+    } finally {
+      setIsTesting(false)
+    }
+  }
 
   const isApiKeysTabDirty = configDirty && configDirtyTab === 'apikeys'
 
@@ -56,17 +89,63 @@ export const ApiKeysTabContent = memo(function ApiKeysTabContent({ configDirty, 
 
           {activeApiProvider === 'openai' && (
             <div id="settings-openai-key" className="space-y-3">
-              <Label className="flex items-center gap-2">
-                <KeyRound className="w-4 h-4" /> {t('settings.configuration.openaiApiKey')}
-              </Label>
-              <ConfigInput type="password" placeholder={t('settings.configuration.openaiApiKeyPlaceholder')} value={openaiApiKey} onSync={v => onSetConfig('openaiApiKey', v)} />
               <div className="space-y-2">
-                <Label>{t('settings.apikeys.openaiModel') || 'Model OpenAI'}</Label>
-                <ConfigInput
-                  placeholder={t('settings.apikeys.openaiModelPlaceholder') || 'Ví dụ: gpt-5.4, gpt-5'}
-                  value={openaiModel}
-                  onSync={v => onSetConfig('openaiModel', v)}
+                <Label>{t('settings.apikeys.openaiConnectionMode')}</Label>
+                <Combobox
+                  value={openaiConnectionMode}
+                  onValueChange={value => onSetConfigDeferred('openaiConnectionMode', value as OpenAIConnectionMode)}
+                  options={[
+                    { value: 'api-key', label: t('settings.apikeys.apiKeyMode') },
+                    { value: 'codex', label: t('settings.apikeys.codexMode') },
+                  ]}
+                  size="sm"
+                  className="w-full"
                 />
+              </div>
+              {openaiConnectionMode === 'codex' ? (
+                <div className="space-y-2">
+                  <p className="text-sm text-muted-foreground">{t('settings.apikeys.codexDescription')}</p>
+                  <Label htmlFor="settings-codex-auth-path">{t('settings.apikeys.codexAuthPath')}</Label>
+                  <ConfigInput
+                    id="settings-codex-auth-path"
+                    placeholder={t('settings.apikeys.codexAuthPathPlaceholder')}
+                    value={codexAuthPath}
+                    onSync={value => onSetConfig('codexAuthPath', value)}
+                  />
+                  <p className="text-xs text-muted-foreground">{t('settings.apikeys.codexAuthHint')}</p>
+                </div>
+              ) : (
+                <div className="space-y-2">
+                  <Label htmlFor="settings-openai-api-key" className="flex items-center gap-2">
+                    <KeyRound className="w-4 h-4" /> {t('settings.configuration.openaiApiKey')}
+                  </Label>
+                  <ConfigInput
+                    id="settings-openai-api-key"
+                    type="password"
+                    placeholder={t('settings.configuration.openaiApiKeyPlaceholder')}
+                    value={openaiApiKey}
+                    onSync={v => onSetConfig('openaiApiKey', v)}
+                  />
+                </div>
+              )}
+              <div className="space-y-2">
+                <Label htmlFor="settings-openai-model">{t(openaiConnectionMode === 'codex' ? 'settings.apikeys.codexModel' : 'settings.apikeys.openaiModel')}</Label>
+                {openaiConnectionMode === 'codex' ? (
+                  <Select value={CODEX_MODELS.find(model => model === codexModel.trim()) ?? ''} onValueChange={value => onSetConfigDeferred('codexModel', value)}>
+                    <SelectTrigger id="settings-openai-model" size="sm" className="w-full">
+                      <SelectValue placeholder={t('settings.apikeys.codexModelPlaceholder')} />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectGroup>
+                        {CODEX_MODELS.map(model => (
+                          <SelectItem key={model} value={model}>{model}</SelectItem>
+                        ))}
+                      </SelectGroup>
+                    </SelectContent>
+                  </Select>
+                ) : (
+                  <ConfigInput id="settings-openai-model" placeholder={t('settings.apikeys.openaiModelPlaceholder')} value={openaiModel} onSync={value => onSetConfig('openaiModel', value)} />
+                )}
               </div>
               <div className="space-y-2">
                 <Label>{t('settings.apikeys.openaiReasoningEffort') || 'Mức độ reasoning'}</Label>
@@ -82,6 +161,21 @@ export const ApiKeysTabContent = memo(function ApiKeysTabContent({ configDirty, 
                   size="sm"
                   className="w-full"
                 />
+              </div>
+              <div className="space-y-2">
+                <Button type="button" variant="outline" size="sm" onClick={handleTestConnection} disabled={isTesting}>
+                  {isTesting ? <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" /> : <PlugZap className="h-4 w-4" aria-hidden="true" />}
+                  {t(isTesting ? 'settings.apikeys.testingConnection' : 'settings.apikeys.testConnection')}
+                </Button>
+                <p className="text-xs text-muted-foreground">{t('settings.apikeys.connectionTestHint')}</p>
+                <div role="status" aria-live="polite" className="text-sm break-words">
+                  {visibleTestResult &&
+                    (visibleTestResult.ok ? (
+                      <span className="text-emerald-700 dark:text-emerald-400">{t('settings.apikeys.connectionTestSuccess', { model: visibleTestResult.model })}</span>
+                    ) : (
+                      <span className="text-destructive">{visibleTestResult.error}</span>
+                    ))}
+                </div>
               </div>
             </div>
           )}

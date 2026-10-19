@@ -1,6 +1,7 @@
 import l from 'electron-log/renderer'
 import type { TaskDbTlsMode } from 'main/types/types'
 import { create } from 'zustand'
+import type { OpenAIConnectionMode } from '../../shared/openaiConnection'
 
 export type CommitConventionMode = 'warn' | 'block'
 
@@ -11,6 +12,9 @@ export type CommitMessageDetailLevel = 'detail' | 'normal' | 'simple'
 export type OpenAIReasoningEffort = 'low' | 'medium' | 'high' | 'xhigh'
 
 type ConfigurationStore = {
+  openaiConnectionMode: OpenAIConnectionMode
+  codexAuthPath: string
+  codexModel: string
   openaiApiKey: string
   openaiModel: string
   openaiReasoningEffort: OpenAIReasoningEffort
@@ -76,6 +80,9 @@ const CONFIG_INTEGRATION_DISK_KEYS = new Set<string>([
 ])
 
 export const useConfigurationStore = create<ConfigurationStore>((set, get) => ({
+  openaiConnectionMode: 'api-key',
+  codexAuthPath: '',
+  codexModel: '',
   openaiApiKey: '',
   openaiModel: 'gpt-5.4',
   openaiReasoningEffort: 'low',
@@ -127,6 +134,9 @@ export const useConfigurationStore = create<ConfigurationStore>((set, get) => ({
     }
     const str = (v: unknown) => (v == null || v === undefined ? '' : String(v))
     const configToSave = {
+      openaiConnectionMode: state.openaiConnectionMode ?? 'api-key',
+      codexAuthPath: str(state.codexAuthPath),
+      codexModel: str(state.codexModel),
       openaiApiKey: str(state.openaiApiKey),
       openaiModel: str(state.openaiModel),
       openaiReasoningEffort: (state.openaiReasoningEffort ?? 'low') as OpenAIReasoningEffort,

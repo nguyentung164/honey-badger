@@ -212,6 +212,7 @@ export const IPC = {
     START_INTERACTIVE_REBASE: 'git:start-interactive-rebase',
   },
   OPENAI: {
+    TEST_CONNECTION: 'openai:test-connection',
     SEND_MESSAGE: 'openai:send-message',
   },
   AI_USAGE: {

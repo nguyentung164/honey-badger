@@ -4,8 +4,9 @@ import { ipcMain } from 'electron'
 import l from 'electron-log'
 import type { AiFeatureId } from 'main/constants'
 import { IPC } from 'main/constants'
-import OpenAI from 'openai'
+import type { OpenAIConnectionSettings } from '../../shared/openaiConnection'
 import { estimateCostUsd, type NormalizedUsage } from '../ai/aiPricing'
+import { createOpenAIResponse, isOpenAIConfigured } from '../ai/openaiConnection'
 import type { ApiProvider } from '../store/ConfigurationStore'
 import configurationStore from '../store/ConfigurationStore'
 import { appendAiUsageEvent } from '../task/aiUsageDb'
@@ -20,15 +21,17 @@ type AiCallSuccess = {
 }
 
 async function callOpenAI(prompt: string, apiKey: string, modelArg?: string, reasoningEffort?: 'low' | 'medium' | 'high' | 'xhigh'): Promise<AiCallSuccess> {
-  const openai = new OpenAI({ apiKey })
   const model = modelArg?.trim() || 'gpt-5.4'
-  const response = await openai.responses.create({
-    model,
-    input: prompt,
-    reasoning: {
-      effort: reasoningEffort ?? 'low',
+  const response = await createOpenAIResponse(
+    {
+      model,
+      input: prompt,
+      reasoning: {
+        effort: reasoningEffort ?? 'low',
+      },
     },
-  })
+    { ...configurationStore.store, openaiApiKey: apiKey }
+  )
   let usage: NormalizedUsage | null = null
   const u = response.usage as
     | {
@@ -44,7 +47,7 @@ async function callOpenAI(prompt: string, apiKey: string, modelArg?: string, rea
       cachedInputTokens: u.input_tokens_details?.cached_tokens ?? 0,
     }
   }
-  return { text: response.output_text ?? '', usage, model, provider: 'openai' }
+  return { text: response.output_text ?? '', usage, model: response.model || model, provider: 'openai' }
 }
 
 async function callClaude(prompt: string, apiKey: string, maxTokens?: number): Promise<AiCallSuccess> {
@@ -120,6 +123,26 @@ async function recordUsage(feature: AiFeatureId | string, result: AiCallSuccess)
 
 export function registerOpenAiIpcHandlers() {
   l.info('🔄 Registering AI IPC Handlers (OpenAI, Claude, Google)...')
+  ipcMain.handle(IPC.OPENAI.TEST_CONNECTION, async (_event, settings: OpenAIConnectionSettings) => {
+    try {
+      if (
+        !settings ||
+        !['api-key', 'codex'].includes(settings.openaiConnectionMode) ||
+        typeof settings.openaiApiKey !== 'string' ||
+        typeof settings.codexAuthPath !== 'string' ||
+        typeof settings.codexModel !== 'string' ||
+        typeof settings.openaiModel !== 'string' ||
+        !['low', 'medium', 'high', 'xhigh'].includes(settings.openaiReasoningEffort)
+      )
+        throw new Error('Cấu hình kết nối OpenAI không hợp lệ.')
+      const model = settings.openaiModel.trim() || 'gpt-5.4'
+      const response = await createOpenAIResponse({ model, input: 'Reply with only OK.', reasoning: { effort: 'low' } }, settings, 30_000)
+      if (!response.output_text?.trim()) throw new Error('Model không trả về nội dung. Hãy kiểm tra model và thử lại.')
+      return { ok: true, model: response.model || model }
+    } catch (error) {
+      return { ok: false, error: error instanceof Error ? error.message : 'Không thể kết nối OpenAI.' }
+    }
+  })
   ipcMain.handle(
     IPC.OPENAI.SEND_MESSAGE,
     async (
@@ -162,7 +185,7 @@ export function registerOpenAiIpcHandlers() {
         const getApiKeyAndCall = (): Promise<AiCallSuccess | string> => {
           switch (activeApiProvider) {
             case 'openai':
-              if (!openaiApiKey) {
+              if (!isOpenAIConfigured(configurationStore.store)) {
                 return Promise.resolve('Error: OpenAI API key is not configured.')
               }
               l.info('Sending message to OpenAI...')
@@ -180,7 +203,7 @@ export function registerOpenAiIpcHandlers() {
               l.info('Sending message to Google AI...')
               return callGoogle(finalPrompt, googleApiKey, maxTokens)
             default:
-              if (!openaiApiKey) {
+              if (!isOpenAIConfigured(configurationStore.store)) {
                 return Promise.resolve('Error: OpenAI API key is not configured.')
               }
               return callOpenAI(finalPrompt, openaiApiKey, openaiModel, openaiReasoningEffort)

@@ -10,6 +10,7 @@ import toast from '@/components/ui-elements/Toast'
 import { cn } from '@/lib/utils'
 import { useAppearanceStoreSelect } from '@/stores/useAppearanceStore'
 import { useConfigurationStore } from '@/stores/useConfigurationStore'
+import type { OpenAIConnectionMode } from '../../../shared/openaiConnection'
 
 const TARGET_LANGUAGES = [
   { value: 'vi', label: 'Tiếng Việt' },
@@ -32,16 +33,16 @@ export interface TranslatePanelProps {
   renderHeader?: (controls: { translateButton: React.ReactNode; viewToggleButton: React.ReactNode | null }) => React.ReactNode
 }
 
-function hasApiKeyConfigured(activeApiProvider: string, openaiApiKey: string, claudeApiKey: string, googleApiKey: string): boolean {
+function hasApiKeyConfigured(activeApiProvider: string, openaiApiKey: string, claudeApiKey: string, googleApiKey: string, openaiConnectionMode: OpenAIConnectionMode): boolean {
   switch (activeApiProvider) {
     case 'openai':
-      return !!openaiApiKey?.trim()
+      return openaiConnectionMode === 'codex' || !!openaiApiKey?.trim()
     case 'claude':
       return !!claudeApiKey?.trim()
     case 'google':
       return !!googleApiKey?.trim()
     default:
-      return !!openaiApiKey?.trim()
+      return openaiConnectionMode === 'codex' || !!openaiApiKey?.trim()
   }
 }
 
@@ -61,7 +62,7 @@ export function TranslatePanel({
 }: TranslatePanelProps) {
   const { t, i18n } = useTranslation()
   const buttonVariant = useAppearanceStoreSelect(s => s.buttonVariant)
-  const { openaiApiKey, claudeApiKey, googleApiKey, activeApiProvider } = useConfigurationStore()
+  const { openaiApiKey, claudeApiKey, googleApiKey, activeApiProvider, openaiConnectionMode } = useConfigurationStore()
   const [isTranslating, setIsTranslating] = useState(false)
   const [translatedText, setTranslatedText] = useState<string | null>(null)
   const [showOriginal, setShowOriginal] = useState(false)
@@ -75,7 +76,7 @@ export function TranslatePanel({
     setShowOriginal(false)
   }, [resetKey ?? resolvedText])
 
-  const apiKeyConfigured = hasApiKeyConfigured(activeApiProvider, openaiApiKey, claudeApiKey, googleApiKey)
+  const apiKeyConfigured = hasApiKeyConfigured(activeApiProvider, openaiApiKey, claudeApiKey, googleApiKey, openaiConnectionMode)
 
   const _targetLangLabel = TARGET_LANGUAGES.find(l => l.value === targetLanguage)?.label ?? targetLanguage
   const displayText = translatedText && !showOriginal ? translatedText : resolvedText

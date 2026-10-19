@@ -221,7 +221,11 @@ export function TaskCharts({ tasks, users, statuses = [], priorities = [], dateR
   const priorityData = useMemo(() => computePriorityData(tasks, priorityColorMap), [tasks, priorityColorMap])
   const assigneeData = useMemo(() => computeAssigneeData(tasks, getAssigneeDisplay), [tasks, getAssigneeDisplay])
 
-  const formatDate = (key: string) => format(new Date(key), monthDayPattern, { locale })
+  const formatDate = (key: unknown) => {
+    if (typeof key !== 'string' && typeof key !== 'number') return ''
+    const date = new Date(key)
+    return Number.isNaN(date.getTime()) ? String(key) : format(date, monthDayPattern, { locale })
+  }
 
   const burndownNoData = burndownData.length === 0 || burndownData.every(d => d.remaining === 0 && d.ideal === 0)
   const burnupNoData = burnupData.length === 0 || burnupData.every(d => d.completed === 0 && d.total === 0)
@@ -365,7 +369,7 @@ export function TaskCharts({ tasks, users, statuses = [], priorities = [], dateR
                   cx="50%"
                   cy="50%"
                   outerRadius="80%"
-                  label={({ name, value }) => `${t(`taskManagement.${STATUS_LABEL_KEYS[name] ?? name}`)}: ${value}`}
+                  label={({ name = '', value }) => `${t(`taskManagement.${STATUS_LABEL_KEYS[name] ?? name}`)}: ${value}`}
                 >
                   {statusData.map((entry, _i) => (
                     <Cell key={entry.name} fill={entry.fill} />

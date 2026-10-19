@@ -29,10 +29,7 @@ export type EditorTabItemProps = {
 type EditorTabItemBodyProps = EditorTabItemProps & {
   tabRef: (el: HTMLDivElement | null) => void
   tabStyle?: CSSProperties
-  dragProps?: {
-    attributes: Record<string, unknown>
-    listeners: Record<string, unknown>
-  }
+  dragProps?: Pick<ReturnType<typeof useSortable>, 'attributes' | 'listeners'>
   isDragging?: boolean
 }
 
